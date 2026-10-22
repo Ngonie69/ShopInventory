@@ -252,6 +252,13 @@
     [Parameter] public bool AllowClear { get; set; } = true;
 
     /// <summary>
+    /// Opens the menu when a letter or digit is typed on the closed field, with that key already in
+    /// the search box. Off by default: it suits a field the operator reaches by keyboard and types a
+    /// name into straight away, like the customer on a sales document.
+    /// </summary>
+    [Parameter] public bool OpenOnType { get; set; }
+
+    /// <summary>
     /// Names the empty value when empty is a real choice rather than a blank —
     /// "Default" on a cost centre that otherwise comes from each item. Set, the
     /// list leads with a row of that name that clears the value, and the
@@ -472,6 +479,23 @@
     }
 
     /// <summary>
+    /// Opens the menu from the page, with the caret in the search box — for a form that wants its
+    /// first field ready to type into, such as a new invoice opening on the customer.
+    /// </summary>
+    public void Open()
+    {
+        if (_open || Disabled || Loading)
+        {
+            return;
+        }
+
+        _open = true;
+        Query = string.Empty;
+        _focusPending = true;
+        StateHasChanged();
+    }
+
+    /// <summary>
     /// Every key for the control, read where they bubble to. The search box
     /// cannot carry its own Blazor handler — see the note on that input.
     /// </summary>
@@ -506,6 +530,15 @@
 
             case "End" when _open:
                 _active = _shown.Count - 1;
+                break;
+
+            case { Length: 1 } when !_open && OpenOnType && !e.CtrlKey && !e.AltKey && !e.MetaKey
+                                    && char.IsLetterOrDigit(e.Key[0]) && !Disabled && !Loading:
+                // The keystroke landed on the trigger button, which takes no text, so it is carried
+                // into the search box rather than lost.
+                _open = true;
+                Query = e.Key;
+                _focusPending = true;
                 break;
         }
     }

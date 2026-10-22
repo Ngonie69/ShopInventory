@@ -12,6 +12,7 @@
 @inject IBusinessPartnerService BusinessPartnerService
 @inject IEmailService EmailService
 @inject IMasterDataCacheService CacheService
+@inject IWarehouseStockCacheService StockCacheService
 @inject IAppSettingsService AppSettingsService
 @inject IAppSettingsProvider AppSettings
 @inject IJSRuntime JS
@@ -20,7 +21,6 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAuditService AuditService
 @inject ILocalStorageService LocalStorage
-@inject IWarehouseStockCacheService StockCacheService
 @rendermode InteractiveServer
 @implements IDisposable
 
@@ -31,24 +31,27 @@
    imported design is a dark scheme; the sheet carries it and its light
    counterpart, and follows the app's theme toggle like every other page.
 
-   `is-invoice` selects this form's line-editor columns from the sheet: it is
-   the widest of the six, naming a warehouse per line and carrying the batch
-   tag, because stock leaves the building on this document. *@
+   The invoice is laid out for keyboard speed, unlike its five siblings: every
+   header field in one block, one "Add item" row the cursor lives in, and a
+   bar pinned to the bottom with the totals and the post button. Its rules are
+   the `.is-invoice` block near the end of the sheet. *@
 
-<div class="sfm is-invoice">
+<div class="sfm is-invoice" @onkeydown="OnFormKeyDown">
     <div class="sfm-accentbar"></div>
     <div class="sfm-shell">
 
-        <!-- ── Breadcrumb strip ───────────────────────────────────────── -->
+        <!-- ── Top bar: where you are, how fresh the data is ──────────────── -->
         <div class="sfm-crumbs">
             <a href="/invoices">Invoices</a>
             <span class="sfm-crumb-sep">/</span>
-            <span class="sfm-crumb-now">Create new</span>
+            <h1 class="sfm-crumb-title">New invoice</h1>
             <span class="sfm-spacer"></span>
             <span class="sfm-pill @CacheStateClass">
                 <span class="sfm-dot"></span>@CacheStateLabel
             </span>
-            <button type="button" class="sfm-btn" @onclick="RefreshMasterData" disabled="@isRefreshingCache">
+            <span class="sfm-sync-note">@CacheSummary</span>
+            <button type="button" class="sfm-btn sfm-btn-icon" @onclick="RefreshMasterData" disabled="@isRefreshingCache"
+                    title="Refresh customers, products and warehouses" aria-label="Refresh cached data">
                 @if (isRefreshingCache)
                 {
                     <span class="sfm-spin"></span>
@@ -57,38 +60,11 @@
                 {
                     <i class="ph ph-arrows-clockwise"></i>
                 }
-                Refresh
             </button>
             <a href="/invoices" class="sfm-btn"><i class="ph ph-arrow-left"></i>Back</a>
         </div>
 
-        <!-- ── Head ───────────────────────────────────────────────────── -->
-        <div class="sfm-head">
-            <div class="sfm-head-main">
-                <h1>Create invoice</h1>
-                <p>Sales invoice with batch tracking &middot; posts directly to SAP Business One</p>
-            </div>
-            <div class="sfm-stats">
-                <div class="sfm-stat">
-                    <div class="sfm-stat-k">Lines</div>
-                    <div class="sfm-stat-v">@invoice.Lines.Count</div>
-                </div>
-                <div class="sfm-stat">
-                    <div class="sfm-stat-k">Subtotal</div>
-                    <div class="sfm-stat-v">@CalculateSubtotal().ToString("N2")</div>
-                </div>
-                <div class="sfm-stat">
-                    <div class="sfm-stat-k">VAT @VatLabel</div>
-                    <div class="sfm-stat-v is-vat">@CalculateVatAmount().ToString("N2")</div>
-                </div>
-                <div class="sfm-stat">
-                    <div class="sfm-stat-k">Invoice total</div>
-                    <div class="sfm-stat-v is-total">@CalculateTotalInclVat().ToString("N2")</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ── Alerts ─────────────────────────────────────────────────── -->
+        <!-- ── Alerts ─────────────────────────────────────────────────────── -->
         @if (!string.IsNullOrEmpty(draftNotice))
         {
             <div class="sfm-alert is-ok">
@@ -107,17 +83,21 @@
         }
         @if (!string.IsNullOrEmpty(successMessage))
         {
-            <div class="sfm-alert is-ok">
+            <div class="sfm-alert is-ok" role="status">
                 <i class="ph-fill ph-check-circle"></i>
                 <div class="sfm-alert-bd">
                     @successMessage
-                    @if (lastCreatedInvoice != null)
-                    {
-                        <button type="button" class="sfm-btn sfm-gap-sm" @onclick="OpenPrintDialog"
-                                disabled="@isPrinting">
-                            <i class="ph ph-printer"></i>Print invoice
+                    <span class="sfm-alert-acts">
+                        @if (lastCreatedInvoice != null)
+                        {
+                            <button type="button" class="sfm-btn" @onclick="OpenPrintDialog" disabled="@isPrinting">
+                                <i class="ph ph-printer"></i>Print invoice
+                            </button>
+                        }
+                        <button type="button" class="sfm-btn sfm-btn-accent" @onclick="StartNextInvoice">
+                            <i class="ph ph-plus"></i>Next invoice
                         </button>
-                    }
+                    </span>
                 </div>
                 <button type="button" class="sfm-alert-x" @onclick="DismissSuccess" aria-label="Dismiss">
                     <i class="ph ph-x"></i>
@@ -126,7 +106,7 @@
         }
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="sfm-alert is-err">
+            <div class="sfm-alert is-err" role="alert">
                 <i class="ph-fill ph-warning-octagon"></i>
                 <div class="sfm-alert-bd">@((MarkupString)errorMessage)</div>
                 <button type="button" class="sfm-alert-x" @onclick="() => errorMessage = null" aria-label="Dismiss">
@@ -135,409 +115,403 @@
             </div>
         }
 
-        <div class="sfm-grid">
-            <div class="sfm-main">
+        <!-- ── Invoice details: every header field in one block ──────────── -->
+        <section class="sfm-card sfm-docbar" aria-label="Invoice details">
+            <div class="sfm-lab sfm-f-customer">
+                <span class="sfm-lab-t" id="inv-customer-l">
+                    Customer <span class="sfm-req">*</span>
+                    @if (selectedBusinessPartner != null)
+                    {
+                        <span class="sfm-lab-note">&middot; @PriceListNote</span>
+                    }
+                </span>
+                <NocturnePicker @ref="customerPicker" Class="npick-block" Options="customerOptions"
+                                Value="@invoice.CardCode" ValueChanged="@((string? code) => OnCustomerPickedAsync(code))"
+                                Loading="isLoadingBPs" LoadingText="Loading customers…"
+                                Placeholder="@CustomerPlaceholder"
+                                SearchPlaceholder="Search customers by name, code or currency"
+                                EmptyText="No customers loaded — try Refresh"
+                                Caption="Customer" AriaLabel="Customer" AllowClear="false" OpenOnType="true"
+                                Invalid="@validationErrors.ContainsKey("Customer")" />
+                @if (validationErrors.ContainsKey("Customer"))
+                {
+                    <div class="sfm-field-err">@validationErrors["Customer"]</div>
+                }
+            </div>
 
-                <!-- ── Customer ───────────────────────────────────────── -->
-                <section class="sfm-card">
-                    <div class="sfm-card-hd">
-                        <i class="ph ph-user-circle"></i>
-                        <h2>Customer</h2>
-                        <span class="sfm-spacer"></span>
-                        <span class="sfm-note">@allBusinessPartners.Count.ToString("N0") cached</span>
+            <label class="sfm-lab sfm-f-ref">
+                <span class="sfm-lab-t">Customer ref</span>
+                <input class="sfm-input" @bind="invoice.NumAtCard" placeholder="PO number" />
+            </label>
+
+            <label class="sfm-lab sfm-f-crates">
+                <span class="sfm-lab-t">Crates</span>
+                <input type="text" inputmode="decimal" autocomplete="off"
+                       class="sfm-input sfm-num @(validationErrors.ContainsKey("CrateQuantity") ? "is-bad" : "")"
+                       value="@invoice.CrateQuantity" @onchange="e => OnCratesChange(e.Value?.ToString())" placeholder="0" />
+                @if (validationErrors.ContainsKey("CrateQuantity"))
+                {
+                    <div class="sfm-field-err">@validationErrors["CrateQuantity"]</div>
+                }
+            </label>
+
+            @if (LockedCurrency is { } lockedCurrency)
+            {
+                <div class="sfm-lab sfm-f-cur">
+                    <span class="sfm-lab-t">Currency</span>
+                    @* SAP keeps one customer account per currency, so the account fixes it. *@
+                    <div class="sfm-locked" title="Set by the customer's SAP account">
+                        <strong>@lockedCurrency</strong><span>from account</span>
                     </div>
-                    <div class="sfm-card-bd sfm-fields">
-                        @* Not a <label>: the field carries a clear button and a result list, and a
-                           label would forward stray clicks on them back to the input. *@
-                        <div class="sfm-lab sfm-span2">
-                            <span class="sfm-lab-t">Customer <span class="sfm-req">*</span></span>
-                            <div class="sfm-combo">
-                                <input class="sfm-input @(validationErrors.ContainsKey("Customer") ? "is-bad" : "")"
-                                       value="@customerSearch"
-                                       @oninput="e => OnCustomerInput(e.Value?.ToString())"
-                                       @onfocus="OnCustomerFocus" @onblur="OnCustomerBlur"
-                                       placeholder="@(isLoadingBPs ? "Loading customers…" : "Search by code or name…")"
-                                       disabled="@isLoadingBPs" autocomplete="off" />
-                                @if (selectedBusinessPartner != null)
-                                {
-                                    <button type="button" class="sfm-combo-clear" @onclick="ClearCustomer"
-                                            title="Clear customer">
-                                        <i class="ph ph-x"></i>
-                                    </button>
-                                }
-                                @if (showCustomerDrop)
-                                {
-                                    <div class="sfm-drop is-wide">
-                                        @if (customerMatches.Count == 0)
-                                        {
-                                            <div class="sfm-drop-empty">No customers match that search.</div>
-                                        }
-                                        else
-                                        {
-                                            @foreach (var bp in customerMatches)
-                                            {
-                                                <button type="button" class="sfm-drop-i"
-                                                        @onmousedown:preventDefault="true"
-                                                        @onclick="() => PickCustomerAsync(bp)">
-                                                    <span>
-                                                        <span class="sfm-drop-code">@bp.CardCode</span>
-                                                        <span class="sfm-drop-sub">@bp.CardName</span>
-                                                    </span>
-                                                    @if (!string.IsNullOrEmpty(bp.Currency))
-                                                    {
-                                                        <span class="sfm-note">@bp.Currency</span>
-                                                    }
-                                                </button>
-                                            }
-                                        }
-                                    </div>
-                                }
-                            </div>
-                            @if (validationErrors.ContainsKey("Customer"))
+                </div>
+            }
+            else
+            {
+                <label class="sfm-lab sfm-f-cur">
+                    <span class="sfm-lab-t">Currency</span>
+                    <select class="sfm-select" @bind="invoice.DocCurrency">
+                        <option value="USD">USD &mdash; US Dollar</option>
+                        <option value="ZIG">ZIG &mdash; Zimbabwe Gold</option>
+                    </select>
+                </label>
+            }
+
+            <div class="sfm-lab sfm-f-wh">
+                <span class="sfm-lab-t">Ship from <span class="sfm-lab-note">&middot; new lines use this</span></span>
+                <NocturnePicker Class="npick-block" Options="warehouseOptions"
+                                Value="@warehouseCode" ValueChanged="@((string? code) => OnDefaultWarehouseChanged(code))"
+                                Loading="@(isLoadingMasterData && cachedWarehouses.Count == 0)"
+                                Placeholder="Choose a warehouse" SearchPlaceholder="Search warehouses"
+                                Caption="Ship from" AriaLabel="Ship from warehouse" AllowClear="false" />
+            </div>
+
+            <div class="sfm-lab sfm-f-cc">
+                <span class="sfm-lab-t">Cost centre</span>
+                <NocturnePicker Class="npick-block" Options="costCentreOptions"
+                                Value="@defaultCostCentre" ValueChanged="@((string? code) => OnDefaultCostCentreChanged(code))"
+                                AllowClear="false" UnsetLabel="Default" UnsetHint="each item’s own" UnsetTag="per item"
+                                SearchPlaceholder="Search cost centres"
+                                Caption="Cost centre" AriaLabel="Cost centre" />
+            </div>
+
+            <label class="sfm-lab sfm-f-comments">
+                <span class="sfm-lab-t">Comments <span class="sfm-lab-note">&middot; printed on the invoice</span></span>
+                <input class="sfm-input" @bind="invoice.Comments" placeholder="Optional" />
+            </label>
+        </section>
+
+        <!-- ── Lines ──────────────────────────────────────────────────────── -->
+        <section class="sfm-card" aria-labelledby="inv-lines-h">
+            <div class="sfm-card-hd">
+                <i class="ph ph-list-dashes"></i>
+                <h2 id="inv-lines-h">Lines</h2>
+                <span class="sfm-count">@invoice.Lines.Count</span>
+                @if (ShortLineCount > 0)
+                {
+                    <button type="button" class="sfm-short-chip @(showShortOnly ? "is-on" : "")"
+                            aria-pressed="@(showShortOnly ? "true" : "false")" @onclick="() => showShortOnly = !showShortOnly"
+                            title="Show only the lines without enough stock">
+                        <i class="ph ph-funnel-simple"></i>
+                        @(showShortOnly ? $"Showing {ShortLineCount} short · show all" : $"{ShortLineCount} short of stock")
+                    </button>
+                }
+                <span class="sfm-spacer"></span>
+                <span class="sfm-hd-note"><i class="ph ph-sparkle"></i>Batches pick themselves, first-expiry first</span>
+                <span class="sfm-hd-note"><i class="ph ph-lock-simple"></i>Prices from SAP</span>
+            </div>
+
+            <div class="sfm-lines">
+                <div class="sfm-lines-inner" role="table" aria-label="Invoice lines">
+                    <div class="sfm-row is-head" role="row">
+                        <div role="columnheader">#</div>
+                        <div role="columnheader">Item</div>
+                        <div role="columnheader">Warehouse</div>
+                        <div role="columnheader" class="sfm-r">Qty</div>
+                        <div role="columnheader" class="sfm-r">Unit price</div>
+                        <div role="columnheader" class="sfm-r">Disc %</div>
+                        <div role="columnheader" class="sfm-r">Amount</div>
+                        <div role="columnheader"><span class="sfm-sr">Remove</span></div>
+                    </div>
+
+                    @if (invoice.Lines.Count == 0)
+                    {
+                        <div class="sfm-lines-empty">
+                            @if (selectedBusinessPartner == null)
                             {
-                                <div class="sfm-field-err">@validationErrors["Customer"]</div>
-                            }
-                        </div>
-                        <label class="sfm-lab">
-                            <span class="sfm-lab-t">Customer reference</span>
-                            <input class="sfm-input" @bind="invoice.NumAtCard" placeholder="PO / reference number" />
-                        </label>
-                        <label class="sfm-lab">
-                            <span class="sfm-lab-t">Currency</span>
-                            <select class="sfm-select" @bind="invoice.DocCurrency">
-                                <option value="USD">USD &mdash; US Dollar</option>
-                                <option value="ZIG">ZIG &mdash; Zimbabwe Gold</option>
-                            </select>
-                        </label>
-                        <label class="sfm-lab">
-                            <span class="sfm-lab-t">Crates expected</span>
-                            <input type="number" min="0" step="0.01"
-                                   class="sfm-input @(validationErrors.ContainsKey("CrateQuantity") ? "is-bad" : "")"
-                                   @bind="invoice.CrateQuantity" placeholder="0" />
-                            @if (validationErrors.ContainsKey("CrateQuantity"))
-                            {
-                                <div class="sfm-field-err">@validationErrors["CrateQuantity"]</div>
-                            }
-                        </label>
-                        <label class="sfm-lab sfm-span3">
-                            <span class="sfm-lab-t">Comments</span>
-                            <input class="sfm-input" @bind="invoice.Comments"
-                                   placeholder="Optional notes shown on the printed invoice" />
-                        </label>
-                        @if (selectedBusinessPartner != null)
-                        {
-                            <div class="sfm-lab">
-                                <span class="sfm-lab-t">Price list</span>
-                                <div class="sfm-field-meta">
-                                    @if (customerPriceListNum.HasValue)
-                                    {
-                                        <i class="ph ph-tag"></i>
-
-                                        <span>#@customerPriceListNum</span>
-                                        @if (isLoadingCustomerPrices)
-                                        {
-                                            <span class="sfm-spin"></span>
-                                        }
-                                        else
-                                        {
-                                            <span> &middot; @customerPricing.Count items</span>
-                                        }
-                                    }
-                                    else
-                                    {
-                                        <i class="ph ph-tag"></i>
-
-                                        <span>Default pricing</span>
-                                    }
-                                </div>
-                            </div>
-                        }
-                    </div>
-                </section>
-
-                <!-- ── Invoice lines ──────────────────────────────────── -->
-                <section class="sfm-card">
-                    <div class="sfm-card-hd">
-                        <i class="ph ph-list-dashes"></i>
-                        <h2>Invoice lines</h2>
-                        <span class="sfm-count">@invoice.Lines.Count</span>
-                        <span class="sfm-spacer"></span>
-                        <button type="button" class="sfm-btn sfm-btn-accent" @onclick="AddLine">
-                            <i class="ph ph-plus"></i>Add line
-                        </button>
-                    </div>
-
-                    @* Built once per render and shared by the defaults bar and every line. *@
-                    @{ var warehouseOptions = WarehouseOptions.From(cachedWarehouses); }
-                    <div class="sfm-defaults">
-                        <span class="sfm-defaults-k">Defaults</span>
-                        @* A div, not a <label>: a label around the picker would turn a
-                           click on the open menu's padding into a click on the
-                           trigger, and shut it. *@
-                        <div class="sfm-inline-lab">
-                            <span>Warehouse</span>
-                            <NocturnePicker Class="npick-chips sfm-def-wh" Options="warehouseOptions"
-                                            Value="@warehouseCode"
-                                            ValueChanged="@(code => OnDefaultWarehouseChanged(code))"
-                                            AllowClear="false" Loading="isLoadingMasterData"
-                                            Placeholder="Select…" SearchPlaceholder="Search code or name…"
-                                            Caption="Warehouses" AriaLabel="Default warehouse">
-                                <Leading><i class="ph ph-warehouse"></i></Leading>
-                            </NocturnePicker>
-                        </div>
-                        <div class="sfm-inline-lab">
-                            <span>Cost centre</span>
-                            <NocturnePicker Class="npick-chips sfm-def-cc"
-                                            Options="CostCentreOptions.ByCode(cachedCostCentres.Where(c => c.IsActive))"
-                                            Value="@defaultCostCentre"
-                                            ValueChanged="@(code => OnDefaultCostCentreChanged(code))"
-                                            AllowClear="false" UnsetLabel="Default"
-                                            UnsetHint="each item’s own" UnsetTag="per item"
-                                            SearchPlaceholder="Search code or name…"
-                                            Caption="Cost centres" AriaLabel="Default cost centre">
-                                <Leading><i class="ph ph-target"></i></Leading>
-                            </NocturnePicker>
-                        </div>
-                        <span class="sfm-spacer"></span>
-                        <span class="sfm-batchmode" title="Batches are always allocated first-expired-first-out">
-                            <i class="ph ph-sparkle"></i>Auto batch (FEFO)
-                        </span>
-                    </div>
-
-                    <div class="sfm-lines @(IsPickingProduct ? "is-picking" : "")">
-                        <div class="sfm-lines-inner">
-                            <div class="sfm-row is-head">
-                                <div></div>
-                                <div>Item code <span class="sfm-req">*</span></div>
-                                <div>Description</div>
-                                <div>Warehouse <span class="sfm-req">*</span></div>
-                                <div class="sfm-r">Qty</div>
-                                <div class="sfm-r">Unit price</div>
-                                <div class="sfm-r">Disc</div>
-                                <div>Batch</div>
-                                <div class="sfm-r">Amount</div>
-                                <div></div>
-                            </div>
-
-                            @if (isLoadingMasterData)
-                            {
-                                <div class="sfm-loading">
-                                    <span class="sfm-spin"></span>Loading products and warehouses&hellip;
-                                </div>
+                                <strong>Pick the customer first</strong>
+                                <span>Prices come from their price list, so items open once the customer is set.</span>
                             }
                             else
                             {
-                                @for (var i = 0; i < invoice.Lines.Count; i++)
-                                {
-                                    var index = i;
-                                    var line = invoice.Lines[index];
-                                    var lineState = GetLineState(index);
-                                    var lineErrors = GetLineValidationErrors(index);
+                                <strong>No lines yet</strong>
+                                <span>Scan or type an item below, press Enter, type the quantity, press Enter.</span>
+                            }
+                        </div>
+                    }
 
-                                    <div class="sfm-row">
-                                        <div class="sfm-n">@(index + 1)</div>
-                                        <div class="sfm-combo">
-                                            <input class="sfm-input sfm-cell @(lineErrors.ContainsKey("ItemCode") ? "is-bad" : "")"
-                                                   value="@line.ItemCode"
-                                                   @oninput="e => OnItemCodeInput(index, e.Value?.ToString())"
-                                                   @onkeydown="e => OnItemCodeKeyDown(index, e)"
-                                                   @onfocus="() => OnItemCodeFocus(index)"
-                                                   @onblur="() => OnItemCodeBlur(index)"
-                                                   placeholder="Select…" autocomplete="off" />
-                                            @if (lineState.ShowProductDropdown && lineState.FilteredProducts.Any())
-                                            {
-                                                <div class="sfm-drop is-wide">
-                                                    @foreach (var product in lineState.FilteredProducts.Take(15))
-                                                    {
-                                                        var pricing = GetPricingForItem(product.ItemCode, product.Price);
-                                                        var isCustomerPrice = customerPricing.ContainsKey(product.ItemCode ?? string.Empty);
-                                                        <button type="button"
-                                                                class="sfm-drop-i @(lineState.SuggestedProduct == product ? "is-sel" : "")"
-                                                                @onmousedown:preventDefault="true"
-                                                                @onclick="() => SelectProduct(index, product)">
-                                                            <span>
-                                                                <span class="sfm-drop-code">@product.ItemCode</span>
-                                                                <span class="sfm-drop-sub">@TruncateName(product.ItemName, 30)</span>
-                                                            </span>
-                                                            <span class="sfm-drop-price @(isCustomerPrice ? "is-customer" : "")">
-                                                                @GetDisplayPrice(pricing.NetPrice).ToString("N2")
-                                                                <small>@DisplayPriceLabel</small>
-                                                            </span>
-                                                        </button>
-                                                    }
-                                                </div>
-                                            }
-                                        </div>
-                                        <input class="sfm-input sfm-desc" @bind="line.ItemDescription"
-                                               placeholder="Description" />
-                                        <NocturnePicker Class="npick-chips npick-end"
-                                                        Options="warehouseOptions" Value="@line.WarehouseCode"
-                                                        ValueChanged="@(code => OnLineWarehouseChanged(index, code))"
-                                                        InheritedValue="@warehouseCode"
-                                                        AllowClear="false" Invalid="@lineErrors.ContainsKey("Warehouse")"
-                                                        Placeholder="Select…" SearchPlaceholder="Search code or name…"
-                                                        Caption="Warehouses" AriaLabel="@($"Warehouse for line {index + 1}")" />
-                                        @* A text field, not type="number": a number field's spinner, the
-                                           mouse wheel and the arrow keys all changed the quantity by accident. *@
-                                        <input type="text" inputmode="decimal" autocomplete="off"
-                                               class="sfm-input sfm-num @(lineErrors.ContainsKey("Quantity") ? "is-bad" : "")"
-                                               value="@line.Quantity"
-                                               @onchange="e => OnQuantityChange(index, e.Value?.ToString())" />
-                                        @* The price comes from SAP and cannot be changed here. *@
-                                        <input type="text" readonly tabindex="-1"
-                                               class="sfm-input sfm-num @(lineErrors.ContainsKey("UnitPrice") ? "is-bad" : "")"
-                                               value="@(line.UnitPrice ?? 0)"
-                                               title="Set from the SAP price list" />
-                                        @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
-                                        <input type="number" min="0" max="100" step="0.000001"
-                                               class="sfm-input sfm-num" @bind="line.DiscountPercent" />
-                                        <div>
-                                            <span class="sfm-tag">Auto FEFO</span>
-                                        </div>
-                                        <div class="sfm-r">
-                                            <div class="sfm-amt-v">@GetDisplayLineTotal(line).ToString("N2")</div>
-                                            <div class="sfm-amt-x">@AlternatePriceLabel @GetAlternateLineTotal(line).ToString("N2")</div>
-                                        </div>
-                                        @* The glyph is drawn inline, not set in the icon font: it is this
-                                           button's only label, so a font that fails to load would leave an
-                                           empty square that reads as a broken control. *@
-                                        <button type="button" class="sfm-btn-x" title="Remove line"
-                                                aria-label="Remove line @(index + 1)"
-                                                @onclick="() => RemoveLine(index)">
-                                            <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
-                                                <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
-                                            </svg>
-                                        </button>
-                                        @if (lineErrors.Any())
-                                        {
-                                            <div class="sfm-row-err">
-                                                @string.Join(" · ", lineErrors.Values)
-                                            </div>
-                                        }
-                                        @if (StockShortfall(line) is { } shortfall)
-                                        {
-                                            <div class="sfm-row-err is-warn" role="status">
-                                                Only @shortfall.InStock.ToString("N2") in stock in @line.WarehouseCode;
-                                                this invoice asks for @shortfall.Requested.ToString("N2").
-                                            </div>
-                                        }
-                                    </div>
-                                }
+                    @for (var i = 0; i < invoice.Lines.Count; i++)
+                    {
+                        var index = i;
+                        var line = invoice.Lines[index];
+                        var stock = LineStockOf(line);
+                        var lineErrors = GetLineValidationErrors(index);
 
-                                <button type="button" class="sfm-addline" @onclick="AddLine">
-                                    <i class="ph ph-plus"></i>@(invoice.Lines.Any() ? "Add another line" : "Add the first line")
+                        if (showShortOnly && !stock.IsShort)
+                        {
+                            continue;
+                        }
+
+                        <div class="sfm-row @(stock.IsShort ? "is-short" : "") @(index == justAddedIndex ? "is-new" : "")"
+                             role="row" @key="line">
+                            <div class="sfm-n" role="cell">@(index + 1)</div>
+                            <div class="sfm-item" role="cell">
+                                <div class="sfm-item-top">
+                                    <span class="sfm-item-code @(lineErrors.ContainsKey("ItemCode") ? "is-bad" : "")">
+                                        @(string.IsNullOrWhiteSpace(line.ItemCode) ? "No item" : line.ItemCode)
+                                    </span>
+                                    @if (HasSpecialPrice(line.ItemCode))
+                                    {
+                                        <span class="sfm-chip is-info">customer price</span>
+                                    }
+                                </div>
+                                <input class="sfm-input sfm-desc sfm-desc-sub" @bind="line.ItemDescription"
+                                       aria-label="Description, line @(index + 1)" placeholder="Description" />
+                            </div>
+                            <div role="cell">
+                                <NocturnePicker Class="npick-chips npick-end"
+                                                Options="LineWarehouseOptions(line)"
+                                                Value="@line.WarehouseCode" ValueChanged="@((string? code) => OnLineWarehouseChanged(index, code))"
+                                                InheritedValue="@warehouseCode"
+                                                Placeholder="Choose…" SearchPlaceholder="Search warehouses"
+                                                Caption="@($"Warehouse for line {index + 1}")"
+                                                AriaLabel="@($"Warehouse for line {index + 1}")" AllowClear="false"
+                                                Invalid="@lineErrors.ContainsKey("Warehouse")" />
+                            </div>
+                            <div class="sfm-qty" role="cell">
+                                @* A text field, not type="number": a number field's spinner, the
+                                   mouse wheel and the arrow keys all changed the quantity by accident. *@
+                                <input type="text" inputmode="decimal" autocomplete="off"
+                                       class="sfm-input sfm-num sfm-qty-in @(lineErrors.ContainsKey("Quantity") || stock.IsShort ? "is-bad" : "")"
+                                       value="@line.Quantity" aria-label="Quantity, line @(index + 1)"
+                                       @onchange="e => OnQuantityChange(index, e.Value?.ToString())" />
+                                <span class="sfm-stock is-@stock.State.ToString().ToLowerInvariant()">@StockNote(stock)</span>
+                            </div>
+                            @* The price comes from SAP and cannot be changed here. *@
+                            <div class="sfm-r sfm-price @(lineErrors.ContainsKey("UnitPrice") ? "is-bad" : "")" role="cell"
+                                 title="Set from the SAP price list">
+                                @GetDisplayPrice(line.UnitPrice ?? 0).ToString("N2")
+                            </div>
+                            <div role="cell">
+                                @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
+                                <input type="number" min="0" max="100" step="0.000001"
+                                       class="sfm-input sfm-num sfm-disc @((line.DiscountPercent ?? 0) > 0 ? "has-disc" : "")"
+                                       aria-label="Discount percent, line @(index + 1)" @bind="line.DiscountPercent" />
+                            </div>
+                            <div class="sfm-r" role="cell">
+                                <div class="sfm-amt-v">@GetDisplayLineTotal(line).ToString("N2")</div>
+                                <div class="sfm-amt-x">@AlternatePriceLabel @GetAlternateLineTotal(line).ToString("N2")</div>
+                            </div>
+                            <div role="cell">
+                                @* The glyph is drawn inline, not set in the icon font: it is this
+                                   button's only label, so a font that fails to load would leave an
+                                   empty square that reads as a broken control. *@
+                                <button type="button" class="sfm-btn-x" title="Remove line"
+                                        aria-label="Remove line @(index + 1)"
+                                        @onclick="() => RemoveLine(index)">
+                                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                                    </svg>
                                 </button>
+                            </div>
+                            @{
+                                var otherErrors = lineErrors.Where(e => e.Key != "Stock").Select(e => e.Value).ToList();
+                            }
+                            @if (otherErrors.Count > 0)
+                            {
+                                <div class="sfm-row-err" role="cell">@string.Join(" · ", otherErrors)</div>
+                            }
+                            @if (stock.IsShort)
+                            {
+                                var cover = CoverFrom(line);
+                                <div class="sfm-short" role="cell">
+                                    <i class="ph-fill ph-warning-circle"></i>
+                                    <span class="sfm-short-t">@ShortText(line, stock)</span>
+                                    @if (cover is { } c)
+                                    {
+                                        <button type="button" class="sfm-fix is-move"
+                                                @onclick="() => OnLineWarehouseChanged(index, c.WarehouseCode)">
+                                            Take from @c.WarehouseCode (@FormatQty(c.InStock) in stock)
+                                        </button>
+                                    }
+                                    @if (LineCanTake(line, stock) is var canTake && canTake > 0)
+                                    {
+                                        <button type="button" class="sfm-fix" @onclick="() => SetLineQuantity(index, canTake)">
+                                            Invoice @FormatQty(canTake)
+                                        </button>
+                                    }
+                                    <button type="button" class="sfm-fix is-quiet" @onclick="() => RemoveLine(index)">Remove line</button>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (showShortOnly && ShortLineCount > 0 && invoice.Lines.Count > ShortLineCount)
+                    {
+                        <div class="sfm-lines-hidden">
+                            @(invoice.Lines.Count - ShortLineCount) lines with enough stock are hidden.
+                            <button type="button" @onclick="() => showShortOnly = false">Show all lines</button>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- ── Add item: the cursor lives here ─────────────────────────── -->
+            <div class="sfm-entry">
+                <div class="sfm-entry-row">
+                    <div class="sfm-lab sfm-entry-item">
+                        <label class="sfm-lab-t is-accent" for="inv-entry-item">Add item</label>
+                        <div class="sfm-combo">
+                            <i class="ph ph-magnifying-glass sfm-entry-icon" aria-hidden="true"></i>
+                            <input id="inv-entry-item" @ref="entryItemRef" class="sfm-input sfm-entry-input"
+                                   value="@EntryText" @oninput="e => OnEntryInput(e.Value?.ToString())"
+                                   @onkeydown="OnEntryKeyDown" @onblur="OnEntryBlur"
+                                   placeholder="@EntryPlaceholder" autocomplete="off" spellcheck="false"
+                                   role="combobox" aria-expanded="@(entryOpen ? "true" : "false")" aria-controls="inv-entry-list"
+                                   disabled="@EntryDisabled" />
+                            @if (entryOpen)
+                            {
+                                <div id="inv-entry-list" class="sfm-drop sfm-entry-drop" role="listbox" aria-label="Matching items">
+                                    @if (entryMatches.Count == 0)
+                                    {
+                                        <div class="sfm-drop-empty">No item matches “@entryText.Trim()”. Check the code, or refresh the cache.</div>
+                                    }
+                                    @for (var m = 0; m < entryMatches.Count; m++)
+                                    {
+                                        var matchIndex = m;
+                                        var product = entryMatches[matchIndex];
+                                        var shipStock = ShipFromStockNote(product.ItemCode);
+                                        <button type="button" role="option" aria-selected="@(matchIndex == entryActive ? "true" : "false")"
+                                                class="sfm-drop-i @(matchIndex == entryActive ? "is-sel" : "")"
+                                                @onmousedown:preventDefault="true"
+                                                @onclick="() => PickEntry(product)">
+                                            <span class="sfm-drop-main">
+                                                <span class="sfm-drop-name">@product.ItemName</span>
+                                                <span class="sfm-drop-sub">@product.ItemCode</span>
+                                            </span>
+                                            @if (HasSpecialPrice(product.ItemCode))
+                                            {
+                                                <span class="sfm-chip is-info">customer price</span>
+                                            }
+                                            <span class="sfm-drop-stock @shipStock.Css">@shipStock.Text</span>
+                                            <span class="sfm-drop-amt">@GetDisplayPrice(GetPricingForItem(product.ItemCode, product.Price).NetPrice).ToString("N2")</span>
+                                        </button>
+                                    }
+                                    <div class="sfm-drop-foot">
+                                        <span>@entryMatches.Count of @entryMatchTotal.ToString("N0") matches · prices @DisplayPriceLabel</span>
+                                        <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
+                                        <span><kbd>Enter</kbd> pick, then qty</span>
+                                    </div>
+                                </div>
                             }
                         </div>
                     </div>
-                </section>
+                    <label class="sfm-lab sfm-entry-qty">
+                        <span class="sfm-lab-t">Qty</span>
+                        <input @ref="entryQtyRef" type="text" inputmode="decimal" autocomplete="off"
+                               class="sfm-input sfm-num sfm-entry-input @(entryQtyBad ? "is-bad" : "")"
+                               value="@entryQty" @oninput="e => OnEntryQtyInput(e.Value?.ToString())"
+                               @onkeydown="OnEntryQtyKeyDown" placeholder="1" disabled="@EntryDisabled" />
+                    </label>
+                    <div class="sfm-lab sfm-entry-amt">
+                        <span class="sfm-lab-t">Line amount</span>
+                        <span class="sfm-entry-amt-v">@EntryPreviewAmount</span>
+                    </div>
+                    <button type="button" class="sfm-btn sfm-btn-accent sfm-entry-add" @onclick="AddEntryLineAsync"
+                            disabled="@EntryDisabled">
+                        Add line <kbd>Enter</kbd>
+                    </button>
+                </div>
+                @if (entryPicked != null)
+                {
+                    var pickedStock = ShipFromStockNote(entryPicked.ItemCode);
+                    <div class="sfm-entry-stock @pickedStock.Css" role="status">
+                        <i class="ph ph-package"></i>@entryPicked.ItemCode &middot; @pickedStock.Long
+                    </div>
+                }
+                <div class="sfm-keys">
+                    <span><kbd>↑</kbd><kbd>↓</kbd> choose</span>
+                    <span><kbd>Enter</kbd> item → qty → add</span>
+                    <span><kbd>Esc</kbd> clear</span>
+                    <span><kbd>Ctrl</kbd><kbd>Enter</kbd> create invoice</span>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- ── Action bar: totals and the one button that matters ─────────────── -->
+    <div class="sfm-actionbar">
+        <div class="sfm-actionbar-in">
+            <div class="sfm-ready">
+                @{
+                    var issues = ReadinessIssues();
+                }
+                @if (issues.Count == 0)
+                {
+                    <span class="sfm-ready-ok"><i class="ph-bold ph-check"></i>Ready to post &middot; @invoice.Lines.Count line@(invoice.Lines.Count == 1 ? "" : "s")</span>
+                }
+                else
+                {
+                    <span class="sfm-ready-no @(postRefused ? "is-attn" : "")" role="status">
+                        <i class="ph-fill ph-warning"></i>
+                        @foreach (var issue in issues.Take(4))
+                        {
+                            <span class="sfm-issue">@issue</span>
+                        }
+                        @if (issues.Count > 4)
+                        {
+                            <span class="sfm-issue">+@(issues.Count - 4) more</span>
+                        }
+                    </span>
+                }
+                <label class="sfm-check">
+                    <input type="checkbox" @bind="notifyCustomerByEmail" />Email the customer a copy
+                </label>
             </div>
 
-            <!-- ── Aside ──────────────────────────────────────────────── -->
-            <aside class="sfm-aside">
+            <dl class="sfm-totals">
+                <div>
+                    <dt>Subtotal</dt>
+                    <dd>@CalculateSubtotal().ToString("N2")</dd>
+                </div>
+                <div>
+                    <dt>VAT @VatLabel</dt>
+                    <dd class="is-vat">@CalculateVatAmount().ToString("N2")</dd>
+                </div>
+                <div>
+                    <dt>Total @invoice.DocCurrency</dt>
+                    <dd class="is-total">@CalculateTotalInclVat().ToString("N2")</dd>
+                </div>
+            </dl>
 
-                <div class="sfm-card sfm-total-card">
-                    <div class="sfm-total-hd">
-                        <span class="sfm-total-k">Total incl. VAT</span>
-                        <span class="sfm-total-cur">@invoice.DocCurrency</span>
-                    </div>
-                    <div class="sfm-total-v">@CalculateTotalInclVat().ToString("N2")</div>
-                    <div class="sfm-total-sub">
-                        @invoice.Lines.Count line(s) &middot; VAT @VatLabel = @CalculateVatAmount().ToString("N2")
-                    </div>
-
-                    <label class="sfm-check">
-                        <input type="checkbox" @bind="notifyCustomerByEmail" />Email customer notification
-                    </label>
-
-                    @if (validationErrors.Any() || lineValidationErrors.Any())
+            <div class="sfm-actions">
+                <button type="button" class="sfm-btn sfm-btn-danger sfm-clear" @onclick="ClearForm" disabled="@isSubmitting">
+                    Clear
+                </button>
+                <button type="button" class="sfm-btn-solid sfm-post @(issues.Count > 0 ? "is-blocked" : "")"
+                        @onclick="SubmitInvoice" disabled="@isSubmitting"
+                        title="Posts straight to SAP Business One. Only a credit note reverses it.">
+                    @if (isSubmitting)
                     {
-                        <div class="sfm-err-panel">
-                            <div class="sfm-err-panel-t">
-                                <i class="ph ph-warning"></i>Please fix the following
-                            </div>
-                            <ul>
-                                @foreach (var error in validationErrors.Values)
-                                {
-                                    <li>@error</li>
-                                }
-                                @foreach (var lineError in lineValidationErrors)
-                                {
-                                    @foreach (var error in lineError.Value.Values)
-                                    {
-                                        <li>Line @(lineError.Key + 1): @error</li>
-                                    }
-                                }
-                            </ul>
-                        </div>
+                        <span class="sfm-spin on-solid"></span>
+                        <span>Creating&hellip;</span>
                     }
-
-                    <button type="button" class="sfm-btn-solid" @onclick="SubmitInvoice" disabled="@isSubmitting">
-                        @if (isSubmitting)
-                        {
-                            <span class="sfm-spin on-solid"></span>
-                            <span>Creating&hellip;</span>
-                        }
-                        else
-                        {
-                            <i class="ph-fill ph-check-circle"></i>
-                            <span>Create invoice</span>
-                        }
-                    </button>
-                    <button type="button" class="sfm-btn sfm-btn-wide sfm-btn-danger sfm-gap-sm" @onclick="ClearForm"
-                            disabled="@isSubmitting">
-                        <i class="ph ph-arrow-counter-clockwise"></i>Clear form
-                    </button>
-                </div>
-
-                <div class="sfm-card sfm-panel">
-                    <div class="sfm-panel-hd">
-                        <i class="ph ph-shield-check"></i>
-                        <span class="sfm-panel-t">Pre-flight checks</span>
-                        <span class="sfm-spacer"></span>
-                        <span class="sfm-note">@PassedCheckCount/3</span>
-                    </div>
-                    <div class="sfm-checks">
-                        <div class="sfm-checks-i @(HasCustomer ? "" : "is-no")">
-                            <span class="sfm-checks-ic"><i class="ph-fill @(HasCustomer ? "ph-check" : "ph-x")"></i></span>
-                            <span>Customer selected</span>
-                        </div>
-                        <div class="sfm-checks-i @(HasLines ? "" : "is-no")">
-                            <span class="sfm-checks-ic"><i class="ph-fill @(HasLines ? "ph-check" : "ph-x")"></i></span>
-                            <span>Line items added</span>
-                        </div>
-                        <div class="sfm-checks-i @(LinesComplete ? "" : "is-no")">
-                            <span class="sfm-checks-ic"><i class="ph-fill @(LinesComplete ? "ph-check" : "ph-x")"></i></span>
-                            <span>All lines complete</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="sfm-card sfm-panel">
-                    <div class="sfm-panel-hd">
-                        <i class="ph ph-database"></i>
-                        <span class="sfm-panel-t">Cached data</span>
-                    </div>
-                    <div class="sfm-cache">
-                        <div class="sfm-cache-i"><i class="ph ph-users"></i>@allBusinessPartners.Count.ToString("N0") customers</div>
-                        <div class="sfm-cache-i"><i class="ph ph-cube"></i>@cachedProducts.Count.ToString("N0") products</div>
-                        <div class="sfm-cache-i"><i class="ph ph-buildings"></i>@cachedWarehouses.Count.ToString("N0") warehouses</div>
-                        <div class="sfm-cache-i"><i class="ph ph-git-fork"></i>@cachedCostCentres.Count.ToString("N0") centres</div>
-                    </div>
-                    @if (lastCacheRefresh.HasValue)
+                    else
                     {
-                        <div class="sfm-cache-ft">
-                            <i class="ph ph-clock"></i>Last sync @lastCacheRefresh.Value.ToString("HH:mm:ss")
-                        </div>
+                        <span>Create invoice</span>
+                        <kbd>Ctrl ↵</kbd>
                     }
-                </div>
-
-                <div class="sfm-info-note">
-                    <i class="ph ph-info"></i>
-                    <span>Invoices post directly to SAP Business One. Verify batch allocation and pricing before
-                        submitting &mdash; posted documents can only be reversed by credit note.</span>
-                </div>
-            </aside>
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -632,32 +606,61 @@
     private List<WarehouseDto> cachedWarehouses = new();
     private List<CostCentreDto> cachedCostCentres = new();
 
-    // Line state tracking for product autocomplete
-    private Dictionary<int, LineState> lineStates = new();
+    // Picker rows, built when the cache lands rather than on every render.
+    private List<NocturnePickerOption> customerOptions = new();
+    private List<NocturnePickerOption> warehouseOptions = new();
+    private List<NocturnePickerOption> costCentreOptions = new();
 
     // Validation
     private Dictionary<string, string> validationErrors = new();
     private Dictionary<int, Dictionary<string, string>> lineValidationErrors = new();
 
-    private class LineState
-    {
-        public string SearchTerm { get; set; } = string.Empty;
-        public bool ShowProductDropdown { get; set; } = false;
-        public List<ProductDto> FilteredProducts { get; set; } = new();
-        public ProductDto? SuggestedProduct { get; set; } = null;
-        public string SuggestionSuffix { get; set; } = string.Empty;
-    }
-
     // Business Partner fields
     private List<BusinessPartnerDto> allBusinessPartners = new();
     private BusinessPartnerDto? selectedBusinessPartner;
     private bool isLoadingBPs = true;
+    private NocturnePicker? customerPicker;
 
-    // Customer combobox: the field is a plain input with its own filtered list,
-    // so the 1 985 cached customers stay searchable by code or name.
-    private string customerSearch = string.Empty;
-    private bool showCustomerDrop = false;
-    private List<BusinessPartnerDto> customerMatches = new();
+    // Customers this operator invoiced lately, newest first, kept in their browser. They lead the
+    // customer picker; see InvoiceEntry.CustomerOptions.
+    private List<string> recentCustomerCodes = new();
+    private string? recentCustomersKey;
+
+    // ── The "Add item" row ──
+    // One entry row instead of an item search on every line: type or scan, Enter, quantity, Enter.
+    private const int EntryMatchLimit = 12;
+    private string entryText = string.Empty;
+    private List<ProductDto> entryMatches = new();
+    private int entryMatchTotal;
+    private int entryActive = -1;
+    private bool entryOpen;
+    private ProductDto? entryPicked;
+    private string entryQty = string.Empty;
+    private bool entryQtyBad;
+    private ElementReference entryItemRef;
+    private ElementReference entryQtyRef;
+    private bool focusEntryItemPending;
+    private bool focusEntryQtyPending;
+    private bool openCustomerPending;
+    private int justAddedIndex = -1;
+
+    // ── Stock ──
+    // Each line's in-stock figure comes through a StockRefreshBatcher per warehouse, the path the
+    // transfer forms use: cached rows when fresh, one SAP read at a time when not. Keyed
+    // "WAREHOUSE|ITEM". A figure the read did not return stays unknown and never blocks.
+    private readonly Dictionary<string, StockRefreshBatcher> stockBatchers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, decimal> confirmedStock = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> pendingStock = new(StringComparer.OrdinalIgnoreCase);
+
+    // Hints only, from the local cache and never from SAP: stock beside each search match (the Ship
+    // from warehouse) and which other warehouse holds a short item.
+    private Dictionary<string, decimal> shipFromCachedStock = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<string, decimal>> cachedStockByItem = new(StringComparer.OrdinalIgnoreCase);
+    private bool showShortOnly;
+
+    // Set when Create invoice was pressed on a form that is not ready; the action bar's list of
+    // what is wrong is then drawn louder until the form is cleared or posted.
+    private bool postRefused;
 
     // Customer price list for dynamic pricing
     private Dictionary<string, ResolvedItemPrice> customerPricing = new(StringComparer.OrdinalIgnoreCase);
@@ -672,22 +675,24 @@
 
     private string CacheStateLabel => IsCacheReady ? "Data ready" : (isRefreshingCache ? "Syncing" : "Offline");
 
+    private string CacheSummary =>
+        (lastCacheRefresh.HasValue ? $"Synced {lastCacheRefresh.Value:HH:mm} · " : string.Empty)
+        + $"{allBusinessPartners.Count:N0} customers · {cachedProducts.Count:N0} products";
+
     private string VatLabel => (VatRate * 100).ToString("0.##") + "%";
 
-    // Pre-flight checks
-    private bool HasCustomer => selectedBusinessPartner != null;
+    private string CustomerPlaceholder => $"Choose a customer · {allBusinessPartners.Count:N0} loaded";
 
-    private bool HasLines => invoice.Lines.Any();
+    /// <summary>The currency the chosen customer's account fixes, or null when the operator picks it.</summary>
+    private string? LockedCurrency => selectedBusinessPartner is null
+        ? null
+        : InvoiceEntry.DocumentCurrency(selectedBusinessPartner.Currency);
 
-    private bool LinesComplete => invoice.Lines.Any() && invoice.Lines.All(line =>
-        !string.IsNullOrWhiteSpace(line.ItemCode)
-        && line.Quantity > 0
-        && !string.IsNullOrWhiteSpace(line.WarehouseCode));
-
-    private int PassedCheckCount => (HasCustomer ? 1 : 0) + (HasLines ? 1 : 0) + (LinesComplete ? 1 : 0);
-
-    private bool IsPickingProduct =>
-        lineStates.Values.Any(state => state.ShowProductDropdown && state.FilteredProducts.Any());
+    private string PriceListNote => customerPriceListNum is { } list
+        ? isLoadingCustomerPrices
+            ? $"Price list #{list} · loading"
+            : $"Price list #{list} · {customerPricing.Count:N0} prices"
+        : "Default pricing";
 
     private bool _hasInitialized = false;
 
@@ -704,6 +709,8 @@
         {
             await SaveDraftAsync();
         }
+
+        await ApplyPendingFocusAsync();
 
         if (firstRender && !_hasInitialized)
         {
@@ -749,13 +756,94 @@
                 AppSettings.DefaultWarehouse);
             }
 
+            var operatorName = operatorUser?.Identity?.IsAuthenticated == true ? operatorUser.Identity.Name : null;
+            await LoadRecentCustomersAsync(operatorName);
+
             // After the defaults, so a restored draft's own warehouse and cost centre win over them.
-            draftStorageKey = InvoiceDraft.StorageKey(
-                operatorUser?.Identity?.IsAuthenticated == true ? operatorUser.Identity.Name : null);
+            draftStorageKey = InvoiceDraft.StorageKey(operatorName);
             await RestoreDraftAsync();
             isTrackingDraft = draftStorageKey is not null;
 
+            _ = LoadShipFromCachedStockAsync();
+            RequestStockForAllLines();
+
+            // A fresh invoice starts on the customer, ready to type into.
+            openCustomerPending = selectedBusinessPartner is null && invoice.Lines.Count == 0;
+
             StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Moves the caret where the last action said it should go. Done after the render, because the
+    /// field it targets may only now be enabled or exist.
+    /// </summary>
+    private async Task ApplyPendingFocusAsync()
+    {
+        try
+        {
+            if (openCustomerPending && !isLoadingBPs && customerPicker is not null)
+            {
+                openCustomerPending = false;
+                customerPicker.Open();
+            }
+            else if (focusEntryQtyPending)
+            {
+                focusEntryQtyPending = false;
+                await entryQtyRef.FocusAsync();
+            }
+            else if (focusEntryItemPending && !EntryDisabled)
+            {
+                focusEntryItemPending = false;
+                await entryItemRef.FocusAsync();
+            }
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException or InvalidOperationException)
+        {
+            Logger.LogDebug(ex, "Could not move focus on the invoice form");
+        }
+    }
+
+    // ── Recent customers ─────────────────────────────────────────────────────
+    private async Task LoadRecentCustomersAsync(string? operatorName)
+    {
+        recentCustomersKey = string.IsNullOrWhiteSpace(operatorName) ? null : $"invoice-recent-customers:{operatorName}";
+        if (recentCustomersKey is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var stored = await LocalStorage.GetItemAsStringAsync(recentCustomersKey);
+            recentCustomerCodes = InvoiceEntry.PushRecent(
+                string.IsNullOrWhiteSpace(stored) ? [] : stored.Split('\n'), null);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException or InvalidOperationException)
+        {
+            Logger.LogDebug(ex, "Could not read the recent customers");
+        }
+
+        customerOptions = InvoiceEntry.CustomerOptions(allBusinessPartners, recentCustomerCodes);
+    }
+
+    private async Task RememberCustomerAsync(string? cardCode)
+    {
+        recentCustomerCodes = InvoiceEntry.PushRecent(recentCustomerCodes, cardCode);
+        customerOptions = InvoiceEntry.CustomerOptions(allBusinessPartners, recentCustomerCodes);
+
+        if (recentCustomersKey is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await LocalStorage.SetItemAsStringAsync(recentCustomersKey, string.Join('\n', recentCustomerCodes));
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException or InvalidOperationException)
+        {
+            Logger.LogDebug(ex, "Could not save the recent customers");
         }
     }
 
@@ -834,14 +922,6 @@
         defaultCostCentre = draft.DefaultCostCentre;
         notifyCustomerByEmail = draft.NotifyCustomerByEmail;
 
-        lineStates.Clear();
-        for (var i = 0; i < invoice.Lines.Count; i++)
-        {
-            GetLineState(i).SearchTerm = invoice.Lines[i].ItemCode;
-        }
-
-        QueueStockReads();
-
         // The lines keep the prices they were entered at — re-pricing them here would overwrite a
         // price the cashier typed. The customer's price list is still loaded, for lines added next.
         var bp = string.IsNullOrWhiteSpace(invoice.CardCode)
@@ -851,15 +931,16 @@
         {
             var requestVersion = BeginBusinessPartnerPricingRequest();
             selectedBusinessPartner = bp;
-            customerSearch = bp.DisplayName;
             customerPriceListNum = bp.PriceListNum;
             _ = LoadBusinessPartnerPricesAsync(bp, requestVersion, businessPartnerPricingCts?.Token ?? CancellationToken.None);
         }
-        else if (!string.IsNullOrWhiteSpace(invoice.CardCode))
+
+        string? lostCustomer = null;
+        if (bp is null && !string.IsNullOrWhiteSpace(invoice.CardCode))
         {
-            // The customer list did not load, or no longer holds this code: leave the code in the
-            // search box for the cashier to pick again rather than post to a customer nobody can see.
-            customerSearch = invoice.CardCode;
+            // The customer list did not load, or no longer holds this code: name it in the notice
+            // for the cashier to pick again rather than post to a customer nobody can see.
+            lostCustomer = invoice.CardCode;
             invoice.CardCode = string.Empty;
         }
 
@@ -868,7 +949,8 @@
         var lineCount = invoice.Lines.Count;
         var savedAt = draft.SavedAt.ToLocalTime();
         draftNotice = $"Restored the invoice you were entering ({lineCount} line{(lineCount == 1 ? "" : "s")}, "
-            + $"last changed {savedAt:HH:mm}). Check it before you create it.";
+            + $"last changed {savedAt:HH:mm}). Check it before you create it."
+            + (lostCustomer is null ? string.Empty : $" Customer {lostCustomer} is no longer in the list; pick them again.");
         Logger.LogInformation("Restored an invoice draft with {LineCount} lines for {CardCode}", lineCount, draft.Invoice.CardCode);
     }
 
@@ -914,6 +996,9 @@
             timeout
             );
 
+            warehouseOptions = WarehouseOptions.ByCode(cachedWarehouses);
+            costCentreOptions = CostCentreOptions.ByCode(cachedCostCentres.Where(c => c.IsActive));
+
             // Update UI - warehouses and cost centres are loaded
             isLoadingMasterData = cachedWarehouses.Count == 0;
             StateHasChanged();
@@ -925,6 +1010,7 @@
             {
                 allBusinessPartners = await CacheService.GetBusinessPartnersAsync(
                     cancellationToken: cancellationToken);
+                customerOptions = InvoiceEntry.CustomerOptions(allBusinessPartners, recentCustomerCodes);
                 isLoadingBPs = false;
                 await InvokeAsync(StateHasChanged);
             },
@@ -1026,6 +1112,12 @@
         return name.Length <= maxLength ? name : name.Substring(0, maxLength) + "...";
     }
 
+    private void OnCratesChange(string? value)
+    {
+        invoice.CrateQuantity = decimal.TryParse(value, out var crates) ? crates : null;
+        validationErrors.Remove("CrateQuantity");
+    }
+
     private void ApplyCostCentreToAllLines()
     {
         if (!string.IsNullOrEmpty(defaultCostCentre))
@@ -1037,66 +1129,43 @@
         }
     }
 
-    // ── Customer field ───────────────────────────────────────────────────────
-    private List<BusinessPartnerDto> FilterCustomers(string? searchText)
+    // ── Customer ─────────────────────────────────────────────────────────────
+    private async Task OnCustomerPickedAsync(string? cardCode)
     {
-        IEnumerable<BusinessPartnerDto> results = allBusinessPartners;
+        var bp = string.IsNullOrWhiteSpace(cardCode)
+            ? null
+            : allBusinessPartners.FirstOrDefault(p => string.Equals(p.CardCode, cardCode, StringComparison.OrdinalIgnoreCase));
 
-        if (!string.IsNullOrWhiteSpace(searchText))
-        {
-            results = results.Where(bp =>
-                (bp.CardCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (bp.CardName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
-        }
-
-        return results.Take(20).ToList();
-    }
-
-    private void OnCustomerInput(string? value)
-    {
-        // Typing over a chosen customer means the field no longer names that customer,
-        // so drop the selection - and its price list - before filtering again.
-        if (selectedBusinessPartner != null)
+        if (bp is null)
         {
             ClearSelectedBP();
+            return;
         }
 
-        customerSearch = value ?? string.Empty;
-        customerMatches = FilterCustomers(customerSearch);
-        showCustomerDrop = true;
-    }
-
-    private void OnCustomerFocus()
-    {
-        customerMatches = FilterCustomers(selectedBusinessPartner != null ? null : customerSearch);
-        showCustomerDrop = true;
-    }
-
-    private async Task OnCustomerBlur()
-    {
-        // Long enough for a click on a list row to land before the list closes.
-        await Task.Delay(200);
-        showCustomerDrop = false;
-    }
-
-    private async Task PickCustomerAsync(BusinessPartnerDto bp)
-    {
-        showCustomerDrop = false;
-        customerSearch = bp.DisplayName;
+        // The cursor goes on to the items: the customer is the only thing they wait for.
+        focusEntryItemPending = true;
         await SelectBusinessPartnerAsync(bp);
     }
 
-    private void ClearCustomer()
+    /// <summary>"Next invoice" on the success banner: the form is already clear, so open the customer.</summary>
+    private void StartNextInvoice()
     {
-        ClearSelectedBP();
-        customerSearch = string.Empty;
-        customerMatches = FilterCustomers(null);
-        showCustomerDrop = false;
+        DismissSuccess();
+        openCustomerPending = true;
+    }
+
+    private void OnFormKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && (e.CtrlKey || e.MetaKey) && !isSubmitting)
+        {
+            _ = SubmitInvoice();
+        }
     }
 
     // ── Line defaults ────────────────────────────────────────────────────────
-    private void OnDefaultWarehouseChanged(string? code)
+    private async Task OnDefaultWarehouseChanged(string? code)
     {
+        var previous = warehouseCode;
         warehouseCode = string.IsNullOrWhiteSpace(code) ? null : code;
 
         if (string.IsNullOrWhiteSpace(warehouseCode))
@@ -1104,19 +1173,26 @@
             return;
         }
 
-        // The defaults bar sets the document rather than only the next line, the same
-        // way the default cost centre already applies to every line.
-        foreach (var line in invoice.Lines)
+        // Lines still on the old default, or on none, follow the new one; a line the cashier moved
+        // to another warehouse by hand keeps it.
+        for (var i = 0; i < invoice.Lines.Count; i++)
         {
-            line.WarehouseCode = warehouseCode;
+            var line = invoice.Lines[i];
+            if (string.IsNullOrWhiteSpace(line.WarehouseCode)
+                || string.Equals(line.WarehouseCode, previous, StringComparison.OrdinalIgnoreCase))
+            {
+                line.WarehouseCode = warehouseCode;
+                if (lineValidationErrors.TryGetValue(i, out var errors))
+                {
+                    errors.Remove("Warehouse");
+                    errors.Remove("Stock");
+                }
+
+                RequestLineStock(line);
+            }
         }
 
-        foreach (var errors in lineValidationErrors.Values)
-        {
-            errors.Remove("Warehouse");
-        }
-
-        QueueStockReads();
+        await LoadShipFromCachedStockAsync();
     }
 
     private void OnDefaultCostCentreChanged(string? code)
@@ -1132,114 +1208,44 @@
             return;
         }
 
-        invoice.Lines[index].WarehouseCode = code ?? string.Empty;
+        var line = invoice.Lines[index];
+        line.WarehouseCode = code ?? string.Empty;
 
         if (lineValidationErrors.TryGetValue(index, out var errors))
         {
             errors.Remove("Warehouse");
+            errors.Remove("Stock");
         }
 
-        QueueStockReads();
+        RequestLineStock(line);
     }
-
-    // ── Stock warning ───────────────────────────────────
-    //
-    // Each line says when it asks for more than its warehouse holds. It is a warning, never a
-    // block: the figures come from the Web's own stock cache (up to 15 minutes old), and the
-    // post still checks every line against SAP, which is the answer that counts.
-    //
-    // The figures cost SAP almost nothing. A fresh cache row is a local database read. A stale
-    // or missing one goes through a StockRefreshBatcher, which folds a burst of lines into one
-    // API call and never has more than one in flight, so the form holds at most one of the
-    // API's six SAP slots per warehouse. This is the transfer forms' arrangement; invoices need
-    // one batcher per warehouse because each line picks its own.
-
-    private readonly record struct StockShortfallInfo(decimal InStock, decimal Requested);
-
-    // In Stock by warehouse|item, the same figure the API's stock decisions use.
-    private readonly Dictionary<string, decimal> inStockByKey = new(StringComparer.OrdinalIgnoreCase);
-    // Every warehouse|item already asked for, answered or not, so a code the warehouse holds no
-    // row for is not asked about again on every change.
-    private readonly HashSet<string> stockRequested = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, StockRefreshBatcher> stockReaders = new(StringComparer.OrdinalIgnoreCase);
-
-    private static string StockKey(string warehouseCode, string itemCode) =>
-        warehouseCode.Trim() + "|" + itemCode.Trim();
-
-    private void QueueStockReads()
-    {
-        foreach (var line in invoice.Lines)
-        {
-            if (string.IsNullOrWhiteSpace(line.WarehouseCode) || string.IsNullOrWhiteSpace(line.ItemCode))
-                continue;
-
-            // Only a code that names a real item: a half-typed one would cost a read for nothing.
-            if (!cachedProducts.Any(p => string.Equals(p.ItemCode, line.ItemCode.Trim(), StringComparison.OrdinalIgnoreCase)))
-                continue;
-
-            if (!stockRequested.Add(StockKey(line.WarehouseCode, line.ItemCode)))
-                continue;
-
-            var warehouse = line.WarehouseCode.Trim();
-            if (!stockReaders.TryGetValue(warehouse, out var reader))
-            {
-                reader = new StockRefreshBatcher(StockCacheService, Logger, ApplyStockBatchAsync);
-                stockReaders[warehouse] = reader;
-            }
-
-            reader.Request(warehouse, line.ItemCode.Trim());
-        }
-    }
-
-    // Runs off the circuit's synchronisation context, so it goes through InvokeAsync.
-    private Task ApplyStockBatchAsync(StockRefreshBatch batch) => InvokeAsync(() =>
-    {
-        foreach (var (itemCode, stock) in batch.Stock)
-            inStockByKey[StockKey(batch.WarehouseCode, itemCode)] = stock.QuantityInStock;
-
-        StateHasChanged();
-    });
 
     /// <summary>
-    /// The shortfall for this line's item in this line's warehouse, or null when there is none or
-    /// no figure yet. Lines for the same item in the same warehouse are added together, because
-    /// they draw on the same stock.
+    /// The warehouse rows for one line's picker, each saying how much of the line's item it holds
+    /// as last cached — so moving a short line is a choice made with the figures in view.
     /// </summary>
-    private StockShortfallInfo? StockShortfall(CreateInvoiceLineRequest line)
+    private List<NocturnePickerOption> LineWarehouseOptions(CreateInvoiceLineRequest line)
     {
-        if (string.IsNullOrWhiteSpace(line.WarehouseCode) || string.IsNullOrWhiteSpace(line.ItemCode) || line.Quantity <= 0)
-            return null;
-
-        var key = StockKey(line.WarehouseCode, line.ItemCode);
-        if (!inStockByKey.TryGetValue(key, out var inStock))
-            return null;
-
-        var requested = invoice.Lines
-            .Where(other => !string.IsNullOrWhiteSpace(other.WarehouseCode) && !string.IsNullOrWhiteSpace(other.ItemCode)
-                            && string.Equals(StockKey(other.WarehouseCode, other.ItemCode), key, StringComparison.OrdinalIgnoreCase))
-            .Sum(other => other.Quantity);
-
-        return requested > inStock ? new StockShortfallInfo(inStock, requested) : null;
-    }
-
-    private void ForgetStockFigures()
-    {
-        foreach (var reader in stockReaders.Values)
-            reader.Dispose();
-
-        stockReaders.Clear();
-        stockRequested.Clear();
-        inStockByKey.Clear();
-    }
-
-    // Line state management for product autocomplete
-    private LineState GetLineState(int index)
-    {
-        if (!lineStates.ContainsKey(index))
+        if (string.IsNullOrWhiteSpace(line.ItemCode)
+            || !cachedStockByItem.TryGetValue(line.ItemCode, out var byWarehouse))
         {
-            lineStates[index] = new LineState();
+            return warehouseOptions;
         }
-        return lineStates[index];
+
+        return warehouseOptions
+            .Select(option =>
+            {
+                var hint = byWarehouse.TryGetValue(option.Value, out var inStock)
+                    ? $"{FormatQty(inStock)} in stock"
+                    : null;
+                if (string.Equals(option.Value, warehouseCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    hint = hint is null ? "Ship from" : $"{hint} · Ship from";
+                }
+
+                return hint is null ? option : option with { Hint = hint };
+            })
+            .ToList();
     }
 
     private Dictionary<string, string> GetLineValidationErrors(int index)
@@ -1247,142 +1253,498 @@
         return lineValidationErrors.TryGetValue(index, out var errors) ? errors : new Dictionary<string, string>();
     }
 
-    private void OnItemCodeInput(int index, string? value)
+    // ── The "Add item" row ───────────────────────────────────────────────────
+    private bool EntryDisabled => selectedBusinessPartner is null || isLoadingMasterData;
+
+    private string EntryPlaceholder => selectedBusinessPartner is null
+        ? "Pick the customer first"
+        : $"Scan or search {cachedProducts.Count:N0} items by code, name or barcode";
+
+    private string EntryText => entryPicked is null
+        ? entryText
+        : $"{entryPicked.ItemCode} · {entryPicked.ItemName}";
+
+    private ProductDto? EntryCandidate => entryPicked
+        ?? (entryActive >= 0 && entryActive < entryMatches.Count ? entryMatches[entryActive] : null);
+
+    private string EntryPreviewAmount
     {
-        var line = invoice.Lines[index];
-        line.ItemCode = value ?? string.Empty;
-
-        // The unit belongs to the item that was picked. Typing over the code leaves the line
-        // carrying the previous item's unit, which would let a weighed quantity through on a
-        // whole-unit item — or refuse a valid one. SelectProduct sets it again.
-        line.UoMCode = null;
-
-        var state = GetLineState(index);
-        state.SearchTerm = value ?? string.Empty;
-        state.SuggestedProduct = null;
-        state.SuggestionSuffix = string.Empty;
-
-        // Clear validation error when user starts typing
-        if (lineValidationErrors.TryGetValue(index, out var errors))
+        get
         {
-            errors.Remove("ItemCode");
+            var product = EntryCandidate;
+            if (product is null || !TryReadEntryQuantity(out var quantity))
+            {
+                return "—";
+            }
+
+            var pricing = GetPricingForItem(product.ItemCode, product.Price);
+            return (GetDisplayPrice(pricing.NetPrice) * quantity).ToString("N2");
         }
+    }
 
-        if (string.IsNullOrWhiteSpace(value))
+    private void OnEntryInput(string? value)
+    {
+        entryPicked = null;
+        entryText = value ?? string.Empty;
+        FilterEntryMatches();
+    }
+
+    private void FilterEntryMatches()
+    {
+        var search = entryText.Trim();
+        if (search.Length == 0)
         {
-            state.FilteredProducts = new List<ProductDto>();
-            state.ShowProductDropdown = false;
+            entryMatches = new List<ProductDto>();
+            entryMatchTotal = 0;
+            entryActive = -1;
+            entryOpen = false;
             return;
         }
 
-        var searchLower = value.ToLowerInvariant();
-        var searchUpper = value.ToUpperInvariant();
+        // A scanned barcode or a typed code is an exact hit and goes first; then codes that start
+        // with the text; then anything containing it in the code, name or barcode.
+        var all = cachedProducts.Where(p =>
+                (p.ItemCode?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (p.ItemName?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (p.BarCode?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false))
+            .OrderByDescending(p => string.Equals(p.BarCode, search, StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(p.ItemCode, search, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(p => p.ItemCode?.StartsWith(search, StringComparison.OrdinalIgnoreCase) ?? false)
+            .ThenBy(p => p.ItemCode)
+            .ToList();
 
-        state.FilteredProducts = cachedProducts.Where(p =>
-        (p.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false) ||
-        (p.ItemCode?.ToLowerInvariant().Contains(searchLower) ?? false) ||
-        (p.ItemName?.ToLowerInvariant().Contains(searchLower) ?? false) ||
-        (p.BarCode?.ToLowerInvariant().Contains(searchLower) ?? false)
-        ).OrderByDescending(p => p.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false)
-        .ThenBy(p => p.ItemCode)
-        .ToList();
-
-        var exactMatch = state.FilteredProducts.FirstOrDefault(p =>
-        p.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false);
-
-        if (exactMatch != null && !string.IsNullOrEmpty(exactMatch.ItemCode))
-        {
-            state.SuggestedProduct = exactMatch;
-            state.SuggestionSuffix = exactMatch.ItemCode.Substring(value.Length);
-        }
-
-        state.ShowProductDropdown = state.FilteredProducts.Any();
+        entryMatchTotal = all.Count;
+        entryMatches = all.Take(EntryMatchLimit).ToList();
+        entryActive = entryMatches.Count > 0 ? 0 : -1;
+        entryOpen = true;
     }
 
-    private async Task OnItemCodeKeyDown(int index, KeyboardEventArgs e)
+    private void OnEntryKeyDown(KeyboardEventArgs e)
     {
-        var state = GetLineState(index);
+        if (e.CtrlKey || e.MetaKey || e.AltKey)
+        {
+            return;
+        }
 
-        if ((e.Key == "Tab" || e.Key == "ArrowRight") && state.SuggestedProduct != null)
+        switch (e.Key)
         {
-            if (e.Key == "Tab" || !string.IsNullOrEmpty(state.SuggestionSuffix))
-            {
-                await SelectProduct(index, state.SuggestedProduct);
-            }
+            case "ArrowDown" when entryMatches.Count > 0:
+                entryOpen = true;
+                entryActive = Math.Min(entryActive + 1, entryMatches.Count - 1);
+                break;
+
+            case "ArrowUp" when entryMatches.Count > 0:
+                entryActive = Math.Max(entryActive - 1, 0);
+                break;
+
+            case "Enter" when entryPicked is not null:
+                focusEntryQtyPending = true;
+                break;
+
+            case "Enter" or "Tab" when entryActive >= 0 && entryActive < entryMatches.Count:
+                PickEntry(entryMatches[entryActive]);
+                break;
+
+            case "Escape":
+                ResetEntry();
+                break;
         }
-        else if (e.Key == "ArrowDown" && state.ShowProductDropdown && state.FilteredProducts.Any())
+    }
+
+    private async Task OnEntryBlur()
+    {
+        // Long enough for a click on a list row to land before the list closes.
+        await Task.Delay(200);
+        entryOpen = false;
+    }
+
+    private void PickEntry(ProductDto product)
+    {
+        entryPicked = product;
+        entryText = string.Empty;
+        entryOpen = false;
+        entryQtyBad = false;
+        focusEntryQtyPending = true;
+
+        // Read its stock in the Ship from warehouse now, so the line has it when it lands.
+        if (!string.IsNullOrWhiteSpace(warehouseCode))
         {
-            var currentIndex = state.SuggestedProduct != null
-            ? state.FilteredProducts.IndexOf(state.SuggestedProduct)
-            : -1;
-            var nextIndex = Math.Min(currentIndex + 1, state.FilteredProducts.Count - 1);
-            state.SuggestedProduct = state.FilteredProducts[nextIndex];
-            if (state.SuggestedProduct?.ItemCode != null)
-            {
-                var line = invoice.Lines[index];
-                var searchUpper = line.ItemCode?.ToUpperInvariant() ?? "";
-                if (state.SuggestedProduct.ItemCode.ToUpperInvariant().StartsWith(searchUpper))
-                {
-                    state.SuggestionSuffix = state.SuggestedProduct.ItemCode.Substring(line.ItemCode?.Length ?? 0);
-                }
-                else
-                {
-                    state.SuggestionSuffix = string.Empty;
-                }
-            }
+            RequestStock(warehouseCode, product.ItemCode);
         }
-        else if (e.Key == "ArrowUp" && state.ShowProductDropdown && state.FilteredProducts.Any())
+    }
+
+    private void OnEntryQtyInput(string? value)
+    {
+        entryQty = value ?? string.Empty;
+        entryQtyBad = false;
+    }
+
+    private async Task OnEntryQtyKeyDown(KeyboardEventArgs e)
+    {
+        if (e.CtrlKey || e.MetaKey || e.AltKey)
         {
-            var currentIndex = state.SuggestedProduct != null
-            ? state.FilteredProducts.IndexOf(state.SuggestedProduct)
-            : state.FilteredProducts.Count;
-            var prevIndex = Math.Max(currentIndex - 1, 0);
-            state.SuggestedProduct = state.FilteredProducts[prevIndex];
-            if (state.SuggestedProduct?.ItemCode != null)
-            {
-                var line = invoice.Lines[index];
-                var searchUpper = line.ItemCode?.ToUpperInvariant() ?? "";
-                if (state.SuggestedProduct.ItemCode.ToUpperInvariant().StartsWith(searchUpper))
-                {
-                    state.SuggestionSuffix = state.SuggestedProduct.ItemCode.Substring(line.ItemCode?.Length ?? 0);
-                }
-                else
-                {
-                    state.SuggestionSuffix = string.Empty;
-                }
-            }
+            return;
         }
-        else if (e.Key == "Enter" && state.SuggestedProduct != null)
+
+        if (e.Key == "Enter")
         {
-            await SelectProduct(index, state.SuggestedProduct);
+            await AddEntryLineAsync();
         }
         else if (e.Key == "Escape")
         {
-            state.ShowProductDropdown = false;
-            state.SuggestedProduct = null;
-            state.SuggestionSuffix = string.Empty;
+            focusEntryItemPending = true;
         }
     }
 
-    private void OnItemCodeFocus(int index)
+    /// <summary>A blank quantity means one; anything else must be a number above zero.</summary>
+    private bool TryReadEntryQuantity(out decimal quantity)
     {
-        var state = GetLineState(index);
-        if (!string.IsNullOrEmpty(state.SearchTerm) || cachedProducts.Any())
+        if (string.IsNullOrWhiteSpace(entryQty))
         {
-            state.ShowProductDropdown = true;
-            if (string.IsNullOrEmpty(state.SearchTerm))
+            quantity = 1m;
+            return true;
+        }
+
+        return decimal.TryParse(entryQty, out quantity) && quantity > 0;
+    }
+
+    private async Task AddEntryLineAsync()
+    {
+        var product = EntryCandidate;
+        if (product is null || EntryDisabled)
+        {
+            focusEntryItemPending = true;
+            return;
+        }
+
+        if (!TryReadEntryQuantity(out var quantity))
+        {
+            entryQtyBad = true;
+            focusEntryQtyPending = true;
+            return;
+        }
+
+        AddLine();
+        var index = invoice.Lines.Count - 1;
+        await SelectProduct(index, product);
+        invoice.Lines[index].Quantity = quantity;
+        justAddedIndex = index;
+
+        RequestLineStock(invoice.Lines[index]);
+        ResetEntry();
+        focusEntryItemPending = true;
+    }
+
+    private void ResetEntry()
+    {
+        entryPicked = null;
+        entryText = string.Empty;
+        entryQty = string.Empty;
+        entryQtyBad = false;
+        entryMatches = new List<ProductDto>();
+        entryMatchTotal = 0;
+        entryActive = -1;
+        entryOpen = false;
+    }
+
+    // ── Stock ────────────────────────────────────────────────────────────────
+    private static string StockKey(string warehouse, string itemCode) => $"{warehouse.Trim()}|{itemCode.Trim()}";
+
+    private void RequestLineStock(CreateInvoiceLineRequest line)
+    {
+        RequestStock(line.WarehouseCode, line.ItemCode);
+        _ = PeekItemStockAsync(line.ItemCode);
+    }
+
+    private void RequestStockForAllLines()
+    {
+        foreach (var line in invoice.Lines)
+        {
+            RequestStock(line.WarehouseCode, line.ItemCode);
+        }
+
+        _ = PeekItemStockAsync(invoice.Lines.Select(l => l.ItemCode).ToArray());
+    }
+
+    private void RequestStock(string? warehouse, string? itemCode)
+    {
+        if (string.IsNullOrWhiteSpace(warehouse) || string.IsNullOrWhiteSpace(itemCode))
+        {
+            return;
+        }
+
+        if (!stockBatchers.TryGetValue(warehouse.Trim(), out var batcher))
+        {
+            // One per warehouse: a batcher reads one warehouse and drops its queue when asked for
+            // another, so lines in two warehouses sharing one would cancel each other.
+            batcher = new StockRefreshBatcher(StockCacheService, Logger, ApplyStockBatchAsync);
+            stockBatchers[warehouse.Trim()] = batcher;
+        }
+
+        pendingStock.Add(StockKey(warehouse, itemCode));
+        batcher.Request(warehouse, itemCode);
+    }
+
+    private Task ApplyStockBatchAsync(StockRefreshBatch batch) => InvokeAsync(() =>
+    {
+        foreach (var code in batch.RequestedItemCodes)
+        {
+            var key = StockKey(batch.WarehouseCode, code);
+            pendingStock.Remove(key);
+
+            if (batch.Stock.TryGetValue(code, out var stock))
             {
-                state.FilteredProducts = cachedProducts.Take(15).ToList();
+                confirmedStock[key] = stock.QuantityInStock;
             }
         }
+
+        StateHasChanged();
+    });
+
+    private LineStock LineStockOf(CreateInvoiceLineRequest line)
+    {
+        if (string.IsNullOrWhiteSpace(line.WarehouseCode) || string.IsNullOrWhiteSpace(line.ItemCode))
+        {
+            return InvoiceEntry.EvaluateStock(line.Quantity, null, false);
+        }
+
+        var key = StockKey(line.WarehouseCode, line.ItemCode);
+
+        // A line with no quantity is its own error; judging it by its siblings would mark it short.
+        var requested = line.Quantity > 0 ? RequestedFrom(key) : line.Quantity;
+
+        return InvoiceEntry.EvaluateStock(
+            requested,
+            confirmedStock.TryGetValue(key, out var inStock) ? inStock : null,
+            pendingStock.Contains(key));
     }
 
-    private async Task OnItemCodeBlur(int index)
+    /// <summary>
+    /// What the whole invoice asks of one item in one warehouse. Two lines for the same item from
+    /// the same warehouse draw on the same stock, so they are judged together.
+    /// </summary>
+    private decimal RequestedFrom(string key) => invoice.Lines
+        .Where(other => !string.IsNullOrWhiteSpace(other.WarehouseCode) && !string.IsNullOrWhiteSpace(other.ItemCode)
+                        && string.Equals(StockKey(other.WarehouseCode, other.ItemCode), key, StringComparison.OrdinalIgnoreCase))
+        .Sum(other => Math.Max(other.Quantity, 0m));
+
+    /// <summary>The most this line can take once the other lines on the same stock have theirs.</summary>
+    private decimal LineCanTake(CreateInvoiceLineRequest line, LineStock stock)
     {
-        await Task.Delay(200);
-        var state = GetLineState(index);
-        state.ShowProductDropdown = false;
-        state.SuggestionSuffix = string.Empty;
+        if (stock.InStock is not { } inStock || string.IsNullOrWhiteSpace(line.WarehouseCode) || string.IsNullOrWhiteSpace(line.ItemCode))
+        {
+            return 0m;
+        }
+
+        var others = RequestedFrom(StockKey(line.WarehouseCode, line.ItemCode)) - Math.Max(line.Quantity, 0m);
+        return Math.Max(inStock - others, 0m);
+    }
+
+    private int ShortLineCount => invoice.Lines.Count(line => LineStockOf(line).IsShort);
+
+    /// <summary>
+    /// Every figure is read afresh for the next invoice: the one just posted has moved stock, and a
+    /// figure kept from before it would let the next one through on stock that is gone.
+    /// </summary>
+    private void ForgetStockFigures()
+    {
+        foreach (var batcher in stockBatchers.Values)
+        {
+            batcher.Dispose();
+        }
+
+        stockBatchers.Clear();
+        confirmedStock.Clear();
+        pendingStock.Clear();
+        cachedStockByItem.Clear();
+    }
+
+    private string StockNote(LineStock stock) => stock.State switch
+    {
+        LineStockState.Loading => "checking stock…",
+        LineStockState.Unknown => "stock not confirmed",
+        _ when stock.InStock <= 0 => "none in stock",
+        _ => $"{FormatQty(stock.InStock!.Value)} in stock"
+    };
+
+    private string ShortText(CreateInvoiceLineRequest line, LineStock stock)
+    {
+        var have = stock.InStock > 0
+            ? $"Only {FormatQty(stock.InStock!.Value)} in {line.WarehouseCode}"
+            : $"None in {line.WarehouseCode}";
+
+        var requested = RequestedFrom(StockKey(line.WarehouseCode, line.ItemCode));
+        var together = requested > line.Quantity
+            ? $", and this invoice's lines for {line.ItemCode} ask for {FormatQty(requested)} together"
+            : string.Empty;
+
+        return $"{have}{together}. Short by {FormatQty(stock.ShortBy)}.";
+    }
+
+    /// <summary>
+    /// Another warehouse whose cached stock covers the whole line, the fullest first. A hint: picking
+    /// it reads that warehouse again before the line counts as covered.
+    /// </summary>
+    private CachedStockFigure? CoverFrom(CreateInvoiceLineRequest line)
+    {
+        if (string.IsNullOrWhiteSpace(line.ItemCode)
+            || !cachedStockByItem.TryGetValue(line.ItemCode, out var byWarehouse))
+        {
+            return null;
+        }
+
+        var known = warehouseOptions.Select(o => o.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return byWarehouse
+            .Where(kv => !string.Equals(kv.Key, line.WarehouseCode, StringComparison.OrdinalIgnoreCase)
+                         && kv.Value >= line.Quantity
+                         && known.Contains(kv.Key))
+            .OrderByDescending(kv => kv.Value)
+            .Select(kv => new CachedStockFigure(kv.Key, line.ItemCode, kv.Value))
+            .FirstOrDefault();
+    }
+
+    private void SetLineQuantity(int index, decimal quantity)
+    {
+        OnQuantityChange(index, quantity.ToString(System.Globalization.CultureInfo.CurrentCulture));
+    }
+
+    private static string FormatQty(decimal quantity) => quantity.ToString("#,0.##");
+
+    /// <summary>The Ship from warehouse's cached figure for a search match: a hint, never a decision.</summary>
+    private (string Text, string Long, string Css) ShipFromStockNote(string? itemCode)
+    {
+        if (string.IsNullOrWhiteSpace(itemCode) || string.IsNullOrWhiteSpace(warehouseCode))
+        {
+            return (string.Empty, "Choose a Ship from warehouse to see its stock", "is-unknown");
+        }
+
+        if (!shipFromCachedStock.TryGetValue(itemCode, out var inStock))
+        {
+            return (string.Empty, $"No stock figure for {warehouseCode} yet", "is-unknown");
+        }
+
+        return inStock > 0
+            ? ($"{FormatQty(inStock)} in {warehouseCode}", $"{FormatQty(inStock)} in stock in {warehouseCode}", "is-enough")
+            : ($"None in {warehouseCode}", $"None in stock in {warehouseCode} — the line will be flagged short", "is-short");
+    }
+
+    private async Task LoadShipFromCachedStockAsync()
+    {
+        var warehouse = warehouseCode;
+        if (string.IsNullOrWhiteSpace(warehouse))
+        {
+            shipFromCachedStock = new(StringComparer.OrdinalIgnoreCase);
+            return;
+        }
+
+        try
+        {
+            var figures = await StockCacheService.PeekCachedInStockAsync(warehouse, null);
+            if (!string.Equals(warehouse, warehouseCode, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var map = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+            foreach (var figure in figures)
+            {
+                map[figure.ItemCode] = figure.InStock;
+            }
+
+            shipFromCachedStock = map;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not read cached stock for {Warehouse}", warehouse);
+        }
+    }
+
+    private async Task PeekItemStockAsync(params string?[] itemCodes)
+    {
+        var codes = itemCodes.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c!).ToList();
+        if (codes.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var figures = await StockCacheService.PeekCachedInStockAsync(null, codes);
+            await InvokeAsync(() =>
+            {
+                foreach (var code in codes)
+                {
+                    cachedStockByItem[code] = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+                }
+
+                foreach (var figure in figures)
+                {
+                    if (!cachedStockByItem.TryGetValue(figure.ItemCode, out var byWarehouse))
+                    {
+                        byWarehouse = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+                        cachedStockByItem[figure.ItemCode] = byWarehouse;
+                    }
+
+                    byWarehouse[figure.WarehouseCode] = figure.InStock;
+                }
+
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not read cached stock across warehouses");
+        }
+    }
+
+    /// <summary>What still stands between the form and a post, in the cashier's words.</summary>
+    private List<string> ReadinessIssues()
+    {
+        var issues = new List<string>();
+        if (selectedBusinessPartner is null)
+        {
+            issues.Add("Pick a customer");
+        }
+
+        if (invoice.Lines.Count == 0)
+        {
+            issues.Add("Add at least one line");
+        }
+
+        var shortKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < invoice.Lines.Count; i++)
+        {
+            var line = invoice.Lines[i];
+            var n = i + 1;
+            if (string.IsNullOrWhiteSpace(line.ItemCode))
+            {
+                issues.Add($"Line {n} has no item");
+            }
+            else if (!line.UnitPrice.HasValue || line.UnitPrice <= 0)
+            {
+                issues.Add($"Line {n} has no SAP price");
+            }
+
+            if (line.Quantity <= 0)
+            {
+                issues.Add($"Line {n} needs a quantity");
+            }
+
+            if (string.IsNullOrWhiteSpace(line.WarehouseCode))
+            {
+                issues.Add($"Line {n} needs a warehouse");
+            }
+
+            // Lines sharing one item's stock are short together; say it once, at the first of them.
+            var stock = LineStockOf(line);
+            if (stock.IsShort && shortKeys.Add(StockKey(line.WarehouseCode, line.ItemCode)))
+            {
+                issues.Add($"Line {n} short by {FormatQty(stock.ShortBy)}");
+            }
+        }
+
+        return issues;
     }
 
     private void OnQuantityChange(int index, string? value)
@@ -1408,6 +1770,7 @@
         if (lineValidationErrors.TryGetValue(index, out var errors))
         {
             errors.Remove("Quantity");
+            errors.Remove("Stock");
         }
     }
 
@@ -1453,12 +1816,6 @@ string.Empty);
             line.CostCentreCode = defaultCostCentre;
         }
 
-        var state = GetLineState(index);
-        state.ShowProductDropdown = false;
-        state.SearchTerm = product.ItemCode ?? string.Empty;
-        state.SuggestedProduct = null;
-        state.SuggestionSuffix = string.Empty;
-
         if (line.UnitPrice.GetValueOrDefault() > 0)
         {
             ClearUnitPriceError(index);
@@ -1478,8 +1835,6 @@ string.Empty);
                 lineValidationErrors.Remove(index);
             }
         }
-
-        QueueStockReads();
     }
 
     private async Task SelectBusinessPartnerAsync(BusinessPartnerDto bp)
@@ -1488,9 +1843,11 @@ string.Empty);
         selectedBusinessPartner = bp;
         invoice.CardCode = bp.CardCode ?? string.Empty;
 
-        if (!string.IsNullOrEmpty(bp.Currency))
+        // "##" is SAP's all-currencies marker, not a currency: such a customer leaves the choice to
+        // the cashier rather than writing a code no option matches into the document.
+        if (InvoiceEntry.DocumentCurrency(bp.Currency) is { } currency)
         {
-            invoice.DocCurrency = bp.Currency;
+            invoice.DocCurrency = currency;
         }
 
         // Clear validation error
@@ -1794,24 +2151,11 @@ customerPricing.Count, priceListNum);
         if (index >= 0 && index < invoice.Lines.Count)
         {
             invoice.Lines.RemoveAt(index);
-            lineStates.Remove(index);
             lineValidationErrors.Remove(index);
+            justAddedIndex = -1;
 
-            // Re-index states
-            var newStates = new Dictionary<int, LineState>();
+            // Re-index the errors of the lines below
             var newErrors = new Dictionary<int, Dictionary<string, string>>();
-
-            foreach (var kvp in lineStates.OrderBy(x => x.Key))
-            {
-                if (kvp.Key < index)
-                {
-                    newStates[kvp.Key] = kvp.Value;
-                }
-                else if (kvp.Key > index)
-                {
-                    newStates[kvp.Key - 1] = kvp.Value;
-                }
-            }
 
             foreach (var kvp in lineValidationErrors.OrderBy(x => x.Key))
             {
@@ -1825,29 +2169,20 @@ customerPricing.Count, priceListNum);
                 }
             }
 
-            lineStates = newStates;
             lineValidationErrors = newErrors;
         }
     }
 
-    private decimal CalculateLineTotal(CreateInvoiceLineRequest line)
-    {
-        var subtotal = line.Quantity * (line.UnitPrice ?? 0);
-        var discountPercent = line.DiscountPercent ?? 0;
+    // Unit Price is the price before discount, so the discount has to come off here or the
+    // totals disagree with what SAP bills.
+    private static decimal CalculateLineTotal(CreateInvoiceLineRequest line) =>
+        InvoiceEntry.LineNet(line.Quantity, line.UnitPrice, line.DiscountPercent);
 
-        // Unit Price is the price before discount, so the discount has to come off here or the
-        // totals disagree with what SAP bills.
-        return discountPercent > 0 ? subtotal * (1 - discountPercent / 100) : subtotal;
-    }
-
+    // The sum of the line amounts as drawn. It used to add the lines up before their discounts, so
+    // a customer's special price — carried as a discount — showed in each line but not in the total.
     private decimal CalculateSubtotal()
     {
-        return invoice.Lines.Sum(l => l.Quantity * (l.UnitPrice ?? 0));
-    }
-
-    private decimal CalculateTotal()
-    {
-        return invoice.Lines.Sum(l => CalculateLineTotal(l));
+        return invoice.Lines.Sum(CalculateLineTotal);
     }
 
     private decimal CalculateVatAmount()
@@ -1927,6 +2262,16 @@ customerPricing.Count, priceListNum);
             // Batch number is optional - auto-allocated using FEFO if not specified
             // The API will handle batch selection automatically
 
+            // A line the warehouse is known to be short for is stopped here rather than sent for SAP
+            // to refuse. Only a figure that came back counts: an unknown one goes through, and the
+            // API's own check at posting has the last word either way.
+            var stock = LineStockOf(line);
+            if (stock.IsShort)
+            {
+                errors["Stock"] = ShortText(line, stock);
+                isValid = false;
+            }
+
             if (errors.Any())
             {
                 lineValidationErrors[i] = errors;
@@ -1943,7 +2288,10 @@ customerPricing.Count, priceListNum);
 
         if (!ValidateForm())
         {
-            errorMessage = "Please fix the validation errors before submitting.";
+            // No banner: the action bar already lists what is wrong and clears each item as it is
+            // fixed, where a banner would stay up after the form was put right. It is drawn louder
+            // instead, so the refused press is still answered.
+            postRefused = true;
             Logger.LogWarning("Invoice validation failed. Errors: {Errors}",
             string.Join("; ", validationErrors.Select(e => $"{e.Key}: {e.Value}")
             .Concat(lineValidationErrors.SelectMany(le => le.Value.Select(e => $"Line {le.Key + 1} {e.Key}: {e.Value}")))));
@@ -2027,6 +2375,7 @@ customerPricing.Count, priceListNum);
                 lastCreatedInvoice = createdInvoice;
                 lastFiscalizationResult = fiscalization;
 
+                await RememberCustomerAsync(postCreateCardCode);
                 ClearForm();
                 QueueInvoicePostCreateWork(
                     postCreateInvoice,
@@ -2306,15 +2655,14 @@ customerPricing.Count, priceListNum);
             DocCurrency = AppSettings.DefaultCurrency,
             Lines = new List<CreateInvoiceLineRequest>()
         };
-        lineStates.Clear();
         lineValidationErrors.Clear();
         validationErrors.Clear();
-        // The next invoice reads its figures again: the one just posted has moved stock.
-        ForgetStockFigures();
         ClearSelectedBP();
-        customerSearch = string.Empty;
-        customerMatches = FilterCustomers(null);
-        showCustomerDrop = false;
+        ResetEntry();
+        showShortOnly = false;
+        postRefused = false;
+        justAddedIndex = -1;
+        ForgetStockFigures();
     }
 
     public void Dispose()

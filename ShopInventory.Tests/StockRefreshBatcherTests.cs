@@ -103,6 +103,10 @@ public sealed class StockRefreshBatcherTests
         }
 
         // Nothing else on the interface is on this path.
+        public Task<IReadOnlyList<CachedStockFigure>> PeekCachedInStockAsync(
+            string? warehouseCode, IReadOnlyCollection<string>? itemCodes,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public Task<WarehouseProductsPagedResponse?> GetCachedStockAsync(
             string warehouseCode, int page = 1, int pageSize = 20, string? search = null,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
