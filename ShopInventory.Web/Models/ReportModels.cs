@@ -19,6 +19,15 @@ public class SalesSummaryReport
     public int UniqueCustomers { get; set; }
     public List<DailySales> DailySales { get; set; } = new();
     public List<SalesByCurrency> SalesByCurrency { get; set; } = new();
+
+    /// <summary>SAP's booked gross profit, in USD (the company currency); null from an older API or when SAP returned none.</summary>
+    public decimal? GrossProfitUSD { get; set; }
+
+    /// <summary>The profit over the value before VAT it was measured on, as the API states it.</summary>
+    public decimal? GrossMarginPercent { get; set; }
+
+    /// <summary>The invoices' line value before VAT in USD, which <see cref="GrossProfitUSD"/> is measured on.</summary>
+    public decimal? RevenueBeforeVatUSD { get; set; }
 }
 
 public class DailySales
@@ -27,6 +36,12 @@ public class DailySales
     public int InvoiceCount { get; set; }
     public decimal TotalSalesUSD { get; set; }
     public decimal TotalSalesZIG { get; set; }
+
+    /// <summary>SAP's booked gross profit, in USD (the company currency); null from an older API or when SAP returned none.</summary>
+    public decimal? GrossProfitUSD { get; set; }
+
+    /// <summary>The profit over the value before VAT it was measured on, as the API states it.</summary>
+    public decimal? GrossMarginPercent { get; set; }
 }
 
 public class SalesByCurrency
@@ -57,6 +72,12 @@ public class TopProduct
     public decimal TotalRevenueUSD { get; set; }
     public decimal TotalRevenueZIG { get; set; }
     public int TimesOrdered { get; set; }
+
+    /// <summary>SAP's booked gross profit, in USD (the company currency); null from an older API or when SAP returned none.</summary>
+    public decimal? GrossProfitUSD { get; set; }
+
+    /// <summary>The profit over the value before VAT it was measured on, as the API states it.</summary>
+    public decimal? GrossMarginPercent { get; set; }
 }
 
 /// <summary>
@@ -162,6 +183,12 @@ public class TopCustomer
     public decimal TotalPaymentsZIG { get; set; }
     public decimal OutstandingBalanceUSD { get; set; }
     public decimal OutstandingBalanceZIG { get; set; }
+
+    /// <summary>SAP's booked gross profit, in USD (the company currency); null from an older API or when SAP returned none.</summary>
+    public decimal? GrossProfitUSD { get; set; }
+
+    /// <summary>The profit over the value before VAT it was measured on, as the API states it.</summary>
+    public decimal? GrossMarginPercent { get; set; }
 }
 
 /// <summary>
@@ -422,6 +449,12 @@ public class ProfitOverviewReport
     public int TotalPayments { get; set; }
     public int UniqueCustomers { get; set; }
     public List<MonthlyProfit> MonthlyBreakdown { get; set; } = new();
+
+    /// <summary>Invoice line value before VAT less the credit notes', in USD: what the profit and margin are measured on.</summary>
+    public decimal NetSalesBeforeVatUSD { get; set; }
+
+    /// <summary>What the goods sold cost as SAP booked it when they left; not the purchase orders raised.</summary>
+    public decimal CostOfSalesUSD { get; set; }
 }
 
 public class MonthlyProfit
@@ -435,6 +468,10 @@ public class MonthlyProfit
     public decimal GrossProfitUSD { get; set; }
     public int InvoiceCount { get; set; }
     public int PaymentCount { get; set; }
+
+    public decimal NetSalesBeforeVatUSD { get; set; }
+
+    public decimal? GrossMarginPercent { get; set; }
 }
 
 #endregion

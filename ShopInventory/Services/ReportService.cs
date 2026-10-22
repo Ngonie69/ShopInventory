@@ -142,8 +142,19 @@ public class ReportService : IReportService
     // shapes that used to move is still in the text: the TOP count is gone (see the statement), and
     // the warehouse filter binds as :warehouseCode, which only needs a second constant statement
     // because the text behind a code has to be constant for the object to be reused.
-    internal const string TopProductsQueryCode = "RPT_TOP_PROD";
-    internal const string TopProductsByWarehouseQueryCode = "RPT_TOP_PROD_WHS";
+    //
+    // _GP: the statements gained SAP's booked gross profit. New codes rather than a PATCH of the old
+    // objects, because a slot still running the previous build would PATCH the text straight back.
+    internal const string TopProductsQueryCode = "RPT_TOP_PROD_GP";
+    internal const string TopProductsByWarehouseQueryCode = "RPT_TOP_PROD_WHS_GP";
+
+    // SAP's booked gross profit by day, on the invoices and on the credit notes, and by customer. Each
+    // is INV1's or RIN1's GrssProfit with LineTotal beside it: both are in the company currency (USD)
+    // on every document, whatever its own currency, so a margin read from the pair is always
+    // like-for-like. A ZiG invoice's ZiG amounts are in GrssProfFC/TotalFrgn, not here.
+    internal const string InvoiceGrossProfitByDayQueryCode = "RPT_GP_DAY";
+    internal const string CreditNoteGrossProfitByDayQueryCode = "RPT_CN_GP_DAY";
+    internal const string CustomerGrossProfitQueryCode = "RPT_GP_CUST";
 
     // SAP B1 on HANA matches DATE literals in 'yyyy-MM-dd' form, and accepts the same form for a
     // bound date parameter. A bare 'yyyyMMdd' string is accepted as a valid literal but never
@@ -454,6 +465,7 @@ SELECT
     T0."DocCur" AS "DocCur",
     SUM(T1."Quantity") AS "TotalQuantitySold",
     SUM(T1."LineTotal") AS "TotalRevenue",
+    SUM(T1."GrssProfit") AS "GrossProfit",
     COUNT(T1."LineNum") AS "TimesOrdered"
 FROM OINV T0
 INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
@@ -471,6 +483,7 @@ SELECT
     T0."DocCur" AS "DocCur",
     SUM(T1."Quantity") AS "TotalQuantitySold",
     SUM(T1."LineTotal") AS "TotalRevenue",
+    SUM(T1."GrssProfit") AS "GrossProfit",
     COUNT(T1."LineNum") AS "TimesOrdered"
 FROM OINV T0
 INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
@@ -481,6 +494,79 @@ WHERE T0."DocDate" >= :fromDate
 GROUP BY T1."ItemCode", T2."ItemName", T0."DocCur"
 ORDER BY T1."ItemCode", T0."DocCur"
 """;
+
+    internal const string InvoiceGrossProfitByDaySql = """
+SELECT
+    T0."DocDate" AS "DocDate",
+    SUM(T1."LineTotal") AS "Revenue",
+    SUM(T1."GrssProfit") AS "GrossProfit"
+FROM OINV T0
+INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
+WHERE T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+GROUP BY T0."DocDate"
+ORDER BY T0."DocDate"
+""";
+
+    internal const string CreditNoteGrossProfitByDaySql = """
+SELECT
+    T0."DocDate" AS "DocDate",
+    SUM(T1."LineTotal") AS "Revenue",
+    SUM(T1."GrssProfit") AS "GrossProfit"
+FROM ORIN T0
+INNER JOIN RIN1 T1 ON T0."DocEntry" = T1."DocEntry"
+WHERE T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+GROUP BY T0."DocDate"
+ORDER BY T0."DocDate"
+""";
+
+    internal const string CustomerGrossProfitSql = """
+SELECT
+    T0."CardCode" AS "CardCode",
+    SUM(T1."LineTotal") AS "Revenue",
+    SUM(T1."GrssProfit") AS "GrossProfit"
+FROM OINV T0
+INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
+WHERE T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+GROUP BY T0."CardCode"
+ORDER BY T0."CardCode"
+""";
+
+    private Task<List<Dictionary<string, object?>>> GetCachedInvoiceGrossProfitByDayRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken) =>
+        GetCachedReportSqlRowsAsync(
+            "report-data:gp-day",
+            BuildReportCacheKey("report-data:gp-day", fromDate, toDate),
+            InvoiceGrossProfitByDayQueryCode,
+            "Report Gross Profit By Day",
+            InvoiceGrossProfitByDaySql,
+            BuildDateRangeParameters(fromDate, toDate),
+            cancellationToken);
+
+    private Task<List<Dictionary<string, object?>>> GetCachedCreditNoteGrossProfitByDayRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken) =>
+        GetCachedReportSqlRowsAsync(
+            "report-data:cn-gp-day",
+            BuildReportCacheKey("report-data:cn-gp-day", fromDate, toDate),
+            CreditNoteGrossProfitByDayQueryCode,
+            "Report Credit Note Gross Profit By Day",
+            CreditNoteGrossProfitByDaySql,
+            BuildDateRangeParameters(fromDate, toDate),
+            cancellationToken);
+
+    private Task<List<Dictionary<string, object?>>> GetCachedCustomerGrossProfitRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken) =>
+        GetCachedReportSqlRowsAsync(
+            "report-data:gp-cust",
+            BuildReportCacheKey("report-data:gp-cust", fromDate, toDate),
+            CustomerGrossProfitQueryCode,
+            "Report Gross Profit By Customer",
+            CustomerGrossProfitSql,
+            BuildDateRangeParameters(fromDate, toDate),
+            cancellationToken);
+
+    /// <summary>A margin to one place, or null where nothing was sold to measure it on.</summary>
+    internal static decimal? MarginPercent(decimal grossProfit, decimal revenue) =>
+        revenue == 0 ? null : Math.Round(grossProfit / revenue * 100m, 1, MidpointRounding.AwayFromZero);
 
     private Task<List<Dictionary<string, object?>>> GetCachedSalesSummaryRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken) =>
         GetCachedReportSqlRowsAsync(
@@ -728,7 +814,16 @@ ORDER BY T0."CardName"
                 var summaryRowsTask = GetCachedSalesSummaryRowsAsync(fromDate, toDate, token);
                 var uniqueCustomerRowsTask = GetCachedUniqueCustomerRowsAsync(fromDate, toDate, token);
                 var dailyRowsTask = GetCachedDailySalesRowsAsync(fromDate, toDate, token);
-                await Task.WhenAll(summaryRowsTask, uniqueCustomerRowsTask, dailyRowsTask);
+                var grossProfitRowsTask = GetCachedInvoiceGrossProfitByDayRowsAsync(fromDate, toDate, token);
+                await Task.WhenAll(summaryRowsTask, uniqueCustomerRowsTask, dailyRowsTask, grossProfitRowsTask);
+
+                var grossProfitByDay = (await grossProfitRowsTask)
+                    .GroupBy(row => GetRowDate(row, "DocDate").Date)
+                    .ToDictionary(
+                        day => day.Key,
+                        day => (Revenue: day.Sum(row => GetRowDecimal(row, "Revenue")), GrossProfit: day.Sum(row => GetRowDecimal(row, "GrossProfit"))));
+                var periodRevenue = grossProfitByDay.Values.Sum(day => day.Revenue);
+                var periodProfit = grossProfitByDay.Values.Sum(day => day.GrossProfit);
 
                 var summaryRows = await summaryRowsTask;
                 var dailyRows = await dailyRowsTask;
@@ -755,7 +850,9 @@ ORDER BY T0."CardName"
                         Date = day.Key,
                         InvoiceCount = day.Sum(row => GetRowInt(row, "InvoiceCount")),
                         TotalSalesUSD = day.Where(IsUsdRow).Sum(row => GetRowDecimal(row, "TotalSales")),
-                        TotalSalesZIG = day.Where(IsZigRow).Sum(row => GetRowDecimal(row, "TotalSales"))
+                        TotalSalesZIG = day.Where(IsZigRow).Sum(row => GetRowDecimal(row, "TotalSales")),
+                        GrossProfitUSD = grossProfitByDay.TryGetValue(day.Key, out var profit) ? profit.GrossProfit : null,
+                        GrossMarginPercent = grossProfitByDay.TryGetValue(day.Key, out var margin) ? MarginPercent(margin.GrossProfit, margin.Revenue) : null
                     })
                     .OrderBy(d => d.Date)
                     .ToList();
@@ -772,6 +869,9 @@ ORDER BY T0."CardName"
                     AverageInvoiceValueUSD = countUSD > 0 ? totalUSD / countUSD : 0,
                     AverageInvoiceValueZIG = countZIG > 0 ? totalZIG / countZIG : 0,
                     UniqueCustomers = GetRowInt(uniqueCustomerRow, "UniqueCustomers"),
+                    GrossProfitUSD = periodProfit,
+                    RevenueBeforeVatUSD = periodRevenue,
+                    GrossMarginPercent = MarginPercent(periodProfit, periodRevenue),
                     DailySales = dailySales,
                     SalesByCurrency = new List<SalesByCurrencyDto>
                     {
@@ -804,7 +904,9 @@ ORDER BY T0."CardName"
                 TotalQuantitySold = item.Sum(row => GetRowDecimal(row, "TotalQuantitySold")),
                 TotalRevenueUSD = item.Where(IsUsdRow).Sum(row => GetRowDecimal(row, "TotalRevenue")),
                 TotalRevenueZIG = item.Where(IsZigRow).Sum(row => GetRowDecimal(row, "TotalRevenue")),
-                TimesOrdered = item.Sum(row => GetRowInt(row, "TimesOrdered"))
+                TimesOrdered = item.Sum(row => GetRowInt(row, "TimesOrdered")),
+                Revenue = item.Sum(row => GetRowDecimal(row, "TotalRevenue")),
+                GrossProfit = item.Sum(row => GetRowDecimal(row, "GrossProfit"))
             })
             .OrderByDescending(p => p.TotalQuantitySold)
             .Take(Math.Clamp(topCount, 1, 1000))
@@ -816,7 +918,9 @@ ORDER BY T0."CardName"
                 TotalQuantitySold = p.TotalQuantitySold,
                 TotalRevenueUSD = p.TotalRevenueUSD,
                 TotalRevenueZIG = p.TotalRevenueZIG,
-                TimesOrdered = p.TimesOrdered
+                TimesOrdered = p.TimesOrdered,
+                GrossProfitUSD = p.GrossProfit,
+                GrossMarginPercent = MarginPercent(p.GrossProfit, p.Revenue)
             })
             .ToList();
 
@@ -1270,7 +1374,15 @@ ORDER BY T0."CardName"
 
         var customerInvoiceRowsTask = GetCachedCustomerInvoiceRowsAsync(fromDate, toDate, cancellationToken);
         var paymentsTask = GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
-        await Task.WhenAll(customerInvoiceRowsTask, paymentsTask);
+        var customerProfitTask = GetCachedCustomerGrossProfitRowsAsync(fromDate, toDate, cancellationToken);
+        await Task.WhenAll(customerInvoiceRowsTask, paymentsTask, customerProfitTask);
+
+        var customerProfit = (await customerProfitTask)
+            .GroupBy(row => GetRowStringOrDefault(row, "CardCode"), StringComparer.Ordinal)
+            .ToDictionary(
+                customer => customer.Key,
+                customer => (Revenue: customer.Sum(row => GetRowDecimal(row, "Revenue")), GrossProfit: customer.Sum(row => GetRowDecimal(row, "GrossProfit"))),
+                StringComparer.Ordinal);
 
         var customerInvoiceRows = await customerInvoiceRowsTask;
         var payments = await paymentsTask;
@@ -1319,7 +1431,9 @@ ORDER BY T0."CardName"
                     TotalPaymentsUSD = paymentData?.TotalPaymentsUSD ?? 0,
                     TotalPaymentsZIG = paymentData?.TotalPaymentsZIG ?? 0,
                     OutstandingBalanceUSD = c.TotalPurchasesUSD - (paymentData?.TotalPaymentsUSD ?? 0),
-                    OutstandingBalanceZIG = c.TotalPurchasesZIG - (paymentData?.TotalPaymentsZIG ?? 0)
+                    OutstandingBalanceZIG = c.TotalPurchasesZIG - (paymentData?.TotalPaymentsZIG ?? 0),
+                    GrossProfitUSD = customerProfit.TryGetValue(c.CardCode, out var profit) ? profit.GrossProfit : null,
+                    GrossMarginPercent = customerProfit.TryGetValue(c.CardCode, out var margin) ? MarginPercent(margin.GrossProfit, margin.Revenue) : null
                 };
             })
             .ToList();
@@ -2151,6 +2265,16 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
 
         var salesSummary = await GetSalesSummaryAsync(fromDate, toDate, cancellationToken);
 
+        // Gross profit is SAP's booked gross profit: each invoice line's value before VAT less the
+        // stock cost SAP relieved when it left, less the same on the credit notes. It used to be the
+        // takings less VAT less the period's purchase orders, which is cash spent on stock, not the
+        // cost of what was sold. Both halves are in USD, the company currency, on every document.
+        var invoiceProfitTask = GetCachedInvoiceGrossProfitByDayRowsAsync(fromDate, toDate, cancellationToken);
+        var creditProfitTask = GetCachedCreditNoteGrossProfitByDayRowsAsync(fromDate, toDate, cancellationToken);
+        await Task.WhenAll(invoiceProfitTask, creditProfitTask);
+        var invoiceProfitRows = await invoiceProfitTask;
+        var creditProfitRows = await creditProfitTask;
+
         var payments = await GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
 
         var creditNotes = await GetCachedCreditNotesByDateRangeAsync(fromDate, toDate, cancellationToken);
@@ -2189,9 +2313,16 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
 
         var netRevenueUSD = revenueUSD - cnUSD;
         var netRevenueZIG = revenueZIG - cnZIG;
-        var grossProfitUSD = netRevenueUSD - vatUSD - purchaseCostUSD;
-        var grossProfitZIG = netRevenueZIG - vatZIG - purchaseCostZIG;
-        var grossMargin = netRevenueUSD > 0 ? Math.Round(grossProfitUSD / netRevenueUSD * 100, 1) : 0;
+
+        static (decimal Revenue, decimal GrossProfit) Sum(IEnumerable<Dictionary<string, object?>> rows) =>
+            rows.Aggregate((Revenue: 0m, GrossProfit: 0m), (total, row) =>
+                (total.Revenue + GetRowDecimal(row, "Revenue"), total.GrossProfit + GetRowDecimal(row, "GrossProfit")));
+
+        var invoiced = Sum(invoiceProfitRows);
+        var credited = Sum(creditProfitRows);
+        var netSalesBeforeVatUSD = invoiced.Revenue - credited.Revenue;
+        var grossProfitUSD = invoiced.GrossProfit - credited.GrossProfit;
+        var grossMargin = MarginPercent(grossProfitUSD, netSalesBeforeVatUSD) ?? 0;
         var collectionRate = revenueUSD > 0 ? Math.Round(collectedUSD / revenueUSD * 100, 1) : 0;
 
         // Monthly breakdown
@@ -2213,6 +2344,10 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
             var mCnUSD = mCreditNotes.Where(cn => cn.DocCurrency == "USD" || cn.DocCurrency == "$" || string.IsNullOrEmpty(cn.DocCurrency)).Sum(cn => cn.DocTotal);
             var mCollectedUSD = mPayments.Where(p => p.DocCurrency == "USD" || p.DocCurrency == "$" || string.IsNullOrEmpty(p.DocCurrency)).Sum(p => GetPaymentTotal(p));
             var mPurchaseCostUSD = mPurchases.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0);
+            var mInvoiced = Sum(invoiceProfitRows.Where(row => { var d = GetRowDate(row, "DocDate"); return d.Year == m.Year && d.Month == m.Month; }));
+            var mCredited = Sum(creditProfitRows.Where(row => { var d = GetRowDate(row, "DocDate"); return d.Year == m.Year && d.Month == m.Month; }));
+            var mNetBeforeVat = mInvoiced.Revenue - mCredited.Revenue;
+            var mProfit = mInvoiced.GrossProfit - mCredited.GrossProfit;
 
             return new MonthlyProfitDto
             {
@@ -2222,7 +2357,9 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
                 CreditNotesUSD = mCnUSD,
                 CollectedUSD = mCollectedUSD,
                 PurchaseCostUSD = mPurchaseCostUSD,
-                GrossProfitUSD = mRevenueUSD - mCnUSD - mPurchaseCostUSD,
+                GrossProfitUSD = mProfit,
+                NetSalesBeforeVatUSD = mNetBeforeVat,
+                GrossMarginPercent = MarginPercent(mProfit, mNetBeforeVat),
                 InvoiceCount = mSales.Sum(d => d.InvoiceCount),
                 PaymentCount = mPayments.Count
             };
@@ -2248,8 +2385,11 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
             TotalPurchaseCostUSD = purchaseCostUSD,
             TotalPurchaseCostZIG = purchaseCostZIG,
             GrossProfitUSD = grossProfitUSD,
-            GrossProfitZIG = grossProfitZIG,
+            // SAP books every document's gross profit in USD, so there is no separate ZiG profit.
+            GrossProfitZIG = 0,
             GrossMarginPercent = grossMargin,
+            NetSalesBeforeVatUSD = netSalesBeforeVatUSD,
+            CostOfSalesUSD = netSalesBeforeVatUSD - grossProfitUSD,
             TotalInvoices = salesSummary.TotalInvoices,
             TotalCreditNoteCount = creditNotes.Count,
             TotalPayments = payments.Count,

@@ -1071,6 +1071,31 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     protected decimal GrandTotal => Rows.Sum(row => row.Total);
 
     /// <summary>
+    /// A row's gross profit over the whole window: SAP's booked profit on its invoice lines less its credit
+    /// notes', in USD, from the item's or the partner's totals. Null when the report has not run.
+    /// </summary>
+    protected (decimal? GrossProfit, decimal? MarginPercent) ProfitOf(string code)
+    {
+        if (report is null)
+        {
+            return (null, null);
+        }
+
+        if (IsVolume)
+        {
+            var item = report.ItemTotals.FirstOrDefault(total => string.Equals(total.ItemCode, code, StringComparison.OrdinalIgnoreCase));
+            return item is null ? (null, null) : (item.NetGrossProfitUsd, item.NetMarginPercent);
+        }
+
+        var account = report.AccountTotals.FirstOrDefault(total => string.Equals(total.CardCode, code, StringComparison.OrdinalIgnoreCase));
+        return account is null ? (null, null) : (account.NetGrossProfitUsd, account.NetMarginPercent);
+    }
+
+    /// <summary>The window's gross profit and margin, whatever the search box shows.</summary>
+    protected (decimal? GrossProfit, decimal? MarginPercent) TotalProfit =>
+        report is null ? (null, null) : (report.Summary.NetGrossProfitUsd, report.Summary.NetMarginPercent);
+
+    /// <summary>
     /// The rows the chart stacks. Only the largest few are coloured; beyond that the bands stop
     /// being distinguishable and the legend stops being readable.
     /// </summary>

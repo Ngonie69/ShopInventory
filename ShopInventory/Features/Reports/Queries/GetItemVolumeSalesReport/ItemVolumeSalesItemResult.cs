@@ -41,4 +41,15 @@ public sealed class ItemVolumeSalesItemResult
     public decimal CreditedSalesFromZig { get; set; }
     public decimal NetRevenueUsd { get; set; }
     public decimal NetRevenueFromZig { get; set; }
+
+    /// <summary>
+    /// SAP's booked gross profit on these lines in USD, net of credit notes: each invoice line's value
+    /// before VAT less the stock cost SAP relieved, less the same on the credit notes.
+    /// </summary>
+    public decimal NetGrossProfitUsd { get; set; }
+
+    /// <summary><see cref="NetGrossProfitUsd"/> over <see cref="NetRevenueUsd"/>, to one place; null with no net revenue.</summary>
+    public decimal? NetMarginPercent => NetRevenueUsd == 0
+        ? null
+        : Math.Round(NetGrossProfitUsd / NetRevenueUsd * 100m, 1, MidpointRounding.AwayFromZero);
 }

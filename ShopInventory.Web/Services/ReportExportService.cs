@@ -752,6 +752,11 @@ public partial class ReportExportService : IReportExportService
         WriteKpiCard(dash, row, 4, "VAT (USD)", report.TotalVatUSD, FormatUsd);
         WriteKpiCard(dash, row, 5, "Avg Invoice (USD)", report.AverageInvoiceValueUSD, FormatUsd);
         WriteKpiCard(dash, row, 6, "Unique Customers", report.UniqueCustomers, FormatCount);
+        if (report.GrossProfitUSD is { } salesProfit)
+        {
+            // SAP's booked profit on the period's invoices, in USD: SAP books every document in USD.
+            WriteKpiCard(dash, row, 7, "Gross Profit (USD)", salesProfit, FormatSignedMoney, salesProfit < 0 ? DangerRed : SuccessGreen);
+        }
         row += 3;
 
         WriteSectionTitle(dash, row, 6, "SALES BY CURRENCY");
@@ -781,11 +786,17 @@ public partial class ReportExportService : IReportExportService
 
         // ── Daily Breakdown Sheet ──
         var daily = AddSheet(workbook, "Daily Sales");
-        int dRow = WriteReportHeader(daily, "Daily Sales Breakdown", 4, report.FromDate, report.ToDate);
+        var dailyGp = report.GrossProfitUSD is not null;
+        var dailyCols = dailyGp ? 7 : 4;
+        int dRow = WriteReportHeader(daily, "Daily Sales Breakdown", dailyCols, report.FromDate, report.ToDate);
 
         daily.Cell(dRow, 1).Value = "Date"; daily.Cell(dRow, 2).Value = "Invoices";
         daily.Cell(dRow, 3).Value = "Sales (USD)"; daily.Cell(dRow, 4).Value = "Sales (ZiG)";
-        StyleTableHeader(daily, dRow, 4);
+        if (dailyGp)
+        {
+            daily.Cell(dRow, 5).Value = "Gross Profit (USD)"; daily.Cell(dRow, 6).Value = "Margin"; daily.Cell(dRow, 7).Value = "Profit / Loss";
+        }
+        StyleTableHeader(daily, dRow, dailyCols);
         int freezeAt = dRow;
         dRow++;
         int dailyStart = dRow;
@@ -800,20 +811,32 @@ public partial class ReportExportService : IReportExportService
             daily.Cell(dRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             daily.Cell(dRow, 3).Value = day.TotalSalesUSD; daily.Cell(dRow, 3).Style.NumberFormat.Format = FormatUsd;
             daily.Cell(dRow, 4).Value = day.TotalSalesZIG; daily.Cell(dRow, 4).Style.NumberFormat.Format = FormatZig;
+            if (dailyGp)
+                DesktopAnalysisGrossProfitCells(daily, dRow, 5, day.GrossProfitUSD, day.GrossMarginPercent);
             dRow++;
         }
         int dailyLast = dRow - 1;
-        dRow = FinishTable(daily, freezeAt, dailyStart, dRow, 4, "No invoices were raised in this period.");
+        dRow = FinishTable(daily, freezeAt, dailyStart, dRow, dailyCols, "No invoices were raised in this period.");
 
         daily.Cell(dRow, 1).Value = "TOTAL";
         WriteSubtotal(daily, dRow, 2, dailyStart, dailyLast, FormatCount);
         daily.Cell(dRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         WriteSubtotal(daily, dRow, 3, dailyStart, dailyLast, FormatUsd);
         WriteSubtotal(daily, dRow, 4, dailyStart, dailyLast, FormatZig);
-        StyleTotalsRow(daily, dRow, 4);
+        if (dailyGp)
+        {
+            daily.Cell(dRow, 5).Value = report.GrossProfitUSD!.Value;
+            daily.Cell(dRow, 5).Style.NumberFormat.Format = FormatSignedMoney;
+            if (report.GrossMarginPercent is { } periodMargin)
+            {
+                daily.Cell(dRow, 6).Value = periodMargin / 100m;
+                daily.Cell(dRow, 6).Style.NumberFormat.Format = FormatSignedPercent;
+            }
+        }
+        StyleTotalsRow(daily, dRow, dailyCols);
 
-        WriteFooter(daily, dRow, 4);
-        FinalizeSheet(daily, 4, freezeAt);
+        WriteFooter(daily, dRow, dailyCols);
+        FinalizeSheet(daily, dailyCols, freezeAt);
 
         return WorkbookToBytes(workbook);
     }
@@ -825,7 +848,9 @@ public partial class ReportExportService : IReportExportService
     {
         using var workbook = NewWorkbook("Top Products Report");
         var ws = AddSheet(workbook, "Top Products");
-        int row = WriteReportHeader(ws, "Top Products Report", 7, report.FromDate, report.ToDate);
+        var productGp = report.TopProducts.Any(product => product.GrossProfitUSD is not null);
+        var productCols = productGp ? 10 : 7;
+        int row = WriteReportHeader(ws, "Top Products Report", productCols, report.FromDate, report.ToDate);
 
         WriteKpiCard(ws, row, 1, "Total Products Sold", report.TotalProductsSold, FormatCount);
         WriteKpiCard(ws, row, 2, "Products Listed", report.TopProducts.Count, FormatCount);
@@ -836,7 +861,11 @@ public partial class ReportExportService : IReportExportService
         ws.Cell(row, 1).Value = "Rank"; ws.Cell(row, 2).Value = "Item Code"; ws.Cell(row, 3).Value = "Product Name";
         ws.Cell(row, 4).Value = "Qty Sold"; ws.Cell(row, 5).Value = "Times Ordered";
         ws.Cell(row, 6).Value = "Revenue (USD)"; ws.Cell(row, 7).Value = "Revenue (ZiG)";
-        StyleTableHeader(ws, row, 7);
+        if (productGp)
+        {
+            ws.Cell(row, 8).Value = "Gross Profit (USD)"; ws.Cell(row, 9).Value = "Margin"; ws.Cell(row, 10).Value = "Profit / Loss";
+        }
+        StyleTableHeader(ws, row, productCols);
         int freezeAt = row;
         row++;
         int dataStart = row;
@@ -855,20 +884,24 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 5).Value = p.TimesOrdered; ws.Cell(row, 5).Style.NumberFormat.Format = FormatCount;
             ws.Cell(row, 6).Value = p.TotalRevenueUSD; ws.Cell(row, 6).Style.NumberFormat.Format = FormatUsd;
             ws.Cell(row, 7).Value = p.TotalRevenueZIG; ws.Cell(row, 7).Style.NumberFormat.Format = FormatZig;
+            if (productGp)
+                DesktopAnalysisGrossProfitCells(ws, row, 8, p.GrossProfitUSD, p.GrossMarginPercent);
             row++;
         }
         int lastData = row - 1;
-        row = FinishTable(ws, freezeAt, dataStart, row, 7, "No products were sold in this period.");
+        row = FinishTable(ws, freezeAt, dataStart, row, productCols, "No products were sold in this period.");
 
         ws.Cell(row, 1).Value = "TOTAL";
         WriteSubtotal(ws, row, 4, dataStart, lastData, FormatCount);
         WriteSubtotal(ws, row, 5, dataStart, lastData, FormatCount);
         WriteSubtotal(ws, row, 6, dataStart, lastData, FormatUsd);
         WriteSubtotal(ws, row, 7, dataStart, lastData, FormatZig);
-        StyleTotalsRow(ws, row, 7);
+        if (productGp)
+            WriteSubtotal(ws, row, 8, dataStart, lastData, FormatSignedMoney);
+        StyleTotalsRow(ws, row, productCols);
 
-        WriteFooter(ws, row, 7);
-        FinalizeSheet(ws, 7, freezeAt, landscape: true);
+        WriteFooter(ws, row, productCols);
+        FinalizeSheet(ws, productCols, freezeAt, landscape: true);
 
         return WorkbookToBytes(workbook);
     }
@@ -1022,7 +1055,9 @@ public partial class ReportExportService : IReportExportService
     {
         using var workbook = NewWorkbook("Top Customers Report");
         var ws = AddSheet(workbook, "Top Customers");
-        int row = WriteReportHeader(ws, "Top Customers Report", 8, report.FromDate, report.ToDate);
+        var customerGp = report.TopCustomers.Any(customer => customer.GrossProfitUSD is not null);
+        var customerCols = customerGp ? 11 : 8;
+        int row = WriteReportHeader(ws, "Top Customers Report", customerCols, report.FromDate, report.ToDate);
 
         WriteKpiCard(ws, row, 1, "Total Customers", report.TotalCustomers, FormatCount);
         WriteKpiCard(ws, row, 2, "Customers Listed", report.TopCustomers.Count, FormatCount);
@@ -1034,7 +1069,11 @@ public partial class ReportExportService : IReportExportService
         ws.Cell(row, 4).Value = "Invoices"; ws.Cell(row, 5).Value = "Purchases (USD)";
         ws.Cell(row, 6).Value = "Purchases (ZiG)"; ws.Cell(row, 7).Value = "Payments (USD)";
         ws.Cell(row, 8).Value = "Balance (USD)";
-        StyleTableHeader(ws, row, 8);
+        if (customerGp)
+        {
+            ws.Cell(row, 9).Value = "Gross Profit (USD)"; ws.Cell(row, 10).Value = "Margin"; ws.Cell(row, 11).Value = "Profit / Loss";
+        }
+        StyleTableHeader(ws, row, customerCols);
         int freezeAt = row;
         row++;
         int dataStart = row;
@@ -1059,10 +1098,12 @@ public partial class ReportExportService : IReportExportService
             {
                 ws.Cell(row, 8).Style.Font.FontColor = SuccessGreen;
             }
+            if (customerGp)
+                DesktopAnalysisGrossProfitCells(ws, row, 9, c.GrossProfitUSD, c.GrossMarginPercent);
             row++;
         }
         int lastData = row - 1;
-        row = FinishTable(ws, freezeAt, dataStart, row, 8, "No customer purchases were recorded in this period.");
+        row = FinishTable(ws, freezeAt, dataStart, row, customerCols, "No customer purchases were recorded in this period.");
 
         ws.Cell(row, 1).Value = "TOTAL";
         WriteSubtotal(ws, row, 4, dataStart, lastData, FormatCount);
@@ -1071,10 +1112,12 @@ public partial class ReportExportService : IReportExportService
         WriteSubtotal(ws, row, 6, dataStart, lastData, FormatZig);
         WriteSubtotal(ws, row, 7, dataStart, lastData, FormatUsd);
         WriteSubtotal(ws, row, 8, dataStart, lastData, FormatUsd);
-        StyleTotalsRow(ws, row, 8);
+        if (customerGp)
+            WriteSubtotal(ws, row, 9, dataStart, lastData, FormatSignedMoney);
+        StyleTotalsRow(ws, row, customerCols);
 
-        WriteFooter(ws, row, 8);
-        FinalizeSheet(ws, 8, freezeAt, landscape: true);
+        WriteFooter(ws, row, customerCols);
+        FinalizeSheet(ws, customerCols, freezeAt, landscape: true);
 
         return WorkbookToBytes(workbook);
     }
@@ -2492,15 +2535,24 @@ public partial class ReportExportService : IReportExportService
         dash.Cell(row, 3).Value = report.NetRevenueZIG; dash.Cell(row, 3).Style.NumberFormat.Format = FormatZig;
         row++;
 
-        PLRow("Less: Purchases (COGS)", report.TotalPurchaseCostUSD, report.TotalPurchaseCostZIG, "Cost of goods sold", color: DangerRed);
+        // Gross profit is SAP's booked profit: sales before VAT less what the goods cost when they left.
+        // SAP books every document in USD, so these lines have no ZiG figure.
+        dash.Cell(row, 1).Value = "Net Sales before VAT";
+        dash.Cell(row, 2).Value = report.NetSalesBeforeVatUSD; dash.Cell(row, 2).Style.NumberFormat.Format = FormatUsd;
+        dash.Cell(row, 4).Value = "Invoice lines less credit note lines, before VAT";
+        row++;
+
+        PLRow("Less: Cost of Sales", report.CostOfSalesUSD, 0m, "What the goods sold cost, as SAP booked it when they left", color: DangerRed);
+        dash.Cell(row - 1, 3).Value = "";
 
         // Gross Profit highlight
         var grossProfitRow = row;
         dash.Cell(row, 1).Value = "GROSS PROFIT";
-        dash.Cell(row, 2).Value = report.GrossProfitUSD; dash.Cell(row, 2).Style.NumberFormat.Format = FormatUsd;
-        dash.Cell(row, 3).Value = report.GrossProfitZIG; dash.Cell(row, 3).Style.NumberFormat.Format = FormatZig;
-        dash.Cell(row, 4).Value = $"Margin: {report.GrossMarginPercent:N1}%";
+        dash.Cell(row, 2).Value = report.GrossProfitUSD; dash.Cell(row, 2).Style.NumberFormat.Format = FormatSignedMoney;
+        dash.Cell(row, 4).Value = $"Margin: {report.GrossMarginPercent:N1}% of net sales before VAT";
         row++;
+
+        PLRow("Purchase Orders Raised", report.TotalPurchaseCostUSD, report.TotalPurchaseCostZIG, "Stock bought in the period, not stock sold: not deducted");
 
         PLRow("Payments Received", report.TotalCollectedUSD, report.TotalCollectedZIG, $"{report.TotalPayments:N0} payments");
         PLRow("Outstanding Receivables", report.OutstandingReceivablesUSD, report.OutstandingReceivablesZIG, $"Collection Rate: {report.CollectionRatePercent:N1}%", color: DangerRed);
@@ -2538,7 +2590,7 @@ public partial class ReportExportService : IReportExportService
         int mRow = WriteReportHeader(mws, "Monthly Profit & Loss Breakdown", 8, report.FromDate, report.ToDate);
 
         mws.Cell(mRow, 1).Value = "Month"; mws.Cell(mRow, 2).Value = "Sales (USD)"; mws.Cell(mRow, 3).Value = "Credit Notes";
-        mws.Cell(mRow, 4).Value = "Net Revenue"; mws.Cell(mRow, 5).Value = "Purchases"; mws.Cell(mRow, 6).Value = "Gross Profit";
+        mws.Cell(mRow, 4).Value = "Net Revenue"; mws.Cell(mRow, 5).Value = "Cost of Sales"; mws.Cell(mRow, 6).Value = "Gross Profit";
         mws.Cell(mRow, 7).Value = "Margin %"; mws.Cell(mRow, 8).Value = "Invoices";
         StyleTableHeader(mws, mRow, 8);
         int mFreeze = mRow;
@@ -2546,17 +2598,19 @@ public partial class ReportExportService : IReportExportService
         int mStart = mRow;
         foreach (var m in report.MonthlyBreakdown.OrderByDescending(x => x.Month))
         {
+            // SAP's booked profit on the month's sales before VAT; cost of sales is the rest of them.
             var net = m.RevenueUSD - m.CreditNotesUSD;
-            var gp = net - m.PurchaseCostUSD;
-            var margin = net > 0 ? (gp / net * 100) : 0;
+            var gp = m.GrossProfitUSD;
+            var costOfSales = m.NetSalesBeforeVatUSD - m.GrossProfitUSD;
+            var margin = m.GrossMarginPercent ?? 0m;
 
             mws.Cell(mRow, 1).Value = m.Month; mws.Cell(mRow, 1).Style.Font.Bold = true;
             mws.Cell(mRow, 2).Value = m.RevenueUSD; mws.Cell(mRow, 2).Style.NumberFormat.Format = FormatUsd;
             mws.Cell(mRow, 3).Value = m.CreditNotesUSD; mws.Cell(mRow, 3).Style.NumberFormat.Format = FormatUsd;
             if (m.CreditNotesUSD > 0) mws.Cell(mRow, 3).Style.Font.FontColor = DangerRed;
             mws.Cell(mRow, 4).Value = net; mws.Cell(mRow, 4).Style.NumberFormat.Format = FormatUsd;
-            mws.Cell(mRow, 5).Value = m.PurchaseCostUSD; mws.Cell(mRow, 5).Style.NumberFormat.Format = FormatUsd;
-            mws.Cell(mRow, 6).Value = gp; mws.Cell(mRow, 6).Style.NumberFormat.Format = FormatUsd;
+            mws.Cell(mRow, 5).Value = costOfSales; mws.Cell(mRow, 5).Style.NumberFormat.Format = FormatUsd;
+            mws.Cell(mRow, 6).Value = gp; mws.Cell(mRow, 6).Style.NumberFormat.Format = FormatSignedMoney;
             mws.Cell(mRow, 6).Style.Font.FontColor = gp >= 0 ? SuccessGreen : DangerRed;
             mws.Cell(mRow, 6).Style.Font.Bold = true;
             mws.Cell(mRow, 7).Value = margin / 100; mws.Cell(mRow, 7).Style.NumberFormat.Format = FormatPercent;
@@ -2573,12 +2627,12 @@ public partial class ReportExportService : IReportExportService
         {
             WriteSubtotal(mws, mRow, col, mStart, lastMonth, FormatUsd);
         }
-        // Margin is a ratio of the two subtotals above it, not a sum of the monthly
-        // margins, so it is derived rather than SUBTOTALled — and it still follows the
-        // filter, because the cells it divides do.
-        var netCell = $"D{mRow}";
+        // Margin is a ratio of the subtotals above it, not a sum of the monthly margins, so it is
+        // derived rather than SUBTOTALled — and it still follows the filter, because the cells it
+        // divides do. It is of sales before VAT, which is cost of sales plus gross profit.
+        var costCell = $"E{mRow}";
         var profitCell = $"F{mRow}";
-        mws.Cell(mRow, 7).FormulaA1 = $"IF({netCell}=0,0,{profitCell}/{netCell})";
+        mws.Cell(mRow, 7).FormulaA1 = $"IF(({costCell}+{profitCell})=0,0,{profitCell}/({costCell}+{profitCell}))";
         mws.Cell(mRow, 7).Style.NumberFormat.Format = FormatPercent;
         mws.Cell(mRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         WriteSubtotal(mws, mRow, 8, mStart, lastMonth, FormatCount);
@@ -7280,7 +7334,7 @@ public partial class ReportExportService : IReportExportService
         using var workbook = NewWorkbook(title);
 
         var itemsSheet = AddSheet(workbook, "Items");
-        const int itemCols = 12;
+        const int itemCols = 14;
         var row = WriteReportHeader(
             itemsSheet,
             $"{title} — by item",
@@ -7294,6 +7348,8 @@ public partial class ReportExportService : IReportExportService
         WriteKpiCard(itemsSheet, row, 4, "of which from ZiG docs", report.Summary.NetRevenueFromZig, FormatUsd);
         WriteKpiCard(itemsSheet, row, 5, "Invoices", report.Summary.InvoiceCount, FormatCount);
         WriteKpiCard(itemsSheet, row, 6, "Credit Notes", report.Summary.CreditNoteCount, FormatCount, WarningOrange);
+        WriteKpiCard(itemsSheet, row, 7, "Net Gross Profit USD", report.Summary.NetGrossProfitUsd, FormatSignedMoney,
+            report.Summary.NetGrossProfitUsd < 0 ? DangerRed : SuccessGreen);
         row += 3;
 
         if (report.Summary.ItemsWithoutFactorCount > 0)
@@ -7315,7 +7371,8 @@ public partial class ReportExportService : IReportExportService
             row,
             [
                 "Item Code", "Item Name", "Factor", "Invoiced Qty", "Credited Qty", "Net Qty",
-                "Net Volume", "Invoiced USD", "Invoiced USD from ZiG docs", "Credited USD", "Credited USD from ZiG docs", "Net Revenue USD"
+                "Net Volume", "Invoiced USD", "Invoiced USD from ZiG docs", "Credited USD", "Credited USD from ZiG docs", "Net Revenue USD",
+                "Net Gross Profit USD", "Margin"
             ]);
 
         var itemsStart = row;
@@ -7353,6 +7410,7 @@ public partial class ReportExportService : IReportExportService
             itemsSheet.Cell(row, 10).Style.NumberFormat.Format = FormatUsd;
             itemsSheet.Cell(row, 11).Style.NumberFormat.Format = FormatUsd;
             itemsSheet.Cell(row, 12).Style.NumberFormat.Format = FormatUsd;
+            ItemVolumeGrossProfitCells(itemsSheet, row, 13, item.NetGrossProfitUsd, item.NetMarginPercent);
 
             row++;
         }
@@ -7370,13 +7428,14 @@ public partial class ReportExportService : IReportExportService
         WriteSubtotal(itemsSheet, row, 10, itemsStart, itemsLast, FormatUsd);
         WriteSubtotal(itemsSheet, row, 11, itemsStart, itemsLast, FormatUsd);
         WriteSubtotal(itemsSheet, row, 12, itemsStart, itemsLast, FormatUsd);
+        ItemVolumeGrossProfitTotal(itemsSheet, row, 13, itemsStart, itemsLast, revenueCol: 12);
         StyleTotalsRow(itemsSheet, row, itemCols);
 
         WriteFooter(itemsSheet, row, itemCols);
         FinalizeSheet(itemsSheet, itemCols, itemsHeader, landscape: true);
 
         var partnersSheet = AddSheet(workbook, "Business Partners");
-        const int partnerCols = 11;
+        const int partnerCols = 13;
         row = WriteReportHeader(
             partnersSheet,
             $"{title} — by business partner",
@@ -7390,7 +7449,8 @@ public partial class ReportExportService : IReportExportService
             row,
             [
                 "Card Code", "Card Name", "Invoices", "Credit Notes", "Invoiced Qty", "Credited Qty",
-                "Net Qty", "Net Volume", "Net Revenue USD", "of which from ZiG docs", "Items Without Factor"
+                "Net Qty", "Net Volume", "Net Revenue USD", "of which from ZiG docs", "Items Without Factor",
+                "Net Gross Profit USD", "Margin"
             ]);
 
         var partnersStart = row;
@@ -7424,6 +7484,7 @@ public partial class ReportExportService : IReportExportService
                 partnersSheet.Cell(row, 11).Style.Font.FontColor = WarningOrange;
             }
 
+            ItemVolumeGrossProfitCells(partnersSheet, row, 12, account.NetGrossProfitUsd, account.NetMarginPercent);
             row++;
         }
 
@@ -7441,13 +7502,14 @@ public partial class ReportExportService : IReportExportService
         WriteSubtotal(partnersSheet, row, 8, partnersStart, partnersLast, FormatVolume);
         WriteSubtotal(partnersSheet, row, 9, partnersStart, partnersLast, FormatUsd);
         WriteSubtotal(partnersSheet, row, 10, partnersStart, partnersLast, FormatUsd);
+        ItemVolumeGrossProfitTotal(partnersSheet, row, 12, partnersStart, partnersLast, revenueCol: 9);
         StyleTotalsRow(partnersSheet, row, partnerCols);
 
         WriteFooter(partnersSheet, row, partnerCols);
         FinalizeSheet(partnersSheet, partnerCols, partnersHeader, landscape: true);
 
         var periodsSheet = AddSheet(workbook, "Periods");
-        const int periodCols = 7;
+        const int periodCols = 9;
         row = WriteReportHeader(
             periodsSheet,
             $"{title} — by {report.Grouping.ToString().ToLowerInvariant()} period",
@@ -7459,7 +7521,7 @@ public partial class ReportExportService : IReportExportService
         row = WriteItemVolumeTable(
             periodsSheet,
             row,
-            ["Period", "Starts", "Invoices", "Credit Notes", "Net Qty", "Net Volume", "Net Revenue USD"]);
+            ["Period", "Starts", "Invoices", "Credit Notes", "Net Qty", "Net Volume", "Net Revenue USD", "Net Gross Profit USD", "Margin"]);
 
         var periodsStart = row;
         foreach (var period in report.Periods.OrderBy(period => period.PeriodStartUtc))
@@ -7478,6 +7540,7 @@ public partial class ReportExportService : IReportExportService
             periodsSheet.Cell(row, 5).Style.NumberFormat.Format = FormatQuantity;
             periodsSheet.Cell(row, 6).Style.NumberFormat.Format = FormatVolume;
             periodsSheet.Cell(row, 7).Style.NumberFormat.Format = FormatUsd;
+            ItemVolumeGrossProfitCells(periodsSheet, row, 8, period.NetGrossProfitUsd, period.NetMarginPercent);
 
             row++;
         }
@@ -7493,13 +7556,14 @@ public partial class ReportExportService : IReportExportService
         WriteSubtotal(periodsSheet, row, 5, periodsStart, periodsLast, FormatQuantity);
         WriteSubtotal(periodsSheet, row, 6, periodsStart, periodsLast, FormatVolume);
         WriteSubtotal(periodsSheet, row, 7, periodsStart, periodsLast, FormatUsd);
+        ItemVolumeGrossProfitTotal(periodsSheet, row, 8, periodsStart, periodsLast, revenueCol: 7);
         StyleTotalsRow(periodsSheet, row, periodCols);
 
         WriteFooter(periodsSheet, row, periodCols);
         FinalizeSheet(periodsSheet, periodCols, periodsHeader);
 
         var linesSheet = AddSheet(workbook, "Document Lines");
-        const int lineCols = 12;
+        const int lineCols = 13;
         row = WriteReportHeader(
             linesSheet,
             $"{title} — document lines",
@@ -7513,7 +7577,7 @@ public partial class ReportExportService : IReportExportService
             row,
             [
                 "Date", "Type", "Document", "Card Code", "Card Name", "Item Code", "Item Name",
-                "Quantity", "Factor", "Volume", "Doc Currency", "Line Amount USD"
+                "Quantity", "Factor", "Volume", "Doc Currency", "Line Amount USD", "Gross Profit USD"
             ]);
 
         var linesStart = row;
@@ -7545,6 +7609,8 @@ public partial class ReportExportService : IReportExportService
             linesSheet.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             linesSheet.Cell(row, 12).Value = line.AmountUsd;
             linesSheet.Cell(row, 12).Style.NumberFormat.Format = FormatUsd;
+            linesSheet.Cell(row, 13).Value = line.GrossProfitUsd;
+            linesSheet.Cell(row, 13).Style.NumberFormat.Format = FormatSignedMoney;
 
             if (string.Equals(line.DocumentType, "Credit Note", StringComparison.OrdinalIgnoreCase))
             {
@@ -7562,6 +7628,7 @@ public partial class ReportExportService : IReportExportService
         WriteSubtotal(linesSheet, row, 8, linesStart, linesLast, FormatQuantity);
         WriteSubtotal(linesSheet, row, 10, linesStart, linesLast, FormatVolume);
         WriteSubtotal(linesSheet, row, 12, linesStart, linesLast, FormatUsd);
+        WriteSubtotal(linesSheet, row, 13, linesStart, linesLast, FormatSignedMoney);
         StyleTotalsRow(linesSheet, row, lineCols);
 
         WriteFooter(linesSheet, row, lineCols);
@@ -7588,9 +7655,13 @@ public partial class ReportExportService : IReportExportService
                 ? $"{range}, against the same dates in {string.Join(" and ", windows.Skip(1).Select(window => window.Label))} · net of credit notes"
                 : $"{range} · net of credit notes";
 
-        // Code, name, then revenue per year and its change on the year before, then the same for volume.
+        // Code, name, then revenue per year and its change on the year before, then the same for volume,
+        // then SAP's booked gross profit per year and the asked-for window's margin.
         var partnersSheet = AddSheet(workbook, "Partners");
-        var partnerCols = 2 + (years + 1) * 2;
+        var periodCols = 1 + (years + 1) * 2;
+        var profitCol = 3 + (years + 1) * 2;
+        var marginCol = profitCol + years;
+        var partnerCols = marginCol;
         var row = WriteReportHeader(
             partnersSheet,
             $"{title} — by business partner",
@@ -7602,6 +7673,8 @@ public partial class ReportExportService : IReportExportService
         headers.Add(years > 1 ? $"Revenue vs {windows[1].Label}" : "Revenue change");
         headers.AddRange(windows.Select(window => $"Volume L {window.Label}"));
         headers.Add(years > 1 ? $"Volume vs {windows[1].Label}" : "Volume change");
+        headers.AddRange(windows.Select(window => $"Gross Profit {currency} {window.Label}"));
+        headers.Add($"Margin {current.Label}");
 
         var partnersHeader = row;
         row = WriteItemVolumeTable(partnersSheet, row, headers.ToArray());
@@ -7613,6 +7686,18 @@ public partial class ReportExportService : IReportExportService
             partnersSheet.Cell(row, 2).Value = partner.Name;
             WritePerformanceYears(partnersSheet, row, 3, partner.Years.Select(year => year.Revenue).ToList(), money);
             WritePerformanceYears(partnersSheet, row, 4 + years, partner.Years.Select(year => year.Volume).ToList(), FormatVolume);
+            for (var year = 0; year < years; year++)
+            {
+                partnersSheet.Cell(row, profitCol + year).Value = partner.Years[year].GrossProfit;
+                partnersSheet.Cell(row, profitCol + year).Style.NumberFormat.Format = FormatSignedMoney;
+            }
+
+            if (partner.Years[0].MarginPercent is { } margin)
+            {
+                partnersSheet.Cell(row, marginCol).Value = margin / 100m;
+                partnersSheet.Cell(row, marginCol).Style.NumberFormat.Format = FormatSignedPercent;
+            }
+
             row++;
         }
 
@@ -7624,7 +7709,14 @@ public partial class ReportExportService : IReportExportService
         {
             WriteSubtotal(partnersSheet, row, 3 + year, partnersStart, partnersLast, money);
             WriteSubtotal(partnersSheet, row, 4 + years + year, partnersStart, partnersLast, FormatVolume);
+            WriteSubtotal(partnersSheet, row, profitCol + year, partnersStart, partnersLast, FormatSignedMoney);
         }
+
+        // The window's margin from the two subtotals, not a sum of margins, so it follows the filter.
+        var windowProfit = partnersSheet.Cell(row, profitCol).Address.ToStringRelative();
+        var windowRevenue = partnersSheet.Cell(row, 3).Address.ToStringRelative();
+        partnersSheet.Cell(row, marginCol).FormulaA1 = $"IF({windowRevenue}=0,0,{windowProfit}/{windowRevenue})";
+        partnersSheet.Cell(row, marginCol).Style.NumberFormat.Format = FormatSignedPercent;
 
         WritePerformanceChange(partnersSheet, row, 3 + years, performance.Totals.Select(total => total.Revenue).ToList());
         WritePerformanceChange(partnersSheet, row, 4 + years + years, performance.Totals.Select(total => total.Volume).ToList());
@@ -7639,11 +7731,12 @@ public partial class ReportExportService : IReportExportService
         row = WriteReportHeader(
             periodsSheet,
             $"{title} — by period, all partners",
-            partnerCols - 1,
+            periodCols,
             subtitle: subtitle);
 
+        // Revenue and volume only: the period rows carry no gross profit.
         var periodHeaders = new List<string> { "Period" };
-        periodHeaders.AddRange(headers.Skip(2));
+        periodHeaders.AddRange(headers.Skip(2).Take(periodCols - 1));
 
         var periodsHeader = row;
         row = WriteItemVolumeTable(periodsSheet, row, periodHeaders.ToArray());
@@ -7658,7 +7751,7 @@ public partial class ReportExportService : IReportExportService
         }
 
         var periodsLast = row - 1;
-        row = FinishTable(periodsSheet, periodsHeader, periodsStart, row, partnerCols - 1, "No periods fell in this window.");
+        row = FinishTable(periodsSheet, periodsHeader, periodsStart, row, periodCols, "No periods fell in this window.");
 
         periodsSheet.Cell(row, 1).Value = "TOTAL";
         for (var year = 0; year < years; year++)
@@ -7669,10 +7762,10 @@ public partial class ReportExportService : IReportExportService
 
         WritePerformanceChange(periodsSheet, row, 2 + years, performance.Totals.Select(total => total.Revenue).ToList());
         WritePerformanceChange(periodsSheet, row, 3 + years + years, performance.Totals.Select(total => total.Volume).ToList());
-        StyleTotalsRow(periodsSheet, row, partnerCols - 1);
+        StyleTotalsRow(periodsSheet, row, periodCols);
 
-        WriteFooter(periodsSheet, row, partnerCols - 1);
-        FinalizeSheet(periodsSheet, partnerCols - 1, periodsHeader, landscape: true);
+        WriteFooter(periodsSheet, row, periodCols);
+        FinalizeSheet(periodsSheet, periodCols, periodsHeader, landscape: true);
 
         return WorkbookToBytes(workbook);
     }
@@ -9552,6 +9645,31 @@ public partial class ReportExportService : IReportExportService
     }
 
     private const string FormatSignedMoney = "#,##0.00;[Red]-#,##0.00";
+
+    /// <summary>SAP's booked gross profit net of credit notes, and its margin, on an item volume sheet.</summary>
+    private static void ItemVolumeGrossProfitCells(IXLWorksheet ws, int row, int col, decimal grossProfit, decimal? marginPercent)
+    {
+        ws.Cell(row, col).Value = grossProfit;
+        ws.Cell(row, col).Style.NumberFormat.Format = FormatSignedMoney;
+        if (marginPercent is { } margin)
+        {
+            ws.Cell(row, col + 1).Value = margin / 100m;
+            ws.Cell(row, col + 1).Style.NumberFormat.Format = FormatSignedPercent;
+        }
+    }
+
+    /// <summary>
+    /// The total row's gross profit, a subtotal like the columns beside it, and its margin as a ratio of the
+    /// two subtotals rather than a sum of margins — so it still follows the sheet's filter.
+    /// </summary>
+    private static void ItemVolumeGrossProfitTotal(IXLWorksheet ws, int row, int col, int firstRow, int lastRow, int revenueCol)
+    {
+        WriteSubtotal(ws, row, col, firstRow, lastRow, FormatSignedMoney);
+        var profit = ws.Cell(row, col).Address.ToStringRelative();
+        var revenue = ws.Cell(row, revenueCol).Address.ToStringRelative();
+        ws.Cell(row, col + 1).FormulaA1 = $"IF({revenue}=0,0,{profit}/{revenue})";
+        ws.Cell(row, col + 1).Style.NumberFormat.Format = FormatSignedPercent;
+    }
 
     /// <summary>What every gross profit column on a sales workbook means, said once under the sheet.</summary>
     private const string DesktopAnalysisGrossProfitNote =

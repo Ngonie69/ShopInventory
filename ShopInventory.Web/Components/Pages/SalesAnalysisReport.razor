@@ -510,7 +510,7 @@
                 }
                 else
                 {
-                <div class="sla-stats">
+                <div class="sla-stats has-gp">
                     <article class="sla-stat">
                         <span class="sla-stat-label">@(IsVolume ? "Net volume" : "Net revenue")</span>
                         <span class="sla-stat-value">
@@ -540,6 +540,16 @@
                         <span class="sla-stat-value is-credit">−@FormatHeadline(CreditedBack)</span>
                         <span class="sla-stat-note">
                             @CreditNoteCount.ToString("N0") credit note(s), already netted out of the figures
+                        </span>
+                    </article>
+                    @{
+                        var (windowProfit, windowMargin) = TotalProfit;
+                    }
+                    <article class="sla-stat">
+                        <span class="sla-stat-label">Gross profit (USD)</span>
+                        <span class="sla-stat-value gpx-value @GrossProfitFormat.Tone(windowProfit ?? 0m)">@(windowProfit is { } gp ? GrossProfitFormat.Money(gp) : "—")</span>
+                        <span class="sla-stat-note">
+                            @(windowMargin is { } margin ? $"{GrossProfitFormat.Percent(margin)} of net revenue · SAP's booked profit, net of credit notes" : "SAP's booked profit, net of credit notes")
                         </span>
                     </article>
                 </div>
@@ -729,6 +739,8 @@
                                             <th class="sla-num">@column.Label@(column.IsPartial ? "*" : "")</th>
                                         }
                                         <th class="sla-num">Total</th>
+                                        <th class="sla-num">Gross profit</th>
+                                        <th class="sla-num">Margin</th>
                                         <th class="sla-th-share">Share</th>
                                     </tr>
                                 </thead>
@@ -753,6 +765,10 @@
                                             <td class="sla-num is-strong @(row.Total < 0 ? "is-credit" : "")">
                                                 @FormatCell(row.Total, row.IsConverted)
                                             </td>
+                                            @{
+                                                var (rowProfit, rowMargin) = ProfitOf(row.Code);
+                                            }
+                                            <GrossProfitCells GrossProfit="rowProfit" MarginPercent="rowMargin" NumClass="sla-num" />
                                             <td>
                                                 @if (row.IsConverted)
                                                 {
@@ -775,6 +791,10 @@
                                             <td class="sla-num @(total < 0 ? "is-credit" : "")">@FormatValue(total)</td>
                                         }
                                         <td class="sla-num is-grand">@FormatValue(GrandTotal)</td>
+                                        @{
+                                            var (allProfit, allMargin) = TotalProfit;
+                                        }
+                                        <GrossProfitCells GrossProfit="allProfit" MarginPercent="allMargin" NumClass="sla-num" />
                                         <td></td>
                                     </tr>
                                 </tbody>

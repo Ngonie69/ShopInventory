@@ -30,4 +30,8 @@ internal sealed record ItemVolumeSalesLineSnapshot(
     decimal Quantity,
     decimal LineAmount,
     decimal AmountUsd,
-    decimal AmountFromZig);
+    decimal AmountFromZig)
+{
+    /// <summary>SAP's booked gross profit on the line in USD, negated on a credit note like the amounts.</summary>
+    public decimal GrossProfitUsd { get; init; }
+}
