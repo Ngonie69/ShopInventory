@@ -36,7 +36,11 @@ public sealed record AdrPerformanceReportResult(
     List<AdrPerformanceRepResult> Adrs,
     List<AdrChannelResult> OrdersByChannel,
     AdrPerformanceDetailResult? Detail,
-    List<string> Caveats);
+    List<string> Caveats)
+{
+    /// <summary>Whether SAP's booked gross profit could be read for the sales figures, and what it means.</summary>
+    public ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; init; }
+}
 
 /// <summary>
 /// The ADRs as a group, against every van rep.
@@ -88,6 +92,11 @@ public sealed record AdrContributionResult(
 {
     /// <summary>Null, not zero, when the vans took nothing in this currency.</summary>
     public double? Share => VanGross > 0 ? (double)(AdrGross / VanGross) : null;
+
+    /// <summary>SAP's booked gross profit on the ADRs' posted sales in this currency; null when none is costed.</summary>
+    public decimal? AdrGrossProfit { get; init; }
+
+    public decimal? AdrMarginPercent { get; init; }
 }
 
 /// <summary>

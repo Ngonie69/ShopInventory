@@ -17,4 +17,7 @@ public sealed record VanPartnerFacts(
     IReadOnlyDictionary<Guid, string> RepNames)
 {
     public static readonly VanPartnerFacts None = new([], [], new Dictionary<string, string>(), new Dictionary<Guid, string>());
+
+    /// <summary>SAP's booked cost on the current period's van sales, for each van account's margin.</summary>
+    internal VanSalesMargin? Margin { get; init; }
 }

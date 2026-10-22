@@ -30,6 +30,9 @@ public class VanSalesPerformanceReportResponse
     public List<VanSalesItemPriceRow> ItemPrices { get; set; } = [];
     public List<VanSalesDropSize> DropSizes { get; set; } = [];
     public VanSalesCoverage Coverage { get; set; } = new();
+
+    /// <summary>Whether SAP's booked gross profit could be read for the money figures; null from an older API.</summary>
+    public ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }
 
 // ── Money and quantity ──────────────────────────────────────────────────────────
@@ -47,6 +50,18 @@ public class VanSalesMoney
 
     public decimal? AverageDropSize =>
         DropCount > 0 ? decimal.Round(Gross / DropCount, 2) : null;
+
+    /// <summary>SAP's booked gross profit on the posted documents; null when none is costed or none was read.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many of the documents <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedDocumentCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, as the API states it.</summary>
+    public decimal? MarginPercent { get; set; }
 }
 
 /// <summary>One currency's takings at line grain. Never mix these with document totals.</summary>
@@ -55,6 +70,18 @@ public class VanSalesLineMoney
     public string Currency { get; set; } = string.Empty;
     public int LineCount { get; set; }
     public decimal Gross { get; set; }
+
+    /// <summary>SAP's booked gross profit on the posted lines; null when none is costed or none was read.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many of the lines <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedLineCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, as the API states it.</summary>
+    public decimal? MarginPercent { get; set; }
 }
 
 /// <summary>

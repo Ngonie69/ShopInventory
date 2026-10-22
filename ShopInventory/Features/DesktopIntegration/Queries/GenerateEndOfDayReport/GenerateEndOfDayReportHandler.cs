@@ -1,3 +1,4 @@
+using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -25,7 +26,9 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayRepo
 /// </remarks>
 public sealed class GenerateEndOfDayReportHandler(
     ApplicationDbContext context,
-    IAuditService auditService
+    IAuditService auditService,
+    ISaleInvoiceCostReader? costReader = null,
+    ILogger<GenerateEndOfDayReportHandler>? logger = null
 ) : IRequestHandler<GenerateEndOfDayReportQuery, ErrorOr<EndOfDayReportDto>>
 {
     /// <summary>
@@ -102,6 +105,33 @@ public sealed class GenerateEndOfDayReportHandler(
         var credits = (await CreditedSales.InAsync(context, daySales, cancellationToken))
             .ToDictionary(credit => credit.SaleId);
 
+        // SAP's booked gross profit on the day's posted sales: each by its own invoice, and a business
+        // partner's consolidated day by that invoice. An invoice posted moments ago is not copied yet.
+        ManagementSalesRollup.MarginBook margin = ManagementSalesRollup.MarginBook.Empty;
+        ManagementMarginStatus marginStatus = new(false, "Gross profit is unavailable: this server has no SAP cost reader.");
+        if (costReader is not null)
+        {
+            (margin, marginStatus) = await ManagementSalesRollup.MarginAsync(
+                daySales, null, costReader,
+                (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+                cancellationToken,
+                Queries.GetDesktopSalesAnalysis.GetDesktopSalesAnalysisHandler.MarginDeadline);
+        }
+
+        // A consolidated invoice's cost is the whole partner's day, so its sales count as costed with it.
+        (ManagementSalesRollup.SalesMargin? Margin, int Sales) CostOf(IEnumerable<DesktopSaleEntity> sales)
+        {
+            var list = sales.ToList();
+            var invoices = list.Select(s => s.SapDocEntry)
+                .Concat(list.Where(s => s.SapDocEntry == null).Select(s => s.Consolidation?.SapDocEntry))
+                .ToList();
+            var costed = margin.ForInvoices(invoices);
+            var costedSales = list.Count(s =>
+                (s.SapDocEntry is { } own && margin.ForInvoices([own]) is not null)
+                || (s.SapDocEntry == null && s.Consolidation?.SapDocEntry is { } day && margin.ForInvoices([day]) is not null));
+            return (costed, costedSales);
+        }
+
         var report = new EndOfDayReportDto
         {
             ReportDate = reportDate,
@@ -112,8 +142,14 @@ public sealed class GenerateEndOfDayReportHandler(
             TotalAmountPaid = allSales.Sum(s => s.AmountPaid),
             TotalCreditedAmount = credits.Values.Sum(credit => credit.CreditedAmount),
             CreditedSalesCount = credits.Count,
-            FullyCreditedSalesCount = credits.Values.Count(credit => credit.IsFullyCredited)
+            FullyCreditedSalesCount = credits.Values.Count(credit => credit.IsFullyCredited),
+            Margin = marginStatus
         };
+
+        var (dayMargin, dayCosted) = CostOf(allSales);
+        report.GrossProfit = dayMargin?.GrossProfit;
+        report.CostedNetAmount = dayMargin?.Revenue;
+        report.CostedSalesCount = dayCosted;
 
         // Group by BP
         var groups = allSales.GroupBy(s => s.CardCode);
@@ -135,6 +171,9 @@ public sealed class GenerateEndOfDayReportHandler(
                 CreditedAmount = sales.Sum(s => credits.GetValueOrDefault(s.Id)?.CreditedAmount ?? 0m),
                 IndividualSales = sales.Select(s => new IndividualSaleDto
                 {
+                    GrossProfit = margin.ForInvoices([s.SapDocEntry])?.GrossProfit,
+                    CostedNetAmount = margin.ForInvoices([s.SapDocEntry])?.Revenue,
+                    CostedSalesCount = margin.ForInvoices([s.SapDocEntry]) is null ? 0 : 1,
                     SaleId = s.Id,
                     ExternalReferenceId = s.ExternalReferenceId,
                     Amount = s.TotalAmount,
@@ -170,6 +209,11 @@ public sealed class GenerateEndOfDayReportHandler(
                     };
                 }
             }
+
+            var (partnerMargin, partnerCosted) = CostOf(sales);
+            bpSummary.GrossProfit = partnerMargin?.GrossProfit;
+            bpSummary.CostedNetAmount = partnerMargin?.Revenue;
+            bpSummary.CostedSalesCount = partnerCosted;
 
             report.BusinessPartnerSummaries.Add(bpSummary);
         }

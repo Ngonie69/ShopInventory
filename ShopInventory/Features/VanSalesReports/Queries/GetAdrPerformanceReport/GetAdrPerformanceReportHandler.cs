@@ -24,7 +24,9 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetAdrPerformanceReport
 /// </remarks>
 public sealed class GetAdrPerformanceReportHandler(
     ApplicationDbContext db,
-    IOptions<TaxSettings> tax
+    IOptions<TaxSettings> tax,
+    ShopInventory.Common.Sales.ISaleInvoiceCostReader? costReader = null,
+    ILogger<GetAdrPerformanceReportHandler>? logger = null
 ) : IRequestHandler<GetAdrPerformanceReportQuery, ErrorOr<AdrPerformanceReportResult>>
 {
     private static readonly string[] VanRepRoles = [ApplicationRoles.Adr, ApplicationRoles.Sales];
@@ -88,6 +90,10 @@ public sealed class GetAdrPerformanceReportHandler(
         var adrSales = sales.Where(sale => adrIds.Contains(sale.UserId)).ToList();
         var visits = await LoadVisitsAsync(adrIds, from, to, cancellationToken);
 
+        // SAP's booked gross profit on what the ADRs invoiced. Orders have none: an order is not a sale
+        // until SAP invoices it, and that invoice is not tied back to the order here.
+        var margin = await VanSalesMargin.LoadAsync(adrSales, costReader, logger, cancellationToken);
+
         var visitsByAdr = visits
             .GroupBy(visit => visit.Key.UserId)
             .ToDictionary(group => group.Key, group => group.Sum(day => day.Value.Count));
@@ -103,7 +109,7 @@ public sealed class GetAdrPerformanceReportHandler(
                 OrderMoney(adrOrders),
                 OrderMoney(orders)),
             Sales: Contribution(
-                VanSalesMeasures.MoneyByCurrency(adrSales),
+                VanSalesMeasures.MoneyByCurrency(adrSales, margin),
                 VanSalesMeasures.MoneyByCurrency(sales)),
             Calls: visits.Count == 0 ? null : visits.Values.Sum(shops => shops.Count),
             ProductiveCalls: CountProductiveCalls(adrOrders, adrSales));
@@ -121,7 +127,7 @@ public sealed class GetAdrPerformanceReportHandler(
             .Where(rep => query.UserId is null || rep.Id == query.UserId)
             .Where(rep => rep.IsActive || ordersByAdr[rep.Id].Any() || salesByAdr[rep.Id].Any())
             .Select(rep => BuildRow(rep, ordersByAdr[rep.Id].ToList(), salesByAdr[rep.Id].ToList(),
-                vanOrderTotals, vanSaleTotals, visitsByAdr.TryGetValue(rep.Id, out var calls) ? calls : null))
+                vanOrderTotals, vanSaleTotals, visitsByAdr.TryGetValue(rep.Id, out var calls) ? calls : null, margin))
             .OrderByDescending(row => row.ActiveDays > 0)
             .ThenByDescending(row => LeadGross(row.SalesTotalsByCurrency, vanSaleTotals))
             .ThenByDescending(row => LeadGross(row.OrderTotalsByCurrency, vanOrderTotals))
@@ -136,6 +142,7 @@ public sealed class GetAdrPerformanceReportHandler(
                 ordersByAdr[userId].ToList(),
                 salesByAdr[userId].ToList(),
                 query.TopItems,
+                margin,
                 cancellationToken)
             : null;
 
@@ -148,7 +155,10 @@ public sealed class GetAdrPerformanceReportHandler(
             rows,
             channels,
             detail,
-            BuildCaveats(scoped, rows, query.UserId));
+            BuildCaveats(scoped, rows, query.UserId))
+        {
+            Margin = margin.Status
+        };
     }
 
     // ── Reads ───────────────────────────────────────────────────────────────────
@@ -369,6 +379,7 @@ public sealed class GetAdrPerformanceReportHandler(
         List<VanOrderFact> orders,
         List<VanSaleFact> sales,
         int topItems,
+        VanSalesMargin margin,
         CancellationToken cancellationToken)
     {
         var live = orders.Where(order => !order.IsWithdrawn).ToList();
@@ -392,7 +403,7 @@ public sealed class GetAdrPerformanceReportHandler(
                     OrderCount: shopOrders.Count,
                     OrderTotalsByCurrency: OrderMoney(shopOrders),
                     SaleCount: shopSales.Count,
-                    SalesTotalsByCurrency: VanSalesMeasures.MoneyByCurrency(shopSales),
+                    SalesTotalsByCurrency: VanSalesMeasures.MoneyByCurrency(shopSales, margin),
                     LastActiveOn: shopOrders.Select(order => order.TradingDate)
                         .Concat(shopSales.Select(sale => sale.TradingDate))
                         .Max());
@@ -559,10 +570,11 @@ public sealed class GetAdrPerformanceReportHandler(
         List<VanSaleFact> sales,
         List<VanSalesMoneyResult> vanOrderTotals,
         List<VanSalesMoneyResult> vanSaleTotals,
-        int? calls)
+        int? calls,
+        VanSalesMargin margin)
     {
         var orderTotals = OrderMoney(orders);
-        var saleTotals = VanSalesMeasures.MoneyByCurrency(sales);
+        var saleTotals = VanSalesMeasures.MoneyByCurrency(sales, margin);
         var fullName = $"{rep.FirstName} {rep.LastName}".Trim();
 
         var currencies = vanOrderTotals.Select(total => total.Currency)
@@ -648,7 +660,11 @@ public sealed class GetAdrPerformanceReportHandler(
                     mine?.DocumentCount ?? 0,
                     mine?.Gross ?? 0m,
                     van.DocumentCount,
-                    van.Gross);
+                    van.Gross)
+                {
+                    AdrGrossProfit = mine?.GrossProfit,
+                    AdrMarginPercent = mine?.MarginPercent
+                };
             })
             .ToList();
 

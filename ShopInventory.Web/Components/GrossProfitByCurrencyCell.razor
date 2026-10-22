@@ -1,0 +1,39 @@
+@* One table cell of SAP's booked gross profit for a row whose money is kept per currency, as every van
+   report's is: one line a currency, never added across them. Each line has the figure, the margin with
+   its verdict, and what it was measured on where only part of the row is in SAP. Styled by
+   gross-profit.css. *@
+
+<td class="@CellClass gpx-list @(CellClass?.Contains("num") == true ? "gpx-num" : null)">
+    @if (Figures.Count == 0)
+    {
+        <span class="gpx-none">&mdash;</span>
+    }
+    @foreach (var figure in Figures)
+    {
+        <div class="gpx-line">
+            @if (figure.GrossProfit is { } gp)
+            {
+                <span class="gpx-value @GrossProfitFormat.Tone(gp)">@(Figures.Count > 1 ? figure.Currency + " " : "")@GrossProfitFormat.Money(gp)</span>
+                @if (figure.MarginPercent is { } margin)
+                {
+                    <span class="gpx-tag @GrossProfitFormat.Tone(margin)">@GrossProfitFormat.Verdict(margin) &middot; @GrossProfitFormat.Percent(margin)</span>
+                }
+                @if (GrossProfitFormat.PartOf(figure.Costed, figure.Count) is { } part)
+                {
+                    <span class="gpx-sub">@part.Replace("sales", figure.Noun)</span>
+                }
+            }
+            else
+            {
+                <span class="gpx-none" title="None of these sales has reached SAP yet, so there is no booked cost to measure against.">@(Figures.Count > 1 ? figure.Currency + " " : "")not in SAP yet</span>
+            }
+        </div>
+    }
+</td>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<GrossProfitFigure> Figures { get; set; } = [];
+
+    /// <summary>The page's own cell class, if it styles its money cells.</summary>
+    [Parameter] public string? CellClass { get; set; }
+}

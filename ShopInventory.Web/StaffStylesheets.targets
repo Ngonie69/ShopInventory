@@ -167,6 +167,9 @@
     <!-- /fiscalisation. Derived from van-attendance.css and sharing its shape; both schemes come
          from nocturne-tokens.css. See that sheet's header. -->
     <StaffStylesheetLate Include="wwwroot/css/fiscal-console.css" />
+    <!-- Gross profit cells and notes (GrossProfitCells), shared by every sales report. Own gpx-
+         prefix, on nocturne-tokens.css. -->
+    <StaffStylesheetLate Include="wwwroot/css/gross-profit.css" />
   </ItemGroup>
 
   <UsingTask TaskName="ConcatenateStylesheets" TaskFactory="RoslynCodeTaskFactory"

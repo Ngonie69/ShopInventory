@@ -460,6 +460,51 @@ public sealed class VanDailyTruckReportTests : IDisposable
         Assert.Equal(code, result.FirstError.Code);
     }
 
+    // --- Gross profit ---
+
+    /// <summary>
+    /// A truck-day carries SAP's booked profit on its posted dollar sales, and says when only some of
+    /// them are in SAP; the truck's period and the fleet add those days up.
+    /// </summary>
+    [Fact]
+    public async Task A_truck_day_carries_the_profit_of_its_posted_sales()
+    {
+        AddDay(Rep, Thursday);
+        AddSale(Rep, Thursday, "Glenorah", 20m, sapDocEntry: 901);
+        AddSale(Rep, Thursday, "Glen Norah B", 30m);
+        await _context.SaveChangesAsync();
+
+        var costs = new FixedCosts([new ShopInventory.Common.Sales.SaleInvoiceLineCost(901, "CHE011", "VAN009", 1m, 20m, 5m)]);
+        var result = await new GetVanDailyTruckReportHandler(_context, Options.Create(new TaxSettings()), costs)
+            .Handle(new GetVanDailyTruckReportQuery(Thursday, Wednesday), CancellationToken.None);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.True(result.Value.Margin!.Available);
+
+        var day = Day(result.Value, _west1, Thursday);
+        Assert.Equal((5m, 20m, 1, 2, 25.0m), (day.GrossProfit, day.CostedNetAmount, day.CostedSalesCount, day.SalesCount, day.MarginPercent));
+        Assert.Null(Day(result.Value, _west1, Friday).GrossProfit);
+
+        Assert.Equal(5m, result.Value.Trucks.Single(truck => truck.RouteId == _west1.Id).GrossProfit);
+        Assert.Equal((5m, 1), (result.Value.Total.GrossProfit, result.Value.Total.CostedSalesCount));
+
+        // Opt-in, for driving the real page with this result: GP_FIXTURE_DIR names a folder to write it to.
+        if (Environment.GetEnvironmentVariable("GP_FIXTURE_DIR") is { Length: > 0 } fixtureDir)
+        {
+            await File.WriteAllTextAsync(Path.Combine(fixtureDir, "truck-report.json"),
+                System.Text.Json.JsonSerializer.Serialize(result.Value, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+        }
+    }
+
+    private sealed class FixedCosts(List<ShopInventory.Common.Sales.SaleInvoiceLineCost> lines)
+        : ShopInventory.Common.Sales.ISaleInvoiceCostReader
+    {
+        public Task<IReadOnlyList<ShopInventory.Common.Sales.SaleInvoiceLineCost>> ReadAsync(
+            IReadOnlyCollection<string> warehouseCodes, IReadOnlyCollection<int> docEntries, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ShopInventory.Common.Sales.SaleInvoiceLineCost>>(
+                lines.Where(line => docEntries.Contains(line.DocEntry)).ToList());
+    }
+
     // --- Helpers ---
 
     private GetVanDailyTruckReportHandler Handler() => new(_context, Options.Create(new TaxSettings()));
@@ -556,7 +601,7 @@ public sealed class VanDailyTruckReportTests : IDisposable
     }
 
     /// <summary>An online sale as it is stored: before tax, on a reservation.</summary>
-    private void AddSale(Guid rep, DateTime day, string shop, decimal net, string? paymentMethod = "Cash")
+    private void AddSale(Guid rep, DateTime day, string shop, decimal net, string? paymentMethod = "Cash", int? sapDocEntry = null)
     {
         var at = DateTime.SpecifyKind(day.AddHours(8), DateTimeKind.Utc);
 
@@ -577,6 +622,7 @@ public sealed class VanDailyTruckReportTests : IDisposable
             CreatedAt = at,
             ExpiresAt = at.AddHours(1),
             ConfirmedAt = at,
+            SAPDocEntry = sapDocEntry,
             CreatedBy = rep.ToString(),
             Lines =
             [

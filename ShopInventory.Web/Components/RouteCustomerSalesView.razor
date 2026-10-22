@@ -150,6 +150,21 @@
                                 <span class="ops-rcs-money-cur">@total.Currency</span>
                                 <span class="ops-rcs-money-val">@total.Gross.ToString("N2")</span>
                             </div>
+                            @if (showGp)
+                            {
+                                <div class="gpx-sub">
+                                    @if (total.GrossProfit is { } tileGp)
+                                    {
+                                        <text>GP </text><span class="gpx-value @GrossProfitFormat.Tone(tileGp)">@GrossProfitFormat.Money(tileGp)</span>
+                                        @(total.MarginPercent is { } tileMargin ? $" · {GrossProfitFormat.Percent(tileMargin)} margin" : "")
+                                        @(GrossProfitFormat.PartOf(total.CostedSaleCount, total.SaleCount) is { } tilePart ? $" · {tilePart}" : "")
+                                    }
+                                    else
+                                    {
+                                        <text>GP not in SAP yet</text>
+                                    }
+                                </div>
+                            }
                         }
                     </div>
                     <div class="ops-figure-sub">Tax inclusive, as paid</div>
@@ -198,6 +213,11 @@
                                 <th>Source</th>
                                 <th>Payment</th>
                                 <th class="ops-num">Value</th>
+                                @if (showGp)
+                                {
+                                    <th class="ops-num">Gross profit</th>
+                                    <th class="ops-num">Margin</th>
+                                }
                                 <th>Status</th>
                                 <th>Receipt</th>
                             </tr>
@@ -240,6 +260,10 @@
                                             <div class="ops-sub">VAT @sale.VatAmount.ToString("N2")</div>
                                         }
                                     </td>
+                                    @if (showGp)
+                                    {
+                                        <GrossProfitCells GrossProfit="sale.GrossProfit" MarginPercent="sale.MarginPercent" />
+                                    }
                                     <td>
                                         <div>@sale.Status</div>
                                         @if (sale.PostedAt.HasValue)
@@ -265,7 +289,7 @@
                                 @if (isOpen)
                                 {
                                     <tr class="ops-rcs-lines-row">
-                                        <td colspan="8">
+                                        <td colspan="@(showGp ? 10 : 8)">
                                             <div class="ops-rcs-lines">
                                                 <table class="ops-table ops-rcs-lines-table">
                                                     <thead>
@@ -326,6 +350,10 @@
                                 <th class="ops-num">Quantity</th>
                                 <th class="ops-mid">Times bought</th>
                                 <th class="ops-num">Value</th>
+                                @if (showGp)
+                                {
+                                    <th class="ops-num">Gross profit</th>
+                                }
                                 <th>Last bought</th>
                             </tr>
                         </thead>
@@ -348,6 +376,10 @@
                                     </td>
                                     <td class="ops-mid">@item.LineCount</td>
                                     <td class="ops-num">@RenderMoney(item.TotalsByCurrency)</td>
+                                    @if (showGp)
+                                    {
+                                        <GrossProfitByCurrencyCell Figures='GrossProfitFormat.Of(item.TotalsByCurrency, "lines")' CellClass="ops-num" />
+                                    }
                                     <td>@(item.LastSoldAt?.ToString("dd MMM yyyy") ?? "—")</td>
                                 </tr>
                             }
@@ -451,6 +483,9 @@
     ];
 
     private RouteCustomerSalesDetailModel? detail;
+
+    /// <summary>Whether the API read SAP's booked gross profit for these sales.</summary>
+    private bool showGp => detail?.Margin is { Available: true };
     private int? loadedCustomerId;
     private Dictionary<string, string> routeDisplayNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> expandedReferences = new(StringComparer.Ordinal);

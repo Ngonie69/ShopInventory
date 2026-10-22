@@ -45,7 +45,11 @@ public sealed record VanDailyTruckReportResult(
     IReadOnlyList<VanDailyTruckDayDto> Days,
     VanDailyTruckSummaryDto Total,
     VanDailyTruckExceptionsDto Exceptions,
-    decimal SalesOutsideRoutes);
+    decimal SalesOutsideRoutes)
+{
+    /// <summary>Whether SAP's booked gross profit could be read for the dollar sales, and what it means.</summary>
+    public ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; init; }
+}
 
 /// <summary>One truck on one day.</summary>
 /// <remarks>
@@ -117,6 +121,23 @@ public sealed record VanDailyTruckDayDto(
     public double? CallComplianceRate =>
         PlannedCustomers is > 0 ? (double)PlannedCallsMade / PlannedCustomers.Value : null;
 
+    /// <summary>
+    /// SAP's booked gross profit on the posted dollar sales; null when none is costed or none was read.
+    /// Like <c>Sales</c>, dollars only.
+    /// </summary>
+    public decimal? GrossProfit { get; init; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; init; }
+
+    /// <summary>How many of the dollar sales <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedSalesCount { get; init; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? decimal.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
+
     /// <summary>Shops that bought over calls made. Null on a day with no check-ins.</summary>
     public double? ProductiveCallRate =>
         CustomersVisited > 0 && CallsMade > 0 ? (double)ProductiveCalls / CallsMade : null;
@@ -186,6 +207,23 @@ public sealed record VanDailyTruckSummaryDto(
 {
     /// <summary>What is left of the period's target. Negative once it is passed.</summary>
     public decimal? BalanceToTarget => PeriodTarget is { } target ? target - Sales : null;
+
+    /// <summary>
+    /// SAP's booked gross profit on the posted dollar sales; null when none is costed or none was read.
+    /// Like <c>Sales</c>, dollars only.
+    /// </summary>
+    public decimal? GrossProfit { get; init; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; init; }
+
+    /// <summary>How many of the dollar sales <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedSalesCount { get; init; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? decimal.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
 
     /// <summary>Takings as a share of the period's target.</summary>
     public double? TargetAchieved =>

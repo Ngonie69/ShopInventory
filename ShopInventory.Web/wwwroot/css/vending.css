@@ -598,7 +598,8 @@
 
 .vend .vend-kpis {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    /* Six tiles a row at desktop width now that gross profit has one; still wraps on a narrow screen. */
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: var(--shop-s4);
 }
 

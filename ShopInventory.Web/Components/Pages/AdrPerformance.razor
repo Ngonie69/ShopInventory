@@ -324,6 +324,10 @@
                         <th>Order value</th>
                         <th class="vs-num">Share</th>
                         <th>Sales value</th>
+                        @if (showGp)
+                        {
+                            <th>Gross profit</th>
+                        }
                         <th class="vs-num">Share</th>
                     </tr>
                 </thead>
@@ -351,6 +355,10 @@
                             <td>@MoneyList(row.OrderTotalsByCurrency)</td>
                             <td class="vs-num">@LeadShareCell(row, row.OrderTotalsByCurrency, share => share.OrderShare)</td>
                             <td>@MoneyList(row.SalesTotalsByCurrency)</td>
+                            @if (showGp)
+                            {
+                                <GrossProfitByCurrencyCell Figures="GrossProfitFormat.Of(row.SalesTotalsByCurrency)" />
+                            }
                             <td class="vs-num">@LeadShareCell(row, row.SalesTotalsByCurrency, share => share.SalesShare)</td>
                         </tr>
                     }
@@ -362,6 +370,9 @@
 
 @code {
     private AdrPerformanceReportResponse? report;
+
+    /// <summary>Whether the sales figures carry SAP's booked gross profit.</summary>
+    private bool showGp => report?.Margin is { Available: true };
 
     /// <summary>
     /// The ADRs the last unfiltered load held. Kept apart from <see cref="report"/> because a load
@@ -421,6 +432,10 @@
                             <th>Order value</th>
                             <th class="vs-num">Sales</th>
                             <th>Sales value</th>
+                            @if (showGp)
+                            {
+                                <th>Gross profit</th>
+                            }
                             <th>Last active</th>
                         </tr>
                     </thead>
@@ -433,6 +448,10 @@
                                 <td>@MoneyList(shop.OrderTotalsByCurrency)</td>
                                 <td class="vs-num">@shop.SaleCount.ToString("N0")</td>
                                 <td>@MoneyList(shop.SalesTotalsByCurrency)</td>
+                                @if (showGp)
+                                {
+                                    <GrossProfitByCurrencyCell Figures="GrossProfitFormat.Of(shop.SalesTotalsByCurrency)" />
+                                }
                                 <td>@shop.LastActiveOn.ToString("ddd dd MMM")</td>
                             </tr>
                         }

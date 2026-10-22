@@ -5265,7 +5265,8 @@ public partial class ReportExportService : IReportExportService
         AdrPerformanceReportResponse report,
         DateTime now)
     {
-        const int lastCol = 16;
+        const int lastCol = 17;
+        var costed = report.Margin is { Available: true };
         var ws = workbook.Worksheets.Add("ADRs");
         TsApplyDefaults(ws);
 
@@ -5274,7 +5275,7 @@ public partial class ReportExportService : IReportExportService
         [
             "ADR", "Van Account", "Days Active", "Orders", "In SAP", "Fulfilled", "Not Yet In SAP",
             "Cancelled", "Shops Ordered For", "Order Value", "Sales Value", "Shops Sold To",
-            "Share of Orders", "Share of Sales", "Calls", "Strike Rate"
+            "Share of Orders", "Share of Sales", "Calls", "Strike Rate", "Sales Gross Profit"
         ]);
 
         int index = 0;
@@ -5292,6 +5293,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 9).Value = adr.OrderCustomerCount;
             ws.Cell(row, 10).Value = MoneyText(adr.OrderTotalsByCurrency);
             ws.Cell(row, 11).Value = MoneyText(adr.SalesTotalsByCurrency);
+            ws.Cell(row, 17).Value = VanGrossProfitText(adr.SalesTotalsByCurrency, costed);
             ws.Cell(row, 12).Value = adr.SaleCustomerCount;
             ws.Cell(row, 13).Value = AdrShareText(adr.Shares, share => share.OrderShare);
             ws.Cell(row, 14).Value = AdrShareText(adr.Shares, share => share.SalesShare);
@@ -5319,7 +5321,8 @@ public partial class ReportExportService : IReportExportService
         VanSalesPerformanceReportResponse report,
         DateTime now)
     {
-        const int lastCol = 10;
+        const int lastCol = 11;
+        var costed = report.Margin is { Available: true };
         var ws = workbook.Worksheets.Add("Overview");
         TsApplyDefaults(ws);
 
@@ -5339,7 +5342,8 @@ public partial class ReportExportService : IReportExportService
             ("New Outlets", summary.NewOutlets.ToString("N0"), null),
             ("Items Sold", summary.ItemCount.ToString("N0"), null),
             ("Reps", summary.RepCount.ToString("N0"), null),
-            ("Kilometres", summary.KilometresTravelled?.ToString("N0") ?? "—", null));
+            ("Kilometres", summary.KilometresTravelled?.ToString("N0") ?? "—", null),
+            ("Gross Profit", VanGrossProfitText(summary.TotalsByCurrency.Take(1).ToList(), costed), null));
 
         // The caveats first, not last. A reader who scrolls past the tables has already formed a
         // view; what the figures could not see has to reach them before the figures do.
@@ -5366,7 +5370,7 @@ public partial class ReportExportService : IReportExportService
             TsSectionTitle(ws, row, lastCol, "TERRITORIES");
             row += 2;
             row = TsColumnHeaders(ws, row, lastCol,
-                ["Territory", "Routes", "Rep-Days", "Productive Calls", "Outlets", "Takings", "", "", "", ""]);
+                ["Territory", "Routes", "Rep-Days", "Productive Calls", "Outlets", "Takings", "Gross Profit", "", "", "", ""]);
 
             int index = 0;
             foreach (var territory in report.Territories)
@@ -5378,6 +5382,7 @@ public partial class ReportExportService : IReportExportService
                 ws.Cell(row, 4).Value = territory.ProductiveCalls;
                 ws.Cell(row, 5).Value = territory.CustomerCount;
                 ws.Cell(row, 6).Value = MoneyText(territory.TotalsByCurrency);
+                ws.Cell(row, 7).Value = VanGrossProfitText(territory.TotalsByCurrency, costed);
                 row++;
                 index++;
             }
@@ -5388,7 +5393,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "ROUTES");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Route", "Territory", "Reps", "Rep-Days", "Planned", "Calls", "CCR", "PCR", "Km", "Takings"]);
+            ["Route", "Territory", "Reps", "Rep-Days", "Planned", "Calls", "CCR", "PCR", "Km", "Takings", "Gross Profit"]);
 
         int routeIndex = 0;
         foreach (var route in report.Routes)
@@ -5404,6 +5409,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 8).Value = RateText(route.ProductiveCallRate);
             ws.Cell(row, 9).Value = route.KilometresTravelled?.ToString("N0") ?? "—";
             ws.Cell(row, 10).Value = MoneyText(route.TotalsByCurrency);
+            ws.Cell(row, 11).Value = VanGrossProfitText(route.TotalsByCurrency, costed);
             row++;
             routeIndex++;
         }
@@ -5416,7 +5422,8 @@ public partial class ReportExportService : IReportExportService
         VanSalesPerformanceReportResponse report,
         DateTime now)
     {
-        const int lastCol = 12;
+        const int lastCol = 13;
+        var costed = report.Margin is { Available: true };
         var ws = workbook.Worksheets.Add("Reps");
         TsApplyDefaults(ws);
 
@@ -5424,7 +5431,7 @@ public partial class ReportExportService : IReportExportService
         row = TsColumnHeaders(ws, row, lastCol,
         [
             "Rep", "Routes", "Days", "Calls", "Bought", "Strike Rate",
-            "Calls/Day", "Outlets", "New", "New Who Bought", "Items", "Takings"
+            "Calls/Day", "Outlets", "New", "New Who Bought", "Items", "Takings", "Gross Profit"
         ]);
 
         int index = 0;
@@ -5443,6 +5450,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 10).Value = rep.NewOutletsWhoBought;
             ws.Cell(row, 11).Value = rep.ItemCount;
             ws.Cell(row, 12).Value = MoneyText(rep.TotalsByCurrency);
+            ws.Cell(row, 13).Value = VanGrossProfitText(rep.TotalsByCurrency, costed);
             row++;
             index++;
         }
@@ -5455,7 +5463,8 @@ public partial class ReportExportService : IReportExportService
         VanSalesPerformanceReportResponse report,
         DateTime now)
     {
-        const int lastCol = 9;
+        const int lastCol = 10;
+        var costed = report.Margin is { Available: true };
         var ws = workbook.Worksheets.Add("Items");
         TsApplyDefaults(ws);
 
@@ -5464,7 +5473,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "RANKED ON REACH — LINES WRITTEN AND OUTLETS REACHED");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["#", "Item Code", "Description", "Lines", "Outlets", "Reps", "Days", "Quantity", "Value"]);
+            ["#", "Item Code", "Description", "Lines", "Outlets", "Reps", "Days", "Quantity", "Value", "Gross Profit"]);
 
         int index = 0;
         foreach (var item in report.Items)
@@ -5479,6 +5488,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 7).Value = item.TradingDayCount;
             ws.Cell(row, 8).Value = QuantityText(item.QuantitiesByUoM);
             ws.Cell(row, 9).Value = LineMoneyText(item.TotalsByCurrency);
+            ws.Cell(row, 10).Value = VanGrossProfitText(item.TotalsByCurrency, costed);
             row++;
             index++;
         }
@@ -5487,7 +5497,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "STOPPED SELLING — SOLD IN THE PRECEDING PERIOD, NOT IN THIS ONE");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Item Code", "Description", "Last Sold", "Days Ago", "Lines Before", "Outlets Before", "Value Before", "", ""]);
+            ["Item Code", "Description", "Last Sold", "Days Ago", "Lines Before", "Outlets Before", "Value Before", "", "", ""]);
 
         int lapsedIndex = 0;
         foreach (var item in report.LapsedItems)
@@ -5579,7 +5589,8 @@ public partial class ReportExportService : IReportExportService
         VanSalesPerformanceReportResponse report,
         DateTime now)
     {
-        const int lastCol = 7;
+        const int lastCol = 8;
+        var costed = report.Margin is { Available: true };
         var ws = workbook.Worksheets.Add("Trend");
         TsApplyDefaults(ws);
 
@@ -5588,7 +5599,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "BY DAY OF WEEK — AVERAGES DIVIDE BY DAYS IN PERIOD, NOT DAYS TRADED");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Day", "In Period", "Traded", "Documents", "Per Day", "Productive Calls", "Takings"]);
+            ["Day", "In Period", "Traded", "Documents", "Per Day", "Productive Calls", "Takings", "Gross Profit"]);
 
         int index = 0;
         foreach (var point in report.Trend.DayOfWeek)
@@ -5601,6 +5612,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 5).Value = point.DocumentsPerCalendarDay is { } perDay ? perDay.ToString("N1") : "—";
             ws.Cell(row, 6).Value = point.ProductiveCalls;
             ws.Cell(row, 7).Value = MoneyText(point.TotalsByCurrency);
+            ws.Cell(row, 8).Value = VanGrossProfitText(point.TotalsByCurrency, costed);
             row++;
             index++;
         }
@@ -5609,7 +5621,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "BY MONTH");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Month", "Part Month", "Days", "Traded", "Documents", "Productive Calls", "Takings"]);
+            ["Month", "Part Month", "Days", "Traded", "Documents", "Productive Calls", "Takings", "Gross Profit"]);
 
         int monthIndex = 0;
         foreach (var point in report.Trend.Monthly)
@@ -5622,6 +5634,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 5).Value = point.DocumentCount;
             ws.Cell(row, 6).Value = point.ProductiveCalls;
             ws.Cell(row, 7).Value = MoneyText(point.TotalsByCurrency);
+            ws.Cell(row, 8).Value = VanGrossProfitText(point.TotalsByCurrency, costed);
             row++;
             monthIndex++;
         }
@@ -5630,7 +5643,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "DAY BY DAY — SILENT DAYS INCLUDED");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Date", "Day", "Reps Out", "Documents", "Productive Calls", "Takings", ""]);
+            ["Date", "Day", "Reps Out", "Documents", "Productive Calls", "Takings", "Gross Profit", ""]);
 
         int dayIndex = 0;
         foreach (var point in report.Trend.Daily)
@@ -5642,6 +5655,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 4).Value = point.DocumentCount;
             ws.Cell(row, 5).Value = point.ProductiveCalls;
             ws.Cell(row, 6).Value = MoneyText(point.TotalsByCurrency);
+            ws.Cell(row, 7).Value = VanGrossProfitText(point.TotalsByCurrency, costed);
             row++;
             dayIndex++;
         }
@@ -5719,6 +5733,28 @@ public partial class ReportExportService : IReportExportService
         totals.Count == 0
             ? "—"
             : string.Join("  |  ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    /// <summary>
+    /// SAP's booked gross profit per currency, as text like the money beside it: "USD 120.50 (24.1%)".
+    /// A currency none of whose sales is in SAP reads "not in SAP yet"; a report that read no margin, "—".
+    /// </summary>
+    private static string VanGrossProfitText(List<VanSalesMoney> totals, bool costed) =>
+        VanGrossProfitText(totals.Select(total => (total.Currency, total.GrossProfit, total.MarginPercent)), costed);
+
+    private static string VanGrossProfitText(List<VanSalesLineMoney> totals, bool costed) =>
+        VanGrossProfitText(totals.Select(total => (total.Currency, total.GrossProfit, total.MarginPercent)), costed);
+
+    private static string VanGrossProfitText(
+        IEnumerable<(string Currency, decimal? GrossProfit, decimal? MarginPercent)> totals, bool costed)
+    {
+        var figures = totals.ToList();
+        if (!costed || figures.Count == 0)
+            return "—";
+
+        return string.Join("  |  ", figures.Select(figure => figure.GrossProfit is { } profit
+            ? $"{figure.Currency} {profit:N2}" + (figure.MarginPercent is { } margin ? $" ({margin:0.0}%)" : "")
+            : $"{figure.Currency} not in SAP yet"));
+    }
 
     private static string LineMoneyText(List<VanSalesLineMoney> totals) =>
         totals.Count == 0
@@ -8274,6 +8310,20 @@ public partial class ReportExportService : IReportExportService
                 WriteKpiCard(ws, row, 6, "Net of Credits", report.TotalNetOfCredits, FormatMoney);
             }
 
+            // SAP's booked profit on the day's posted sales, after whatever cards came before it.
+            if (report.Margin is { Available: true })
+            {
+                var gpCol = report.TotalCreditedAmount > 0 ? 7 : 5;
+                if (report.GrossProfit is { } dayProfit)
+                {
+                    WriteKpiCard(ws, row, gpCol, "Gross Profit", dayProfit, FormatSignedMoney, dayProfit < 0 ? DangerRed : SuccessGreen);
+                }
+                else
+                {
+                    WriteKpiCard(ws, row, gpCol, "Gross Profit", "Not in SAP yet");
+                }
+            }
+
             row += 3;
         }
 
@@ -8566,7 +8616,8 @@ public partial class ReportExportService : IReportExportService
             "Day", 20, "Best Day", "Days Traded", "day", "days",
             section => section.ByDay.Select(day => new DesktopAnalysisMatrixRow(
                 day.Date.ToString("yyyy-MM-dd"), day.Date, day.Date.ToString("ddd dd MMM"),
-                day.SalesCount, day.TotalAmount, 0m, day.ByPaymentMethod, day.CreditedAmount)),
+                day.SalesCount, day.TotalAmount, 0m, day.ByPaymentMethod, day.CreditedAmount,
+                day.GrossProfit, day.MarginPercent, day.CostedNetAmount)),
             WithShare: false));
 
         // A van by the business partner it bills as, not the warehouse it sold from: the two need not match
@@ -8706,11 +8757,14 @@ public partial class ReportExportService : IReportExportService
         decimal TotalAmount,
         decimal SharePercent,
         List<DesktopSalesPaymentAmount> Parts,
-        decimal CreditedAmount = 0m);
+        decimal CreditedAmount = 0m,
+        decimal? GrossProfit = null,
+        decimal? MarginPercent = null,
+        decimal? CostedNetAmount = null);
 
     private static DesktopAnalysisMatrixRow DesktopAnalysisBreakdownRow(DesktopSalesBreakdownRow row) =>
         new(row.Key, null, row.Label, row.SalesCount, row.TotalAmount, row.ShareOfValuePercent, row.ByPaymentMethod,
-            row.CreditedAmount);
+            row.CreditedAmount, row.GrossProfit, row.MarginPercent, row.CostedNetAmount);
 
     private static string DesktopAnalysisTenderName(string method) => method == "Ecocash" ? "EcoCash" : method;
 
@@ -9030,10 +9084,15 @@ public partial class ReportExportService : IReportExportService
         if (context.Credits)
             headers.AddRange(["Credited", "Net of Credits"]);
 
+        // Gross profit is not split by tender, so it closes the row after everything that is.
+        var creditedCol = headers.Count - 1;
+        var gpCol = headers.Count + 1;
+        if (context.GrossProfit)
+            headers.AddRange(["Gross Profit", "Margin", "Profit / Loss"]);
+
         var lastCol = headers.Count;
         var salesCol = sheet.CodeHeading is null ? 3 : 4;
         var takingsCol = salesCol + 1 + methods.Count;
-        var creditedCol = lastCol - 1;
         var sections = report.Currencies
             .Select(section => (Section: section, Rows: sheet.Rows(section).ToList()))
             .ToList();
@@ -9123,6 +9182,9 @@ public partial class ReportExportService : IReportExportService
                     DesktopAnalysisTotalCell(ws.Cell(row, creditedCol + 1), line.TotalAmount - line.CreditedAmount, isStripe);
                 }
 
+                if (context.GrossProfit)
+                    DesktopAnalysisGrossProfitCells(ws, row, gpCol, line.GrossProfit, line.MarginPercent);
+
                 row++;
             }
         }
@@ -9158,6 +9220,10 @@ public partial class ReportExportService : IReportExportService
                 DesktopAnalysisSummaryNumber(ws.Cell(row, creditedCol + 1), section.NetOfCredits, FormatMoney);
             }
 
+            // The rows split the sales between them, so their profits add up to the currency's.
+            if (context.GrossProfit)
+                DesktopAnalysisGrossProfitTotal(ws, row, gpCol, rows.Select(line => (line.GrossProfit, line.CostedNetAmount)));
+
             row++;
         }
 
@@ -9177,12 +9243,20 @@ public partial class ReportExportService : IReportExportService
             row += 2;
         }
 
+        if (context.GrossProfit)
+        {
+            widths.AddRange([15, 10, 14]);
+            PodNoteRow(ws, row + 1, lastCol, DesktopAnalysisGrossProfitNote);
+            row += 2;
+        }
+
         DesktopAnalysisFinish(ws, row + 1, lastCol, context, headerRow, labelCol, lastDataRow, [.. widths]);
     }
 
     private static void WriteDesktopAnalysisHours(XLWorkbook workbook, DesktopAnalysisContext context)
     {
-        var lastCol = context.Credits ? 8 : 6;
+        var gpCol = (context.Credits ? 8 : 6) + 1;
+        var lastCol = context.GrossProfit ? gpCol + 2 : gpCol - 1;
         var report = context.Report;
         var ws = workbook.Worksheets.Add("By Hour");
         PodApplyDefaults(ws);
@@ -9202,7 +9276,8 @@ public partial class ReportExportService : IReportExportService
         row = PodColumnHeaders(ws, headerRow, lastCol,
             [
                 "Currency", "Hour (CAT)", "Sales", "Average Sale", "Takings", "Share of Takings",
-                .. context.Credits ? new[] { "Credited", "Net of Credits" } : []
+                .. context.Credits ? new[] { "Credited", "Net of Credits" } : [],
+                .. context.GrossProfit ? new[] { "Gross Profit", "Margin", "Profit / Loss" } : []
             ]);
 
         var rowIndex = 0;
@@ -9240,6 +9315,9 @@ public partial class ReportExportService : IReportExportService
                     DesktopAnalysisTotalCell(ws.Cell(row, 8), hour.NetOfCredits, isStripe);
                 }
 
+                if (context.GrossProfit)
+                    DesktopAnalysisGrossProfitCells(ws, row, gpCol, hour.GrossProfit, hour.MarginPercent);
+
                 row++;
             }
         }
@@ -9266,6 +9344,9 @@ public partial class ReportExportService : IReportExportService
                 DesktopAnalysisSummaryNumber(ws.Cell(row, 8), section.NetOfCredits, FormatMoney);
             }
 
+            if (context.GrossProfit)
+                DesktopAnalysisGrossProfitTotal(ws, row, gpCol, section.ByHour.Select(hour => (hour.GrossProfit, hour.CostedNetAmount)));
+
             row++;
         }
 
@@ -9275,8 +9356,17 @@ public partial class ReportExportService : IReportExportService
             row += 2;
         }
 
+        if (context.GrossProfit)
+        {
+            PodNoteRow(ws, row + 1, lastCol, DesktopAnalysisGrossProfitNote);
+            row += 2;
+        }
+
         DesktopAnalysisFinish(ws, row + 1, lastCol, context, headerRow, 2, lastDataRow,
-            context.Credits ? [12, 20, 12, 16, 18, 17, 14, 16] : [12, 20, 12, 16, 18, 17]);
+            [
+                .. context.Credits ? new double[] { 12, 20, 12, 16, 18, 17, 14, 16 } : [12, 20, 12, 16, 18, 17],
+                .. context.GrossProfit ? new double[] { 15, 10, 14 } : []
+            ]);
     }
 
     private static void WriteDesktopAnalysisItems(XLWorkbook workbook, DesktopAnalysisContext context)
@@ -9462,6 +9552,28 @@ public partial class ReportExportService : IReportExportService
     }
 
     private const string FormatSignedMoney = "#,##0.00;[Red]-#,##0.00";
+
+    /// <summary>What every gross profit column on a sales workbook means, said once under the sheet.</summary>
+    private const string DesktopAnalysisGrossProfitNote =
+        "Gross profit is SAP's booked gross profit on the invoices these sales were posted as - their value before VAT "
+        + "less the stock cost SAP relieved when the goods left - and the margin is that profit over the posted value. "
+        + "A sale not yet in SAP is not costed, so a row none of whose sales is in SAP reads 'Not in SAP yet'. Profit "
+        + "is not split by payment method.";
+
+    /// <summary>A total row's gross profit and margin: the sum of its costed rows' profit over their costed value.</summary>
+    private static void DesktopAnalysisGrossProfitTotal(
+        IXLWorksheet ws, int row, int col, IEnumerable<(decimal? GrossProfit, decimal? CostedNetAmount)> rows)
+    {
+        var costed = rows.Where(line => line.GrossProfit is not null).ToList();
+        if (costed.Count == 0)
+            return;
+
+        var profit = costed.Sum(line => line.GrossProfit!.Value);
+        var revenue = costed.Sum(line => line.CostedNetAmount ?? 0m);
+        DesktopAnalysisSummaryNumber(ws.Cell(row, col), profit, FormatSignedMoney);
+        if (revenue != 0)
+            DesktopAnalysisSummaryNumber(ws.Cell(row, col + 1), profit / revenue, FormatSignedPercent);
+    }
 
     private const string FormatSignedPercent = "0.0%;[Red]-0.0%";
 
@@ -9852,7 +9964,7 @@ public partial class ReportExportService : IReportExportService
         string title)
     {
         var ws = AddSheet(workbook, "Sales");
-        const int cols = 11;
+        const int cols = 12;
 
         var row = WriteReportHeader(ws, title, cols, detail.From, detail.To,
             $"{detail.Customer.Code} on {routeLabel}");
@@ -9865,12 +9977,13 @@ public partial class ReportExportService : IReportExportService
             detail.DaysSinceLastSale?.ToString("N0", CultureInfo.InvariantCulture) ?? "—",
             detail.DaysSinceLastSale is > 30 ? WarningOrange : null);
         WriteKpiCard(ws, row, 5, "Value", DescribeCurrencyTotals(detail.TotalsByCurrency));
+        WriteKpiCard(ws, row, 6, "Gross profit", DescribeCurrencyGrossProfit(detail.TotalsByCurrency, detail.Margin));
         row += 3;
 
         var headers = new[]
         {
             "Sold", "Reference", "Source", "Currency", "Total", "VAT", "Paid",
-            "Payment", "Status", "SAP Doc #", "ZIMRA receipt"
+            "Payment", "Status", "SAP Doc #", "ZIMRA receipt", "Gross Profit"
         };
 
         for (var i = 0; i < headers.Length; i++)
@@ -9919,6 +10032,7 @@ public partial class ReportExportService : IReportExportService
                 ? sale.ReceiptGlobalNo.Value.ToString(CultureInfo.InvariantCulture)
                 : "-";
             ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            RouteGrossProfitCell(ws.Cell(row, 12), sale.GrossProfit, detail.Margin);
             row++;
         }
 
@@ -9952,11 +10066,11 @@ public partial class ReportExportService : IReportExportService
         string title)
     {
         var ws = AddSheet(workbook, "Product mix");
-        const int cols = 7;
+        const int cols = 8;
 
         var row = WriteReportHeader(ws, title, cols, from, to, $"Items bought: {items.Count:N0}");
 
-        var headers = new[] { "Item", "Description", "Quantity", "UoM", "Times bought", "Customers", "Value" };
+        var headers = new[] { "Item", "Description", "Quantity", "UoM", "Times bought", "Customers", "Value", "Gross Profit" };
         for (var i = 0; i < headers.Length; i++)
         {
             ws.Cell(row, i + 1).Value = headers[i];
@@ -9985,6 +10099,7 @@ public partial class ReportExportService : IReportExportService
             // Text, not a number: the value can be in two currencies, and one cell holding "USD 40.00 /
             // ZWG 900.00" is honest where a single numeric total would not be.
             ws.Cell(row, 7).Value = DescribeCurrencyTotals(item.TotalsByCurrency);
+            ws.Cell(row, 8).Value = DescribeCurrencyGrossProfit(item.TotalsByCurrency, costed: true);
             row++;
         }
 
@@ -10055,7 +10170,7 @@ public partial class ReportExportService : IReportExportService
         const string title = "Route customer sales summary";
         using var workbook = NewWorkbook(title);
         var ws = AddSheet(workbook, "Summary");
-        const int cols = 11;
+        const int cols = 12;
 
         var rows = summary.Routes.SelectMany(route => route.Customers).ToList();
 
@@ -10076,12 +10191,14 @@ public partial class ReportExportService : IReportExportService
             FormatCount, DangerRed);
         WriteKpiCard(ws, row, 5, "Value",
             DescribeCurrencyTotals(summary.Routes.SelectMany(route => route.TotalsByCurrency).ToList()));
+        WriteKpiCard(ws, row, 6, "Gross profit",
+            DescribeCurrencyGrossProfit(summary.Routes.SelectMany(route => route.TotalsByCurrency).ToList(), summary.Margin));
         row += 3;
 
         var headers = new[]
         {
             "Route", "Code", "Customer", "Phone", "Status", "Sales", "Lines",
-            "Value", "First sale (all time)", "Last sale (all time)", "Days since"
+            "Value", "First sale (all time)", "Last sale (all time)", "Days since", "Gross Profit"
         };
 
         for (var i = 0; i < headers.Length; i++)
@@ -10118,6 +10235,9 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 7).Style.NumberFormat.Format = FormatCount;
             ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 8).Value = DescribeCurrencyTotals(customer.TotalsByCurrency);
+            ws.Cell(row, 12).Value = customer.SaleCount == 0
+                ? "—"
+                : DescribeCurrencyGrossProfit(customer.TotalsByCurrency, summary.Margin);
 
             // Blank rather than a dash: a placeholder turns the whole column to text and stops it sorting,
             // which is the one thing a "who has not bought lately" report is read by.
@@ -10179,6 +10299,63 @@ public partial class ReportExportService : IReportExportService
     /// A cell, a KPI card and a footer all need this, and all of them have room for one value. Adding
     /// the currencies together to fit would produce a number that is not any amount of money.
     /// </summary>
+    /// <summary>
+    /// SAP's booked gross profit per currency, as text like the value beside it: "USD 12.00 (24.0%)". A
+    /// currency none of whose sales is in SAP reads "not in SAP yet"; a report that read none, "—".
+    /// </summary>
+    private static string DescribeCurrencyGrossProfit(
+        IReadOnlyCollection<RouteCustomerSalesTotalsModel> totals,
+        ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? margin) =>
+        DescribeCurrencyGrossProfit(totals, margin is { Available: true });
+
+    private static string DescribeCurrencyGrossProfit(IReadOnlyCollection<RouteCustomerSalesTotalsModel> totals, bool costed)
+    {
+        if (!costed || totals.Count == 0)
+        {
+            return "—";
+        }
+
+        return string.Join(" / ", totals
+            .GroupBy(total => total.Currency, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var known = group.Where(total => total.GrossProfit is not null).ToList();
+                if (known.Count == 0)
+                {
+                    return $"{group.Key} not in SAP yet";
+                }
+
+                var profit = known.Sum(total => total.GrossProfit!.Value);
+                var revenue = known.Sum(total => total.CostedNetAmount ?? 0m);
+                return $"{group.Key} {profit.ToString("N2", CultureInfo.InvariantCulture)}"
+                       + (revenue == 0 ? "" : $" ({(profit / revenue * 100m).ToString("0.0", CultureInfo.InvariantCulture)}%)");
+            }));
+    }
+
+    /// <summary>One sale's gross profit: the number, or why there is none.</summary>
+    private static void RouteGrossProfitCell(
+        IXLCell cell,
+        decimal? grossProfit,
+        ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? margin)
+    {
+        if (margin is not { Available: true })
+        {
+            cell.Value = "—";
+            return;
+        }
+
+        if (grossProfit is { } profit)
+        {
+            cell.Value = profit;
+            cell.Style.NumberFormat.Format = FormatSignedMoney;
+        }
+        else
+        {
+            cell.Value = "Not in SAP yet";
+            cell.Style.Font.FontColor = WarningOrange;
+        }
+    }
+
     private static string DescribeCurrencyTotals(IReadOnlyCollection<RouteCustomerSalesTotalsModel> totals)
     {
         if (totals.Count == 0)

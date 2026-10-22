@@ -97,7 +97,7 @@ public class EndOfDayConsolidationService
         }
     }
 
-    private static string BuildReportHtml(EndOfDayReportDto report)
+    internal static string BuildReportHtml(EndOfDayReportDto report)
     {
         var sb = new StringBuilder();
         sb.AppendLine("<html><body style='font-family: Arial, sans-serif;'>");
@@ -119,6 +119,17 @@ public class EndOfDayConsolidationService
             sb.AppendLine($"<tr><td><strong>Net of credits</strong></td><td>{report.TotalNetOfCredits:N2}</td></tr>");
         }
 
+        // SAP's booked profit on what has been posted; a consolidated invoice posted a moment ago has not
+        // been costed yet, so the line says how much of the day it covers.
+        if (report.Margin is { Available: true })
+        {
+            sb.AppendLine($"<tr><td><strong>Gross profit</strong></td><td>{GrossProfitText(report.GrossProfit, report.MarginPercent)}"
+                + (report.GrossProfit is not null && report.CostedSalesCount < report.TotalSalesCount
+                    ? $" on {report.CostedSalesCount} of {report.TotalSalesCount} sales"
+                    : "")
+                + "</td></tr>");
+        }
+
         sb.AppendLine("<tr><td><strong>Posted Invoices</strong></td><td>{0}</td></tr>".Replace("{0}", report.PostedInvoiceCount.ToString()));
         sb.AppendLine("<tr><td><strong>Unposted Invoices</strong></td><td style='color: {1};'>{0}</td></tr>"
             .Replace("{0}", report.UnpostedInvoiceCount.ToString())
@@ -128,7 +139,10 @@ public class EndOfDayConsolidationService
         // BP Summaries
         sb.AppendLine("<h3>Business Partner Summary</h3>");
         sb.AppendLine("<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse;'>");
-        sb.AppendLine("<tr style='background: #f0f0f0;'><th>Customer</th><th>Sales</th><th>Amount</th><th>Credited</th><th>Net of credits</th><th>Paid</th><th>SAP Invoice</th><th>Payment</th></tr>");
+        var costed = report.Margin is { Available: true };
+        sb.AppendLine("<tr style='background: #f0f0f0;'><th>Customer</th><th>Sales</th><th>Amount</th><th>Credited</th><th>Net of credits</th>"
+            + (costed ? "<th>Gross profit</th>" : "")
+            + "<th>Paid</th><th>SAP Invoice</th><th>Payment</th></tr>");
 
         foreach (var bp in report.BusinessPartnerSummaries)
         {
@@ -136,7 +150,9 @@ public class EndOfDayConsolidationService
             var paymentInfo = bp.IncomingPayment?.SapDocNum?.ToString() ?? "-";
 
             sb.AppendLine($"<tr><td>{bp.CardCode} — {bp.CardName}</td><td>{bp.SalesCount}</td>"
-                + $"<td>{bp.TotalAmount:N2}</td><td>{Credited(bp.CreditedAmount)}</td><td>{bp.NetOfCredits:N2}</td><td>{bp.TotalPaid:N2}</td>"
+                + $"<td>{bp.TotalAmount:N2}</td><td>{Credited(bp.CreditedAmount)}</td><td>{bp.NetOfCredits:N2}</td>"
+                + (costed ? $"<td>{GrossProfitText(bp.GrossProfit, bp.MarginPercent)}</td>" : "")
+                + $"<td>{bp.TotalPaid:N2}</td>"
                 + $"<td>{invoiceInfo}</td><td>{paymentInfo}</td></tr>");
         }
         sb.AppendLine("</table>");
@@ -163,12 +179,16 @@ public class EndOfDayConsolidationService
         {
             sb.AppendLine($"<h4>{bp.CardCode} — {bp.CardName}</h4>");
             sb.AppendLine("<table border='1' cellpadding='6' cellspacing='0' style='border-collapse: collapse; font-size: 0.9em;'>");
-            sb.AppendLine("<tr style='background: #f8f8f8;'><th>Reference</th><th>Amount</th><th>VAT</th><th>Credited</th><th>Credit notes</th><th>Fiscal Receipt</th><th>Payment</th><th>Time</th></tr>");
+            sb.AppendLine("<tr style='background: #f8f8f8;'><th>Reference</th><th>Amount</th><th>VAT</th>"
+                + (costed ? "<th>Gross profit</th>" : "")
+                + "<th>Credited</th><th>Credit notes</th><th>Fiscal Receipt</th><th>Payment</th><th>Time</th></tr>");
 
             foreach (var sale in bp.IndividualSales)
             {
                 sb.AppendLine($"<tr><td>{sale.ExternalReferenceId}</td><td>{sale.Amount:N2}</td>"
-                    + $"<td>{sale.VatAmount:N2}</td><td>{Credited(sale.CreditedAmount)}</td>"
+                    + $"<td>{sale.VatAmount:N2}</td>"
+                    + (costed ? $"<td>{GrossProfitText(sale.GrossProfit, sale.MarginPercent)}</td>" : "")
+                    + $"<td>{Credited(sale.CreditedAmount)}</td>"
                     + $"<td>{(sale.CreditNoteNumbers.Count == 0 ? "-" : string.Join(", ", sale.CreditNoteNumbers))}</td>"
                     + $"<td>{sale.FiscalReceiptNumber ?? "-"}</td>"
                     + $"<td>{sale.PaymentMethod}: {sale.AmountPaid:N2}</td>"
@@ -179,6 +199,21 @@ public class EndOfDayConsolidationService
 
         sb.AppendLine("</body></html>");
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// SAP's booked gross profit as the email writes it: "12.34 (24.1%)", a loss in red with a minus, and
+    /// "not in SAP yet" for sales with nothing costed.
+    /// </summary>
+    private static string GrossProfitText(decimal? grossProfit, decimal? marginPercent)
+    {
+        if (grossProfit is not { } profit)
+        {
+            return "<em>not in SAP yet</em>";
+        }
+
+        var text = profit.ToString("N2") + (marginPercent is { } margin ? $" ({margin:0.0}%)" : "");
+        return profit < 0 ? $"<span style='color: #b42318;'>{text} loss</span>" : text;
     }
 
     /// <summary>A credited amount, or a dash where nothing was: a column of zeros hides the one that is not.</summary>

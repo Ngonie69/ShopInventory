@@ -33,6 +33,23 @@ public sealed record VanSalesMoneyResult(
     /// </summary>
     public decimal? AverageDropSize =>
         DropCount > 0 ? decimal.Round(Gross / DropCount, 2) : null;
+
+    /// <summary>
+    /// SAP's booked gross profit on this currency's posted documents; null when none is costed or the
+    /// report was not asked for margin.
+    /// </summary>
+    public decimal? GrossProfit { get; init; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; init; }
+
+    /// <summary>How many of the documents <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedDocumentCount { get; init; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? decimal.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
 }
 
 /// <summary>
@@ -43,7 +60,25 @@ public sealed record VanSalesMoneyResult(
 public sealed record VanSalesLineMoneyResult(
     string Currency,
     int LineCount,
-    decimal Gross);
+    decimal Gross)
+{
+    /// <summary>
+    /// SAP's booked gross profit on this currency's posted documents; null when none is costed or the
+    /// report was not asked for margin.
+    /// </summary>
+    public decimal? GrossProfit { get; init; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; init; }
+
+    /// <summary>How many of the lines <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedLineCount { get; init; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? decimal.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
+}
 
 /// <summary>
 /// How much moved, in one unit of measure. <c>UoMCode</c> is null for every van sale written to date

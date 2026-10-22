@@ -85,6 +85,11 @@
             <span class="vend-kpi-note">@Figure(() => PostingNote)</span>
         </div>
         <div class="vend-kpi">
+            <span class="vend-kpi-label">Gross profit MTD</span>
+            <span class="vend-kpi-value">@Figure(() => MonthProfit.GrossProfit is { } gp ? GrossProfitFormat.Money(gp) : "—")</span>
+            <span class="vend-kpi-note">@Figure(() => ProfitNote)</span>
+        </div>
+        <div class="vend-kpi">
             <span class="vend-kpi-label">Active vendors</span>
             <span class="vend-kpi-value">@(overview is null ? "—" : overview.Vendors.Count(v => v.IsActive).ToString("N0", CultureInfo.InvariantCulture))</span>
             <span class="vend-kpi-note">@(overview is null ? "—" : $"Across {Plural(overview.Depots.Count, "depot")}")</span>
@@ -163,6 +168,27 @@
                                     <span class="vend-mix-units">@Plural(row.SaleCount, "invoice")</span>
                                     <span class="vend-mix-value">@row.Gross.ToString("N2", CultureInfo.InvariantCulture)</span>
                                 </div>
+                                @if (month?.Margin is { Available: true } && row.SaleCount > 0)
+                                {
+                                    <span class="gpx-sub">
+                                        @if (row.GrossProfit is { } depotGp)
+                                        {
+                                            <text>GP </text><span class="gpx-value @GrossProfitFormat.Tone(depotGp)">@GrossProfitFormat.Money(depotGp)</span>
+                                            @if (row.MarginPercent is { } depotMargin)
+                                            {
+                                                <text> · @GrossProfitFormat.Percent(depotMargin) margin</text>
+                                            }
+                                            @if (GrossProfitFormat.PartOf(row.CostedSaleCount, row.SaleCount) is { } part)
+                                            {
+                                                <text> · @part</text>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <text>GP not in SAP yet</text>
+                                        }
+                                    </span>
+                                }
                                 <span class="vend-mix-track"><span class="vend-mix-fill" style="width: @DepotWidth(row)"></span></span>
                             </div>
                         }
@@ -473,7 +499,7 @@
             var chartStart = today.AddDays(-(ChartDays - 1));
 
             var monthRead = await Mediator.Send(
-                new GetDesktopSalesAnalysisQuery(monthStart, today, null, SourceSystem: VendingSalesDigest.SourceSystem),
+                new GetDesktopSalesAnalysisQuery(monthStart, today, null, SourceSystem: VendingSalesDigest.SourceSystem, IncludeMargin: true),
                 disposed.Token);
             if (monthRead.IsError)
             {
@@ -482,7 +508,7 @@
             }
 
             var fortnightRead = await Mediator.Send(
-                new GetDesktopSalesAnalysisQuery(chartStart, today, null, SourceSystem: VendingSalesDigest.SourceSystem),
+                new GetDesktopSalesAnalysisQuery(chartStart, today, null, SourceSystem: VendingSalesDigest.SourceSystem, IncludeMargin: true),
                 disposed.Token);
             if (fortnightRead.IsError)
             {
@@ -569,7 +595,32 @@
         var date = day.Date.ToString("ddd dd MMM", CultureInfo.InvariantCulture);
         return day.SaleCount == 0
             ? $"{date}: no sales"
-            : $"{date}: {VendorSalesDigest.Money(Currency, day.Gross)} across {Plural(day.SaleCount, "invoice")}";
+            : $"{date}: {VendorSalesDigest.Money(Currency, day.Gross)} across {Plural(day.SaleCount, "invoice")}"
+              + (fortnight?.Margin is { Available: true } ? " · " + GrossProfitFormat.Line(day.GrossProfit, day.MarginPercent) : "");
+    }
+
+    /// <summary>The month's gross profit: its depots' rows split the sales, so they add up to it.</summary>
+    private (decimal? GrossProfit, decimal? CostedNetAmount, int CostedSales) MonthProfit =>
+        VendingSalesDigest.Profit(MonthSection?.ByWarehouse ?? []);
+
+    private string ProfitNote
+    {
+        get
+        {
+            if (month?.Margin is { Available: false } unavailable)
+            {
+                return "Unavailable";
+            }
+
+            var (profit, costed, costedSales) = MonthProfit;
+            if (profit is not { } gp || costed is not { } value || value == 0)
+            {
+                return MonthSection is { SalesCount: > 0 } ? "None in SAP yet" : "Nothing sold";
+            }
+
+            var note = $"{GrossProfitFormat.Percent(Math.Round(gp / value * 100m, 1, MidpointRounding.AwayFromZero))} margin";
+            return GrossProfitFormat.PartOf(costedSales, MonthSection?.SalesCount ?? 0) is { } part ? $"{note} · {part}" : note;
+        }
     }
 
     private string BarsLabel =>

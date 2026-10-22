@@ -47,6 +47,23 @@ public sealed class RouteCustomerSalesTotalsDto
     public decimal Vat { get; set; }
 
     public decimal AmountPaid { get; set; }
+
+    /// <summary>
+    /// SAP's booked gross profit on the posted sales (or lines) behind this total; null when none is
+    /// costed or the report was not asked for it.
+    /// </summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many of <see cref="SaleCount"/> <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedSaleCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? decimal.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
 }
 
 public sealed class RouteCustomerSaleLineDto
@@ -66,6 +83,15 @@ public sealed class RouteCustomerSaleLineDto
     public decimal LineTotal { get; set; }
 
     public string? WarehouseCode { get; set; }
+
+    /// <summary>
+    /// SAP's booked gross profit on this line: its item's on the invoice, shared between the sale's lines
+    /// of that item by value. Null until the sale is posted and its cost copied.
+    /// </summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on, shared the same way.</summary>
+    public decimal? CostedNetAmount { get; set; }
 }
 
 /// <summary>One sale made to a route customer, from whichever of the two tables holds it.</summary>
@@ -113,6 +139,17 @@ public sealed class RouteCustomerSaleDto
     public string? WarehouseCode { get; set; }
 
     public List<RouteCustomerSaleLineDto> Lines { get; set; } = [];
+
+    /// <summary>SAP's booked gross profit on this sale's invoice; null until it is posted and its cost copied.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? decimal.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
 }
 
 /// <summary>
@@ -267,6 +304,9 @@ public sealed class RouteCustomerSalesSummaryDto
     public int DormantDays { get; set; }
 
     public List<RouteSalesGroupDto> Routes { get; set; } = [];
+
+    /// <summary>Whether SAP's booked gross profit could be read for the totals, and what it means.</summary>
+    public ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }
 
 /// <summary>Everything the drill-down page needs for one route customer.</summary>
@@ -300,6 +340,9 @@ public sealed class RouteCustomerSalesDetailDto
     public List<RouteCustomerOrderDto> Orders { get; set; } = [];
 
     public List<RouteCustomerProductMixRowDto> ProductMix { get; set; } = [];
+
+    /// <summary>Whether SAP's booked gross profit could be read for these sales, and what it means.</summary>
+    public ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }
 
 /// <summary>The product mix report, across one route or all of them.</summary>
@@ -314,6 +357,9 @@ public sealed class RouteCustomerProductMixDto
     public int? RouteCustomerId { get; set; }
 
     public List<RouteCustomerProductMixRowDto> Items { get; set; } = [];
+
+    /// <summary>Whether SAP's booked gross profit could be read for the items, and what it means.</summary>
+    public ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }
 
 /// <summary>
@@ -356,7 +402,22 @@ public sealed class RouteCustomerProductSalesRowDto
     public int LineCount { get; set; }
 
     /// <summary>The last trading day it was bought on, inside the window.</summary>
+
     public DateTime LastSoldAt { get; set; }
+
+    /// <summary>SAP's booked gross profit on these posted lines; null when none is costed or none was read.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many of the lines' (invoice, item) pairs <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedLineCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? decimal.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
 }
 
 /// <summary>Every customer's purchases of every item over a window.</summary>
@@ -367,4 +428,7 @@ public sealed class RouteCustomerProductSalesDto
     public DateTime To { get; set; }
 
     public List<RouteCustomerProductSalesRowDto> Rows { get; set; } = [];
+
+    /// <summary>Whether SAP's booked gross profit could be read for the rows, and what it means.</summary>
+    public ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }

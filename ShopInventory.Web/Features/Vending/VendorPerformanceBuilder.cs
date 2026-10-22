@@ -158,6 +158,8 @@ public static class VendorPerformanceBuilder
             {
                 row.Gross.Add(vendor.Gross);
                 row.Net.Add(vendor.Net);
+                row.GrossProfit.Add(vendor.GrossProfit);
+                row.CostedNet.Add(vendor.CostedNet);
             }
 
             row.PreviousGross.Add(previousGross);
@@ -228,6 +230,8 @@ public static class VendorPerformanceBuilder
         {
             totals.Gross.Add(depot.Gross);
             totals.Net.Add(depot.Net);
+            totals.GrossProfit.Add(depot.GrossProfit);
+            totals.CostedNet.Add(depot.CostedNet);
             totals.PreviousGross.Add(depot.PreviousGross);
         }
 
@@ -308,6 +312,11 @@ public static class VendorPerformanceBuilder
 
         vendor.Gross.Add(gross);
         vendor.Net.Add(net);
+        foreach (var total in row.TotalsByCurrency.Where(total => total.GrossProfit is not null))
+        {
+            vendor.GrossProfit.Add(Currency(total.Currency), total.GrossProfit!.Value);
+            vendor.CostedNet.Add(Currency(total.Currency), total.CostedNetAmount ?? 0m);
+        }
         vendor.PreviousGross.Add(previousGross);
         return vendor;
     }
@@ -383,6 +392,11 @@ public static class VendorPerformanceBuilder
             foreach (var item in group.Rows)
             {
                 product.Net.Add(Currency(item.Currency), item.LineTotal);
+                if (item.GrossProfit is { } itemProfit)
+                {
+                    product.GrossProfit.Add(Currency(item.Currency), itemProfit);
+                    product.CostedNet.Add(Currency(item.Currency), item.CostedNetAmount ?? 0m);
+                }
             }
 
             foreach (var item in previous)
