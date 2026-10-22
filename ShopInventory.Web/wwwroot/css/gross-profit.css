@@ -1,0 +1,106 @@
+/* Gross profit — shared by every sales report that shows SAP's booked profit.
+
+   One prefix, gpx-, so the figure reads the same on the breakdowns, the van and route reports and the
+   rest: a loss in the bad hue, a profit in the good one, and the tag carries an arrow and a word as
+   well, never the hue alone. Both schemes come from nocturne-tokens.css, which defines every token
+   used here on :root and on [data-theme="dark"]. */
+
+.gpx-num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.gpx-value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+}
+
+.gpx-value.is-profit {
+    color: var(--noct-fam-good);
+}
+
+.gpx-value.is-loss {
+    color: var(--noct-fam-bad);
+}
+
+.gpx-value.is-even {
+    color: var(--noct-mute-2);
+}
+
+.gpx-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.gpx-tag.is-profit {
+    color: var(--noct-fam-good);
+    background: rgba(var(--noct-fam-good-rgb), .12);
+}
+
+.gpx-tag.is-loss {
+    color: var(--noct-fam-bad);
+    background: rgba(var(--noct-fam-bad-rgb), .14);
+}
+
+.gpx-tag.is-even {
+    color: var(--noct-mute-2);
+    background: rgba(var(--noct-fam-neutral-rgb), .12);
+}
+
+.gpx-sub,
+.gpx-none {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--noct-mute-2);
+}
+
+/* A per-currency cell: one line a currency. */
+.gpx-list .gpx-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+    white-space: nowrap;
+}
+
+/* In a numeric column the figures sit on the right, under the money they belong to. */
+.gpx-list.gpx-num .gpx-line {
+    justify-content: flex-end;
+    text-align: right;
+}
+
+.gpx-list .gpx-line + .gpx-line {
+    margin-top: 2px;
+}
+
+.gpx-list .gpx-tag {
+    padding: 1px 6px;
+    font-size: 11px;
+}
+
+.gpx-list .gpx-sub {
+    flex-basis: 100%;
+}
+
+.gpx-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 6px;
+    margin: 0 0 12px;
+    font-size: 12.5px;
+    color: var(--noct-mute-2);
+}
+
+.gpx-note .ph {
+    color: var(--noct-fam-warn);
+    margin-right: 2px;
+}

@@ -2,12 +2,12 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using ShopInventory.Common.Errors;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
+using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -36,12 +36,18 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseSto
 /// <para><b>Vans are brought up to date by transfer, never by SAP's figure.</b> A van's row is its
 /// morning load plus the transfers since, and its sales come off only at end of day. SAP's book figure
 /// already has the day's online invoices taken off, so copying it would take those sales twice and
-/// destroy the van reconciliation. What a van misses after 07:00 is a load transfer, and the transfers
-/// are TransferEventListener's job: a van refresh makes the listener poll SAP now, through its own
-/// session, and deliver anything new to the transfer webhook, which moves the rows as it always does.
-/// That is every warehouse in <see cref="MonitoredWarehouseList"/> outside
-/// <see cref="DailyStockSettings.ReconcileWarehouses"/>. One check covers every van, not only the one
-/// pressed.</para>
+/// destroy the van reconciliation. What a van misses after 07:00 is a load transfer, so a van refresh
+/// reads SAP's transfers for that van and hands the ones the ledger has not had to the transfer
+/// webhook's own handler, exactly as TransferEventListener would deliver them. That is every warehouse
+/// in <see cref="MonitoredWarehouseList"/> outside <see cref="DailyStockSettings.ReconcileWarehouses"/>.</para>
+///
+/// <para><b>The listener is not asked.</b> This used to make the listener poll SAP and wait for it. Its
+/// cycle runs about twenty seconds against a thirty-second client timeout, and on 2026-10-22 VAN006's
+/// press came back "the transfer listener is still checking SAP" with nothing applied. Reading SAP here
+/// is one transfer query for one van, and the listener's later delivery of the same line is skipped
+/// by the webhook's duplicate check. A transfer SAP created after midnight but before the 07:00 fetch
+/// that the listener never delivered is applied on top of a morning figure that already holds it —
+/// the same double count the listener makes when it delivers such a line late, so nothing new.</para>
 ///
 /// <para><b>Refuses rather than guesses.</b> A warehouse that is not monitored at all is refused. So
 /// is a snapshot still being fetched, and a SAP read that comes back empty — OITW holds a row for
@@ -62,7 +68,7 @@ public sealed class RefreshWarehouseStockHandler(
     IStockLedger ledger,
     IOptions<DailyStockSettings> dailyStock,
     FetchDailyStockHandler fetch,
-    ITransferEventListenerClient transferListener,
+    ISender sender,
     ILogger<RefreshWarehouseStockHandler> logger
 ) : IRequestHandler<RefreshWarehouseStockCommand, ErrorOr<RefreshWarehouseStockResult>>
 {
@@ -271,14 +277,13 @@ public sealed class RefreshWarehouseStockHandler(
     }
 
     /// <summary>
-    /// Brings a van's rows up to date with the transfers SAP holds for it, by having
-    /// TransferEventListener poll now. See the remarks on this class.
+    /// Brings a van's rows up to date with the transfers SAP holds for it. See the remarks on this class.
     /// </summary>
     /// <remarks>
-    /// The rows are moved by the transfer webhook while the listener's check runs, not here, so the
-    /// counts are read from the adjustments journalled against the van before and after. The check
-    /// replays lines the listener was still holding too, which is what a van that stopped moving
-    /// mid-morning usually needs.
+    /// The counts are read from the adjustments journalled against the van before and after, so a line
+    /// the listener delivered while this ran counts as applied too. Lines the listener was holding
+    /// undelivered are picked up here as well, which is what a van that stopped moving mid-morning
+    /// usually needs.
     /// </remarks>
     private async Task<ErrorOr<RefreshWarehouseStockResult>> RefreshVanAsync(
         string warehouseCode,
@@ -303,52 +308,100 @@ public sealed class RefreshWarehouseStockHandler(
             return await RebuildSnapshotAsync(warehouseCode, ledgerDay, status is null, cancellationToken);
         }
 
-        if (!transferListener.IsEnabled)
-        {
-            return Errors.DesktopIntegration.TransferListenerDisabled();
-        }
-
         var before = await TransferLinesAsync(warehouseCode, ledgerDay, cancellationToken);
 
-        TransferListenerCheckResultDto check;
+        List<SapStockMovementDocument> documents;
         try
         {
-            check = await transferListener.TriggerCheckAsync(cancellationToken);
+            documents = await sapClient.GetStockTransfersCreatedAsync(
+                [warehouseCode], ledgerDay.Date, ledgerDay.Date.AddDays(1), cancellationToken);
         }
-        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            // The client's timeout, not the caller's. The listener's cycle runs about twenty seconds
-            // and carries on after this side stops waiting, so what it finds still reaches the van.
-            logger.LogWarning(
-                ex, "Refresh for {WarehouseCode}: TransferEventListener's check outlasted the client timeout",
-                warehouseCode);
+            // A client timeout lands here too: it is SAP not answering, not the operator giving up.
+            logger.LogWarning(ex, "Could not read SAP's stock transfers to refresh {WarehouseCode}", warehouseCode);
             return Error.Failure(
-                "Stock.TransferCheckTimedOut",
-                $"The transfer listener is still checking SAP for {warehouseCode}'s transfers. Anything it "
-                + "finds is applied when it finishes — load the stock again in a minute.");
+                "Stock.SapUnavailable",
+                $"SAP's transfers for {warehouseCode} could not be read, so nothing was changed. Try again shortly.");
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+
+        var booked = UndeliveredTransfers.Movements(documents, warehouseCode);
+        var undelivered = (await UndeliveredTransfers.NotYetJournalledAsync(
+                db, warehouseCode, ledgerDay, booked, booked.Select(transfer => transfer.ItemCode), cancellationToken))
+            .Values
+            .SelectMany(transfers => transfers)
+            .OrderBy(transfer => transfer.DocEntry)
+            .ToList();
+
+        var notApplied = 0;
+
+        foreach (var transfer in undelivered)
         {
-            logger.LogWarning(
-                ex, "Refresh for {WarehouseCode}: TransferEventListener's check failed against {BaseUrl}",
-                warehouseCode, transferListener.BaseUrl);
-            return Errors.DesktopIntegration.TransferListenerUnreachable(transferListener.BaseUrl, ex.Message);
+            if (!await DeliverAsync(transfer, cancellationToken))
+            {
+                notApplied++;
+            }
         }
 
         var after = await TransferLinesAsync(warehouseCode, ledgerDay, cancellationToken);
 
         logger.LogInformation(
-            "Stock for {WarehouseCode} refreshed through TransferEventListener: {Applied} transfer line(s) "
-            + "applied now, {Today} today; the check found {Detected} new line(s) across all warehouses "
-            + "and {Pending} still wait",
-            warehouseCode, after - before, after, check.MonitoredEventsDetected, check.PendingNotifications);
+            "Stock for {WarehouseCode} refreshed from SAP's transfers: {Booked} booked today, {Undelivered} "
+            + "not yet on the ledger, {Applied} line(s) applied now, {Today} today, {NotApplied} could not be applied",
+            warehouseCode, booked.Count, undelivered.Count, after - before, after, notApplied);
 
         return new RefreshWarehouseStockResult(
             warehouseCode, ledgerDay, 0, 0, 0, DateTime.UtcNow,
-            ViaTransferListener: true,
+            ByTransfer: true,
             TransfersApplied: after - before,
             TransfersToday: after,
-            TransfersPending: check.PendingNotifications);
+            TransfersNotApplied: notApplied);
+    }
+
+    /// <summary>
+    /// Hands one transfer to the transfer webhook's own handler, as TransferEventListener would.
+    /// </summary>
+    /// <returns>False when it could not be applied; the next press, or the listener, tries again.</returns>
+    /// <remarks>
+    /// The webhook's handler, not a copy of it: it owns the batch walk, the journal and the arrival
+    /// push, and its duplicate check is keyed on the same document, item, warehouse and direction. So
+    /// when the listener delivers this line later it is skipped, and if the listener gets there first
+    /// while this press runs, the two collide on the adjustment table's unique key and only one counts.
+    /// </remarks>
+    private async Task<bool> DeliverAsync(BookedTransfer transfer, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await sender.Send(
+                new ProcessTransferEventCommand(
+                    transfer.ItemCode,
+                    transfer.SourceWarehouse,
+                    transfer.DestinationWarehouse,
+                    transfer.Quantity,
+                    transfer.DocEntry,
+                    transfer.DocNum,
+                    transfer.ItemDescription),
+                cancellationToken);
+
+            if (result.IsError)
+            {
+                logger.LogWarning(
+                    "Transfer {DocNum} ({ItemCode}, {Direction}) was refused by the transfer handler: {Error}",
+                    transfer.DocNum, transfer.ItemCode, transfer.Direction, result.FirstError.Description);
+                return false;
+            }
+
+            return true;
+        }
+        catch (DbUpdateException ex)
+        {
+            // Most often the listener delivering the same line at the same moment. Its write stands.
+            db.ChangeTracker.Clear();
+            logger.LogWarning(
+                ex, "Transfer {DocNum} ({ItemCode}, {Direction}) could not be saved; the listener may have delivered it",
+                transfer.DocNum, transfer.ItemCode, transfer.Direction);
+            return false;
+        }
     }
 
     /// <summary>Transfer lines the ledger has applied to the warehouse on <paramref name="ledgerDay"/>.</summary>

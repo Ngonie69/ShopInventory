@@ -1502,6 +1502,21 @@ public class EndOfDayReportDto
     public int UnpostedInvoiceCount { get; set; }
     public List<BPSummaryDto> BusinessPartnerSummaries { get; set; } = new();
     public List<UnpostedSaleDto> UnpostedSales { get; set; } = new();
+
+    /// <summary>SAP's booked gross profit on the posted sales here; null when none is costed yet.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many of the sales <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedSalesCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, as the API states it.</summary>
+    public decimal? MarginPercent { get; set; }
+
+    /// <summary>Whether SAP's booked gross profit could be read; null from an older API.</summary>
+    public ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }
 
 public class BPSummaryDto
@@ -1518,6 +1533,18 @@ public class BPSummaryDto
 
     /// <summary><see cref="TotalAmount"/> less <see cref="CreditedAmount"/>, as the API states it.</summary>
     public decimal NetOfCredits { get; set; }
+
+    /// <summary>SAP's booked gross profit on the posted sales here; null when none is costed yet.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many of the sales <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedSalesCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, as the API states it.</summary>
+    public decimal? MarginPercent { get; set; }
 }
 
 public class UnpostedSaleDto
@@ -1545,10 +1572,10 @@ public class WarehouseStockRefreshResultDto
     public DateTime RefreshedAt { get; set; }
     public bool SnapshotRefetched { get; set; }
     public int RowsFetched { get; set; }
-    public bool ViaTransferListener { get; set; }
+    public bool ByTransfer { get; set; }
     public int TransfersApplied { get; set; }
     public int TransfersToday { get; set; }
-    public int TransfersPending { get; set; }
+    public int TransfersNotApplied { get; set; }
 }
 
 public class LocalStockResultDto

@@ -23,9 +23,42 @@ public static class VendingSalesDigest
 
     public enum Range { Today, Week, Month }
 
-    public sealed record Day(DateTime Date, decimal Gross, int SaleCount);
+    public sealed record Day(DateTime Date, decimal Gross, int SaleCount)
+    {
+        /// <summary>SAP's booked gross profit on the day's posted sales; null when none is costed or none was read.</summary>
+        public decimal? GrossProfit { get; init; }
 
-    public sealed record DepotRow(string Key, string Name, int SaleCount, decimal Gross, bool IsDepot);
+        public decimal? MarginPercent { get; init; }
+
+        public int CostedSaleCount { get; init; }
+    }
+
+    public sealed record DepotRow(string Key, string Name, int SaleCount, decimal Gross, bool IsDepot)
+    {
+        /// <summary>SAP's booked gross profit on the depot's posted sales; null when none is costed or none was read.</summary>
+        public decimal? GrossProfit { get; init; }
+
+        /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+        public decimal? CostedNetAmount { get; init; }
+
+        public int CostedSaleCount { get; init; }
+
+        public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+            ? Math.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+            : null;
+    }
+
+    /// <summary>
+    /// The gross profit of a set of breakdown rows that split some sales between them: null when none of
+    /// them is costed.
+    /// </summary>
+    public static (decimal? GrossProfit, decimal? CostedNetAmount, int CostedSales) Profit(IEnumerable<DesktopSalesBreakdownRow> rows)
+    {
+        var costed = rows.Where(row => row.GrossProfit is not null).ToList();
+        return costed.Count == 0
+            ? (null, null, 0)
+            : (costed.Sum(row => row.GrossProfit!.Value), costed.Sum(row => row.CostedNetAmount ?? 0m), costed.Sum(row => row.CostedSalesCount));
+    }
 
     public sealed record Tender(string Name, decimal SharePercent);
 
@@ -72,7 +105,12 @@ public static class VendingSalesDigest
         for (var date = from.Date; date <= to.Date; date = date.AddDays(1))
         {
             var row = section?.ByDay.FirstOrDefault(day => day.Date.Date == date);
-            days.Add(new Day(date, row?.TotalAmount ?? 0m, row?.SalesCount ?? 0));
+            days.Add(new Day(date, row?.TotalAmount ?? 0m, row?.SalesCount ?? 0)
+            {
+                GrossProfit = row?.GrossProfit,
+                MarginPercent = row?.MarginPercent,
+                CostedSaleCount = row?.CostedSalesCount ?? 0
+            });
         }
 
         return days;
@@ -91,7 +129,7 @@ public static class VendingSalesDigest
             .GroupBy(row => row.Key, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 group => group.Key,
-                group => (Count: group.Sum(row => row.SalesCount), Gross: group.Sum(row => row.TotalAmount)),
+                group => (Count: group.Sum(row => row.SalesCount), Gross: group.Sum(row => row.TotalAmount), Rows: group.ToList()),
                 StringComparer.OrdinalIgnoreCase);
 
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -101,6 +139,7 @@ public static class VendingSalesDigest
         {
             var count = 0;
             var gross = 0m;
+            var sources = new List<DesktopSalesBreakdownRow>();
             foreach (var code in depot.WarehouseCodes)
             {
                 // A warehouse shared by two depots is counted once, against the first.
@@ -108,15 +147,31 @@ public static class VendingSalesDigest
                 {
                     count += sold.Count;
                     gross += sold.Gross;
+                    sources.AddRange(sold.Rows);
                 }
             }
 
-            rows.Add(new DepotRow(depot.BusinessPartnerCode, depotName(depot.BusinessPartnerCode), count, gross, IsDepot: true));
+            var (profit, costed, costedSales) = Profit(sources);
+            rows.Add(new DepotRow(depot.BusinessPartnerCode, depotName(depot.BusinessPartnerCode), count, gross, IsDepot: true)
+            {
+                GrossProfit = profit,
+                CostedNetAmount = costed,
+                CostedSaleCount = costedSales
+            });
         }
 
         rows.AddRange(warehouses
             .Where(entry => !claimed.Contains(entry.Key))
-            .Select(entry => new DepotRow(entry.Key, $"Warehouse {entry.Key}", entry.Value.Count, entry.Value.Gross, IsDepot: false)));
+            .Select(entry =>
+            {
+                var (profit, costed, costedSales) = Profit(entry.Value.Rows);
+                return new DepotRow(entry.Key, $"Warehouse {entry.Key}", entry.Value.Count, entry.Value.Gross, IsDepot: false)
+                {
+                    GrossProfit = profit,
+                    CostedNetAmount = costed,
+                    CostedSaleCount = costedSales
+                };
+            }));
 
         return rows
             .OrderByDescending(row => row.Gross)

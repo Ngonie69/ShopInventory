@@ -46,13 +46,13 @@ public static class SalesPerformanceBuilder
         var vending = Counter(review, SaleBusinesses.Vending);
         var van = Vans(vans, previousVans, unconfirmedVanSales);
 
-        var rows = new List<(string Business, string Label, string Currency, decimal Takings, decimal Previous, int Count, int PreviousCount, decimal? Credited)>();
+        var rows = new List<(string Business, string Label, string Currency, decimal Takings, decimal Previous, int Count, int PreviousCount, decimal? Credited, decimal? Margin)>();
         foreach (var business in review.Businesses.Where(b => SaleBusinesses.Counters.Contains(b.Business)))
         {
             foreach (var section in business.Currencies)
             {
                 var h = section.Headline;
-                rows.Add((business.Business, business.Label, section.Currency, h.TotalAmount, h.PreviousTotalAmount, h.SalesCount, h.PreviousSalesCount, h.CreditedAmount));
+                rows.Add((business.Business, business.Label, section.Currency, h.TotalAmount, h.PreviousTotalAmount, h.SalesCount, h.PreviousSalesCount, h.CreditedAmount, h.MarginPercent));
             }
         }
 
@@ -61,7 +61,7 @@ public static class SalesPerformanceBuilder
         {
             var before = previousVanMoney.GetValueOrDefault(currency.Currency);
             rows.Add((SaleBusinesses.Vans, SaleBusinesses.Label(SaleBusinesses.Vans), currency.Currency,
-                currency.Takings, currency.PreviousTakings, currency.Invoices, before?.DocumentCount ?? 0, null));
+                currency.Takings, currency.PreviousTakings, currency.Invoices, before?.DocumentCount ?? 0, null, currency.MarginPercent));
         }
 
         var byCurrency = rows
@@ -80,7 +80,10 @@ public static class SalesPerformanceBuilder
                 row.PreviousCount,
                 row.Count > 0 ? Round(row.Takings / row.Count) : null,
                 row.Credited,
-                Share(row.Takings, byCurrency[row.Currency])))
+                Share(row.Takings, byCurrency[row.Currency]))
+            {
+                MarginPercent = row.Margin
+            })
             .ToList();
 
         // USD first: it is most of the trade, and a manager reads the first row as the headline.
@@ -157,7 +160,7 @@ public static class SalesPerformanceBuilder
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .SelectMany(account =>
             {
-                var current = VanSalesMeasures.MoneyByCurrency(now.GetValueOrDefault(account) ?? []);
+                var current = VanSalesMeasures.MoneyByCurrency(now.GetValueOrDefault(account) ?? [], facts.Margin);
                 var previous = VanSalesMeasures.MoneyByCurrency(before.GetValueOrDefault(account) ?? []);
                 var reps = (now.GetValueOrDefault(account) ?? [])
                     .Select(fact => fact.UserId)
@@ -197,7 +200,7 @@ public static class SalesPerformanceBuilder
                 Change(row.Today?.Gross ?? 0m, row.Then?.Gross ?? 0m),
                 Share(row.Today?.Gross ?? 0m, totals[row.Currency]),
                 null,
-                null))
+                row.Today?.MarginPercent))
             .OrderBy(row => row.Currency, StringComparer.Ordinal)
             .ThenByDescending(row => row.Takings)
             .ThenByDescending(row => row.PreviousTakings)
@@ -251,6 +254,12 @@ public static class SalesPerformanceBuilder
                 .ToList());
     }
 
+    /// <summary>The margin of each currency SAP has costed.</summary>
+    private static Dictionary<string, decimal> Margins(IEnumerable<VanSalesMoneyResult> totals) =>
+        totals
+            .Where(m => m.MarginPercent is not null)
+            .ToDictionary(m => m.Currency, m => m.MarginPercent!.Value, StringComparer.OrdinalIgnoreCase);
+
     private static SalesPerformanceVans Vans(
         VanSalesPerformanceReportResult current,
         VanSalesPerformanceReportResult previous,
@@ -273,7 +282,10 @@ public static class SalesPerformanceBuilder
                     previousTakings,
                     Change(takings, previousTakings),
                     now?.DocumentCount ?? 0,
-                    now?.AverageDropSize);
+                    now?.AverageDropSize)
+                {
+                    MarginPercent = now?.MarginPercent
+                };
             })
             .OrderByDescending(currency => currency.Takings)
             .ThenByDescending(currency => currency.PreviousTakings)
@@ -299,7 +311,10 @@ public static class SalesPerformanceBuilder
                     route.ProductiveCalls,
                     route.CallComplianceRate,
                     route.ProductiveCallRate,
-                    route.KilometresTravelled);
+                    route.KilometresTravelled)
+                {
+                    MarginPercent = Margins(route.TotalsByCurrency)
+                };
             })
             .ToList();
 
@@ -313,7 +328,10 @@ public static class SalesPerformanceBuilder
                 rep.TotalsByCurrency.ToDictionary(m => m.Currency, m => m.Gross, StringComparer.OrdinalIgnoreCase),
                 rep.ProductiveCalls,
                 rep.CustomerCount,
-                rep.StrikeRate))
+                rep.StrikeRate)
+            {
+                MarginPercent = Margins(rep.TotalsByCurrency)
+            })
             .ToList();
 
         var items = current.Items
@@ -324,7 +342,11 @@ public static class SalesPerformanceBuilder
                 item.LineCount,
                 item.TotalsByCurrency
                     .Where(m => string.Equals(m.Currency, main, StringComparison.OrdinalIgnoreCase))
-                    .Sum(m => m.Gross)))
+                    .Sum(m => m.Gross))
+            {
+                MarginPercent = item.TotalsByCurrency
+                    .FirstOrDefault(m => string.Equals(m.Currency, main, StringComparison.OrdinalIgnoreCase))?.MarginPercent
+            })
             .ToList();
 
         var findings = VanFindings(current, previous, currencies, routes, previousRoutes, unconfirmed, main);

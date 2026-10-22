@@ -67,20 +67,42 @@ internal static class RouteCustomerSalesReporting
     /// Never collapses them into one figure. A van that took USD 40 and ZWG 900 did not take 940 of
     /// anything, and a report that says so is worse than one that says nothing.
     /// </summary>
+    /// <summary>
+    /// Adds totals up per currency. Gross profit adds up with them, so long as the parts split the sales
+    /// between them.
+    /// </summary>
     public static List<RouteCustomerSalesTotalsDto> SumByCurrency(IEnumerable<RouteCustomerSalesTotalsDto> parts) =>
         parts
             .GroupBy(part => NormalizeCurrency(part.Currency), StringComparer.OrdinalIgnoreCase)
-            .Select(group => new RouteCustomerSalesTotalsDto
+            .Select(group =>
             {
-                Currency = group.Key,
-                SaleCount = group.Sum(part => part.SaleCount),
-                Gross = group.Sum(part => part.Gross),
-                Vat = group.Sum(part => part.Vat),
-                AmountPaid = group.Sum(part => part.AmountPaid)
+                var costed = group.Where(part => part.GrossProfit is not null).ToList();
+                return new RouteCustomerSalesTotalsDto
+                {
+                    Currency = group.Key,
+                    SaleCount = group.Sum(part => part.SaleCount),
+                    Gross = group.Sum(part => part.Gross),
+                    Vat = group.Sum(part => part.Vat),
+                    AmountPaid = group.Sum(part => part.AmountPaid),
+                    GrossProfit = costed.Count == 0 ? null : costed.Sum(part => part.GrossProfit!.Value),
+                    CostedNetAmount = costed.Count == 0 ? null : costed.Sum(part => part.CostedNetAmount ?? 0m),
+                    CostedSaleCount = costed.Sum(part => part.CostedSaleCount)
+                };
             })
             .OrderByDescending(total => total.Gross)
             .ThenBy(total => total.Currency, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    /// <summary>Puts SAP's booked margin on a total, or leaves it uncosted.</summary>
+    public static RouteCustomerSalesTotalsDto WithMargin(
+        this RouteCustomerSalesTotalsDto total,
+        ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementSalesRollup.SalesMargin? margin)
+    {
+        total.GrossProfit = margin?.GrossProfit;
+        total.CostedNetAmount = margin?.Revenue;
+        total.CostedSaleCount = margin?.CostedSales ?? 0;
+        return total;
+    }
 
     public static string NormalizeCurrency(string? currency) =>
         string.IsNullOrWhiteSpace(currency) ? "USD" : currency.Trim().ToUpperInvariant();

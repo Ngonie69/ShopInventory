@@ -55,6 +55,9 @@ public partial class ReportExportService
         new("Daily Target", (cell, truck) => TruckMoney(cell, truck.DailySalesTarget)),
         new("Period Target", (cell, truck) => TruckMoney(cell, truck.PeriodTarget)),
         new("Sales (USD, with VAT)", (cell, truck) => TruckMoney(cell, truck.Sales)),
+        // SAP's booked gross profit on the posted dollar sales; blank where none of them is in SAP yet.
+        new("Gross Profit (USD)", (cell, truck) => TruckMoney(cell, truck.GrossProfit, FormatUsdSigned)),
+        new("Margin", (cell, truck) => TruckRate(cell, truck.MarginPercent is { } margin ? (double)(margin / 100m) : null)),
         new("Balance To Target", (cell, truck) => TruckMoney(cell, truck.BalanceToTarget, FormatUsdSigned)),
         new("Achieved", (cell, truck) => TruckRate(cell, truck.TargetAchieved)),
         new("Days Reported", (cell, truck) =>
@@ -148,6 +151,8 @@ public partial class ReportExportService
         new("New Customers", (cell, day) => TruckCount(cell, Recorded(day, day.NewCustomers)), FormatCount),
         new("Invoices", (cell, day) => TruckCount(cell, Recorded(day, day.SalesCount)), FormatCount),
         new("Sales (USD, with VAT)", (cell, day) => TruckMoney(cell, Recorded(day, day.Sales)), FormatUsd),
+        new("Gross Profit (USD)", (cell, day) => TruckMoney(cell, day.GrossProfit, FormatUsdSigned), FormatUsdSigned),
+        new("Margin", (cell, day) => TruckRate(cell, day.MarginPercent is { } margin ? (double)(margin / 100m) : null)),
         new("Cash", (cell, day) => TruckMoney(cell, Recorded(day, day.Cash), FormatUsdDashZero), FormatUsdDashZero),
         new("Ecocash", (cell, day) => TruckMoney(cell, Recorded(day, day.Ecocash), FormatUsdDashZero), FormatUsdDashZero),
         new("Innbucks", (cell, day) => TruckMoney(cell, Recorded(day, day.Innbucks), FormatUsdDashZero), FormatUsdDashZero),

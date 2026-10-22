@@ -155,34 +155,8 @@ public sealed class GetVanSalesAnalysisHandler(
     private async Task<(ManagementSalesRollup.MarginBook Book, ManagementMarginStatus Status)> MarginAsync(
         List<VanSaleFact> sales, CancellationToken cancellationToken)
     {
-        if (costReader is null)
-        {
-            return (ManagementSalesRollup.MarginBook.Empty, new ManagementMarginStatus(
-                false, "Gross profit is unavailable: this server has no SAP cost reader."));
-        }
-
-        // Filed as the van source on both routes, so every item lands under the vans' business.
-        var posted = sales
-            .Where(sale => sale.SapDocEntry is not null)
-            .Select(sale => new ManagementSalesRollup.PostedSale(
-                sale.SapDocEntry!.Value,
-                CurrencyKey(sale.Currency),
-                sale.WarehouseCode?.Trim() ?? string.Empty,
-                sale.VanAccountCode,
-                SaleSourceSystems.VanSales,
-                sale.UserId.ToString(),
-                string.Empty,
-                sale.RouteCustomerId))
-            .ToList();
-
-        return await ManagementSalesRollup.MarginOfPostedAsync(
-            posted,
-            [],
-            null,
-            costReader,
-            (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
-            GetDesktopSalesAnalysisHandler.MarginDeadline,
-            cancellationToken);
+        var margin = await VanSalesMargin.LoadAsync(sales, costReader, logger, cancellationToken);
+        return (margin.Book, margin.Status);
     }
 
     private static DesktopSalesCurrencyAnalysis Analyse(
@@ -223,19 +197,37 @@ public sealed class GetVanSalesAnalysisHandler(
         var byDay = sales
             .GroupBy(sale => sale.TradingDate)
             .OrderBy(day => day.Key)
-            .Select(day => new DesktopSalesDayRow(
-                day.Key,
-                day.Count(),
-                day.Sum(sale => sale.TotalAmount),
-                day.Sum(sale => sale.VatAmount ?? 0m),
-                Split(day, paymentMethods)))
+            .Select(day =>
+            {
+                var costed = margin?.ForInvoices(day.Select(sale => sale.SapDocEntry));
+                return new DesktopSalesDayRow(
+                    day.Key,
+                    day.Count(),
+                    day.Sum(sale => sale.TotalAmount),
+                    day.Sum(sale => sale.VatAmount ?? 0m),
+                    Split(day, paymentMethods))
+                {
+                    GrossProfit = costed?.GrossProfit,
+                    CostedNetAmount = costed?.Revenue,
+                    CostedSalesCount = costed?.CostedSales ?? 0
+                };
+            })
             .ToList();
 
         var byHour = sales
             .Where(sale => sale.SoldAtCat.HasValue)
             .GroupBy(sale => sale.SoldAtCat!.Value.Hour)
             .OrderBy(hour => hour.Key)
-            .Select(hour => new DesktopSalesHourRow(hour.Key, hour.Count(), hour.Sum(sale => sale.TotalAmount)))
+            .Select(hour =>
+            {
+                var costed = margin?.ForInvoices(hour.Select(sale => sale.SapDocEntry));
+                return new DesktopSalesHourRow(hour.Key, hour.Count(), hour.Sum(sale => sale.TotalAmount))
+                {
+                    GrossProfit = costed?.GrossProfit,
+                    CostedNetAmount = costed?.Revenue,
+                    CostedSalesCount = costed?.CostedSales ?? 0
+                };
+            })
             .ToList();
 
         var items = lines
@@ -286,7 +278,8 @@ public sealed class GetVanSalesAnalysisHandler(
                 ? (code, CustomerName(group) ?? code)
                 : ("", "No customer recorded"),
             total,
-            paymentMethods);
+            paymentMethods,
+            margin);
 
         return new DesktopSalesCurrencyAnalysis(
             currency,
@@ -306,20 +299,23 @@ public sealed class GetVanSalesAnalysisHandler(
                 sale => sale.WarehouseCode?.Trim() ?? "",
                 group => (group.Key, group.Key.Length == 0 ? "Not recorded" : group.Key),
                 total,
-                paymentMethods),
+                paymentMethods,
+                margin),
             byCustomer,
             Breakdown(
                 sales,
                 sale => sale.Source == VanSaleSource.OnlineInvoice ? OnlineKey : OfflineKey,
                 group => (group.Key, group.Key == OnlineKey ? "Online (invoiced live)" : "Offline (uploaded)"),
                 total,
-                paymentMethods),
+                paymentMethods,
+                margin),
             Breakdown(
                 sales,
                 sale => sale.UserId.ToString(),
                 group => (group.Key, SaleOperatorNames.Label(group.Key, operators) ?? group.Key),
                 total,
-                paymentMethods),
+                paymentMethods,
+                margin),
             topItems,
             previous.SalesCount,
             previous.TotalAmount)
@@ -330,7 +326,8 @@ public sealed class GetVanSalesAnalysisHandler(
                 sale => sale.VanAccountCode?.Trim() ?? "",
                 group => (group.Key, group.Key.Length == 0 ? "Not recorded" : group.Key),
                 total,
-                paymentMethods),
+                paymentMethods,
+                margin),
 
             // The vans are one line of business, and this analysis reads nothing else.
             ItemsByBusiness = items.Count == 0
@@ -356,13 +353,15 @@ public sealed class GetVanSalesAnalysisHandler(
         Func<VanSaleFact, string> key,
         Func<IGrouping<string, VanSaleFact>, (string Key, string Label)> describe,
         decimal total,
-        IReadOnlyList<string> paymentMethods) =>
+        IReadOnlyList<string> paymentMethods,
+        ManagementSalesRollup.MarginBook? margin) =>
         sales
             .GroupBy(key, StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
                 var (rowKey, label) = describe(group);
                 var value = group.Sum(sale => sale.TotalAmount);
+                var costed = margin?.ForInvoices(group.Select(sale => sale.SapDocEntry));
 
                 return new DesktopSalesBreakdownRow(
                     rowKey,
@@ -371,7 +370,12 @@ public sealed class GetVanSalesAnalysisHandler(
                     value,
                     group.Sum(sale => sale.VatAmount ?? 0m),
                     Share(value, total),
-                    Split(group, paymentMethods));
+                    Split(group, paymentMethods))
+                {
+                    GrossProfit = costed?.GrossProfit,
+                    CostedNetAmount = costed?.Revenue,
+                    CostedSalesCount = costed?.CostedSales ?? 0
+                };
             })
             .OrderByDescending(row => row.TotalAmount)
             .ThenBy(row => row.Label, StringComparer.OrdinalIgnoreCase)

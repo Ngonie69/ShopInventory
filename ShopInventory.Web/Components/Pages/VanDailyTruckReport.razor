@@ -112,6 +112,10 @@
                         {
                             <span class="vsk-of">sold · no targets set</span>
                         }
+                        @if (GpLine(total.GrossProfit, total.MarginPercent, total.CostedSalesCount, total.SalesCount) is { } fleetGp)
+                        {
+                            <span class="vsk-of">@fleetGp</span>
+                        }
                     </div>
                     @if (PaceText(total, "ahead of the days so far", "behind the days so far") is { } fleetPace)
                     {
@@ -266,6 +270,10 @@
                                     </span>
                                     <span class="vsc-num">@Percent(truck.TargetAchieved)</span>
                                 </span>
+                                @if (GpLine(truck.GrossProfit, truck.MarginPercent, truck.CostedSalesCount, truck.SalesCount) is { } truckGp)
+                                {
+                                    <span class="vsc-sub">@truckGp</span>
+                                }
                                 @if (truck.PeriodTarget is > 0)
                                 {
                                     <span class="vsk-meter">
@@ -368,6 +376,10 @@
                                         @if (Versus(day) is { } versus)
                                         {
                                             <span class="vsc-sub @Ink(day.BelowTarget)">@versus</span>
+                                        }
+                                        @if (GpLine(day.GrossProfit, day.MarginPercent, day.CostedSalesCount, day.SalesCount) is { } dayGp)
+                                        {
+                                            <span class="vsc-sub">@dayGp</span>
                                         }
                                     </span>
                                     <span class="vs-right vsc-num">@(day.Ecocash > 0 ? Money(day.Ecocash) : "—")</span>

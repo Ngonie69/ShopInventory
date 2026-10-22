@@ -308,9 +308,19 @@ public sealed class GetDesktopSalesAnalysisHandler(
 
         ManagementSalesRollup.MarginBook? margin = null;
         ManagementMarginStatus? marginStatus = null;
+        List<PostedInvoice> invoices = [];
         if (request.IncludeMargin)
         {
             (margin, marginStatus) = await MarginAsync(sales, cancellationToken);
+
+            // A day and an hour are not dimensions of the margin book, so their rows are costed from the
+            // invoices themselves. Only a sale posted as its own invoice has one.
+            invoices = (await sales
+                    .Where(s => s.SapDocEntry != null)
+                    .Select(s => new { DocEntry = s.SapDocEntry!.Value, s.Currency, s.DocDate, s.CreatedAt.Hour })
+                    .ToListAsync(cancellationToken))
+                .Select(s => new PostedInvoice(CurrencyKey(s.Currency), s.DocDate.Date, CatHour(s.Hour), s.DocEntry))
+                .ToList();
         }
 
         var operators = await OperatorNamesAsync(cells, cancellationToken);
@@ -326,7 +336,8 @@ public sealed class GetDesktopSalesAnalysisHandler(
                 paymentMethods,
                 operators,
                 previous.GetValueOrDefault(group.Key),
-                margin))
+                margin,
+                invoices.Where(i => i.Currency == group.Key).ToList()))
             // US dollars first — the currency the tills price in — then the rest by name. Not by
             // value: 370 ZWG and 106 USD are not comparable numbers, and ranking on them put ZiG on top.
             .OrderBy(c => c.Currency == "USD" ? 0 : 1)
@@ -381,7 +392,8 @@ public sealed class GetDesktopSalesAnalysisHandler(
         IReadOnlyList<string> paymentMethods,
         IReadOnlyDictionary<Guid, string> operators,
         (int SalesCount, decimal TotalAmount) previous,
-        ManagementSalesRollup.MarginBook? margin)
+        ManagementSalesRollup.MarginBook? margin,
+        List<PostedInvoice> invoices)
     {
         var salesCount = cells.Sum(c => c.SalesCount);
         var total = cells.Sum(c => c.TotalAmount);
@@ -412,23 +424,37 @@ public sealed class GetDesktopSalesAnalysisHandler(
         var byDay = cells
             .GroupBy(c => c.DocDate)
             .OrderBy(day => day.Key)
-            .Select(day => new DesktopSalesDayRow(
-                day.Key,
-                day.Sum(c => c.SalesCount),
-                day.Sum(c => c.TotalAmount),
-                day.Sum(c => c.VatAmount),
-                Split(day, paymentMethods))
+            .Select(day =>
             {
-                CreditedAmount = day.Sum(c => c.CreditedAmount)
+                var costed = margin?.ForInvoices(invoices.Where(i => i.Date == day.Key).Select(i => (int?)i.DocEntry));
+                return new DesktopSalesDayRow(
+                    day.Key,
+                    day.Sum(c => c.SalesCount),
+                    day.Sum(c => c.TotalAmount),
+                    day.Sum(c => c.VatAmount),
+                    Split(day, paymentMethods))
+                {
+                    CreditedAmount = day.Sum(c => c.CreditedAmount),
+                    GrossProfit = costed?.GrossProfit,
+                    CostedNetAmount = costed?.Revenue,
+                    CostedSalesCount = costed?.CostedSales ?? 0
+                };
             })
             .ToList();
 
         var byHour = hours
             .GroupBy(h => h.Hour)
             .OrderBy(hour => hour.Key)
-            .Select(hour => new DesktopSalesHourRow(hour.Key, hour.Sum(h => h.SalesCount), hour.Sum(h => h.TotalAmount))
+            .Select(hour =>
             {
-                CreditedAmount = hour.Sum(h => h.CreditedAmount)
+                var costed = margin?.ForInvoices(invoices.Where(i => i.Hour == hour.Key).Select(i => (int?)i.DocEntry));
+                return new DesktopSalesHourRow(hour.Key, hour.Sum(h => h.SalesCount), hour.Sum(h => h.TotalAmount))
+                {
+                    CreditedAmount = hour.Sum(h => h.CreditedAmount),
+                    GrossProfit = costed?.GrossProfit,
+                    CostedNetAmount = costed?.Revenue,
+                    CostedSalesCount = costed?.CostedSales ?? 0
+                };
             })
             .ToList();
 
@@ -479,10 +505,14 @@ public sealed class GetDesktopSalesAnalysisHandler(
             byPaymentMethod,
             byDay,
             byHour,
-            Breakdown(cells, c => c.WarehouseCode, code => string.IsNullOrEmpty(code) ? "Not recorded" : code, total, paymentMethods),
-            Breakdown(cells, c => c.CardCode, code => PartnerLabel(code, partnerNames), total, paymentMethods),
-            Breakdown(cells, c => c.SourceSystem, SourceLabel, total, paymentMethods),
-            Breakdown(cells, c => c.CreatedBy, id => OperatorLabel(id, operators), total, paymentMethods),
+            Breakdown(cells, c => c.WarehouseCode, code => string.IsNullOrEmpty(code) ? "Not recorded" : code, total, paymentMethods,
+                code => margin?.MarginOf(currency, ManagementSalesRollup.Dimension.Depot, code)),
+            Breakdown(cells, c => c.CardCode, code => PartnerLabel(code, partnerNames), total, paymentMethods,
+                code => margin?.MarginOf(currency, ManagementSalesRollup.Dimension.Partner, code)),
+            Breakdown(cells, c => c.SourceSystem, SourceLabel, total, paymentMethods,
+                code => margin?.MarginOf(currency, ManagementSalesRollup.Dimension.Channel, code)),
+            Breakdown(cells, c => c.CreatedBy, id => OperatorLabel(id, operators), total, paymentMethods,
+                id => margin?.MarginOf(currency, ManagementSalesRollup.Dimension.Operator, id)),
             topItems,
             previous.SalesCount,
             previous.TotalAmount)
@@ -523,19 +553,27 @@ public sealed class GetDesktopSalesAnalysisHandler(
         Func<Cell, string> key,
         Func<string, string> label,
         decimal total,
-        IReadOnlyList<string> paymentMethods) =>
+        IReadOnlyList<string> paymentMethods,
+        Func<string, ManagementSalesRollup.SalesMargin?> costOf) =>
         cells
             .GroupBy(key, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new DesktopSalesBreakdownRow(
-                group.Key,
-                label(group.Key),
-                group.Sum(c => c.SalesCount),
-                group.Sum(c => c.TotalAmount),
-                group.Sum(c => c.VatAmount),
-                Share(group.Sum(c => c.TotalAmount), total),
-                Split(group, paymentMethods))
+            .Select(group =>
             {
-                CreditedAmount = group.Sum(c => c.CreditedAmount)
+                var costed = costOf(group.Key);
+                return new DesktopSalesBreakdownRow(
+                    group.Key,
+                    label(group.Key),
+                    group.Sum(c => c.SalesCount),
+                    group.Sum(c => c.TotalAmount),
+                    group.Sum(c => c.VatAmount),
+                    Share(group.Sum(c => c.TotalAmount), total),
+                    Split(group, paymentMethods))
+                {
+                    CreditedAmount = group.Sum(c => c.CreditedAmount),
+                    GrossProfit = costed?.GrossProfit,
+                    CostedNetAmount = costed?.Revenue,
+                    CostedSalesCount = costed?.CostedSales ?? 0
+                };
             })
             .OrderByDescending(row => row.TotalAmount)
             .ThenBy(row => row.Label, StringComparer.OrdinalIgnoreCase)
@@ -722,6 +760,9 @@ public sealed class GetDesktopSalesAnalysisHandler(
 
         public int FullyCredited { get; init; }
     }
+
+    /// <summary>A sale posted as its own invoice, by the day and counter hour it was rung up in.</summary>
+    private sealed record PostedInvoice(string Currency, DateTime Date, int Hour, int DocEntry);
 
     private sealed record HourCell(string Currency, int Hour, int SalesCount, decimal TotalAmount)
     {

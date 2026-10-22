@@ -257,10 +257,9 @@ public partial class DesktopSalesReport : IDisposable
             // most four are ever missing.
             foreach (var key in new[] { contextKey, focusKey, paymentsKey, partnersKey }.Distinct())
             {
-                // Only the focus feeds the best sellers, so only it asks SAP for their gross profit. A focus
-                // that was read earlier as context has none, and is read again with it.
-                var withMargin = key == focusKey;
-                if (loaded.TryGetValue(key, out var cached) && (!withMargin || cached.Margin is not null))
+                // Every read carries gross profit: the days come from the context and everything else from
+                // the focus. It is read from the API's copy of SAP's booked cost, not from SAP itself.
+                if (loaded.ContainsKey(key))
                 {
                     continue;
                 }
@@ -273,7 +272,7 @@ public partial class DesktopSalesReport : IDisposable
                         key.Method,
                         Vans: Vans,
                         CardCode: key.Partner == "" ? null : key.Partner,
-                        IncludeMargin: withMargin),
+                        IncludeMargin: true),
                     cancellationToken);
 
                 if (cancellationToken.IsCancellationRequested || isDisposed)
@@ -552,7 +551,11 @@ public partial class DesktopSalesReport : IDisposable
         int SalesCount,
         decimal TotalAmount,
         decimal Value,
-        List<(string Method, decimal Value)> Parts);
+        List<(string Method, decimal Value)> Parts)
+    {
+        /// <summary>The day's gross profit, when margin was read and no payment method narrows the day.</summary>
+        public DesktopSalesDayRow? Costed { get; init; }
+    }
 
     /// <summary>
     /// Every day of the period, zeros included, confined to the picked method but never to the picked day —
@@ -581,7 +584,11 @@ public partial class DesktopSalesReport : IDisposable
                 parts
                     .Select(part => (part.PaymentMethod, measure == MeasureSales ? (decimal)part.SalesCount : part.TotalAmount))
                     .Where(part => part.Item2 > 0)
-                    .ToList()));
+                    .ToList())
+            {
+                // Profit is not split by how a sale was paid, so a day narrowed to one method shows none.
+                Costed = method is null && context.Margin is { Available: true } ? row : null
+            });
         }
 
         return columns;
@@ -601,10 +608,28 @@ public partial class DesktopSalesReport : IDisposable
         measure == MeasureSales ? Plural(column.SalesCount, "sale") : Money(column.TotalAmount);
 
     private string ColumnReadoutSub(DayColumn column) =>
-        $"{DayLabel(column.Date)} · " + (measure == MeasureSales ? Money(column.TotalAmount) : Plural(column.SalesCount, "sale"));
+        $"{DayLabel(column.Date)} · " + (measure == MeasureSales ? Money(column.TotalAmount) : Plural(column.SalesCount, "sale"))
+        + DayProfit(column);
 
     private string ColumnTitle(DayColumn column) =>
-        $"{DayLabel(column.Date)} · {Plural(column.SalesCount, "sale")} · {Money(column.TotalAmount)}";
+        $"{DayLabel(column.Date)} · {Plural(column.SalesCount, "sale")} · {Money(column.TotalAmount)}" + DayProfit(column);
+
+    /// <summary>" · GP …" for a day that sold, when its profit was read; empty otherwise.</summary>
+    private static string DayProfit(DayColumn column) =>
+        column.Costed is { } row && column.SalesCount > 0
+            ? " · " + GrossProfitFormat.Line(row.GrossProfit, row.MarginPercent)
+              + (GrossProfitFormat.PartOf(row.CostedSalesCount, row.SalesCount) is { } part ? $" ({part})" : "")
+            : "";
+
+    /// <summary>
+    /// " · GP …" for an hour that sold, when its profit was read; empty otherwise. The hours are the
+    /// focus's, which the API has already narrowed to any payment method picked.
+    /// </summary>
+    private string HourProfit(DesktopSalesHourRow slot) =>
+        shown?.Focus.Margin is { Available: true } && slot.SalesCount > 0
+            ? " · " + GrossProfitFormat.Line(slot.GrossProfit, slot.MarginPercent)
+              + (GrossProfitFormat.PartOf(slot.CostedSalesCount, slot.SalesCount) is { } part ? $" ({part})" : "")
+            : "";
 
     /// <summary>
     /// Every hour from seven to six, widened to take in any sale outside them, zeros included — so a
@@ -880,20 +905,6 @@ public partial class DesktopSalesReport : IDisposable
 
     private string Money(decimal value) =>
         $"{Currency} {value.ToString("N2", CultureInfo.InvariantCulture)}".Trim();
-
-    /// <summary>The tone a gross profit or margin is drawn in: a loss, a profit, or neither.</summary>
-    private static string GpTone(decimal value) => value < 0 ? "is-loss" : value > 0 ? "is-profit" : "is-even";
-
-    /// <summary>The word beside a margin, so a loss is never told by its colour alone.</summary>
-    private static string GpVerdict(decimal margin) => margin < 0 ? "Loss" : margin > 0 ? "Profit" : "Break-even";
-
-    /// <summary>A margin to one place with a real minus sign, matching <see cref="SignedMoney"/>.</summary>
-    private static string SignedPercent(decimal value) =>
-        (value < 0 ? "−" : "") + Math.Abs(value).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "%";
-
-    /// <summary>Money with a real minus sign, for a figure that can go below zero.</summary>
-    private static string SignedMoney(decimal value) =>
-        (value < 0 ? "\u2212" : "") + Math.Abs(value).ToString("N2", System.Globalization.CultureInfo.InvariantCulture);
 
     private static string Pct(decimal percent) =>
         percent.ToString("0.#", CultureInfo.InvariantCulture) + "%";

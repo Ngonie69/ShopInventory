@@ -34,6 +34,18 @@ public class RouteCustomerSalesTotalsModel
     public decimal Vat { get; set; }
 
     public decimal AmountPaid { get; set; }
+
+    /// <summary>SAP's booked gross profit on the posted sales behind this figure; null when none is costed or none was read.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many were costed.</summary>
+    public int CostedSaleCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, as the API states it.</summary>
+    public decimal? MarginPercent { get; set; }
 }
 
 public class RouteCustomerSaleLineModel
@@ -53,6 +65,12 @@ public class RouteCustomerSaleLineModel
     public decimal LineTotal { get; set; }
 
     public string? WarehouseCode { get; set; }
+
+    /// <summary>SAP's booked gross profit on this line, its item's share on the invoice; null until costed.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
 }
 
 public class RouteCustomerSaleModel
@@ -94,6 +112,15 @@ public class RouteCustomerSaleModel
     public string? WarehouseCode { get; set; }
 
     public List<RouteCustomerSaleLineModel> Lines { get; set; } = [];
+
+    /// <summary>SAP's booked gross profit on the posted sales behind this figure; null when none is costed or none was read.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, as the API states it.</summary>
+    public decimal? MarginPercent { get; set; }
 }
 
 public class RouteCustomerOrderModel
@@ -208,6 +235,9 @@ public class RouteCustomerSalesSummaryModel
     public int DormantDays { get; set; }
 
     public List<RouteSalesGroupModel> Routes { get; set; } = [];
+
+    /// <summary>Whether SAP's booked gross profit could be read; null from an older API.</summary>
+    public ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }
 
 public class RouteCustomerSalesDetailModel
@@ -239,6 +269,9 @@ public class RouteCustomerSalesDetailModel
     public List<RouteCustomerOrderModel> Orders { get; set; } = [];
 
     public List<RouteCustomerProductMixRowModel> ProductMix { get; set; } = [];
+
+    /// <summary>Whether SAP's booked gross profit could be read; null from an older API.</summary>
+    public ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }
 
 public class RouteCustomerProductMixModel
@@ -252,6 +285,9 @@ public class RouteCustomerProductMixModel
     public int? RouteCustomerId { get; set; }
 
     public List<RouteCustomerProductMixRowModel> Items { get; set; } = [];
+
+    /// <summary>Whether SAP's booked gross profit could be read; null from an older API.</summary>
+    public ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }
 
 /// <summary>What one customer bought of one item, in one currency. Mirrors <c>RouteCustomerProductSalesRowDto</c>.</summary>
@@ -280,6 +316,18 @@ public class RouteCustomerProductSalesRowModel
     public int LineCount { get; set; }
 
     public DateTime LastSoldAt { get; set; }
+
+    /// <summary>SAP's booked gross profit on the posted sales behind this figure; null when none is costed or none was read.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many were costed.</summary>
+    public int CostedLineCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, as the API states it.</summary>
+    public decimal? MarginPercent { get; set; }
 }
 
 public class RouteCustomerProductSalesModel
@@ -289,4 +337,7 @@ public class RouteCustomerProductSalesModel
     public DateTime To { get; set; }
 
     public List<RouteCustomerProductSalesRowModel> Rows { get; set; } = [];
+
+    /// <summary>Whether SAP's booked gross profit could be read; null from an older API.</summary>
+    public ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }

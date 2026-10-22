@@ -12,7 +12,9 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanDailyTruckReport;
 
 public sealed class GetVanDailyTruckReportHandler(
     ApplicationDbContext db,
-    IOptions<TaxSettings> tax
+    IOptions<TaxSettings> tax,
+    ShopInventory.Common.Sales.ISaleInvoiceCostReader? costReader = null,
+    ILogger<GetVanDailyTruckReportHandler>? logger = null
 ) : IRequestHandler<GetVanDailyTruckReportQuery, ErrorOr<VanDailyTruckReportResult>>
 {
     /// <summary>
@@ -45,6 +47,10 @@ public sealed class GetVanDailyTruckReportHandler(
         var workingDaysElapsed = workingDays.Where(day => day <= today).ToList();
 
         var trucks = await VanTruckDays.LoadAsync(db, tax.Value, from, to, null, null, null, cancellationToken);
+
+        // SAP's booked gross profit on the period's posted sales, for each truck-day's dollars.
+        var margin = await VanSalesMargin.LoadAsync(
+            trucks.All.Values.SelectMany(truckDay => truckDay.Sales).ToList(), costReader, logger, cancellationToken);
 
         // Which truck each rep is on and which route each truck runs, as the plans read them.
         var truckRoutes = await VanTruckRoutes.LoadAsync(db, cancellationToken);
@@ -126,7 +132,7 @@ public sealed class GetVanDailyTruckReportHandler(
             foreach (var day in listed)
             {
                 rows.TryGetValue((route.Id, day), out var row);
-                days.Add(Build(route, day, row ?? new DayAccumulator(), plan[route.Id], today));
+                days.Add(Build(route, day, row ?? new DayAccumulator(), plan[route.Id], today, margin));
             }
         }
 
@@ -171,7 +177,10 @@ public sealed class GetVanDailyTruckReportHandler(
                 days.Count(day => day.MileageNeedsReview),
                 days.Count(day => day.DistanceWithoutSales),
                 days.Count(day => day.ReturnedLate)),
-            salesOutsideRoutes);
+            salesOutsideRoutes)
+        {
+            Margin = margin.Status
+        };
     }
 
     /// <summary>
@@ -217,10 +226,12 @@ public sealed class GetVanDailyTruckReportHandler(
         DateTime day,
         DayAccumulator row,
         IEnumerable<RouteDayPlan.Stop> stops,
-        DateTime today)
+        DateTime today,
+        VanSalesMargin margin)
     {
         var workingDay = IsWorkingDay(day);
         var dollars = row.Sales.Where(IsDollars).ToList();
+        var costed = margin.Book.ForInvoices(dollars.Select(sale => sale.SapDocEntry));
 
         decimal Paid(VanSalesTender tender) =>
             dollars.Where(sale => sale.Tender == tender).Sum(sale => sale.TotalAmount);
@@ -304,7 +315,12 @@ public sealed class GetVanDailyTruckReportHandler(
             Kilometres: odometer?.KilometresTravelled,
             FuelLitres: row.FuelLitres,
             DailySalesTarget: workingDay ? route.DailySalesTarget : null,
-            Notes: row.Notes);
+            Notes: row.Notes)
+        {
+            GrossProfit = costed?.GrossProfit,
+            CostedNetAmount = costed?.Revenue,
+            CostedSalesCount = costed?.CostedSales ?? 0
+        };
     }
 
     private static VanDailyTruckSummaryDto Summarise(
@@ -321,6 +337,7 @@ public sealed class GetVanDailyTruckReportHandler(
         var planned = days.Where(day => day.PlannedCustomers is > 0).ToList();
         var withPlan = VanPlanBasis.DaysToMeasure(planned, day => day.PlanBasis);
         var withCheckIns = days.Where(day => day.CustomersVisited > 0).ToList();
+        var costedDays = days.Where(day => day.GrossProfit is not null).ToList();
 
         return new VanDailyTruckSummaryDto(
             RouteId: routeId,
@@ -348,7 +365,12 @@ public sealed class GetVanDailyTruckReportHandler(
             PcrProductiveCalls: withCheckIns.Sum(day => day.ProductiveCalls),
             PcrCallsMade: withCheckIns.Sum(day => day.CallsMade),
             Kilometres: days.Sum(day => day.Kilometres ?? 0),
-            FuelLitres: days.Sum(day => day.FuelLitres ?? 0m));
+            FuelLitres: days.Sum(day => day.FuelLitres ?? 0m))
+        {
+            GrossProfit = costedDays.Count == 0 ? null : costedDays.Sum(day => day.GrossProfit!.Value),
+            CostedNetAmount = costedDays.Count == 0 ? null : costedDays.Sum(day => day.CostedNetAmount ?? 0m),
+            CostedSalesCount = costedDays.Sum(day => day.CostedSalesCount)
+        };
     }
 
     private static IEnumerable<DateTime> Days(DateTime from, DateTime to)

@@ -124,13 +124,53 @@
     {
         var summary = report.Summary;
         var lead = LeadCurrency(summary.TotalsByCurrency);
+        var showGp = report.Margin is { Available: true };
 
-        <div class="vsp-kpis">
+        <div class="vsp-kpis @(report.Margin is not null ? "has-gp" : null)">
             <div class="vsp-kpi">
                 <div class="vsp-kpi-value">@Money(lead)</div>
                 <div class="vsp-kpi-label">Gross takings</div>
                 <div class="vsp-kpi-sub">@CurrencyNote(summary.TotalsByCurrency)</div>
             </div>
+
+            @if (showGp)
+            {
+                <div class="vsp-kpi">
+                    <div class="vsp-kpi-value">
+                        @if (lead?.GrossProfit is { } leadGp)
+                        {
+                            <span class="gpx-value @GrossProfitFormat.Tone(leadGp)">@lead.Currency @GrossProfitFormat.Money(leadGp)</span>
+                        }
+                        else
+                        {
+                            <text>—</text>
+                        }
+                    </div>
+                    <div class="vsp-kpi-label">Gross profit</div>
+                    <div class="vsp-kpi-sub">
+                        @if (lead?.MarginPercent is { } leadMargin)
+                        {
+                            @($"{GrossProfitFormat.Percent(leadMargin)} margin")
+                            @if (GrossProfitFormat.PartOf(lead.CostedDocumentCount, lead.DocumentCount) is { } leadPart)
+                            {
+                                @($" · {leadPart}")
+                            }
+                        }
+                        else
+                        {
+                            <span class="vs-metric-none">none of these sales is in SAP yet</span>
+                        }
+                    </div>
+                </div>
+            }
+            else if (report.Margin is { Available: false } unavailable)
+            {
+                <div class="vsp-kpi">
+                    <div class="vsp-kpi-value">—</div>
+                    <div class="vsp-kpi-label">Gross profit</div>
+                    <div class="vsp-kpi-sub"><span class="vs-metric-none">@unavailable.Detail</span></div>
+                </div>
+            }
 
             <div class="vsp-kpi">
                 <div class="vsp-kpi-value">@summary.ProductiveCalls.ToString("N0")</div>
@@ -220,6 +260,10 @@
                                 <th class="vs-num">Productive calls</th>
                                 <th class="vs-num">Outlets</th>
                                 <th>Takings</th>
+                                @if (showGp)
+                                {
+                                    <th>Gross profit</th>
+                                }
                             </tr>
                         </thead>
                         <tbody>
@@ -232,6 +276,10 @@
                                     <td class="vs-num">@territory.ProductiveCalls.ToString("N0")</td>
                                     <td class="vs-num">@territory.CustomerCount.ToString("N0")</td>
                                     <td>@MoneyList(territory.TotalsByCurrency)</td>
+                                    @if (showGp)
+                                    {
+                                        <GrossProfitByCurrencyCell Figures="GrossProfitFormat.Of(territory.TotalsByCurrency)" />
+                                    }
                                 </tr>
                             }
                         </tbody>
@@ -254,6 +302,10 @@
                             <th class="vs-num" title="Productive call rate: calls that bought ÷ calls made, per truck-day with check-ins, pooled across both reps on the truck. A shop that bought counts as called on.">PCR</th>
                             <th class="vs-num">Km</th>
                             <th>Takings</th>
+                            @if (showGp)
+                            {
+                                <th>Gross profit</th>
+                            }
                         </tr>
                     </thead>
                     <tbody>
@@ -282,6 +334,10 @@
                                 </td>
                                 <td class="vs-num">@Count(route.KilometresTravelled)</td>
                                 <td>@MoneyList(route.TotalsByCurrency)</td>
+                                @if (showGp)
+                                {
+                                    <GrossProfitByCurrencyCell Figures="GrossProfitFormat.Of(route.TotalsByCurrency)" />
+                                }
                             </tr>
                         }
                     </tbody>
@@ -306,6 +362,10 @@
                             <th class="vs-num">New</th>
                             <th class="vs-num">Items</th>
                             <th>Takings</th>
+                            @if (showGp)
+                            {
+                                <th>Gross profit</th>
+                            }
                             <th>Avg drop</th>
                         </tr>
                     </thead>
@@ -341,6 +401,10 @@
                                 </td>
                                 <td class="vs-num">@rep.ItemCount.ToString("N0")</td>
                                 <td>@MoneyList(rep.TotalsByCurrency)</td>
+                                @if (showGp)
+                                {
+                                    <GrossProfitByCurrencyCell Figures="GrossProfitFormat.Of(rep.TotalsByCurrency)" />
+                                }
                                 <td>@DropSize(repLead)</td>
                             </tr>
                         }
@@ -368,6 +432,10 @@
                             <th class="vs-num">Days</th>
                             <th>Quantity</th>
                             <th>Value</th>
+                            @if (showGp)
+                            {
+                                <th>Gross profit</th>
+                            }
                             <th>Last sold</th>
                         </tr>
                     </thead>
@@ -386,6 +454,10 @@
                                 <td class="vs-num">@item.TradingDayCount.ToString("N0")</td>
                                 <td>@Quantity(item.QuantitiesByUoM)</td>
                                 <td>@LineMoney(item.TotalsByCurrency)</td>
+                                @if (showGp)
+                                {
+                                    <GrossProfitByCurrencyCell Figures="GrossProfitFormat.Of(item.TotalsByCurrency)" />
+                                }
                                 <td>@item.LastSoldOn.ToString("dd MMM")</td>
                             </tr>
                         }
@@ -531,6 +603,10 @@
                             <th class="vs-num">Per day</th>
                             <th class="vs-num">Productive calls</th>
                             <th>Takings</th>
+                            @if (showGp)
+                            {
+                                <th>Gross profit</th>
+                            }
                         </tr>
                     </thead>
                     <tbody>
@@ -546,6 +622,10 @@
                                 </td>
                                 <td class="vs-num">@point.ProductiveCalls.ToString("N0")</td>
                                 <td>@MoneyList(point.TotalsByCurrency)</td>
+                                @if (showGp)
+                                {
+                                    <GrossProfitByCurrencyCell Figures="GrossProfitFormat.Of(point.TotalsByCurrency)" />
+                                }
                             </tr>
                         }
                     </tbody>
@@ -563,6 +643,10 @@
                             <th class="vs-num">Documents</th>
                             <th class="vs-num">Productive calls</th>
                             <th>Takings</th>
+                            @if (showGp)
+                            {
+                                <th>Gross profit</th>
+                            }
                         </tr>
                     </thead>
                     <tbody>
@@ -582,6 +666,10 @@
                                 <td class="vs-num">@point.DocumentCount.ToString("N0")</td>
                                 <td class="vs-num">@point.ProductiveCalls.ToString("N0")</td>
                                 <td>@MoneyList(point.TotalsByCurrency)</td>
+                                @if (showGp)
+                                {
+                                    <GrossProfitByCurrencyCell Figures="GrossProfitFormat.Of(point.TotalsByCurrency)" />
+                                }
                             </tr>
                         }
                     </tbody>
@@ -599,6 +687,10 @@
                             <th class="vs-num">Documents</th>
                             <th class="vs-num">Productive calls</th>
                             <th>Takings</th>
+                            @if (showGp)
+                            {
+                                <th>Gross profit</th>
+                            }
                         </tr>
                     </thead>
                     <tbody>
@@ -613,6 +705,10 @@
                                 <td class="vs-num">@point.DocumentCount.ToString("N0")</td>
                                 <td class="vs-num">@point.ProductiveCalls.ToString("N0")</td>
                                 <td>@MoneyList(point.TotalsByCurrency)</td>
+                                @if (showGp)
+                                {
+                                    <GrossProfitByCurrencyCell Figures="GrossProfitFormat.Of(point.TotalsByCurrency)" />
+                                }
                             </tr>
                         }
                     </tbody>

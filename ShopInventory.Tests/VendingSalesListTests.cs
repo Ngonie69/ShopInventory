@@ -203,6 +203,40 @@ public sealed class VendingSalesListTests : IDisposable
         Assert.Equal([new VendingSalesDigest.Tender("Cash", 100m)], VendingSalesDigest.Tenders(section));
     }
 
+    /// <summary>
+    /// A depot's gross profit is its warehouses' added together, as its takings are, and a depot none of
+    /// whose sales is in SAP yet has none rather than a zero.
+    /// </summary>
+    [Fact]
+    public void A_depots_gross_profit_is_its_warehouses_added_together()
+    {
+        static ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis.DesktopSalesBreakdownRow Row(
+            string code, int sales, decimal total, decimal? gp, decimal? costed, int costedSales) => new()
+            {
+                Key = code, SalesCount = sales, TotalAmount = total,
+                GrossProfit = gp, CostedNetAmount = costed, CostedSalesCount = costedSales
+            };
+
+        var section = new ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis.DesktopSalesCurrencyAnalysis
+        {
+            Currency = "USD",
+            ByWarehouse = [Row("KEFGRC", 3, 120m, 20m, 80m, 2), Row("KEFGRX", 1, 40m, -2m, 35m, 1), Row("KEFBYC", 2, 50m, null, null, 0)]
+        };
+        var depots = new List<VendingDepotModel>
+        {
+            new() { BusinessPartnerCode = Graniteside, WarehouseCodes = ["KEFGRC", "KEFGRX"] },
+            new() { BusinessPartnerCode = Bulawayo, WarehouseCodes = ["KEFBYC"] },
+        };
+
+        var rows = VendingSalesDigest.ByDepot(section, depots, code => code);
+
+        var granite = rows.Single(row => row.Key == Graniteside);
+        Assert.Equal((18m, 115m, 3, 4), (granite.GrossProfit, granite.CostedNetAmount, granite.CostedSaleCount, granite.SaleCount));
+        Assert.Equal(15.7m, granite.MarginPercent);
+        Assert.Null(rows.Single(row => row.Key == Bulawayo).GrossProfit);
+        Assert.Equal((18m, 115m, 3), VendingSalesDigest.Profit(section.ByWarehouse));
+    }
+
     [Fact]
     public async Task The_chart_has_every_day_and_the_change_is_stated_only_against_real_sales()
     {

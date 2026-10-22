@@ -16,6 +16,16 @@ public sealed class CurrencyAmounts
     public void Add(string currency, decimal amount) =>
         _amounts[currency] = _amounts.GetValueOrDefault(currency) + amount;
 
+    /// <summary>Whether anything was added in <paramref name="currency"/>, which a zero cannot say.</summary>
+    public bool Has(string currency) => _amounts.ContainsKey(currency);
+
+    /// <summary>
+    /// The margin <paramref name="profit"/> is of <paramref name="costed"/> in one currency, as a fraction;
+    /// null where nothing in it was costed.
+    /// </summary>
+    public static decimal? Margin(CurrencyAmounts profit, CurrencyAmounts costed, string currency) =>
+        profit.Has(currency) && costed[currency] != 0 ? profit[currency] / costed[currency] : null;
+
     public void Add(CurrencyAmounts other)
     {
         foreach (var currency in other.Currencies)
@@ -96,6 +106,12 @@ public sealed class VendorPerformanceTotals
     public decimal? Change { get; init; }
 
     public decimal? AverageInvoice { get; init; }
+
+    /// <summary>SAP's booked gross profit per currency, on the posted sales only; a currency with none is absent.</summary>
+    public CurrencyAmounts GrossProfit { get; } = new();
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on, per currency.</summary>
+    public CurrencyAmounts CostedNet { get; } = new();
 }
 
 public sealed class DepotPerformance
@@ -138,6 +154,12 @@ public sealed class DepotPerformance
 
     /// <summary>The depot's own item ranking, its reach read against its own selling vendors.</summary>
     public required IReadOnlyList<ProductPerformance> Products { get; init; }
+
+    /// <summary>SAP's booked gross profit per currency, on the posted sales only; a currency with none is absent.</summary>
+    public CurrencyAmounts GrossProfit { get; } = new();
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on, per currency.</summary>
+    public CurrencyAmounts CostedNet { get; } = new();
 }
 
 public sealed class VendorPerformance
@@ -194,6 +216,12 @@ public sealed class VendorPerformance
     public DateTime? LastSaleAt { get; init; }
 
     public int? DaysSinceLastSale { get; init; }
+
+    /// <summary>SAP's booked gross profit per currency, on the posted sales only; a currency with none is absent.</summary>
+    public CurrencyAmounts GrossProfit { get; } = new();
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on, per currency.</summary>
+    public CurrencyAmounts CostedNet { get; } = new();
 }
 
 public sealed class ProductPerformance
@@ -238,6 +266,12 @@ public sealed class ProductPerformance
     public required IReadOnlyDictionary<string, decimal> NetByDepot { get; init; }
 
     public required DateTime LastSoldAt { get; init; }
+
+    /// <summary>SAP's booked gross profit per currency, on the posted sales only; a currency with none is absent.</summary>
+    public CurrencyAmounts GrossProfit { get; } = new();
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on, per currency.</summary>
+    public CurrencyAmounts CostedNet { get; } = new();
 }
 
 public sealed class VendorProductPerformance

@@ -249,6 +249,8 @@ public partial class ReportExportService
 
         columns.AddRange(
         [
+            new($"Gross profit ({currency})", (cell, depot) => VpGrossProfit(cell, depot.GrossProfit, currency), MoneyFormatFor(currency)),
+            new("Margin", (cell, depot) => VpPercent(cell, CurrencyAmounts.Margin(depot.GrossProfit, depot.CostedNet, currency))),
             new("Share of sales", (cell, depot) => VpPercent(cell, depot.Share), Bar: true),
             new(VpPreviousHeader(currency), (cell, depot) => VpNumber(cell, depot.PreviousGross[currency], MoneyFormatFor(currency)), MoneyFormatFor(currency)),
             new("Change", (cell, depot) => VpChange(cell, depot.Change, depot.Gross[currency], depot.PreviousGross[currency])),
@@ -295,6 +297,9 @@ public partial class ReportExportService
         {
             columns.Add(new(VpNetHeader(code), (cell, vendor) => VpNumber(cell, vendor.Net[code], MoneyFormatFor(code)), MoneyFormatFor(code)));
         }
+
+        columns.Add(new($"Gross profit ({currency})", (cell, vendor) => VpGrossProfit(cell, vendor.GrossProfit, currency), MoneyFormatFor(currency)));
+        columns.Add(new("Margin", (cell, vendor) => VpPercent(cell, CurrencyAmounts.Margin(vendor.GrossProfit, vendor.CostedNet, currency))));
 
         if (includeDepot)
         {
@@ -360,6 +365,8 @@ public partial class ReportExportService
 
         columns.AddRange(
         [
+            new($"Gross profit ({currency})", (cell, item) => VpGrossProfit(cell, item.GrossProfit, currency), MoneyFormatFor(currency)),
+            new("Margin", (cell, item) => VpPercent(cell, CurrencyAmounts.Margin(item.GrossProfit, item.CostedNet, currency))),
             new("Share", (cell, item) => VpPercent(cell, item.Share), Bar: true),
             new("Cumulative", (cell, item) => VpPercent(cell, item.CumulativeShare)),
             new("Class", (cell, item) => VpCentred(cell, item.Class.ToString())),
@@ -527,6 +534,18 @@ public partial class ReportExportService
     {
         cell.Value = value;
         cell.Style.NumberFormat.Format = format;
+    }
+
+    /// <summary>
+    /// SAP's booked gross profit in one currency, or blank where none of the sales in it is in SAP yet: a
+    /// zero would say they broke even.
+    /// </summary>
+    private static void VpGrossProfit(IXLCell cell, CurrencyAmounts profit, string currency)
+    {
+        if (profit.Has(currency))
+        {
+            VpNumber(cell, profit[currency], MoneyFormatFor(currency));
+        }
     }
 
     private static void VpOptionalMoney(IXLCell cell, decimal? value, string currency)

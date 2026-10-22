@@ -42,6 +42,26 @@ public class EndOfDayReportDto
     public int UnpostedInvoiceCount { get; set; }
     public List<BPSummaryDto> BusinessPartnerSummaries { get; set; } = new();
     public List<UnpostedSaleDto> UnpostedSales { get; set; } = new();
+
+    /// <summary>
+    /// SAP's booked gross profit on the posted sales here — by their own invoices, or the day's
+    /// consolidated invoice; null when none is costed yet.
+    /// </summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many of the sales <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedSalesCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? decimal.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
+
+    /// <summary>Whether SAP's booked gross profit could be read, and what it means.</summary>
+    public ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }
 
 public class BPSummaryDto
@@ -62,6 +82,23 @@ public class BPSummaryDto
     public ConsolidatedInvoiceDto? ConsolidatedInvoice { get; set; }
     public ConsolidatedPaymentDto? IncomingPayment { get; set; }
     public List<IndividualSaleDto> IndividualSales { get; set; } = new();
+
+    /// <summary>
+    /// SAP's booked gross profit on the posted sales here — by their own invoices, or the day's
+    /// consolidated invoice; null when none is costed yet.
+    /// </summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many of the sales <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedSalesCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? decimal.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
 }
 
 public class ConsolidatedInvoiceDto
@@ -97,6 +134,23 @@ public class IndividualSaleDto
 
     /// <summary>The numbers of the credits behind <see cref="CreditedAmount"/>; empty when none.</summary>
     public List<string> CreditNoteNumbers { get; set; } = new();
+
+    /// <summary>
+    /// SAP's booked gross profit on the posted sales here — by their own invoices, or the day's
+    /// consolidated invoice; null when none is costed yet.
+    /// </summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>Whether this sale (1) or not (0) <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedSalesCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>.</summary>
+    public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
+        ? decimal.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)
+        : null;
 }
 
 public class UnpostedSaleDto

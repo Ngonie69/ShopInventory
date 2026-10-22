@@ -445,6 +445,27 @@ public partial class VanDailyTruckReport
 
     private static string Money(decimal? amount) => amount is { } value ? $"${value:N0}" : "—";
 
+    /// <summary>
+    /// "GP $1,234 · 24.1%" for dollar sales with SAP's booked profit, "GP not in SAP yet" for sales none
+    /// of which is posted, and null where nothing sold or the report read no margin.
+    /// </summary>
+    private string? GpLine(decimal? grossProfit, decimal? marginPercent, int costedSales, int sales)
+    {
+        if (report?.Margin is not { Available: true } || sales == 0)
+        {
+            return null;
+        }
+
+        if (grossProfit is not { } gp)
+        {
+            return "GP not in SAP yet";
+        }
+
+        var line = $"GP {(gp < 0 ? "\u2212" : "")}${Math.Abs(gp):N0}"
+                   + (marginPercent is { } margin ? $" · {GrossProfitFormat.Percent(margin)}" : "");
+        return GrossProfitFormat.PartOf(costedSales, sales) is { } part ? $"{line} ({part})" : line;
+    }
+
     private static string Percent(double? rate) => rate is { } value ? $"{value:P0}" : "—";
 
     private static string Ink(bool on) => on ? "vsk-marked" : string.Empty;

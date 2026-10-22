@@ -1,3 +1,4 @@
+using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -15,7 +16,9 @@ namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerProductS
 /// well as by item. A depot's month is a few thousand lines and comes back as a few hundred rows.
 /// </summary>
 public sealed class GetRouteCustomerProductSalesHandler(
-    ApplicationDbContext db
+    ApplicationDbContext db,
+    ISaleInvoiceCostReader? costReader = null,
+    ILogger<GetRouteCustomerProductSalesHandler>? logger = null
 ) : IRequestHandler<GetRouteCustomerProductSalesQuery, ErrorOr<RouteCustomerProductSalesDto>>
 {
     private sealed record LineAggregate(
@@ -29,7 +32,11 @@ public sealed class GetRouteCustomerProductSalesHandler(
         decimal Quantity,
         decimal LineTotal,
         int LineCount,
-        DateTime LastSoldAt);
+        DateTime LastSoldAt)
+    {
+        /// <summary>The SAP invoices these posted lines are on, for their booked cost.</summary>
+        public List<(int DocEntry, string? WarehouseCode)> Invoices { get; init; } = [];
+    }
 
     public async Task<ErrorOr<RouteCustomerProductSalesDto>> Handle(
         GetRouteCustomerProductSalesQuery query,
@@ -55,6 +62,12 @@ public sealed class GetRouteCustomerProductSalesHandler(
 
         var resolveId = await LoadCustomerResolverAsync(partner, cancellationToken);
 
+        var (margin, marginStatus) = await ManagementSalesRollup.MarginOfInvoicesAsync(
+            aggregates.SelectMany(aggregate => aggregate.Invoices),
+            costReader,
+            (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            cancellationToken);
+
         var rows = aggregates
             .Select(aggregate => aggregate with
             {
@@ -68,8 +81,16 @@ public sealed class GetRouteCustomerProductSalesHandler(
                 Code: Normalize(aggregate.RouteCustomerCode),
                 Item: Normalize(aggregate.ItemCode),
                 aggregate.Currency))
-            .Select(group => new RouteCustomerProductSalesRowDto
+            .Select(group =>
             {
+                var costed = margin.ForInvoiceItems(group
+                    .SelectMany(aggregate => aggregate.Invoices)
+                    .Select(invoice => ((int?)invoice.DocEntry, group.First().ItemCode)));
+                return new RouteCustomerProductSalesRowDto
+            {
+                GrossProfit = costed?.GrossProfit,
+                CostedNetAmount = costed?.Revenue,
+                CostedLineCount = costed?.CostedSales ?? 0,
                 AssignedBusinessPartnerCode = group.First().CardCode,
                 RouteCustomerId = group.Key.RouteCustomerId,
                 RouteCustomerCode = group.First().RouteCustomerCode,
@@ -85,6 +106,7 @@ public sealed class GetRouteCustomerProductSalesHandler(
                 LineTotal = group.Sum(aggregate => aggregate.LineTotal),
                 LineCount = group.Sum(aggregate => aggregate.LineCount),
                 LastSoldAt = group.Max(aggregate => aggregate.LastSoldAt)
+            };
             })
             .OrderBy(row => row.AssignedBusinessPartnerCode, StringComparer.OrdinalIgnoreCase)
             .ThenBy(row => row.RouteCustomerCode, StringComparer.OrdinalIgnoreCase)
@@ -96,7 +118,8 @@ public sealed class GetRouteCustomerProductSalesHandler(
         {
             From = from,
             To = to,
-            Rows = rows
+            Rows = rows,
+            Margin = marginStatus
         };
     }
 
@@ -140,6 +163,26 @@ public sealed class GetRouteCustomerProductSalesHandler(
             })
             .ToListAsync(cancellationToken);
 
+        var invoices = (await linesQuery
+                .Where(line => line.Sale.SapDocEntry != null)
+                .Select(line => new
+                {
+                    line.Sale.CardCode,
+                    line.Sale.RouteCustomerId,
+                    line.Sale.RouteCustomerCode,
+                    line.ItemCode,
+                    line.ItemDescription,
+                    line.UoMCode,
+                    line.Sale.Currency,
+                    DocEntry = line.Sale.SapDocEntry!.Value,
+                    line.Sale.WarehouseCode
+                })
+                .Distinct()
+                .ToListAsync(cancellationToken))
+            .ToLookup(
+                line => (line.CardCode, line.RouteCustomerId, line.RouteCustomerCode, line.ItemCode, line.ItemDescription, line.UoMCode, line.Currency),
+                line => (line.DocEntry, (string?)line.WarehouseCode));
+
         return grouped.Select(row => new LineAggregate(
             row.Key.CardCode,
             row.Key.RouteCustomerId,
@@ -151,7 +194,10 @@ public sealed class GetRouteCustomerProductSalesHandler(
             row.Quantity,
             row.LineTotal,
             row.LineCount,
-            row.LastSoldAt.Date)).ToList();
+            row.LastSoldAt.Date)
+        {
+            Invoices = invoices[(row.Key.CardCode, row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.ItemCode, row.Key.ItemDescription, row.Key.UoMCode, row.Key.Currency)].ToList()
+        }).ToList();
     }
 
     private async Task<List<LineAggregate>> LoadOnlineAsync(
@@ -192,6 +238,26 @@ public sealed class GetRouteCustomerProductSalesHandler(
             })
             .ToListAsync(cancellationToken);
 
+        var invoices = (await linesQuery
+                .Where(line => line.Reservation.SAPDocEntry != null)
+                .Select(line => new
+                {
+                    line.Reservation.CardCode,
+                    line.Reservation.RouteCustomerId,
+                    line.Reservation.RouteCustomerCode,
+                    line.ItemCode,
+                    line.ItemDescription,
+                    line.UoMCode,
+                    line.Reservation.Currency,
+                    DocEntry = line.Reservation.SAPDocEntry!.Value,
+                    line.WarehouseCode
+                })
+                .Distinct()
+                .ToListAsync(cancellationToken))
+            .ToLookup(
+                line => (line.CardCode, line.RouteCustomerId, line.RouteCustomerCode, line.ItemCode, line.ItemDescription, line.UoMCode, line.Currency),
+                line => (line.DocEntry, (string?)line.WarehouseCode));
+
         return grouped.Select(row => new LineAggregate(
             row.Key.CardCode,
             row.Key.RouteCustomerId,
@@ -203,7 +269,10 @@ public sealed class GetRouteCustomerProductSalesHandler(
             row.Quantity,
             row.LineTotal,
             row.LineCount,
-            RouteCustomerSalesReporting.TradingDayOf(row.LastSoldAt))).ToList();
+            RouteCustomerSalesReporting.TradingDayOf(row.LastSoldAt))
+        {
+            Invoices = invoices[(row.Key.CardCode, row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.ItemCode, row.Key.ItemDescription, row.Key.UoMCode, row.Key.Currency)].ToList()
+        }).ToList();
     }
 
     /// <summary>

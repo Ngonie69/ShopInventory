@@ -103,7 +103,7 @@ internal static class SalesPerformanceEmailBody
                 .ToList();
 
             html.Append(TableOpen());
-            html.Append(HeaderRow($"LINE OF BUSINESS · {currency.Currency}", "TAKINGS", "BEFORE", "CHANGE", "SHARE", "SALES", "AVERAGE"));
+            html.Append(HeaderRow($"LINE OF BUSINESS · {currency.Currency}", "TAKINGS", "BEFORE", "CHANGE", "SHARE", "SALES", "AVERAGE", "MARGIN"));
             foreach (var row in rows)
             {
                 html.Append($"<tr style=\"border-top:1px solid {Rule};\">");
@@ -114,6 +114,7 @@ internal static class SalesPerformanceEmailBody
                 html.Append(Right(Percent(row.SharePercent)));
                 html.Append(Right(row.Transactions.ToString("N0", Invariant)));
                 html.Append(Right(row.AverageTransaction is { } average ? Number(average) : "—"));
+                html.Append(Right(MarginHtml(row.MarginPercent)));
                 html.Append("</tr>");
             }
 
@@ -125,6 +126,8 @@ internal static class SalesPerformanceEmailBody
             html.Append(Right("100%"));
             html.Append(Right(currency.Transactions.ToString("N0", Invariant)));
             html.Append(Right(currency.Transactions > 0 ? Number(currency.Takings / currency.Transactions) : "—"));
+            // Margins are of what each line costed, so they are not added across lines.
+            html.Append(Right(""));
             html.Append("</tr></table>");
         }
 
@@ -179,7 +182,7 @@ internal static class SalesPerformanceEmailBody
             if (currency.Outlets.Count > 0)
             {
                 html.Append(TableOpen());
-                html.Append(HeaderRow($"{outletNoun} · {currency.Currency}", "DAYS", "TAKINGS", "PER DAY", "CHANGE", "SHARE"));
+                html.Append(HeaderRow($"{outletNoun} · {currency.Currency}", "DAYS", "TAKINGS", "PER DAY", "CHANGE", "SHARE", "MARGIN"));
                 foreach (var outlet in currency.Outlets.Take(OutletLimit))
                 {
                     html.Append($"<tr style=\"border-top:1px solid {Rule};\">");
@@ -189,6 +192,7 @@ internal static class SalesPerformanceEmailBody
                     html.Append(Right(Number(outlet.PerTradingDay)));
                     html.Append(Right(ChangeHtml(outlet.ChangePercent)));
                     html.Append(Right(Percent(outlet.SharePercent)));
+                    html.Append(Right(MarginHtml(outlet.MarginPercent)));
                     html.Append("</tr>");
                 }
 
@@ -240,7 +244,9 @@ internal static class SalesPerformanceEmailBody
             ("Strike rate", vans.StrikeRate is { } strike ? Rate(strike) : "—",
                 vans.StrikeRate is null ? "no check-ins recorded" : vans.PreviousStrikeRate is { } before ? $"{Rate(before)} before" : $"{vans.ProductiveCalls:N0} productive calls"),
             ("Outlets", vans.OutletsThatBought.ToString("N0", Invariant), $"bought · {vans.NewOutlets:N0} new"
-                + (vans.KilometresTravelled is { } km ? $" · {km:N0} km" : string.Empty)));
+                + (vans.KilometresTravelled is { } km ? $" · {km:N0} km" : string.Empty)),
+            ("Gross margin", takings.MarginPercent is { } vanMargin ? Percent(vanMargin) : "—",
+                takings.MarginPercent is null ? "not costed in SAP yet" : "on what SAP has costed"));
 
         foreach (var other in vans.Currencies.Skip(1).Where(currency => currency.Takings > 0 || currency.PreviousTakings > 0))
         {
@@ -251,7 +257,7 @@ internal static class SalesPerformanceEmailBody
         if (routes.Count > 0)
         {
             html.Append(TableOpen());
-            html.Append(HeaderRow($"ROUTE · {main}", "DAYS", "TAKINGS", "CHANGE", "CALLS MADE", "STRIKE"));
+            html.Append(HeaderRow($"ROUTE · {main}", "DAYS", "TAKINGS", "CHANGE", "CALLS MADE", "STRIKE", "MARGIN"));
             foreach (var route in routes.Take(RouteLimit))
             {
                 html.Append($"<tr style=\"border-top:1px solid {Rule};\">");
@@ -261,6 +267,7 @@ internal static class SalesPerformanceEmailBody
                 html.Append(Right(ChangeHtml(route.ChangePercent)));
                 html.Append(Right(route.CallCompliance is { } ccr ? Rate(ccr) : "—"));
                 html.Append(Right(route.StrikeRate is { } pcr ? Rate(pcr) : "—"));
+                html.Append(Right(MarginHtml(route.MarginPercent.TryGetValue(main, out var routeMargin) ? routeMargin : null)));
                 html.Append("</tr>");
             }
 
@@ -274,6 +281,7 @@ internal static class SalesPerformanceEmailBody
                 html.Append(Right("", Faint));
                 html.Append(Right("", Faint));
                 html.Append(Right("", Faint));
+                html.Append(Right(MarginHtml(unrouted.MarginPercent.TryGetValue(main, out var unroutedMargin) ? unroutedMargin : null), Faint));
                 html.Append("</tr>");
             }
 
@@ -285,7 +293,7 @@ internal static class SalesPerformanceEmailBody
         if (vans.Reps.Count > 0)
         {
             html.Append(TableOpen());
-            html.Append(HeaderRow($"REP · {main}", "DAYS", "TAKINGS", "SHOPS BOUGHT", "STRIKE"));
+            html.Append(HeaderRow($"REP · {main}", "DAYS", "TAKINGS", "SHOPS BOUGHT", "STRIKE", "MARGIN"));
             foreach (var rep in vans.Reps.Take(RepLimit))
             {
                 html.Append($"<tr style=\"border-top:1px solid {Rule};\">");
@@ -294,6 +302,7 @@ internal static class SalesPerformanceEmailBody
                 html.Append(Right(Number(rep.Takings.GetValueOrDefault(main))));
                 html.Append(Right(rep.OutletsThatBought.ToString("N0", Invariant)));
                 html.Append(Right(rep.StrikeRate is { } repStrike ? Rate(repStrike) : "—"));
+                html.Append(Right(MarginHtml(rep.MarginPercent.TryGetValue(main, out var repMargin) ? repMargin : null)));
                 html.Append("</tr>");
             }
 
@@ -304,7 +313,7 @@ internal static class SalesPerformanceEmailBody
         if (vans.TopItems.Count > 0)
         {
             html.Append(TableOpen());
-            html.Append(HeaderRow($"MOST WIDELY SOLD · {main}", "SHOPS", "LINES", "TAKINGS"));
+            html.Append(HeaderRow($"MOST WIDELY SOLD · {main}", "SHOPS", "LINES", "TAKINGS", "MARGIN"));
             foreach (var item in vans.TopItems.Take(ItemLimit))
             {
                 html.Append($"<tr style=\"border-top:1px solid {Rule};\">");
@@ -312,6 +321,7 @@ internal static class SalesPerformanceEmailBody
                 html.Append(Right(item.OutletsThatBought.ToString("N0", Invariant)));
                 html.Append(Right(item.Lines.ToString("N0", Invariant)));
                 html.Append(Right(Number(item.Takings)));
+                html.Append(Right(MarginHtml(item.MarginPercent)));
                 html.Append("</tr>");
             }
 
@@ -474,6 +484,12 @@ internal static class SalesPerformanceEmailBody
         html.Append($"<div style=\"font-size:13px;color:{Muted};line-height:1.45;\">{E(finding.Detail)}</div>");
         html.Append("</td></tr></table>");
     }
+
+    /// <summary>A margin cell: the percentage, a loss in red, and a dash where SAP has costed nothing.</summary>
+    private static string MarginHtml(decimal? margin) =>
+        margin is not { } value
+            ? "—"
+            : value < 0 ? $"<span style=\"color:#b42318;\">{Percent(value)}</span>" : Percent(value);
 
     private static void Tiles(StringBuilder html, params (string Label, string Value, string Detail)[] tiles)
     {

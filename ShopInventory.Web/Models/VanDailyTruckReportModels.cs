@@ -28,6 +28,9 @@ public class VanDailyTruckReportResponse
 
     /// <summary>Van takings by a login assigned to no route. In no row, and stated so the rows are not read as the whole.</summary>
     public decimal SalesOutsideRoutes { get; set; }
+
+    /// <summary>Whether SAP's booked gross profit could be read; null from an older API.</summary>
+    public ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }
 
 /// <summary>
@@ -127,6 +130,18 @@ public class VanDailyTruckDay
     /// <summary>Whether the office has entered anything for the day.</summary>
     public bool HasOfficeEntry =>
         FuelLitres.HasValue || AccountSales.HasValue || AreaSource == "Office" || !string.IsNullOrWhiteSpace(Notes);
+
+    /// <summary>SAP's booked gross profit on the posted dollar sales; null when none is costed or none was read.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many of the dollar sales <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedSalesCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, as the API states it.</summary>
+    public decimal? MarginPercent { get; set; }
 }
 
 /// <summary>One route over the period, or the fleet (<see cref="RouteId"/> null).</summary>
@@ -189,6 +204,18 @@ public class VanDailyTruckSummary
 
     public decimal? KilometresPerLitre =>
         FuelLitres > 0 ? decimal.Round(Kilometres / FuelLitres, 2) : null;
+
+    /// <summary>SAP's booked gross profit on the posted dollar sales; null when none is costed or none was read.</summary>
+    public decimal? GrossProfit { get; set; }
+
+    /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+    public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>How many of the dollar sales <see cref="GrossProfit"/> was measured on.</summary>
+    public int CostedSalesCount { get; set; }
+
+    /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, as the API states it.</summary>
+    public decimal? MarginPercent { get; set; }
 }
 
 /// <summary>How many truck-days in the period each check picked out.</summary>

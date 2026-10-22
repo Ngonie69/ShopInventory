@@ -1,0 +1,58 @@
+@* The two table cells every sales report shows SAP's booked gross profit in: the profit, and the margin
+   with its verdict. A row none of whose sales is in SAP yet says so rather than showing a zero. Where
+   only part of a row is costed, what it was measured on is written under the figure — by sales when the
+   row counts them, else by value. Styled by gross-profit.css. *@
+
+<td class="@NumClass gpx-num">
+    @if (GrossProfit is { } gp)
+    {
+        <span class="gpx-value @GrossProfitFormat.Tone(gp)">@GrossProfitFormat.Money(gp)</span>
+        @if (PartNote is { } part)
+        {
+            <span class="gpx-sub">@part</span>
+        }
+    }
+    else
+    {
+        <span class="gpx-none" title="None of these sales has reached SAP yet, so there is no booked cost to measure against.">not in SAP yet</span>
+    }
+</td>
+<td class="@NumClass gpx-num">
+    @if (MarginPercent is { } margin)
+    {
+        <span class="gpx-tag @GrossProfitFormat.Tone(margin)">
+            <i class="ph @(margin < 0 ? "ph-trend-down" : "ph-trend-up")" aria-hidden="true"></i>@GrossProfitFormat.Verdict(margin) &middot; @GrossProfitFormat.Percent(margin)
+        </span>
+    }
+    else
+    {
+        <span class="gpx-none">&mdash;</span>
+    }
+</td>
+
+@code {
+    /// <summary>SAP's booked gross profit on the row's posted sales; null when none is costed.</summary>
+    [Parameter] public decimal? GrossProfit { get; set; }
+
+    /// <summary>The profit as a percentage of the value it was measured on.</summary>
+    [Parameter] public decimal? MarginPercent { get; set; }
+
+    /// <summary>The row's sales, and how many of them were costed. Leave both 0 to say it by value instead.</summary>
+    [Parameter] public int SalesCount { get; set; }
+
+    [Parameter] public int CostedSalesCount { get; set; }
+
+    /// <summary>The row's value before VAT, and the part of it that was costed.</summary>
+    [Parameter] public decimal? NetAmount { get; set; }
+
+    [Parameter] public decimal? CostedNetAmount { get; set; }
+
+    /// <summary>The page's own numeric-cell class, so the cells line up with the rest of its table.</summary>
+    [Parameter] public string NumClass { get; set; } = "ops-num";
+
+    private string? PartNote =>
+        GrossProfitFormat.PartOf(CostedSalesCount, SalesCount)
+        ?? (CostedNetAmount is { } costed && NetAmount is { } net && costed < net - 0.005m
+            ? $"on {costed.ToString("N2", System.Globalization.CultureInfo.InvariantCulture)} posted"
+            : null);
+}
