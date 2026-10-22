@@ -416,6 +416,41 @@ public sealed class DesktopSalesReviewTests : IDisposable
         Assert.Contains("USD 412.54 credited back, net USD 573.74", email);
     }
 
+    [Fact]
+    public async Task The_pdf_states_each_best_sellers_gross_profit()
+    {
+        SeedWeek();
+        var review = await RunAsync();
+        var costed = review with
+        {
+            Businesses = review.Businesses.Select(business => business with
+            {
+                Currencies = business.Currencies.Select(currency => currency with
+                {
+                    TopItems = currency.TopItems
+                        .Select((item, index) => index == 0
+                            ? item with { GrossProfit = -12.34m, MarginPercent = -3.5m }
+                            : item with { GrossProfit = 4321.5m, MarginPercent = 27.25m })
+                        .ToList()
+                }).ToList()
+            }).ToList()
+        };
+
+        var text = PdfText(DesktopSalesReviewPdfRenderer.Render(costed, "Weekly review", new DateTime(2026, 9, 18, 7, 0, 0)));
+
+        Assert.Contains("GP", text);
+        Assert.Contains("-12.34", text);
+        Assert.Contains("-3.5%", text);
+        Assert.Contains("4,321.50", text);
+        Assert.Contains("27.3%", text);
+
+        var outPath = Environment.GetEnvironmentVariable("DESKTOP_SALES_REVIEW_GP_PDF_OUT");
+        if (!string.IsNullOrWhiteSpace(outPath))
+        {
+            await File.WriteAllBytesAsync(outPath, DesktopSalesReviewPdfRenderer.Render(costed, "Weekly review", new DateTime(2026, 9, 18, 7, 0, 0)));
+        }
+    }
+
     /// <summary>The page reads the review through classes written by hand; every credited figure arrives.</summary>
     [Fact]
     public async Task The_credited_figures_reach_the_page_through_its_own_copy_of_the_review()

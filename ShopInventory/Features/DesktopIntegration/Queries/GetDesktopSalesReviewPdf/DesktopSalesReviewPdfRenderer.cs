@@ -347,8 +347,9 @@ internal static class DesktopSalesReviewPdfRenderer
         Heading(document, fonts, "Best sellers",
             $"The top {section.TopItems.Count} of {section.ItemCount:N0} items make {topShare:0.#}% of line value before VAT; the other {Math.Max(0, section.ItemCount - section.TopItems.Count):N0} share {Number(section.TailNetAmount)}.");
 
-        var table = Grid([5f, 29f, 8f, 8f, 7f, 7f, 9f, 11f, 7f, 5f, 4f]);
-        Head(table, fonts, "#", "<Item", "Qty", "Credited", "Sales", "Per sale", "Unit price", "Before VAT", "Share", "Cum.", "<ABC");
+        // Gross profit closes the row: SAP's booked profit on the item's posted lines, and its margin.
+        var table = Grid([4f, 22f, 7f, 7f, 6f, 6f, 8f, 10f, 6f, 5f, 4f, 9f, 6f]);
+        Head(table, fonts, "#", "<Item", "Qty", "Credited", "Sales", "Per sale", "Unit price", "Before VAT", "Share", "Cum.", "<ABC", "GP", "Margin");
 
         var rank = 0;
         foreach (var item in section.TopItems)
@@ -367,6 +368,8 @@ internal static class DesktopSalesReviewPdfRenderer
             Body(table, fonts, $"{item.ShareOfNetPercent:0.#}%", right: true);
             Body(table, fonts, $"{item.CumulativeSharePercent:0}%", right: true);
             Body(table, fonts, item.AbcClass);
+            Body(table, fonts, item.GrossProfit is { } profit ? (profit < 0 ? "-" : "") + Number(Math.Abs(profit)) : "—", right: true);
+            Body(table, fonts, item.MarginPercent is { } margin ? $"{margin:0.#}%" : "—", right: true);
         }
 
         document.Add(table);
