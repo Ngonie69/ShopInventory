@@ -144,7 +144,7 @@ public static class FiscalisationApiKeyProbe
             return new FiscalisationApiKeyProbeResult(
                 FiscalisationApiKeyVerdict.Rejected,
                 "The platform recognised the key but refused the request. It needs the receipt.submit, "
-                + "sap.fiscalise and device.read scopes, and no device allowlist — a device-scoped key "
+                + "sap.fiscalise, device.read and activity.read scopes, and no device allowlist — a device-scoped key "
                 + $"breaks failover. The platform said: {ex.Message}");
         }
         catch (FiscalisationApiException ex)
