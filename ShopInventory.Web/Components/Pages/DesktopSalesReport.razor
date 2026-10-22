@@ -454,7 +454,7 @@
                             <div class="ops-sbd-hour-cols" role="img" aria-label="@HourDescription(slots)">
                                 @foreach (var slot in slots)
                                 {
-                                    <div class="ops-sbd-hour" title="@($"{HourLabel(slot.Hour)}–{HourLabel(slot.Hour + 1)} · {Plural(slot.SalesCount, "sale")} · {Money(slot.TotalAmount)}")">
+                                    <div class="ops-sbd-hour" title="@($"{HourLabel(slot.Hour)}–{HourLabel(slot.Hour + 1)} · {Plural(slot.SalesCount, "sale")} · {Money(slot.TotalAmount)}{HourProfit(slot)}")">
                                         @* Written only where the hours lead; CSS hides it in the strip. *@
                                         <span class="ops-sbd-hour-val">@(HourValue(slot) > 0 ? HourFigure(slot) : "")</span>
                                         <span class="ops-sbd-hour-bar @(HourValue(slot) == 0 ? "is-zero" : "") @(slot == peak ? "is-peak" : "")"
@@ -472,7 +472,7 @@
                         <div class="ops-sbd-peak">
                             <div class="ops-sbd-peak-label">Busiest hour</div>
                             <div class="ops-sbd-peak-num">@(peak is null ? "—" : HourLabel(peak.Hour))</div>
-                            <div class="ops-sbd-peak-sub">@(peak is null ? "no sales" : $"{Plural(peak.SalesCount, "sale")} · {Money(peak.TotalAmount)}")</div>
+                            <div class="ops-sbd-peak-sub">@(peak is null ? "no sales" : $"{Plural(peak.SalesCount, "sale")} · {Money(peak.TotalAmount)}{HourProfit(peak)}")</div>
                             <div class="ops-sbd-peak-note">@(Vans ? "Time of sale (CAT)" : "Counter time (CAT)")</div>
                         </div>
                     </div>
@@ -549,6 +549,7 @@
                         @{
                             var breakdownRows = BreakdownRows(sales);
                             var largestRow = breakdownRows.Count == 0 ? 0m : breakdownRows.Max(row => row.TotalAmount);
+                            var breakdownGp = view.Focus.Margin is { Available: true };
                         }
                         @if (breakdownRows.Count == 0)
                         {
@@ -587,6 +588,11 @@
                                                     }
                                                 </button>
                                             </th>
+                                            @if (breakdownGp)
+                                            {
+                                                <th class="ops-num">Gross profit</th>
+                                                <th class="ops-num">Margin</th>
+                                            }
                                             <th class="ops-sbd-split-head">Split</th>
                                         </tr>
                                     </thead>
@@ -618,6 +624,11 @@
                                                         <div class="ops-sub">Net of credits @Money(row.NetOfCredits)</div>
                                                     }
                                                 </td>
+                                                @if (breakdownGp)
+                                                {
+                                                    <GrossProfitCells GrossProfit="row.GrossProfit" MarginPercent="row.MarginPercent"
+                                                                      SalesCount="row.SalesCount" CostedSalesCount="row.CostedSalesCount" />
+                                                }
                                                 <td>
                                                     <div class="ops-sbd-split">
                                                         <span class="ops-sbd-track">
@@ -703,10 +714,10 @@
                     {
                         <p class="ops-sbd-gp-note">
                             <span>Gross profit</span>
-                            <span class="ops-sbd-gp @GpTone(channelGp)">@SignedMoney(channelGp)</span>
+                            <span class="gpx-value @GrossProfitFormat.Tone(channelGp)">@GrossProfitFormat.Money(channelGp)</span>
                             @if (itemGroup.Business.MarginPercent is { } channelMargin)
                             {
-                                <span>&middot; @SignedPercent(channelMargin) margin</span>
+                                <span>&middot; @GrossProfitFormat.Percent(channelMargin) margin</span>
                             }
                             <span>on @channelCosted.ToString("N2", System.Globalization.CultureInfo.InvariantCulture) of sales SAP holds, at the stock cost SAP booked when the goods left.</span>
                         </p>
@@ -770,32 +781,8 @@
                                             {
                                                 @* SAP's booked profit on the item's posted lines. Where some of its sales
                                                    are not in SAP yet, what it was measured on is said under it. *@
-                                                <td class="ops-num">
-                                                    @if (item.GrossProfit is { } gp)
-                                                    {
-                                                        <span class="ops-sbd-gp @GpTone(gp)">@SignedMoney(gp)</span>
-                                                        @if (item.CostedNetAmount is { } costed && costed < item.NetAmount - 0.005m)
-                                                        {
-                                                            <div class="ops-sub">on @costed.ToString("N2", System.Globalization.CultureInfo.InvariantCulture) posted</div>
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="ops-sub" title="None of this item's sales has reached SAP yet, so there is no booked cost to measure against.">not in SAP yet</span>
-                                                    }
-                                                </td>
-                                                <td class="ops-num">
-                                                    @if (item.MarginPercent is { } itemMargin)
-                                                    {
-                                                        <span class="ops-sbd-gp-tag @GpTone(itemMargin)">
-                                                            <i class="ph @(itemMargin < 0 ? "ph-trend-down" : "ph-trend-up")" aria-hidden="true"></i>@GpVerdict(itemMargin) &middot; @SignedPercent(itemMargin)
-                                                        </span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="ops-sub">&mdash;</span>
-                                                    }
-                                                </td>
+                                                <GrossProfitCells GrossProfit="item.GrossProfit" MarginPercent="item.MarginPercent"
+                                                                  NetAmount="item.NetAmount" CostedNetAmount="item.CostedNetAmount" />
                                             }
                                             <td>
                                                 <div class="ops-sbd-split">

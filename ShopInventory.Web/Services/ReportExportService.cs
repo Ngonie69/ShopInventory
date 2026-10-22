@@ -8566,7 +8566,8 @@ public partial class ReportExportService : IReportExportService
             "Day", 20, "Best Day", "Days Traded", "day", "days",
             section => section.ByDay.Select(day => new DesktopAnalysisMatrixRow(
                 day.Date.ToString("yyyy-MM-dd"), day.Date, day.Date.ToString("ddd dd MMM"),
-                day.SalesCount, day.TotalAmount, 0m, day.ByPaymentMethod, day.CreditedAmount)),
+                day.SalesCount, day.TotalAmount, 0m, day.ByPaymentMethod, day.CreditedAmount,
+                day.GrossProfit, day.MarginPercent, day.CostedNetAmount)),
             WithShare: false));
 
         // A van by the business partner it bills as, not the warehouse it sold from: the two need not match
@@ -8706,11 +8707,14 @@ public partial class ReportExportService : IReportExportService
         decimal TotalAmount,
         decimal SharePercent,
         List<DesktopSalesPaymentAmount> Parts,
-        decimal CreditedAmount = 0m);
+        decimal CreditedAmount = 0m,
+        decimal? GrossProfit = null,
+        decimal? MarginPercent = null,
+        decimal? CostedNetAmount = null);
 
     private static DesktopAnalysisMatrixRow DesktopAnalysisBreakdownRow(DesktopSalesBreakdownRow row) =>
         new(row.Key, null, row.Label, row.SalesCount, row.TotalAmount, row.ShareOfValuePercent, row.ByPaymentMethod,
-            row.CreditedAmount);
+            row.CreditedAmount, row.GrossProfit, row.MarginPercent, row.CostedNetAmount);
 
     private static string DesktopAnalysisTenderName(string method) => method == "Ecocash" ? "EcoCash" : method;
 
@@ -9030,10 +9034,15 @@ public partial class ReportExportService : IReportExportService
         if (context.Credits)
             headers.AddRange(["Credited", "Net of Credits"]);
 
+        // Gross profit is not split by tender, so it closes the row after everything that is.
+        var creditedCol = headers.Count - 1;
+        var gpCol = headers.Count + 1;
+        if (context.GrossProfit)
+            headers.AddRange(["Gross Profit", "Margin", "Profit / Loss"]);
+
         var lastCol = headers.Count;
         var salesCol = sheet.CodeHeading is null ? 3 : 4;
         var takingsCol = salesCol + 1 + methods.Count;
-        var creditedCol = lastCol - 1;
         var sections = report.Currencies
             .Select(section => (Section: section, Rows: sheet.Rows(section).ToList()))
             .ToList();
@@ -9123,6 +9132,9 @@ public partial class ReportExportService : IReportExportService
                     DesktopAnalysisTotalCell(ws.Cell(row, creditedCol + 1), line.TotalAmount - line.CreditedAmount, isStripe);
                 }
 
+                if (context.GrossProfit)
+                    DesktopAnalysisGrossProfitCells(ws, row, gpCol, line.GrossProfit, line.MarginPercent);
+
                 row++;
             }
         }
@@ -9158,6 +9170,10 @@ public partial class ReportExportService : IReportExportService
                 DesktopAnalysisSummaryNumber(ws.Cell(row, creditedCol + 1), section.NetOfCredits, FormatMoney);
             }
 
+            // The rows split the sales between them, so their profits add up to the currency's.
+            if (context.GrossProfit)
+                DesktopAnalysisGrossProfitTotal(ws, row, gpCol, rows.Select(line => (line.GrossProfit, line.CostedNetAmount)));
+
             row++;
         }
 
@@ -9177,12 +9193,20 @@ public partial class ReportExportService : IReportExportService
             row += 2;
         }
 
+        if (context.GrossProfit)
+        {
+            widths.AddRange([15, 10, 14]);
+            PodNoteRow(ws, row + 1, lastCol, DesktopAnalysisGrossProfitNote);
+            row += 2;
+        }
+
         DesktopAnalysisFinish(ws, row + 1, lastCol, context, headerRow, labelCol, lastDataRow, [.. widths]);
     }
 
     private static void WriteDesktopAnalysisHours(XLWorkbook workbook, DesktopAnalysisContext context)
     {
-        var lastCol = context.Credits ? 8 : 6;
+        var gpCol = (context.Credits ? 8 : 6) + 1;
+        var lastCol = context.GrossProfit ? gpCol + 2 : gpCol - 1;
         var report = context.Report;
         var ws = workbook.Worksheets.Add("By Hour");
         PodApplyDefaults(ws);
@@ -9202,7 +9226,8 @@ public partial class ReportExportService : IReportExportService
         row = PodColumnHeaders(ws, headerRow, lastCol,
             [
                 "Currency", "Hour (CAT)", "Sales", "Average Sale", "Takings", "Share of Takings",
-                .. context.Credits ? new[] { "Credited", "Net of Credits" } : []
+                .. context.Credits ? new[] { "Credited", "Net of Credits" } : [],
+                .. context.GrossProfit ? new[] { "Gross Profit", "Margin", "Profit / Loss" } : []
             ]);
 
         var rowIndex = 0;
@@ -9240,6 +9265,9 @@ public partial class ReportExportService : IReportExportService
                     DesktopAnalysisTotalCell(ws.Cell(row, 8), hour.NetOfCredits, isStripe);
                 }
 
+                if (context.GrossProfit)
+                    DesktopAnalysisGrossProfitCells(ws, row, gpCol, hour.GrossProfit, hour.MarginPercent);
+
                 row++;
             }
         }
@@ -9266,6 +9294,9 @@ public partial class ReportExportService : IReportExportService
                 DesktopAnalysisSummaryNumber(ws.Cell(row, 8), section.NetOfCredits, FormatMoney);
             }
 
+            if (context.GrossProfit)
+                DesktopAnalysisGrossProfitTotal(ws, row, gpCol, section.ByHour.Select(hour => (hour.GrossProfit, hour.CostedNetAmount)));
+
             row++;
         }
 
@@ -9275,8 +9306,17 @@ public partial class ReportExportService : IReportExportService
             row += 2;
         }
 
+        if (context.GrossProfit)
+        {
+            PodNoteRow(ws, row + 1, lastCol, DesktopAnalysisGrossProfitNote);
+            row += 2;
+        }
+
         DesktopAnalysisFinish(ws, row + 1, lastCol, context, headerRow, 2, lastDataRow,
-            context.Credits ? [12, 20, 12, 16, 18, 17, 14, 16] : [12, 20, 12, 16, 18, 17]);
+            [
+                .. context.Credits ? new double[] { 12, 20, 12, 16, 18, 17, 14, 16 } : [12, 20, 12, 16, 18, 17],
+                .. context.GrossProfit ? new double[] { 15, 10, 14 } : []
+            ]);
     }
 
     private static void WriteDesktopAnalysisItems(XLWorkbook workbook, DesktopAnalysisContext context)
@@ -9462,6 +9502,28 @@ public partial class ReportExportService : IReportExportService
     }
 
     private const string FormatSignedMoney = "#,##0.00;[Red]-#,##0.00";
+
+    /// <summary>What every gross profit column on a sales workbook means, said once under the sheet.</summary>
+    private const string DesktopAnalysisGrossProfitNote =
+        "Gross profit is SAP's booked gross profit on the invoices these sales were posted as - their value before VAT "
+        + "less the stock cost SAP relieved when the goods left - and the margin is that profit over the posted value. "
+        + "A sale not yet in SAP is not costed, so a row none of whose sales is in SAP reads 'Not in SAP yet'. Profit "
+        + "is not split by payment method.";
+
+    /// <summary>A total row's gross profit and margin: the sum of its costed rows' profit over their costed value.</summary>
+    private static void DesktopAnalysisGrossProfitTotal(
+        IXLWorksheet ws, int row, int col, IEnumerable<(decimal? GrossProfit, decimal? CostedNetAmount)> rows)
+    {
+        var costed = rows.Where(line => line.GrossProfit is not null).ToList();
+        if (costed.Count == 0)
+            return;
+
+        var profit = costed.Sum(line => line.GrossProfit!.Value);
+        var revenue = costed.Sum(line => line.CostedNetAmount ?? 0m);
+        DesktopAnalysisSummaryNumber(ws.Cell(row, col), profit, FormatSignedMoney);
+        if (revenue != 0)
+            DesktopAnalysisSummaryNumber(ws.Cell(row, col + 1), profit / revenue, FormatSignedPercent);
+    }
 
     private const string FormatSignedPercent = "0.0%;[Red]-0.0%";
 

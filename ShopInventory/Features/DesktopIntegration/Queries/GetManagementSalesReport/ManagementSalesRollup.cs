@@ -286,7 +286,7 @@ internal static class ManagementSalesRollup
                 s.DocEntry,
                 CurrencyKey(s.Currency),
                 s.WarehouseCode ?? string.Empty,
-                s.CardCode ?? string.Empty,
+                s.CardCode?.Trim() ?? string.Empty,
                 s.SourceSystem ?? string.Empty,
                 s.CreatedBy ?? string.Empty,
                 s.CostCentreCode?.Trim() ?? string.Empty,
@@ -433,6 +433,15 @@ internal static class ManagementSalesRollup
         }
     }
 
+    /// <summary>SAP's booked revenue and gross profit on some sales, and how many of those sales it covers.</summary>
+    /// <param name="Revenue">The costed sales' value before VAT, as SAP invoiced it.</param>
+    /// <param name="GrossProfit">SAP's gross profit on them.</param>
+    /// <param name="CostedSales">How many of the sales asked about were costed.</param>
+    public sealed record SalesMargin(decimal Revenue, decimal GrossProfit, int CostedSales)
+    {
+        public decimal? MarginPercent => Revenue == 0 ? null : Math.Round(GrossProfit / Revenue * 100m, 1, MidpointRounding.AwayFromZero);
+    }
+
     /// <summary>SAP's revenue and gross profit, summed onto every row it can honestly be put on.</summary>
     public sealed class MarginBook
     {
@@ -456,8 +465,10 @@ internal static class ManagementSalesRollup
                 }
 
                 book.CountCosted(sale.Currency, 1);
+                book.BeginSale(1);
                 foreach (var line in docLines)
                 {
+                    book.AddInvoice(sale.DocEntry, line);
                     book.Add(sale.Currency, Dimension.Total, string.Empty, line);
                     book.Add(sale.Currency, Dimension.Item, ItemKey(SaleBusinesses.Of(sale.SourceSystem), line.ItemCode), line);
                     book.Add(sale.Currency, Dimension.Depot, sale.WarehouseCode, line);
@@ -480,6 +491,7 @@ internal static class ManagementSalesRollup
                 }
 
                 book.CountCosted(invoice.Currency, invoice.SalesCount);
+                book.BeginSale(invoice.SalesCount);
                 foreach (var line in docLines)
                 {
                     book.Add(invoice.Currency, Dimension.Total, string.Empty, line);
@@ -502,16 +514,101 @@ internal static class ManagementSalesRollup
                 ? new MarginFigure(figure.Revenue, figure.GrossProfit)
                 : null;
 
+        /// <summary>
+        /// <see cref="For"/> with how many sales it was measured on, so a row can say when only some of its
+        /// sales are in SAP yet.
+        /// </summary>
+        public SalesMargin? MarginOf(string currency, Dimension dimension, string key)
+        {
+            var slot = (currency, dimension, key.ToUpperInvariant());
+            return _figures.TryGetValue(slot, out var figure)
+                ? new SalesMargin(figure.Revenue, figure.GrossProfit, _slotSales.GetValueOrDefault(slot))
+                : null;
+        }
+
         public int CostedSales(string currency) => _costedSales.GetValueOrDefault(currency);
+
+        /// <summary>
+        /// The margin on a set of sales, each posted as its own invoice: what a report sums onto rows the
+        /// dimensions above do not cover, such as a day, an hour or a route.
+        /// </summary>
+        /// <remarks>
+        /// A sale on a day's consolidated invoice has no invoice of its own, so it is never costed here.
+        /// Each invoice counts once however often it is named. Null when none of them is costed.
+        /// </remarks>
+        public SalesMargin? ForInvoices(IEnumerable<int?> docEntries)
+        {
+            decimal revenue = 0, profit = 0;
+            var costed = 0;
+            foreach (var docEntry in docEntries.OfType<int>().Distinct())
+            {
+                if (_invoices.TryGetValue(docEntry, out var figure))
+                {
+                    revenue += figure.Revenue;
+                    profit += figure.GrossProfit;
+                    costed++;
+                }
+            }
+
+            return costed == 0 ? null : new SalesMargin(revenue, profit, costed);
+        }
+
+        /// <summary>One item's margin on a set of sales each posted as its own invoice; see <see cref="ForInvoices"/>.</summary>
+        public SalesMargin? ForInvoiceItem(IEnumerable<int?> docEntries, string itemCode)
+        {
+            decimal revenue = 0, profit = 0;
+            var costed = 0;
+            var key = itemCode.Trim().ToUpperInvariant();
+            foreach (var docEntry in docEntries.OfType<int>().Distinct())
+            {
+                if (_invoiceItems.TryGetValue((docEntry, key), out var figure))
+                {
+                    revenue += figure.Revenue;
+                    profit += figure.GrossProfit;
+                    costed++;
+                }
+            }
+
+            return costed == 0 ? null : new SalesMargin(revenue, profit, costed);
+        }
+
+        private readonly Dictionary<int, (decimal Revenue, decimal GrossProfit)> _invoices = new();
+        private readonly Dictionary<(int DocEntry, string ItemCode), (decimal Revenue, decimal GrossProfit)> _invoiceItems = new();
+
+        private void AddInvoice(int docEntry, SaleInvoiceLineCost line)
+        {
+            var (revenue, profit) = _invoices.GetValueOrDefault(docEntry);
+            _invoices[docEntry] = (revenue + line.Revenue, profit + line.GrossProfit);
+
+            var itemSlot = (docEntry, line.ItemCode.Trim().ToUpperInvariant());
+            var (itemRevenue, itemProfit) = _invoiceItems.GetValueOrDefault(itemSlot);
+            _invoiceItems[itemSlot] = (itemRevenue + line.Revenue, itemProfit + line.GrossProfit);
+        }
 
         private void CountCosted(string currency, int sales) =>
             _costedSales[currency] = _costedSales.GetValueOrDefault(currency) + sales;
+
+        // How many sales each slot was measured on: an invoice's sales count once per slot, however many
+        // of its lines land there.
+        private readonly Dictionary<(string Currency, Dimension Dimension, string Key), int> _slotSales = new();
+        private readonly HashSet<(string Currency, Dimension Dimension, string Key)> _saleSlots = new();
+        private int _saleWeight;
+
+        private void BeginSale(int sales)
+        {
+            _saleSlots.Clear();
+            _saleWeight = sales;
+        }
 
         private void Add(string currency, Dimension dimension, string key, SaleInvoiceLineCost line)
         {
             var slot = (currency, dimension, key.ToUpperInvariant());
             var (revenue, profit) = _figures.GetValueOrDefault(slot);
             _figures[slot] = (revenue + line.Revenue, profit + line.GrossProfit);
+            if (_saleSlots.Add(slot))
+            {
+                _slotSales[slot] = _slotSales.GetValueOrDefault(slot) + _saleWeight;
+            }
         }
     }
 }

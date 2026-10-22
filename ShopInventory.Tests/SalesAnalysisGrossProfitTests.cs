@@ -144,6 +144,72 @@ public sealed class SalesAnalysisGrossProfitTests : IDisposable
     }
 
     /// <summary>
+    /// Every breakdown row carries the profit of its own posted sales, and says how many of them it was
+    /// measured on, so a row with a sale not yet in SAP reads as partly costed rather than as all of it.
+    /// </summary>
+    [Fact]
+    public async Task Breakdown_day_and_hour_rows_carry_their_own_sales_profit()
+    {
+        _context.DesktopSales.AddRange(
+            CounterSale("S1", 501, [("BREAD", 10, 100m)]),
+            CounterSale("S2", 502, [("MILK", 4, 40m)]),
+            CounterSale("S3", null, [("BREAD", 3, 30m)]),
+            CounterSale("V1", 601, [("BREAD", 20, 160m)], source: SaleSourceSystems.Vending, warehouse: Depot));
+        await _context.SaveChangesAsync();
+
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", Shop, 10m, 100m, 30m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(502, "MILK", Shop, 4m, 40m, -6m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(601, "BREAD", Depot, 20m, 160m, 8m));
+
+        var usd = (await AnalyseCountersAsync(includeMargin: true)).Currencies.Single();
+
+        var shop = usd.ByWarehouse.Single(row => row.Key == Shop);
+        Assert.Equal((24m, 140m, 2, 3), (shop.GrossProfit, shop.CostedNetAmount, shop.CostedSalesCount, shop.SalesCount));
+        Assert.Equal(17.1m, shop.MarginPercent);
+        Assert.Equal(8m, usd.ByWarehouse.Single(row => row.Key == Depot).GrossProfit);
+
+        Assert.Equal(32m, usd.ByBusinessPartner.Single().GrossProfit);
+        Assert.Equal(3, usd.ByBusinessPartner.Single().CostedSalesCount);
+        Assert.Equal(24m, usd.BySource.Single(row => row.Key == SaleSourceSystems.ShopTill).GrossProfit);
+        Assert.Equal(32m, usd.ByOperator.Single().GrossProfit);
+
+        var day = usd.ByDay.Single();
+        Assert.Equal((32m, 300m, 3), (day.GrossProfit, day.CostedNetAmount, day.CostedSalesCount));
+        var hour = usd.ByHour.Single();
+        Assert.Equal((32m, 3), (hour.GrossProfit, hour.CostedSalesCount));
+
+        // Tender is not costed: a sale's profit does not depend on how it was paid for.
+        Assert.DoesNotContain(usd.ByPaymentMethod, row => row.GetType().GetProperty("GrossProfit") is not null);
+    }
+
+    [Fact]
+    public async Task Van_breakdown_rows_carry_their_own_sales_profit()
+    {
+        _context.DesktopSales.Add(CounterSale(
+            "OFF-1", 701, [("CHE011", 2, 20m)], source: SaleSourceSystems.VanSales, warehouse: Van,
+            createdBy: _adminId));
+        _context.StockReservations.Add(OnlineVanSale("ON-1", 702, "CHE011", 3, 30m));
+        await _context.SaveChangesAsync();
+
+        _costs.Lines.Add(new SaleInvoiceLineCost(701, "CHE011", Van, 2m, 20m, 4m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(702, "CHE011", Van, 3m, 30m, 6m));
+
+        var result = await new GetVanSalesAnalysisHandler(
+                _context, Options.Create(new TaxSettings { VatRate = 0m }), _costs)
+            .Handle(new GetVanSalesAnalysisQuery(Day, Day, IncludeMargin: true), CancellationToken.None);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        var usd = result.Value.Currencies.Single();
+
+        Assert.Equal((10m, 2), (usd.ByWarehouse.Single().GrossProfit, usd.ByWarehouse.Single().CostedSalesCount));
+        Assert.Equal(10m, usd.ByVanAccount.Sum(row => row.GrossProfit));
+        Assert.Equal(10m, usd.ByOperator.Single().GrossProfit);
+        Assert.Equal([4m, 6m], usd.BySource.OrderBy(row => row.GrossProfit).Select(row => row.GrossProfit!.Value));
+        Assert.Equal(10m, usd.ByDay.Single().GrossProfit);
+        Assert.Equal(10m, usd.ByHour.Single().GrossProfit);
+    }
+
+    /// <summary>
     /// An online van sale leaves no desktop sale, so its invoice is known only from its reservation — the
     /// case the van analysis exists for, and the one a desktop-sales-only margin would miss.
     /// </summary>
@@ -234,6 +300,59 @@ public sealed class SalesAnalysisGrossProfitTests : IDisposable
         Assert.Equal(-0.15m, Row("MILK").Cell(gpCol + 1).GetValue<decimal>());
         Assert.Equal("Loss", Row("MILK").Cell(gpCol + 2).GetString());
         Assert.Equal("Not in SAP yet", Row("JAM").Cell(gpCol).GetString());
+    }
+
+    [Fact]
+    public async Task Breakdown_profit_reaches_the_portal_and_every_breakdown_sheet()
+    {
+        _context.DesktopSales.AddRange(
+            CounterSale("S1", 501, [("BREAD", 10, 100m)]),
+            CounterSale("S2", null, [("JAM", 1, 9m)]));
+        await _context.SaveChangesAsync();
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", Shop, 10m, 100m, 30m));
+
+        var web = await ThroughPortalAsync(await AnalyseCountersAsync(includeMargin: true));
+        var usd = web.Currencies.Single();
+
+        var shop = usd.ByWarehouse.Single();
+        Assert.Equal((30m, 100m, 1, 2, 30.0m), (shop.GrossProfit, shop.CostedNetAmount, shop.CostedSalesCount, shop.SalesCount, shop.MarginPercent));
+        Assert.Equal(30m, usd.ByDay.Single().GrossProfit);
+        Assert.Equal(30m, usd.ByHour.Single().GrossProfit);
+
+        using var workbook = new XLWorkbook(new MemoryStream(new ReportExportService().ExportDesktopSalesAnalysisToExcel(web)));
+        foreach (var sheetName in new[] { "By Day", "By Shop", "By Business Partner", "By Operator", "By Source", "By Hour" })
+        {
+            var sheet = workbook.Worksheet(sheetName);
+            var header = sheet.RowsUsed().First(row => row.Cell(1).GetString() == "Currency");
+            var gpCol = header.CellsUsed().Single(cell => cell.GetString() == "Gross Profit").Address.ColumnNumber;
+            var data = sheet.Row(header.RowNumber() + 1);
+            Assert.True(30m == data.Cell(gpCol).GetValue<decimal>(), $"{sheetName} gross profit");
+            Assert.Equal(0.3m, data.Cell(gpCol + 1).GetValue<decimal>());
+            Assert.Equal("Profit", data.Cell(gpCol + 2).GetString());
+        }
+    }
+
+    /// <summary>The API's result as the portal receives it: serialised, and read back by the Web handler.</summary>
+    private async Task<WebAnalysis.DesktopSalesAnalysisResult> ThroughPortalAsync(DesktopSalesAnalysisResult api)
+    {
+        var json = JsonSerializer.Serialize(api, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        using var webConnection = new SqliteConnection("DataSource=:memory:");
+        webConnection.Open();
+        var webOptions = new DbContextOptionsBuilder<WebAppDbContext>().UseSqlite(webConnection).Options;
+        await using (var webDb = new WebAppDbContext(webOptions))
+        {
+            webDb.Database.EnsureCreated();
+        }
+
+        var result = await new WebAnalysis.GetDesktopSalesAnalysisHandler(
+                new HttpClient(new JsonHandler(json, [])) { BaseAddress = new Uri("http://api.test/") },
+                new WebDbContextFactory(webOptions),
+                NullLogger<WebAnalysis.GetDesktopSalesAnalysisHandler>.Instance)
+            .Handle(new WebAnalysis.GetDesktopSalesAnalysisQuery(Day, Day, null, IncludeMargin: true), CancellationToken.None);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        return result.Value;
     }
 
     private async Task<DesktopSalesAnalysisResult> AnalyseCountersAsync(bool includeMargin)
