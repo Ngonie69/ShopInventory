@@ -7,6 +7,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.RouteCustomers;
 using ShopInventory.Features.RouteCustomers.Commands.CreateRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Commands.DeleteRouteCustomer;
+using ShopInventory.Features.RouteCustomers.Commands.ImportRouteSchedule;
 using ShopInventory.Features.RouteCustomers.Commands.SetRouteCustomerVisitDays;
 using ShopInventory.Features.RouteCustomers.Commands.UpdateRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerProductMix;
@@ -224,6 +225,25 @@ public class RouteCustomersController(ISender mediator) : ApiControllerBase
             new SetRouteCustomerVisitDaysCommand(id, request.VisitDays),
             cancellationToken);
 
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// Checks (<c>validateOnly: true</c>) or saves the calling schedule read off the office's route
+    /// workbook: which weekday each van calls on each of its shops. Saving replaces the schedule of
+    /// every truck that matched at least one shop. Each outlet's match is reported with a 200.
+    /// </summary>
+    [HttpPost("schedule-import")]
+    [RequirePermission(Permission.EditCustomers)]
+    public async Task<IActionResult> ImportSchedule(
+        [FromBody] RouteScheduleImportRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new ImportRouteScheduleCommand(request, userId.Value), cancellationToken);
         return result.Match(Ok, Problem);
     }
 }

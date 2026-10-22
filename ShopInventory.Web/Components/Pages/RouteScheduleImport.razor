@@ -1,0 +1,262 @@
+@page "/route-customers/calling-schedule"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>Calling Schedule - Shop Inventory</PageTitle>
+@* Loads the office's "Customer Database per Route" workbook into the weekdays each van calls on
+   each shop — the plan the CCR is measured against. Without it a day's round is guessed from
+   earlier visits, or is the truck's whole customer list, which reads a truck that called on every
+   shop due as 20%.
+
+   Built from the shared `ops` vocabulary in wwwroot/css/operations.css and the `.ops-rc` route
+   panels; `.ops-rcsi` adds only the file button, the skipped-list and the picker column.
+
+   Everything is checked before anything is saved: the workbook is read here, the API matches each
+   outlet to a shop on the truck and says how sure it is, and only the Save button writes. Every
+   change on the page — a truck, a chosen shop — is checked again, so the totals never describe a
+   different set of choices from the one about to be saved. *@
+
+<div class="ops ops-rc ops-rcsi">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <div class="ops-kicker">Field capture</div>
+            <h1>Calling schedule</h1>
+            <p>
+                Upload the route workbook — a sheet per truck, the outlets under each weekday. The names
+                are matched to the shops each van holds, and the days become the shops each truck is
+                due to call on. That is the round the CCR is measured against: shops checked into
+                &divide; shops due that day.
+            </p>
+        </div>
+        <div class="ops-hero-actions">
+            <a class="ops-btn ops-btn-ghost" href="/route-customers">
+                <i class="ph ph-arrow-left" aria-hidden="true"></i>
+                <span>Route customers</span>
+            </a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="ops-msg @(messageIsError ? "ops-fam-bad" : "ops-fam-good")" role="status">
+            <i class="ph @(messageIsError ? "ph-warning-octagon" : "ph-check-circle")" aria-hidden="true"></i>
+            <div class="ops-msg-body">@message</div>
+        </div>
+    }
+
+    <section class="ops-panel">
+        <div class="ops-panel-head">
+            <h2><i class="ph ph-file-xls" aria-hidden="true"></i>Workbook</h2>
+        </div>
+        <div class="ops-rcsi-upload">
+            <label class="ops-btn ops-btn-primary ops-rcsi-file @(IsBusy ? "is-busy" : null)">
+                <InputFile @key="fileKey" OnChange="OnFileSelected" accept=".xlsx" disabled="@IsBusy" />
+                @if (isReading)
+                {
+                    <span class="ops-spin"></span>
+                    <span>Reading&hellip;</span>
+                }
+                else
+                {
+                    <i class="ph ph-upload-simple" aria-hidden="true"></i>
+                    <span>@(workbook is null ? "Choose the workbook" : "Choose another")</span>
+                }
+            </label>
+            <span class="ops-sub">
+                @if (fileName is not null)
+                {
+                    <span>@fileName &middot; @workbook?.Sheets.Sum(sheet => sheet.Outlets.Count).ToString("N0") outlets on @workbook?.Sheets.Count sheets</span>
+                }
+                else
+                {
+                    <span>.xlsx, up to 5 MB. Nothing is saved until you press Save.</span>
+                }
+            </span>
+        </div>
+    </section>
+
+    @if (result is not null && workbook is not null)
+    {
+        <div class="ops-figures">
+            @foreach (var account in result.Accounts)
+            {
+                <div class="ops-figure @(account.ScheduledAfter == 0 ? "ops-fam-warn" : "ops-fam-good")">
+                    <div class="ops-figure-head">
+                        <span class="ops-figure-rule"></span>@account.AccountCode@(account.RouteName is null ? null : $" · {account.RouteName}")
+                    </div>
+                    <div class="ops-figure-num">@account.ScheduledAfter.ToString("N0") <span class="ops-sub">of @account.ActiveShopCount.ToString("N0") shops</span></div>
+                    <div class="ops-figure-sub">
+                        @if (account.ShopsPerDay.Count > 0)
+                        {
+                            @string.Join(" · ", account.ShopsPerDay.Select(day => $"{day.Day.ToString()[..3]} {day.Shops}"))
+                        }
+                        else
+                        {
+                            @account.Note
+                        }
+                    </div>
+                    <div class="ops-figure-sub">@account.ScheduledBefore.ToString("N0") scheduled before@(account.Applied ? " · saved" : null)</div>
+                </div>
+            }
+        </div>
+
+        <section class="ops-panel">
+            <div class="ops-panel-head">
+                <h2><i class="ph ph-floppy-disk" aria-hidden="true"></i>Save</h2>
+            </div>
+            <div class="ops-rcsi-upload">
+                @if (confirming)
+                {
+                    <span class="ops-rcsi-confirm">
+                        This replaces the calling days of every shop on @string.Join(", ", SavableAccounts) with the
+                        days above. Shops the workbook does not name are left with none. Past days' CCR is
+                        recalculated against the new schedule.
+                    </span>
+                    <button type="button" class="ops-btn ops-btn-warn" @onclick="SaveAsync" disabled="@IsBusy">
+                        @if (isSaving)
+                        {
+                            <span class="ops-spin"></span>
+                        }
+                        <span>Replace and save</span>
+                    </button>
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="() => confirming = false" disabled="@IsBusy">Cancel</button>
+                }
+                else
+                {
+                    <button type="button" class="ops-btn ops-btn-primary" @onclick="() => confirming = true"
+                            disabled="@(IsBusy || SavableAccounts.Count == 0)">
+                        <i class="ph ph-floppy-disk" aria-hidden="true"></i>
+                        <span>Save schedule for @SavableAccounts.Count @(SavableAccounts.Count == 1 ? "truck" : "trucks")</span>
+                    </button>
+                    <span class="ops-sub">
+                        @if (isChecking)
+                        {
+                            <span>Checking&hellip;</span>
+                        }
+                        else
+                        {
+                            <span>@CountWhere(RouteScheduleMatchStatus.IsScheduled).ToString("N0") outlets matched, @ReviewCount.ToString("N0") to review, @NoMatchCount.ToString("N0") with no match.</span>
+                        }
+                    </span>
+                }
+            </div>
+        </section>
+
+        <div class="ops-tabs" role="tablist">
+            @foreach (var view in Views)
+            {
+                <button type="button" role="tab" class="@($"ops-tab{(view == selectedView ? " is-on" : string.Empty)}")"
+                        aria-selected="@(view == selectedView)" @onclick="() => selectedView = view">
+                    <span>@ViewLabel(view)</span>
+                    <span class="ops-tab-count">@AllOutlets().Count(outlet => InView(outlet, view)).ToString("N0")</span>
+                </button>
+            }
+        </div>
+
+        <div class="ops-rc-groups">
+            @foreach (var sheet in result.Sheets)
+            {
+                var read = workbook.Sheets.FirstOrDefault(s => s.Name == sheet.Name);
+                var rows = sheet.Outlets.Where(outlet => InView(outlet, selectedView)).ToList();
+
+                <section class="ops-panel">
+                    <div class="ops-rc-head">
+                        <div>
+                            <h2 class="ops-rc-title">Sheet &ldquo;@sheet.Name&rdquo;</h2>
+                            <div class="ops-rc-key">
+                                @sheet.Outlets.Count.ToString("N0") outlets &middot;
+                                @sheet.Outlets.Count(outlet => RouteScheduleMatchStatus.IsScheduled(outlet.Status)).ToString("N0") matched
+                                @if (sheet.AccountGuessed)
+                                {
+                                    <span> &middot; truck worked out from the sheet name — check it</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="ops-rcsi-truck">
+                            <NocturneSelect TValue="string" Class="nsel-block nsel-end" Options="TruckOptions"
+                                            Value="sheet.AccountCode"
+                                            ValueChanged="@(account => OnTruckChangedAsync(sheet.Name, account))"
+                                            Caption="Truck (van account)" AriaLabel="@($"Truck for sheet {sheet.Name}")"
+                                            Placeholder="Choose the truck" Disabled="IsBusy" />
+                        </div>
+                    </div>
+
+                    @if (read is { Skipped.Count: > 0 })
+                    {
+                        <div class="ops-msg ops-fam-warn ops-rcsi-skipmsg" role="note">
+                            <i class="ph ph-warning" aria-hidden="true"></i>
+                            <div class="ops-msg-body">
+                                Not read from this sheet:
+                                <ul class="ops-rcsi-skips">
+                                    @foreach (var skipped in read.Skipped)
+                                    {
+                                        <li>@skipped</li>
+                                    }
+                                </ul>
+                            </div>
+                        </div>
+                    }
+
+                    @if (rows.Count == 0)
+                    {
+                        <div class="ops-rcsi-none ops-sub">Nothing on this sheet in this view.</div>
+                    }
+                    else
+                    {
+                        <div class="ops-scroll">
+                            <table class="ops-table">
+                                <thead>
+                                    <tr>
+                                        <th>Day</th>
+                                        <th>Seq</th>
+                                        <th>On the sheet</th>
+                                        <th>Shop on the truck</th>
+                                        <th>Match</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var outlet in rows)
+                                    {
+                                        <tr @key="outlet.Ref">
+                                            <td>@outlet.Day.ToString()[..3]</td>
+                                            <td class="ops-num">@outlet.Sequence</td>
+                                            <td>
+                                                <div>@outlet.Name</div>
+                                                <div class="ops-sub">@outlet.Ref</div>
+                                            </td>
+                                            <td class="ops-rcsi-pick">
+                                                @if (outlet.Candidates.Count > 0)
+                                                {
+                                                    <NocturneSelect TValue="int?" Class="nsel-block" Fixed="true"
+                                                                    Options="ChoicesFor(outlet)" Value="ChoiceOf(outlet)"
+                                                                    ValueChanged="@(choice => OnChoiceChangedAsync(outlet, choice))"
+                                                                    AriaLabel="@($"Shop for {outlet.Name}")"
+                                                                    Placeholder="Choose the shop…" Disabled="IsBusy" />
+                                                }
+                                                else if (outlet.RouteCustomerId is not null)
+                                                {
+                                                    <div>@outlet.RouteCustomerName</div>
+                                                    <div class="ops-sub"><span class="ops-code">@outlet.RouteCustomerCode</span></div>
+                                                }
+                                                else
+                                                {
+                                                    <span class="ops-sub">&mdash;</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <span class="ops-badge @StatusFamily(outlet)">@StatusLabel(outlet)</span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+            }
+        </div>
+    }
+</div>

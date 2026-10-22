@@ -4696,6 +4696,7 @@ which is how vending writes its vendors through this base route.
 | DELETE | `/api/route-customers/{id}` | `customers.delete` | Delete one |
 | GET | `/api/route-customers/visit-days` | `customers.view` | Which weekdays the van calls (`routeCustomerId`, `assignedBusinessPartnerCode`) |
 | PUT | `/api/route-customers/{id}/visit-days` | `customers.edit` | Replace the calling days for one shop |
+| POST | `/api/route-customers/schedule-import` | `customers.edit` | Check (`validateOnly`) or save the office's route workbook as every truck's calling days; matches outlet names to shops, replaces each matched truck's schedule |
 
 | Endpoint | Parameters |
 |----------|------------|
