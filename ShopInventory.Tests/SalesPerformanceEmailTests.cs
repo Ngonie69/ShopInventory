@@ -134,6 +134,47 @@ public sealed class SalesPerformanceEmailTests : IDisposable
         Assert.Equal(100m, performance.Scorecard.Sum(row => row.SharePercent), 0);
     }
 
+    /// <summary>
+    /// The vans carry SAP's booked margin beside the counters' — on the scorecard, the van section's
+    /// tile, routes, reps and items, and each van account — read from the same copy of SAP's cost.
+    /// </summary>
+    [Fact]
+    public async Task The_vans_carry_SAPs_margin_beside_the_counters()
+    {
+        var entry = 9000;
+        foreach (var sale in _context.DesktopSales.Where(s => s.SourceSystem == SaleSourceSystems.VanSales && s.DocDate == Wednesday).ToList())
+        {
+            sale.SapDocEntry = ++entry;
+            _context.SaleInvoiceCosts.Add(new SaleInvoiceCostEntity
+            {
+                DocEntry = entry,
+                WarehouseCode = sale.WarehouseCode,
+                ReadAt = DateTime.UtcNow,
+                Lines = [new SaleInvoiceCostLineEntity { ItemCode = "CHE011", Quantity = 1, Revenue = sale.TotalAmount, GrossProfit = sale.TotalAmount / 4 }]
+            });
+        }
+        await _context.SaveChangesAsync();
+
+        var performance = await PerformanceAsync();
+
+        Assert.Equal(25.0m, Score(performance, SaleBusinesses.Vans).MarginPercent);
+        Assert.Equal(25.0m, performance.Vans.Currencies.Single(currency => currency.Currency == "USD").MarginPercent);
+        Assert.All(performance.Vans.Reps, rep => Assert.Equal(25.0m, rep.MarginPercent["USD"]));
+        Assert.Equal(25.0m, performance.Vans.TopItems.Single(item => item.ItemCode == "CHE011").MarginPercent);
+        Assert.All(performance.Partners.Where(partner => partner.Business == SaleBusinesses.Vans && partner.Takings > 0),
+            partner => Assert.Equal(25.0m, partner.MarginPercent));
+
+        var html = SalesPerformanceEmailBody.Build(performance, "Daily sales", "the day before", Wednesday.AddHours(7.5));
+        Assert.Contains("MARGIN", html);
+        Assert.Contains("25%", html);
+
+        // Opt-in, for looking at the rendered email: GP_FIXTURE_DIR names a folder to write it to.
+        if (Environment.GetEnvironmentVariable("GP_FIXTURE_DIR") is { Length: > 0 } fixtureDir)
+        {
+            await File.WriteAllTextAsync(Path.Combine(fixtureDir, "sales-performance-email.html"), html);
+        }
+    }
+
     [Fact]
     public async Task The_van_findings_are_written_from_the_figures()
     {
@@ -465,7 +506,8 @@ public sealed class SalesPerformanceEmailTests : IDisposable
                 new GetManagementSalesReportHandler(_context, new RecordingAuditService(), new NoCost(), NullLogger<GetManagementSalesReportHandler>.Instance)
                     .Handle(management, CancellationToken.None),
             GetVanSalesPerformanceReportQuery vans =>
-                new GetVanSalesPerformanceReportHandler(_context, Options.Create(new TaxSettings())).Handle(vans, CancellationToken.None),
+                new GetVanSalesPerformanceReportHandler(_context, Options.Create(new TaxSettings()), new StoredSaleInvoiceCostReader(_context))
+                    .Handle(vans, CancellationToken.None),
             _ => null
         });
         return mediator;

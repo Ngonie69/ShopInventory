@@ -234,6 +234,26 @@
                     <span>Takings <b>@Money(report.TotalSalesAmount)</b></span>
                 </div>
 
+                @* SAP's booked profit on what has been posted so far: a consolidated day is costed a few
+                   minutes after it posts, so the line says how much of the day it covers. *@
+                @if (report.Margin is { Available: true } && report.TotalSalesCount > 0)
+                {
+                    <div class="ops-ds-aside">
+                        @if (report.GrossProfit is { } dayGp)
+                        {
+                            <span>
+                                Gross profit <b class="gpx-value @GrossProfitFormat.Tone(dayGp)">@GrossProfitFormat.Money(dayGp)</b>
+                                @(report.MarginPercent is { } dayMargin ? $" · {GrossProfitFormat.Percent(dayMargin)} margin" : "")
+                                @(GrossProfitFormat.PartOf(report.CostedSalesCount, report.TotalSalesCount) is { } dayPart ? $" · {dayPart}" : "")
+                            </span>
+                        }
+                        else
+                        {
+                            <span>Gross profit <b>not in SAP yet</b></span>
+                        }
+                    </div>
+                }
+
                 @* A second line, not three more figures on the first: Net + VAT = Takings is one
                    sum and Takings less what was credited is another, and run together they read
                    as five numbers that do not add up. Takings stays what was rung up — a credited

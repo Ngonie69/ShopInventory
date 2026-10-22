@@ -138,7 +138,11 @@ internal static class SalesPerformanceReader
             .GroupBy(rep => rep.UserId)
             .ToDictionary(group => group.Key, group => group.First().DisplayName);
 
-        return new VanPartnerFacts(now, before, names, reps);
+        // The reports' copy of SAP's booked cost: one read, the same every van report makes.
+        var margin = await VanSalesMargin.LoadAsync(
+            now, new StoredSaleInvoiceCostReader(db), null, cancellationToken);
+
+        return new VanPartnerFacts(now, before, names, reps) { Margin = margin };
     }
 
     /// <summary>

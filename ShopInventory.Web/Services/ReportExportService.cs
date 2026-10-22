@@ -8310,6 +8310,20 @@ public partial class ReportExportService : IReportExportService
                 WriteKpiCard(ws, row, 6, "Net of Credits", report.TotalNetOfCredits, FormatMoney);
             }
 
+            // SAP's booked profit on the day's posted sales, after whatever cards came before it.
+            if (report.Margin is { Available: true })
+            {
+                var gpCol = report.TotalCreditedAmount > 0 ? 7 : 5;
+                if (report.GrossProfit is { } dayProfit)
+                {
+                    WriteKpiCard(ws, row, gpCol, "Gross Profit", dayProfit, FormatSignedMoney, dayProfit < 0 ? DangerRed : SuccessGreen);
+                }
+                else
+                {
+                    WriteKpiCard(ws, row, gpCol, "Gross Profit", "Not in SAP yet");
+                }
+            }
+
             row += 3;
         }
 

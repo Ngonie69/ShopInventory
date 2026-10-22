@@ -523,6 +523,8 @@ internal static class ManagementSalesRollup
                 book.BeginSale(invoice.SalesCount);
                 foreach (var line in docLines)
                 {
+                    // Known by number too, for a report that names the day's consolidated invoice itself.
+                    book.AddInvoice(invoice.DocEntry, line);
                     book.Add(invoice.Currency, Dimension.Total, string.Empty, line);
 
                     // Only the legacy desktop route consolidates — vending and the vans post one invoice a
@@ -562,7 +564,8 @@ internal static class ManagementSalesRollup
         /// dimensions above do not cover, such as a day, an hour or a route.
         /// </summary>
         /// <remarks>
-        /// A sale on a day's consolidated invoice has no invoice of its own, so it is never costed here.
+        /// A sale on a day's consolidated invoice has no invoice of its own: it is costed only as part of
+        /// that invoice, when the caller names the consolidated invoice's number.
         /// Each invoice counts once however often it is named. Null when none of them is costed.
         /// </remarks>
         public SalesMargin? ForInvoices(IEnumerable<int?> docEntries)

@@ -77,7 +77,11 @@ public sealed record SalesPerformanceScore(
     int PreviousTransactions,
     decimal? AverageTransaction,
     decimal? Credited,
-    decimal SharePercent);
+    decimal SharePercent)
+{
+    /// <summary>SAP's margin on the line's posted sales in this currency; null where SAP has costed none.</summary>
+    public decimal? MarginPercent { get; init; }
+}
 
 /// <summary>One currency's takings across every line of business.</summary>
 public sealed record SalesPerformanceTotal(
@@ -184,7 +188,11 @@ public sealed record SalesPerformanceVanCurrency(
     decimal PreviousTakings,
     decimal? ChangePercent,
     int Invoices,
-    decimal? AverageDrop);
+    decimal? AverageDrop)
+{
+    /// <summary>SAP's margin on the posted van sales in this currency; null where SAP has costed none.</summary>
+    public decimal? MarginPercent { get; init; }
+}
 
 /// <summary>One van route.</summary>
 /// <remarks><list type="table">
@@ -202,7 +210,11 @@ public sealed record SalesPerformanceRoute(
     int ProductiveCalls,
     double? CallCompliance,
     double? StrikeRate,
-    int? KilometresTravelled);
+    int? KilometresTravelled)
+{
+    /// <summary>SAP's margin on the posted sales, per currency costed; a currency with none is absent.</summary>
+    public Dictionary<string, decimal> MarginPercent { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+}
 
 /// <summary>
 /// One van item, ranked as the van report ranks them: on reach — the shops that bought it — because van
@@ -216,7 +228,11 @@ public sealed record SalesPerformanceVanItem(
     string? Description,
     int OutletsThatBought,
     int Lines,
-    decimal Takings);
+    decimal Takings)
+{
+    /// <summary>SAP's margin on the item's posted lines in the main currency; null where none is costed.</summary>
+    public decimal? MarginPercent { get; init; }
+}
 
 /// <summary>One rep.</summary>
 public sealed record SalesPerformanceRep(
@@ -226,4 +242,8 @@ public sealed record SalesPerformanceRep(
     Dictionary<string, decimal> Takings,
     int ProductiveCalls,
     int OutletsThatBought,
-    double? StrikeRate);
+    double? StrikeRate)
+{
+    /// <summary>SAP's margin on the posted sales, per currency costed; a currency with none is absent.</summary>
+    public Dictionary<string, decimal> MarginPercent { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+}

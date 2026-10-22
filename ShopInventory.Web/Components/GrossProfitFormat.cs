@@ -57,6 +57,9 @@ public static class GrossProfitFormat
 }
 
 /// <summary>One currency's gross profit on a report row, for <c>GrossProfitByCurrencyCell</c>.</summary>
+/// <param name="Currency">The currency the row's money is in.</param>
+/// <param name="GrossProfit">SAP's booked gross profit; null when none of the row is costed.</param>
+/// <param name="MarginPercent">The profit over the value it was measured on.</param>
 /// <param name="Costed">How many of the row's sales (or lines) were costed.</param>
 /// <param name="Count">How many the row has.</param>
 /// <param name="Noun">What they are: "sales" or "lines".</param>

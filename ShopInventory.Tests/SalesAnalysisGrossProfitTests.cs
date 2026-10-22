@@ -286,6 +286,54 @@ public sealed class SalesAnalysisGrossProfitTests : IDisposable
         Assert.Contains("not in SAP yet", workbook.Worksheet("Items").CellsUsed().Select(c => c.GetString()).Single(text => text.Contains("not in SAP")));
     }
 
+    /// <summary>
+    /// The end-of-day report and its email carry the day's, each partner's and each sale's booked
+    /// profit, and say how much of the day it covers when some sales are not in SAP yet.
+    /// </summary>
+    [Fact]
+    public async Task The_end_of_day_report_and_email_carry_each_sales_profit()
+    {
+        _context.DesktopSales.AddRange(
+            CounterSale("S1", 501, [("BREAD", 10, 100m)]),
+            CounterSale("S2", 502, [("MILK", 4, 40m)]),
+            CounterSale("S3", null, [("BREAD", 3, 30m)]));
+        await _context.SaveChangesAsync();
+        _costs.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", Shop, 10m, 100m, 30m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(502, "MILK", Shop, 4m, 40m, -6m));
+
+        var result = await new ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport.GenerateEndOfDayReportHandler(
+                _context, new RecordingAuditService(), _costs)
+            .Handle(new ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport.GenerateEndOfDayReportQuery(Day), CancellationToken.None);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        var report = result.Value;
+        Assert.True(report.Margin!.Available);
+        Assert.Equal((24m, 140m, 2, 17.1m), (report.GrossProfit, report.CostedNetAmount, report.CostedSalesCount, report.MarginPercent));
+
+        var partner = report.BusinessPartnerSummaries.Single();
+        Assert.Equal((24m, 2), (partner.GrossProfit, partner.CostedSalesCount));
+        Assert.Equal(-6m, partner.IndividualSales.Single(sale => sale.ExternalReferenceId == "S2").GrossProfit);
+        Assert.Null(partner.IndividualSales.Single(sale => sale.ExternalReferenceId == "S3").GrossProfit);
+
+        var email = ShopInventory.Services.EndOfDayConsolidationService.BuildReportHtml(report);
+        Assert.Contains("<strong>Gross profit</strong></td><td>24.00 (17.1%) on 2 of 3 sales", email);
+        Assert.Contains("-6.00 (-15.0%) loss", email);
+        Assert.Contains("<em>not in SAP yet</em>", email);
+
+        // The portal's copy reads it.
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var read = JsonSerializer.Deserialize<ShopInventory.Web.Services.EndOfDayReportDto>(JsonSerializer.Serialize(report, web), web)!;
+        Assert.Equal((24m, 17.1m, 2), (read.GrossProfit, read.MarginPercent, read.CostedSalesCount));
+        Assert.Equal(24m, read.BusinessPartnerSummaries.Single().GrossProfit);
+
+        // Opt-in, for driving the real page with this result: GP_FIXTURE_DIR names a folder to write it to.
+        if (Environment.GetEnvironmentVariable("GP_FIXTURE_DIR") is { Length: > 0 } fixtureDir)
+        {
+            await File.WriteAllTextAsync(Path.Combine(fixtureDir, "end-of-day-report.json"), JsonSerializer.Serialize(report, web));
+            await File.WriteAllTextAsync(Path.Combine(fixtureDir, "end-of-day-email.html"), email);
+        }
+    }
+
     [Fact]
     public async Task An_adrs_invoiced_sales_carry_their_profit_on_the_league_row_and_the_detail()
     {

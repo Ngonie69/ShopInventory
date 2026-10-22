@@ -309,7 +309,7 @@ public sealed class GetRouteCustomerProductMixHandler(
                 .ToListAsync(cancellationToken))
             .ToLookup(
                 line => (line.ItemCode, line.ItemDescription, line.UoMCode, line.Currency, line.RouteCustomerCode),
-                line => (line.DocEntry, line.WarehouseCode));
+                line => (line.DocEntry, (string?)line.WarehouseCode));
 
         return grouped.Select(row => new ItemAggregate
         {

@@ -256,7 +256,7 @@ public sealed class GetRouteCustomerProductSalesHandler(
                 .ToListAsync(cancellationToken))
             .ToLookup(
                 line => (line.CardCode, line.RouteCustomerId, line.RouteCustomerCode, line.ItemCode, line.ItemDescription, line.UoMCode, line.Currency),
-                line => (line.DocEntry, line.WarehouseCode));
+                line => (line.DocEntry, (string?)line.WarehouseCode));
 
         return grouped.Select(row => new LineAggregate(
             row.Key.CardCode,
