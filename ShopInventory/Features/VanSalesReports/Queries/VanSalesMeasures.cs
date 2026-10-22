@@ -152,40 +152,80 @@ public static class VanSalesMeasures
     public static (Guid UserId, DateTime TradingDate, string Customer) DropKey(VanSaleFact sale) =>
         (sale.UserId, sale.TradingDate, sale.RouteCustomerCode?.ToUpperInvariant() ?? Unattributed);
 
-    public static List<VanSalesMoneyResult> MoneyByCurrency(IEnumerable<VanSaleFact> facts) =>
+    /// <summary>
+    /// Takings per currency, with SAP's booked gross profit on the posted ones when
+    /// <paramref name="margin"/> is given.
+    /// </summary>
+    internal static List<VanSalesMoneyResult> MoneyByCurrency(IEnumerable<VanSaleFact> facts, VanSalesMargin? margin = null) =>
         facts
             .GroupBy(fact => RouteCustomerSalesReporting.NormalizeCurrency(fact.Currency),
                 StringComparer.OrdinalIgnoreCase)
-            .Select(group => new VanSalesMoneyResult(
-                Currency: group.Key,
-                DocumentCount: group.Count(),
-                DropCount: group.Select(DropKey).Distinct().Count(),
-                Gross: group.Sum(fact => fact.TotalAmount)))
+            .Select(group =>
+            {
+                var costed = margin?.Book.ForInvoices(group.Select(fact => fact.SapDocEntry));
+                return new VanSalesMoneyResult(
+                    Currency: group.Key,
+                    DocumentCount: group.Count(),
+                    DropCount: group.Select(DropKey).Distinct().Count(),
+                    Gross: group.Sum(fact => fact.TotalAmount))
+                {
+                    GrossProfit = costed?.GrossProfit,
+                    CostedNetAmount = costed?.Revenue,
+                    CostedDocumentCount = costed?.CostedSales ?? 0
+                };
+            })
             .OrderByDescending(total => total.Gross)
             .ThenBy(total => total.Currency, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    /// <summary>Rolls already-grouped currency rows up a level without ever crossing currencies.</summary>
+    /// <summary>
+    /// Rolls already-grouped currency rows up a level without ever crossing currencies. Gross profit
+    /// adds up with them, so long as the parts split the sales between them.
+    /// </summary>
     public static List<VanSalesMoneyResult> FoldMoney(IEnumerable<VanSalesMoneyResult> parts) =>
         parts
             .GroupBy(part => part.Currency, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new VanSalesMoneyResult(
-                Currency: group.Key,
-                DocumentCount: group.Sum(part => part.DocumentCount),
-                DropCount: group.Sum(part => part.DropCount),
-                Gross: group.Sum(part => part.Gross)))
+            .Select(group =>
+            {
+                var costed = group.Where(part => part.GrossProfit is not null).ToList();
+                return new VanSalesMoneyResult(
+                    Currency: group.Key,
+                    DocumentCount: group.Sum(part => part.DocumentCount),
+                    DropCount: group.Sum(part => part.DropCount),
+                    Gross: group.Sum(part => part.Gross))
+                {
+                    GrossProfit = costed.Count == 0 ? null : costed.Sum(part => part.GrossProfit!.Value),
+                    CostedNetAmount = costed.Count == 0 ? null : costed.Sum(part => part.CostedNetAmount ?? 0m),
+                    CostedDocumentCount = costed.Sum(part => part.CostedDocumentCount)
+                };
+            })
             .OrderByDescending(total => total.Gross)
             .ThenBy(total => total.Currency, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    public static List<VanSalesLineMoneyResult> LineMoneyByCurrency(IEnumerable<VanSaleLineFact> lines) =>
+    /// <summary>
+    /// Line takings per currency, with SAP's booked gross profit on the posted lines when
+    /// <paramref name="margin"/> is given: each line is costed by its sale's invoice and its item.
+    /// </summary>
+    internal static List<VanSalesLineMoneyResult> LineMoneyByCurrency(IEnumerable<VanSaleLineFact> lines, VanSalesMargin? margin = null) =>
         lines
             .GroupBy(line => RouteCustomerSalesReporting.NormalizeCurrency(line.Currency),
                 StringComparer.OrdinalIgnoreCase)
-            .Select(group => new VanSalesLineMoneyResult(
-                Currency: group.Key,
-                LineCount: group.Count(),
-                Gross: group.Sum(line => line.LineTotal)))
+            .Select(group =>
+            {
+                var costed = margin?.Book.ForInvoiceItems(margin.Invoices(group));
+                return new VanSalesLineMoneyResult(
+                    Currency: group.Key,
+                    LineCount: group.Count(),
+                    Gross: group.Sum(line => line.LineTotal))
+                {
+                    GrossProfit = costed?.GrossProfit,
+                    CostedNetAmount = costed?.Revenue,
+                    CostedLineCount = costed is null
+                        ? 0
+                        : group.Count(line => margin!.Book.HasInvoiceItem(margin.Invoice(line), line.ItemCode))
+                };
+            })
             .OrderByDescending(total => total.Gross)
             .ThenBy(total => total.Currency, StringComparer.OrdinalIgnoreCase)
             .ToList();

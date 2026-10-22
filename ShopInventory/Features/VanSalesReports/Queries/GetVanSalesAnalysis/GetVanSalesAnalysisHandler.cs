@@ -155,34 +155,8 @@ public sealed class GetVanSalesAnalysisHandler(
     private async Task<(ManagementSalesRollup.MarginBook Book, ManagementMarginStatus Status)> MarginAsync(
         List<VanSaleFact> sales, CancellationToken cancellationToken)
     {
-        if (costReader is null)
-        {
-            return (ManagementSalesRollup.MarginBook.Empty, new ManagementMarginStatus(
-                false, "Gross profit is unavailable: this server has no SAP cost reader."));
-        }
-
-        // Filed as the van source on both routes, so every item lands under the vans' business.
-        var posted = sales
-            .Where(sale => sale.SapDocEntry is not null)
-            .Select(sale => new ManagementSalesRollup.PostedSale(
-                sale.SapDocEntry!.Value,
-                CurrencyKey(sale.Currency),
-                sale.WarehouseCode?.Trim() ?? string.Empty,
-                sale.VanAccountCode,
-                SaleSourceSystems.VanSales,
-                sale.UserId.ToString(),
-                string.Empty,
-                sale.RouteCustomerId))
-            .ToList();
-
-        return await ManagementSalesRollup.MarginOfPostedAsync(
-            posted,
-            [],
-            null,
-            costReader,
-            (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
-            GetDesktopSalesAnalysisHandler.MarginDeadline,
-            cancellationToken);
+        var margin = await VanSalesMargin.LoadAsync(sales, costReader, logger, cancellationToken);
+        return (margin.Book, margin.Status);
     }
 
     private static DesktopSalesCurrencyAnalysis Analyse(

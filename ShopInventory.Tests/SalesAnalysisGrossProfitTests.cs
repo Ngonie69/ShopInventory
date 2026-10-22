@@ -14,6 +14,7 @@ using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Web.Data;
+using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
 using WebAnalysis = ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 
@@ -207,6 +208,112 @@ public sealed class SalesAnalysisGrossProfitTests : IDisposable
         Assert.Equal([4m, 6m], usd.BySource.OrderBy(row => row.GrossProfit).Select(row => row.GrossProfit!.Value));
         Assert.Equal(10m, usd.ByDay.Single().GrossProfit);
         Assert.Equal(10m, usd.ByHour.Single().GrossProfit);
+    }
+
+    /// <summary>
+    /// The van performance report costs every money figure it draws from the period's sales — the
+    /// summary, routes, territories, reps, items and the daily trend — from the same invoices.
+    /// </summary>
+    [Fact]
+    public async Task Van_performance_costs_every_money_figure()
+    {
+        _context.DesktopSales.Add(CounterSale(
+            "OFF-1", 701, [("CHE011", 2, 20m)], source: SaleSourceSystems.VanSales, warehouse: Van,
+            createdBy: _adminId));
+        _context.StockReservations.Add(OnlineVanSale("ON-1", 702, "CHE011", 3, 30m));
+        _context.StockReservations.Add(OnlineVanSale("ON-2", 703, "YOG500", 1, 5m));
+        await _context.SaveChangesAsync();
+
+        _costs.Lines.Add(new SaleInvoiceLineCost(701, "CHE011", Van, 2m, 20m, 4m));
+        _costs.Lines.Add(new SaleInvoiceLineCost(702, "CHE011", Van, 3m, 30m, 6m));
+        // ON-2's invoice has not been copied yet: sold, but not costed.
+
+        var result = await new ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport.GetVanSalesPerformanceReportHandler(
+                _context, Options.Create(new TaxSettings { VatRate = 0m }), _costs)
+            .Handle(new ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport.GetVanSalesPerformanceReportQuery(Day, Day),
+                CancellationToken.None);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        var report = result.Value;
+        Assert.True(report.Margin!.Available);
+
+        // Opt-in, for driving the real page with this result: GP_FIXTURE_DIR names a folder to write it to.
+        if (Environment.GetEnvironmentVariable("GP_FIXTURE_DIR") is { Length: > 0 } fixtureDir)
+        {
+            await File.WriteAllTextAsync(Path.Combine(fixtureDir, "van-performance.json"),
+                System.Text.Json.JsonSerializer.Serialize(report, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+        }
+
+        var total = report.Summary.TotalsByCurrency.Single();
+        Assert.Equal((10m, 50m, 2, 3), (total.GrossProfit, total.CostedNetAmount, total.CostedDocumentCount, total.DocumentCount));
+        Assert.Equal(20.0m, total.MarginPercent);
+
+        Assert.Equal(10m, report.Routes.Sum(route => route.TotalsByCurrency.Single().GrossProfit));
+        // No rep opened a route day, so no territory: the roll-up territories use is checked on its own.
+        Assert.Empty(report.Territories);
+        var folded = ShopInventory.Features.VanSalesReports.Queries.VanSalesMeasures.FoldMoney(
+            [total, total with { GrossProfit = null, CostedNetAmount = null, CostedDocumentCount = 0 }]).Single();
+        Assert.Equal((10m, 50m, 2, 6), (folded.GrossProfit, folded.CostedNetAmount, folded.CostedDocumentCount, folded.DocumentCount));
+        Assert.Equal(10m, report.Reps.Single().TotalsByCurrency.Single().GrossProfit);
+        Assert.Equal(10m, report.Trend.Daily.Single().TotalsByCurrency.Single().GrossProfit);
+
+        var cheese = report.Items.Single(item => item.ItemCode == "CHE011").TotalsByCurrency.Single();
+        Assert.Equal((10m, 2, 2), (cheese.GrossProfit, cheese.CostedLineCount, cheese.LineCount));
+        Assert.Null(report.Items.Single(item => item.ItemCode == "YOG500").TotalsByCurrency.Single().GrossProfit);
+
+        // The portal's hand-kept copy reads every figure, and the workbook prints them.
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var read = JsonSerializer.Deserialize<VanSalesPerformanceReportResponse>(JsonSerializer.Serialize(report, web), web)!;
+        Assert.True(read.Margin!.Available);
+        var readTotal = read.Summary.TotalsByCurrency.Single();
+        Assert.Equal((10m, 50m, 2, 20.0m), (readTotal.GrossProfit, readTotal.CostedNetAmount, readTotal.CostedDocumentCount, readTotal.MarginPercent));
+        Assert.Equal(2, read.Items.Single(item => item.ItemCode == "CHE011").TotalsByCurrency.Single().CostedLineCount);
+
+        using var workbook = new XLWorkbook(new MemoryStream(new ReportExportService().ExportVanSalesPerformanceToExcel(read)));
+        // Under a Gross Profit heading on each sheet that carries money; a weekday with no sales reads "—".
+        List<string> UnderGrossProfit(string sheet)
+        {
+            var ws = workbook.Worksheet(sheet);
+            return ws.CellsUsed().Where(c => c.GetString() == "Gross Profit")
+                .SelectMany(head => ws.Column(head.Address.ColumnNumber).CellsUsed()
+                    .Where(c => c.Address.RowNumber > head.Address.RowNumber).Select(c => c.GetString()))
+                .ToList();
+        }
+
+        Assert.Contains("USD 10.00 (20.0%)", UnderGrossProfit("Reps"));
+        Assert.Contains("USD 10.00 (20.0%)", UnderGrossProfit("Trend"));
+        Assert.Contains("USD 10.00 (20.0%)", UnderGrossProfit("Overview"));
+        Assert.Contains("not in SAP yet", workbook.Worksheet("Items").CellsUsed().Select(c => c.GetString()).Single(text => text.Contains("not in SAP")));
+    }
+
+    [Fact]
+    public async Task An_adrs_invoiced_sales_carry_their_profit_on_the_league_row_and_the_detail()
+    {
+        var adr = Guid.NewGuid();
+        _context.Users.Add(new User { Id = adr, Username = "adr1", PasswordHash = "x", Role = ApplicationRoles.Adr, IsActive = true });
+        var sale = CounterSale("ADR-1", 801, [("CHE011", 2, 20m)], source: SaleSourceSystems.VanSales, warehouse: Van, createdBy: adr);
+        sale.RouteCustomerId = null;
+        _context.DesktopSales.Add(sale);
+        await _context.SaveChangesAsync();
+        _costs.Lines.Add(new SaleInvoiceLineCost(801, "CHE011", Van, 2m, 20m, 5m));
+
+        var result = await new ShopInventory.Features.VanSalesReports.Queries.GetAdrPerformanceReport.GetAdrPerformanceReportHandler(
+                _context, Options.Create(new TaxSettings { VatRate = 0m }), _costs)
+            .Handle(new ShopInventory.Features.VanSalesReports.Queries.GetAdrPerformanceReport.GetAdrPerformanceReportQuery(Day, Day, adr),
+                CancellationToken.None);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.True(result.Value.Margin!.Available);
+        var row = result.Value.Adrs.Single().SalesTotalsByCurrency.Single();
+        Assert.Equal((5m, 25.0m), (row.GrossProfit, row.MarginPercent));
+        Assert.Equal(5m, result.Value.Overall.Sales.Single().AdrGrossProfit);
+
+        // Opt-in, for driving the real page with this result: GP_FIXTURE_DIR names a folder to write it to.
+        if (Environment.GetEnvironmentVariable("GP_FIXTURE_DIR") is { Length: > 0 } fixtureDir)
+        {
+            await File.WriteAllTextAsync(Path.Combine(fixtureDir, "adr-performance.json"),
+                System.Text.Json.JsonSerializer.Serialize(result.Value, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+        }
     }
 
     /// <summary>

@@ -26,7 +26,9 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceR
 /// </remarks>
 public sealed class GetVanSalesPerformanceReportHandler(
     ApplicationDbContext db,
-    IOptions<TaxSettings> tax
+    IOptions<TaxSettings> tax,
+    ShopInventory.Common.Sales.ISaleInvoiceCostReader? costReader = null,
+    ILogger<GetVanSalesPerformanceReportHandler>? logger = null
 ) : IRequestHandler<GetVanSalesPerformanceReportQuery, ErrorOr<VanSalesPerformanceReportResult>>
 {
     public async Task<ErrorOr<VanSalesPerformanceReportResult>> Handle(
@@ -93,22 +95,28 @@ public sealed class GetVanSalesPerformanceReportHandler(
             sales.Select(sale => sale.UserId).Distinct(),
             cancellationToken);
 
-        var routes = BuildRoutes(sales, days, trucks);
+        // SAP's booked gross profit on the period's posted sales, read once for every section.
+        var margin = await VanSalesMargin.LoadAsync(sales, costReader, logger, cancellationToken);
+
+        var routes = BuildRoutes(sales, days, trucks, margin);
         var priorLines = await LoadPriorLinesAsync(query, from, to, days, cancellationToken);
 
         var result = new VanSalesPerformanceReportResult(
             FromDate: from,
             ToDate: to,
-            Summary: BuildSummary(sales, lines, days, trucks, routes, newOutlets),
+            Summary: BuildSummary(sales, lines, days, trucks, routes, newOutlets, margin),
             Territories: BuildTerritories(routes),
             Routes: routes,
-            Reps: BuildReps(sales, lines, days, visits, trucks, newOutlets, names),
-            Items: BuildItems(lines, query.TopItems),
+            Reps: BuildReps(sales, lines, days, visits, trucks, newOutlets, names, margin),
+            Items: BuildItems(lines, query.TopItems, margin),
             LapsedItems: BuildLapsedItems(lines, priorLines, to),
-            Trend: BuildTrend(sales, from, to),
+            Trend: BuildTrend(sales, from, to, margin),
             ItemPrices: BuildItemPrices(lines, names, query.TopItems),
             DropSizes: BuildDropSizes(sales),
-            Coverage: BuildCoverage(sales, lines, days, visits));
+            Coverage: BuildCoverage(sales, lines, days, visits))
+        {
+            Margin = margin.Status
+        };
 
         return result;
     }
@@ -279,7 +287,8 @@ public sealed class GetVanSalesPerformanceReportHandler(
     private static List<VanSalesRouteResult> BuildRoutes(
         List<VanSaleFact> sales,
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
-        VanTruckDays trucks)
+        VanTruckDays trucks,
+        VanSalesMargin margin)
     {
         var grouped = sales
             .GroupBy(sale => VanSalesMeasures.RouteKeyOf(sale.Key, days))
@@ -307,7 +316,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
                     ProductiveCalls: VanSalesMeasures.CountProductiveCalls(group),
                     CustomerCount: VanSalesMeasures.CountOutletsThatBought(group),
                     KilometresTravelled: trucks.SumKilometres(dayKeys),
-                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group),
+                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group, margin),
                     PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
                     PcrCalls: pcr?.Calls,
                     CallsAgainstPlan: trucks.MeasureAgainstPlan(dayKeys)?.Calls);
@@ -351,7 +360,8 @@ public sealed class GetVanSalesPerformanceReportHandler(
         Dictionary<VanSalesDayKey, HashSet<string>> visits,
         VanTruckDays trucks,
         Dictionary<Guid, HashSet<string>> newOutlets,
-        Dictionary<Guid, VanSalesMeasures.UserName> names)
+        Dictionary<Guid, VanSalesMeasures.UserName> names,
+        VanSalesMargin margin)
     {
         var itemsByRep = lines
             .GroupBy(line => line.UserId)
@@ -404,7 +414,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
                     NewOutletsWhoBought: captured is null ? 0 : captured.Count(bought.Contains),
                     ItemCount: itemsByRep.TryGetValue(userId, out var itemCount) ? itemCount : 0,
                     KilometresTravelled: trucks.SumKilometres(dayKeys),
-                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group),
+                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group, margin),
                     PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
                     PcrCalls: pcr?.Calls);
             })
@@ -415,7 +425,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
 
     // ── Items ───────────────────────────────────────────────────────────────────
 
-    private static List<VanSalesItemResult> BuildItems(List<VanSaleLineFact> lines, int topItems)
+    private static List<VanSalesItemResult> BuildItems(List<VanSaleLineFact> lines, int topItems, VanSalesMargin margin)
     {
         var ranked = lines
             .GroupBy(line => line.ItemCode, StringComparer.OrdinalIgnoreCase)
@@ -434,7 +444,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
                 FirstSoldOn = group.Min(line => line.TradingDate),
                 LastSoldOn = group.Max(line => line.TradingDate),
                 Quantities = VanSalesMeasures.QuantitiesByUoM(group),
-                Totals = VanSalesMeasures.LineMoneyByCurrency(group)
+                Totals = VanSalesMeasures.LineMoneyByCurrency(group, margin)
             })
             // Ranked on reach, not on value or quantity. Value cannot be compared across currencies and
             // quantity cannot be compared across units, so either would rank on an accident of the mix.
@@ -494,7 +504,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
 
     // ── Trend ───────────────────────────────────────────────────────────────────
 
-    private static VanSalesTrendResult BuildTrend(List<VanSaleFact> sales, DateTime from, DateTime to)
+    private static VanSalesTrendResult BuildTrend(List<VanSaleFact> sales, DateTime from, DateTime to, VanSalesMargin margin)
     {
         var byDay = sales
             .GroupBy(sale => sale.TradingDate)
@@ -515,7 +525,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
                 RepsTrading: facts.Select(sale => sale.UserId).Distinct().Count(),
                 ProductiveCalls: VanSalesMeasures.CountProductiveCalls(facts),
                 DocumentCount: facts.Count,
-                TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(facts)));
+                TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(facts, margin)));
         }
 
         return new VanSalesTrendResult(
@@ -746,7 +756,8 @@ public sealed class GetVanSalesPerformanceReportHandler(
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
         VanTruckDays trucks,
         List<VanSalesRouteResult> routes,
-        Dictionary<Guid, HashSet<string>> newOutlets)
+        Dictionary<Guid, HashSet<string>> newOutlets,
+        VanSalesMargin margin)
     {
         var dayKeys = sales.Select(sale => sale.Key).Distinct().ToList();
         var dayRecords = dayKeys
@@ -777,7 +788,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
                 .Where(pair => reps.Contains(pair.Key))
                 .Sum(pair => pair.Value.Count),
             KilometresTravelled: trucks.SumKilometres(dayKeys),
-            TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(sales),
+            TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(sales, margin),
             PcrProductiveCalls: pcr?.ProductiveCalls ?? 0,
             PcrCalls: pcr?.Calls);
     }

@@ -17,6 +17,9 @@ public class AdrPerformanceReportResponse
     public List<AdrChannel> OrdersByChannel { get; set; } = [];
     public AdrPerformanceDetail? Detail { get; set; }
     public List<string> Caveats { get; set; } = [];
+
+    /// <summary>Whether SAP's booked gross profit could be read for the sales figures; null from an older API.</summary>
+    public ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
 }
 
 public class AdrPerformanceOverall
@@ -51,6 +54,11 @@ public class AdrContribution
     public decimal VanGross { get; set; }
 
     public double? Share => VanGross > 0 ? (double)(AdrGross / VanGross) : null;
+
+    /// <summary>SAP's booked gross profit on the ADRs' posted sales in this currency; null when none is costed.</summary>
+    public decimal? AdrGrossProfit { get; set; }
+
+    public decimal? AdrMarginPercent { get; set; }
 }
 
 public class AdrPerformanceRow

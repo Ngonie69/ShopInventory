@@ -5265,7 +5265,8 @@ public partial class ReportExportService : IReportExportService
         AdrPerformanceReportResponse report,
         DateTime now)
     {
-        const int lastCol = 16;
+        const int lastCol = 17;
+        var costed = report.Margin is { Available: true };
         var ws = workbook.Worksheets.Add("ADRs");
         TsApplyDefaults(ws);
 
@@ -5274,7 +5275,7 @@ public partial class ReportExportService : IReportExportService
         [
             "ADR", "Van Account", "Days Active", "Orders", "In SAP", "Fulfilled", "Not Yet In SAP",
             "Cancelled", "Shops Ordered For", "Order Value", "Sales Value", "Shops Sold To",
-            "Share of Orders", "Share of Sales", "Calls", "Strike Rate"
+            "Share of Orders", "Share of Sales", "Calls", "Strike Rate", "Sales Gross Profit"
         ]);
 
         int index = 0;
@@ -5292,6 +5293,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 9).Value = adr.OrderCustomerCount;
             ws.Cell(row, 10).Value = MoneyText(adr.OrderTotalsByCurrency);
             ws.Cell(row, 11).Value = MoneyText(adr.SalesTotalsByCurrency);
+            ws.Cell(row, 17).Value = VanGrossProfitText(adr.SalesTotalsByCurrency, costed);
             ws.Cell(row, 12).Value = adr.SaleCustomerCount;
             ws.Cell(row, 13).Value = AdrShareText(adr.Shares, share => share.OrderShare);
             ws.Cell(row, 14).Value = AdrShareText(adr.Shares, share => share.SalesShare);
@@ -5319,7 +5321,8 @@ public partial class ReportExportService : IReportExportService
         VanSalesPerformanceReportResponse report,
         DateTime now)
     {
-        const int lastCol = 10;
+        const int lastCol = 11;
+        var costed = report.Margin is { Available: true };
         var ws = workbook.Worksheets.Add("Overview");
         TsApplyDefaults(ws);
 
@@ -5339,7 +5342,8 @@ public partial class ReportExportService : IReportExportService
             ("New Outlets", summary.NewOutlets.ToString("N0"), null),
             ("Items Sold", summary.ItemCount.ToString("N0"), null),
             ("Reps", summary.RepCount.ToString("N0"), null),
-            ("Kilometres", summary.KilometresTravelled?.ToString("N0") ?? "—", null));
+            ("Kilometres", summary.KilometresTravelled?.ToString("N0") ?? "—", null),
+            ("Gross Profit", VanGrossProfitText(summary.TotalsByCurrency.Take(1).ToList(), costed), null));
 
         // The caveats first, not last. A reader who scrolls past the tables has already formed a
         // view; what the figures could not see has to reach them before the figures do.
@@ -5366,7 +5370,7 @@ public partial class ReportExportService : IReportExportService
             TsSectionTitle(ws, row, lastCol, "TERRITORIES");
             row += 2;
             row = TsColumnHeaders(ws, row, lastCol,
-                ["Territory", "Routes", "Rep-Days", "Productive Calls", "Outlets", "Takings", "", "", "", ""]);
+                ["Territory", "Routes", "Rep-Days", "Productive Calls", "Outlets", "Takings", "Gross Profit", "", "", "", ""]);
 
             int index = 0;
             foreach (var territory in report.Territories)
@@ -5378,6 +5382,7 @@ public partial class ReportExportService : IReportExportService
                 ws.Cell(row, 4).Value = territory.ProductiveCalls;
                 ws.Cell(row, 5).Value = territory.CustomerCount;
                 ws.Cell(row, 6).Value = MoneyText(territory.TotalsByCurrency);
+                ws.Cell(row, 7).Value = VanGrossProfitText(territory.TotalsByCurrency, costed);
                 row++;
                 index++;
             }
@@ -5388,7 +5393,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "ROUTES");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Route", "Territory", "Reps", "Rep-Days", "Planned", "Calls", "CCR", "PCR", "Km", "Takings"]);
+            ["Route", "Territory", "Reps", "Rep-Days", "Planned", "Calls", "CCR", "PCR", "Km", "Takings", "Gross Profit"]);
 
         int routeIndex = 0;
         foreach (var route in report.Routes)
@@ -5404,6 +5409,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 8).Value = RateText(route.ProductiveCallRate);
             ws.Cell(row, 9).Value = route.KilometresTravelled?.ToString("N0") ?? "—";
             ws.Cell(row, 10).Value = MoneyText(route.TotalsByCurrency);
+            ws.Cell(row, 11).Value = VanGrossProfitText(route.TotalsByCurrency, costed);
             row++;
             routeIndex++;
         }
@@ -5416,7 +5422,8 @@ public partial class ReportExportService : IReportExportService
         VanSalesPerformanceReportResponse report,
         DateTime now)
     {
-        const int lastCol = 12;
+        const int lastCol = 13;
+        var costed = report.Margin is { Available: true };
         var ws = workbook.Worksheets.Add("Reps");
         TsApplyDefaults(ws);
 
@@ -5424,7 +5431,7 @@ public partial class ReportExportService : IReportExportService
         row = TsColumnHeaders(ws, row, lastCol,
         [
             "Rep", "Routes", "Days", "Calls", "Bought", "Strike Rate",
-            "Calls/Day", "Outlets", "New", "New Who Bought", "Items", "Takings"
+            "Calls/Day", "Outlets", "New", "New Who Bought", "Items", "Takings", "Gross Profit"
         ]);
 
         int index = 0;
@@ -5443,6 +5450,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 10).Value = rep.NewOutletsWhoBought;
             ws.Cell(row, 11).Value = rep.ItemCount;
             ws.Cell(row, 12).Value = MoneyText(rep.TotalsByCurrency);
+            ws.Cell(row, 13).Value = VanGrossProfitText(rep.TotalsByCurrency, costed);
             row++;
             index++;
         }
@@ -5455,7 +5463,8 @@ public partial class ReportExportService : IReportExportService
         VanSalesPerformanceReportResponse report,
         DateTime now)
     {
-        const int lastCol = 9;
+        const int lastCol = 10;
+        var costed = report.Margin is { Available: true };
         var ws = workbook.Worksheets.Add("Items");
         TsApplyDefaults(ws);
 
@@ -5464,7 +5473,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "RANKED ON REACH — LINES WRITTEN AND OUTLETS REACHED");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["#", "Item Code", "Description", "Lines", "Outlets", "Reps", "Days", "Quantity", "Value"]);
+            ["#", "Item Code", "Description", "Lines", "Outlets", "Reps", "Days", "Quantity", "Value", "Gross Profit"]);
 
         int index = 0;
         foreach (var item in report.Items)
@@ -5479,6 +5488,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 7).Value = item.TradingDayCount;
             ws.Cell(row, 8).Value = QuantityText(item.QuantitiesByUoM);
             ws.Cell(row, 9).Value = LineMoneyText(item.TotalsByCurrency);
+            ws.Cell(row, 10).Value = VanGrossProfitText(item.TotalsByCurrency, costed);
             row++;
             index++;
         }
@@ -5487,7 +5497,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "STOPPED SELLING — SOLD IN THE PRECEDING PERIOD, NOT IN THIS ONE");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Item Code", "Description", "Last Sold", "Days Ago", "Lines Before", "Outlets Before", "Value Before", "", ""]);
+            ["Item Code", "Description", "Last Sold", "Days Ago", "Lines Before", "Outlets Before", "Value Before", "", "", ""]);
 
         int lapsedIndex = 0;
         foreach (var item in report.LapsedItems)
@@ -5579,7 +5589,8 @@ public partial class ReportExportService : IReportExportService
         VanSalesPerformanceReportResponse report,
         DateTime now)
     {
-        const int lastCol = 7;
+        const int lastCol = 8;
+        var costed = report.Margin is { Available: true };
         var ws = workbook.Worksheets.Add("Trend");
         TsApplyDefaults(ws);
 
@@ -5588,7 +5599,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "BY DAY OF WEEK — AVERAGES DIVIDE BY DAYS IN PERIOD, NOT DAYS TRADED");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Day", "In Period", "Traded", "Documents", "Per Day", "Productive Calls", "Takings"]);
+            ["Day", "In Period", "Traded", "Documents", "Per Day", "Productive Calls", "Takings", "Gross Profit"]);
 
         int index = 0;
         foreach (var point in report.Trend.DayOfWeek)
@@ -5601,6 +5612,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 5).Value = point.DocumentsPerCalendarDay is { } perDay ? perDay.ToString("N1") : "—";
             ws.Cell(row, 6).Value = point.ProductiveCalls;
             ws.Cell(row, 7).Value = MoneyText(point.TotalsByCurrency);
+            ws.Cell(row, 8).Value = VanGrossProfitText(point.TotalsByCurrency, costed);
             row++;
             index++;
         }
@@ -5609,7 +5621,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "BY MONTH");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Month", "Part Month", "Days", "Traded", "Documents", "Productive Calls", "Takings"]);
+            ["Month", "Part Month", "Days", "Traded", "Documents", "Productive Calls", "Takings", "Gross Profit"]);
 
         int monthIndex = 0;
         foreach (var point in report.Trend.Monthly)
@@ -5622,6 +5634,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 5).Value = point.DocumentCount;
             ws.Cell(row, 6).Value = point.ProductiveCalls;
             ws.Cell(row, 7).Value = MoneyText(point.TotalsByCurrency);
+            ws.Cell(row, 8).Value = VanGrossProfitText(point.TotalsByCurrency, costed);
             row++;
             monthIndex++;
         }
@@ -5630,7 +5643,7 @@ public partial class ReportExportService : IReportExportService
         TsSectionTitle(ws, row, lastCol, "DAY BY DAY — SILENT DAYS INCLUDED");
         row += 2;
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Date", "Day", "Reps Out", "Documents", "Productive Calls", "Takings", ""]);
+            ["Date", "Day", "Reps Out", "Documents", "Productive Calls", "Takings", "Gross Profit", ""]);
 
         int dayIndex = 0;
         foreach (var point in report.Trend.Daily)
@@ -5642,6 +5655,7 @@ public partial class ReportExportService : IReportExportService
             ws.Cell(row, 4).Value = point.DocumentCount;
             ws.Cell(row, 5).Value = point.ProductiveCalls;
             ws.Cell(row, 6).Value = MoneyText(point.TotalsByCurrency);
+            ws.Cell(row, 7).Value = VanGrossProfitText(point.TotalsByCurrency, costed);
             row++;
             dayIndex++;
         }
@@ -5719,6 +5733,28 @@ public partial class ReportExportService : IReportExportService
         totals.Count == 0
             ? "—"
             : string.Join("  |  ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    /// <summary>
+    /// SAP's booked gross profit per currency, as text like the money beside it: "USD 120.50 (24.1%)".
+    /// A currency none of whose sales is in SAP reads "not in SAP yet"; a report that read no margin, "—".
+    /// </summary>
+    private static string VanGrossProfitText(List<VanSalesMoney> totals, bool costed) =>
+        VanGrossProfitText(totals.Select(total => (total.Currency, total.GrossProfit, total.MarginPercent)), costed);
+
+    private static string VanGrossProfitText(List<VanSalesLineMoney> totals, bool costed) =>
+        VanGrossProfitText(totals.Select(total => (total.Currency, total.GrossProfit, total.MarginPercent)), costed);
+
+    private static string VanGrossProfitText(
+        IEnumerable<(string Currency, decimal? GrossProfit, decimal? MarginPercent)> totals, bool costed)
+    {
+        var figures = totals.ToList();
+        if (!costed || figures.Count == 0)
+            return "—";
+
+        return string.Join("  |  ", figures.Select(figure => figure.GrossProfit is { } profit
+            ? $"{figure.Currency} {profit:N2}" + (figure.MarginPercent is { } margin ? $" ({margin:0.0}%)" : "")
+            : $"{figure.Currency} not in SAP yet"));
+    }
 
     private static string LineMoneyText(List<VanSalesLineMoney> totals) =>
         totals.Count == 0

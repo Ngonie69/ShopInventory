@@ -572,6 +572,34 @@ internal static class ManagementSalesRollup
             return costed == 0 ? null : new SalesMargin(revenue, profit, costed);
         }
 
+        /// <summary>
+        /// The margin on some invoice lines named by invoice and item, each pair counted once, so a report
+        /// whose rows are lines — an item on a route, say — can cost them. Null when none of them is costed.
+        /// </summary>
+        public SalesMargin? ForInvoiceItems(IEnumerable<(int? DocEntry, string ItemCode)> lines)
+        {
+            decimal revenue = 0, profit = 0;
+            var costed = 0;
+            foreach (var (docEntry, itemCode) in lines
+                         .Where(line => line.DocEntry is not null)
+                         .Select(line => (DocEntry: line.DocEntry!.Value, ItemCode: line.ItemCode.Trim().ToUpperInvariant()))
+                         .Distinct())
+            {
+                if (_invoiceItems.TryGetValue((docEntry, itemCode), out var figure))
+                {
+                    revenue += figure.Revenue;
+                    profit += figure.GrossProfit;
+                    costed++;
+                }
+            }
+
+            return costed == 0 ? null : new SalesMargin(revenue, profit, costed);
+        }
+
+        /// <summary>Whether this invoice's line for this item was costed.</summary>
+        public bool HasInvoiceItem(int? docEntry, string itemCode) =>
+            docEntry is { } entry && _invoiceItems.ContainsKey((entry, itemCode.Trim().ToUpperInvariant()));
+
         private readonly Dictionary<int, (decimal Revenue, decimal GrossProfit)> _invoices = new();
         private readonly Dictionary<(int DocEntry, string ItemCode), (decimal Revenue, decimal GrossProfit)> _invoiceItems = new();
 

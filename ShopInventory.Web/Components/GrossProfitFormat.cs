@@ -36,4 +36,23 @@ public static class GrossProfitFormat
     /// </summary>
     public static string? PartOf(int costedSales, int sales) =>
         costedSales > 0 && costedSales < sales ? $"on {costedSales:N0} of {sales:N0} sales" : null;
+
+    /// <summary>A van report's document money, one figure a currency.</summary>
+    public static List<GrossProfitFigure> Of(IEnumerable<ShopInventory.Web.Models.VanSalesMoney> totals) =>
+        totals.Select(total => new GrossProfitFigure(
+                total.Currency, total.GrossProfit, total.MarginPercent, total.CostedDocumentCount, total.DocumentCount, "sales"))
+            .ToList();
+
+    /// <summary>A van report's line money, one figure a currency.</summary>
+    public static List<GrossProfitFigure> Of(IEnumerable<ShopInventory.Web.Models.VanSalesLineMoney> totals) =>
+        totals.Select(total => new GrossProfitFigure(
+                total.Currency, total.GrossProfit, total.MarginPercent, total.CostedLineCount, total.LineCount, "lines"))
+            .ToList();
 }
+
+/// <summary>One currency's gross profit on a report row, for <c>GrossProfitByCurrencyCell</c>.</summary>
+/// <param name="Costed">How many of the row's sales (or lines) were costed.</param>
+/// <param name="Count">How many the row has.</param>
+/// <param name="Noun">What they are: "sales" or "lines".</param>
+public sealed record GrossProfitFigure(
+    string Currency, decimal? GrossProfit, decimal? MarginPercent, int Costed, int Count, string Noun);

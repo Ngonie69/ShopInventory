@@ -35,7 +35,11 @@ public sealed record VanSalesPerformanceReportResult(
     List<VanSalesItemPriceResult> ItemPrices,
     List<VanSalesDropSizeResult> DropSizes,
     VanSalesCoverageResult Coverage
-);
+)
+{
+    /// <summary>Whether SAP's booked gross profit could be read for the money figures, and what it means.</summary>
+    public ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; init; }
+}
 
 // The money and quantity records this report uses — VanSalesMoneyResult, VanSalesLineMoneyResult
 // and VanSalesQuantityResult — live one namespace up, in VanSalesMoney.cs, because the coverage
