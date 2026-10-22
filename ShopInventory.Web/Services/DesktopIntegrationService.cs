@@ -1572,10 +1572,10 @@ public class WarehouseStockRefreshResultDto
     public DateTime RefreshedAt { get; set; }
     public bool SnapshotRefetched { get; set; }
     public int RowsFetched { get; set; }
-    public bool ViaTransferListener { get; set; }
+    public bool ByTransfer { get; set; }
     public int TransfersApplied { get; set; }
     public int TransfersToday { get; set; }
-    public int TransfersPending { get; set; }
+    public int TransfersNotApplied { get; set; }
 }
 
 public class LocalStockResultDto

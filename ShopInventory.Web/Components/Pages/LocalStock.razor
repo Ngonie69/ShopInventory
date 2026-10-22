@@ -914,17 +914,17 @@
                 return;
             }
 
-            if (result.ViaTransferListener)
+            if (result.ByTransfer)
             {
                 Snackbar.Add(
                     (result.TransfersApplied == 0
                         ? $"No new transfers for {result.WarehouseCode} "
                         : $"{result.TransfersApplied:N0} new transfer line(s) applied to {result.WarehouseCode} ")
                     + $"({result.TransfersToday:N0} today)"
-                    + (result.TransfersPending > 0
-                        ? $". {result.TransfersPending:N0} transfer line(s) are still waiting at the transfer listener."
+                    + (result.TransfersNotApplied > 0
+                        ? $". {result.TransfersNotApplied:N0} transfer line(s) from SAP could not be applied — press again."
                         : ""),
-                    result.TransfersPending > 0 ? Severity.Warning : Severity.Success);
+                    result.TransfersNotApplied > 0 ? Severity.Warning : Severity.Success);
 
                 snapshotDate = result.LedgerDay;
                 await LoadStock();
