@@ -23,6 +23,9 @@ public interface IFiscalizationService
     /// SAP itself. Do not call this for anything that is not in SAP: the DocEntry is looked up for
     /// real, so a local identifier passed here fiscalises whichever unrelated SAP invoice holds that
     /// number. Use <see cref="FiscalizePreSapInvoiceAsync"/> instead.
+    ///
+    /// The platform implementation does not send <paramref name="customerDetails"/>: a buyer on the request
+    /// would replace the one the platform reads from SAP. REVMax still uses them.
     /// </remarks>
     Task<FiscalizationResult> FiscalizeInvoiceAsync(
         InvoiceDto invoice,
@@ -331,7 +334,11 @@ public class FiscalizationService : IFiscalizationService
                 DeviceId = _settings.DefaultDeviceId,
                 InvoiceNo = mobileInvoiceNo,
                 ReceiptType = receiptType,
-                Buyer = MapBuyer(customerDetails),
+                // No buyer: the platform reads it from SAP (TIN from OCRD.CardFName, VAT number from
+                // LicTradNum, the bill-to address), but only when the request names none. A buyer sent
+                // here replaces that one, and the name-only buyer every caller had was then dropped by
+                // FDMS for want of a TIN, so registered customers were filed with no buyer at all.
+                Buyer = null,
                 ReceiptNotes = document.Comments
             }
         };
@@ -969,9 +976,18 @@ public class FiscalizationService : IFiscalizationService
         };
     }
 
+    /// <summary>
+    /// The buyer for a receipt built here in full, or null when there is no buyer FDMS would record.
+    /// </summary>
+    /// <remarks>
+    /// FDMS takes a buyer only with both a registered name and a TIN (RCPT043), and the platform drops one
+    /// missing either. Sending a name alone files nothing and only makes the receipt look as if it had a buyer.
+    /// </remarks>
     private static BuyerApiRequest? MapBuyer(CustomerFiscalDetails? customerDetails)
     {
-        if (customerDetails is null)
+        if (customerDetails is null
+            || string.IsNullOrWhiteSpace(customerDetails.CustomerName)
+            || string.IsNullOrWhiteSpace(customerDetails.BPN))
         {
             return null;
         }
