@@ -167,13 +167,12 @@
             }
             else
             {
-                <label class="sfm-lab sfm-f-cur">
-                    <span class="sfm-lab-t">Currency</span>
-                    <select class="sfm-select" @bind="invoice.DocCurrency">
-                        <option value="USD">USD &mdash; US Dollar</option>
-                        <option value="ZIG">ZIG &mdash; Zimbabwe Gold</option>
-                    </select>
-                </label>
+                <div class="sfm-lab sfm-f-cur">
+                    <label class="sfm-lab-t" for="sfm-currency">Currency</label>
+                    <NocturneSelect Id="sfm-currency" TValue="string" Class="nsel-block"
+                                    Options="DocumentCurrencyOptions.UsdZig" @bind-Value="invoice.DocCurrency"
+                                    AriaLabel="Currency" />
+                </div>
             }
 
             <div class="sfm-lab sfm-f-wh">

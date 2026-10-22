@@ -165,25 +165,18 @@
                             <h2>Credit note details</h2>
                         </div>
                         <div class="sfm-card-bd sfm-fields">
-                            <label class="sfm-lab">
-                                <span class="sfm-lab-t">Type</span>
-                                <select class="sfm-select" @bind="newCreditNote.Type">
-                                    @* Cancellation is left out on purpose: it means a whole invoice was
-                                       withdrawn, which is raised from the invoice itself rather than
-                                       chosen here. *@
-                                    @foreach (var type in Enum.GetValues<CreditNoteType>().Where(t => t != CreditNoteType.Cancellation))
-                                    {
-                                        <option value="@type">@type</option>
-                                    }
-                                </select>
-                            </label>
-                            <label class="sfm-lab">
-                                <span class="sfm-lab-t">Currency</span>
-                                <select class="sfm-select" @bind="newCreditNote.Currency">
-                                    <option value="USD">USD</option>
-                                    <option value="ZIG">ZIG</option>
-                                </select>
-                            </label>
+                            <div class="sfm-lab">
+                                <label class="sfm-lab-t" for="sfm-cn-type">Type</label>
+                                <NocturneSelect Id="sfm-cn-type" TValue="CreditNoteType" Class="nsel-block"
+                                                Options="CreditNoteTypeOptions" @bind-Value="newCreditNote.Type"
+                                                AriaLabel="Credit note type" />
+                            </div>
+                            <div class="sfm-lab">
+                                <label class="sfm-lab-t" for="sfm-currency">Currency</label>
+                                <NocturneSelect Id="sfm-currency" TValue="string" Class="nsel-block"
+                                                Options="DocumentCurrencyOptions.UsdZig" @bind-Value="newCreditNote.Currency"
+                                                AriaLabel="Currency" />
+                            </div>
                             <div class="sfm-lab">
                                 <span class="sfm-lab-t">Restock warehouse</span>
                                 <NocturnePicker Class="npick-chips npick-block"
@@ -416,6 +409,14 @@
 
 @code {
     private CreateCreditNoteRequest newCreditNote = new();
+
+    // Cancellation is left out on purpose: it means a whole invoice was withdrawn,
+    // which is raised from the invoice itself rather than chosen here.
+    private static readonly NocturneSelectOption<CreditNoteType>[] CreditNoteTypeOptions =
+        Enum.GetValues<CreditNoteType>()
+            .Where(t => t != CreditNoteType.Cancellation)
+            .Select(t => new NocturneSelectOption<CreditNoteType>(t, t.ToString()))
+            .ToArray();
     private bool isCreating = false;
     private bool showLineItemsError = false;
     private bool isMasterDataLoaded = false;
