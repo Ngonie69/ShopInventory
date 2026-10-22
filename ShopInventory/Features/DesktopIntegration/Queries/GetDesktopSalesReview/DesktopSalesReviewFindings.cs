@@ -282,7 +282,6 @@ public static class DesktopSalesReviewFindings
 
     private static void Payments(DesktopSalesReviewCurrency section, List<DesktopSalesReviewFinding> findings)
     {
-        var headline = section.Headline;
         var cashName = TenderTypes.ReportingName(TenderTypes.Cash);
         var cash = section.ByPaymentMethod.FirstOrDefault(row => row.PaymentMethod == cashName);
 
@@ -300,15 +299,6 @@ public static class DesktopSalesReviewFindings
             findings.Add(new("missing-reference", DesktopSalesReviewSeverity.Action, DesktopSalesReviewTopic.Payments, section.Currency,
                 $"{Count(row.WithoutReferenceCount, $"{row.PaymentMethod} sale")} without a reference",
                 $"Without the transaction reference the money cannot be matched to the {row.PaymentMethod} statement. Find the references and add them to these sales."));
-        }
-
-        if (headline.ShortTendered > 0)
-        {
-            var worst = section.ByShop.Where(shop => shop.ShortTendered > 0).MaxBy(shop => shop.ShortTendered)!;
-            findings.Add(new("short-tender", DesktopSalesReviewSeverity.Action, DesktopSalesReviewTopic.Payments, section.Currency,
-                $"Sales accepted {Money(section.Currency, headline.ShortTendered)} short",
-                $"Some sales took less than their total — usually no coin to give the customer. {worst.Label} is the largest at {Money(section.Currency, worst.ShortTendered)}. "
-                    + "Rounding totals to the smallest note or coin in circulation stops it."));
         }
     }
 

@@ -268,8 +268,10 @@ public sealed class DesktopSalesReviewTests : IDisposable
 
         Assert.Contains("takings-change", codes);
         Assert.Contains("cash-heavy", codes);
-        Assert.Contains("short-tender", codes);
         Assert.Contains("price-spread", codes);
+        // Short tender stays a figure, never a finding: the week has some, and it writes nothing.
+        Assert.True(Dollars(review).Headline.ShortTendered > 0);
+        Assert.DoesNotContain("short-tender", codes);
         Assert.DoesNotContain("shops-started", codes);
         Assert.DoesNotContain("high-change", codes);
         Assert.DoesNotContain("no-comparison", codes);
