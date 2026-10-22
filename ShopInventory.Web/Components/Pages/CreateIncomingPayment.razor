@@ -325,10 +325,9 @@
                                         <input type="number" step="0.01" min="0"
                                                class="sfm-input sfm-num @(lineErrors.ContainsKey("SumApplied") ? "is-bad" : "")"
                                                placeholder="0.00" @bind="invoiceLines[index].SumApplied" />
-                                        <select class="sfm-select sfm-cell" @bind="invoiceLines[index].InvoiceType">
-                                            <option value="it_Invoice">Invoice</option>
-                                            <option value="it_DownPayment">Down payment</option>
-                                        </select>
+                                        <NocturneSelect TValue="string" Class="nsel-block"
+                                                        Options="InvoiceTypeOptions" @bind-Value="invoiceLines[index].InvoiceType"
+                                                        AriaLabel="@($"Invoice type, line {index + 1}")" />
                                         @* The glyph is drawn inline, not set in the icon font: it is this
                                            button's only label, so a font that fails to load would leave an
                                            empty square that reads as a broken control. *@
@@ -512,6 +511,12 @@
 </div>
 
 @code {
+    private static readonly NocturneSelectOption<string>[] InvoiceTypeOptions =
+    [
+        new("it_Invoice", "Invoice"),
+        new("it_DownPayment", "Down payment")
+    ];
+
     // State
     private bool isSubmitting = false;
     // Stable idempotency key for the current payment entry. Reused across failure retries so a

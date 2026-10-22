@@ -192,19 +192,17 @@
                                 <label class="sfm-lab-t" for="sfm-delivery-date">Delivery date</label>
                                 <NocturneDateField Id="sfm-delivery-date" @bind-Date="newOrder.DeliveryDate" />
                             </div>
-                            <label class="sfm-lab">
-                                <span class="sfm-lab-t">Currency <span class="sfm-req">*</span></span>
-                                <select class="sfm-select @(createValidationErrors.ContainsKey("Currency") ? "is-bad" : "")"
-                                        @bind="newOrder.Currency">
-                                    <option value="">Select&hellip;</option>
-                                    <option value="USD">USD &mdash; US Dollar</option>
-                                    <option value="ZIG">ZIG &mdash; Zimbabwe Gold</option>
-                                </select>
+                            <div class="sfm-lab">
+                                <label class="sfm-lab-t" for="sfm-currency">Currency <span class="sfm-req">*</span></label>
+                                <NocturneSelect Id="sfm-currency" TValue="string"
+                                                Class="@($"nsel-block {(createValidationErrors.ContainsKey("Currency") ? "is-bad" : "")}")"
+                                                Options="DocumentCurrencyOptions.UsdZig" @bind-Value="newOrder.Currency"
+                                                AriaLabel="Currency" />
                                 @if (createValidationErrors.ContainsKey("Currency"))
                                 {
                                     <div class="sfm-field-err">@createValidationErrors["Currency"]</div>
                                 }
-                            </label>
+                            </div>
                             <label class="sfm-lab">
                                 <span class="sfm-lab-t">Customer reference</span>
                                 <input class="sfm-input" @bind="newOrder.CustomerRefNo"

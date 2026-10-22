@@ -216,13 +216,12 @@
                                 <label class="sfm-lab-t" for="sfm-delivery-date">Delivery date</label>
                                 <NocturneDateField Id="sfm-delivery-date" @bind-Date="editRequest.DeliveryDate" />
                             </div>
-                            <label class="sfm-lab">
-                                <span class="sfm-lab-t">Currency</span>
-                                <select class="sfm-select" @bind="editRequest.Currency">
-                                    <option value="USD">USD &mdash; US Dollar</option>
-                                    <option value="ZIG">ZIG &mdash; Zimbabwe Gold</option>
-                                </select>
-                            </label>
+                            <div class="sfm-lab">
+                                <label class="sfm-lab-t" for="sfm-currency">Currency</label>
+                                <NocturneSelect Id="sfm-currency" TValue="string" Class="nsel-block"
+                                                Options="DocumentCurrencyOptions.UsdZig" @bind-Value="editRequest.Currency"
+                                                AriaLabel="Currency" />
+                            </div>
                             <label class="sfm-lab">
                                 <span class="sfm-lab-t">Customer reference</span>
                                 <input class="sfm-input" @bind="editRequest.CustomerRefNo"
