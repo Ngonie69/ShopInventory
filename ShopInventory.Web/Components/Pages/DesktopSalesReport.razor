@@ -303,7 +303,7 @@
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Before VAT</div>
                             <div class="ops-sbd-fig-num">@Money(sales.NetAmount)</div>
-                            <div class="ops-sbd-fig-sub">VAT @Money(sales.VatAmount)@(Vans ? " · offline receipts only" : "")</div>
+                            <div class="ops-sbd-fig-sub">VAT @Money(sales.VatAmount)</div>
                         </div>
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Average sale</div>
@@ -815,9 +815,14 @@
                     </span>
                     @if (Vans)
                     {
-                        @* An online sale's VAT is on its SAP invoice, not a local receipt, so the split above
-                           is the offline half's. *@
-                        <span>Offline uploads and live invoices both counted. VAT is known on offline receipts only.</span>
+                        @* Both halves carry their VAT since the fact reader grosses up online sales
+                           (VanSaleMoney). Van credit notes are a separate document the analysis does not
+                           read, so nothing above is net of them. *@
+                        <span>
+                            Offline uploads and live invoices both counted, each with its VAT.
+                            Van credit notes are not taken off; they are listed under
+                            <a href="/van-sales/credit-notes">Van Credit Notes</a>.
+                        </span>
                     }
                     else
                     {
