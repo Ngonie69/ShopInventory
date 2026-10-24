@@ -464,7 +464,7 @@
                 <div class="vna-dialog-head">
                     <div class="vna-dialog-title">Send to supervisors</div>
                     <div class="vna-dialog-note">
-                        @PeriodLabel · @report?.RepSummaries.Count @Plural(report?.RepSummaries.Count ?? 0, "rep", "reps")
+                        @PeriodLabel · @gridRows.Count @Plural(gridRows.Count, "rep", "reps")
                         · the workbook is attached
                     </div>
                 </div>
@@ -1116,6 +1116,43 @@
         Nav.NavigateTo(url);
     }
 
+    /// <summary>
+    /// The report as the page shows it: only the reps the rep filter and the chip leave in the grid.
+    /// The workbook and the email used to carry every rep whatever was filtered, while the email's own
+    /// table carried only the filtered ones, so the attachment and the message disagreed.
+    /// </summary>
+    /// <remarks>
+    /// The period totals are re-added from the reps kept, by the API's own definitions: on-site time
+    /// averaged over closed calls only, and trading days as the distinct days those reps were out.
+    /// </remarks>
+    private VanVisitReportResponse ScopedReport(VanVisitReportResponse full)
+    {
+        var shown = gridRows.Select(row => row.UserId).ToHashSet();
+
+        if (shown.Count == full.RepSummaries.Count && full.RepSummaries.All(rep => shown.Contains(rep.UserId)))
+        {
+            return full;
+        }
+
+        var reps = full.RepSummaries.Where(rep => shown.Contains(rep.UserId)).ToList();
+        var completed = reps.Sum(rep => rep.CompletedCalls);
+        var minutes = reps.Sum(rep => rep.TotalMinutes);
+
+        return new VanVisitReportResponse
+        {
+            FromDate = full.FromDate,
+            ToDate = full.ToDate,
+            RepSummaries = reps,
+            TotalCalls = reps.Sum(rep => rep.TotalCalls),
+            CompletedCalls = completed,
+            OpenCalls = reps.Sum(rep => rep.OpenCalls),
+            OfflineCalls = reps.Sum(rep => rep.OfflineCalls),
+            TotalHours = minutes / 60.0,
+            AverageCallMinutes = completed > 0 ? minutes / completed : 0,
+            TradingDays = reps.SelectMany(rep => rep.Days.Select(day => day.Date.Date)).Distinct().Count()
+        };
+    }
+
     private async Task ExportExcelAsync()
     {
         if (report is null) return;
@@ -1125,7 +1162,7 @@
 
         try
         {
-            var bytes = ExportService.ExportVanAttendanceReportToExcel(report, fromDate, toDate);
+            var bytes = ExportService.ExportVanAttendanceReportToExcel(ScopedReport(report), fromDate, toDate);
             var name = $"Van_Attendance_Report_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
 
             await JS.InvokeVoidAsync("downloadFile", name, Convert.ToBase64String(bytes));
@@ -1181,7 +1218,7 @@
         try
         {
             var cc = EmailRecipientParser.Parse(sendCc);
-            var workbook = ExportService.ExportVanAttendanceReportToExcel(report, fromDate, toDate);
+            var workbook = ExportService.ExportVanAttendanceReportToExcel(ScopedReport(report), fromDate, toDate);
             var fileName = $"van-attendance-{fromDate:yyyyMMdd}-{toDate:yyyyMMdd}.xlsx";
 
             var result = await EmailService.SendEmailWithDiagnosticsAsync(
