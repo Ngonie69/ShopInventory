@@ -1458,6 +1458,11 @@ button.exc-tile.exc-tile-on {
     color: var(--exc-calm);
 }
 
+/* The first read failed: the warning is the danger ink, not the all-clear green. */
+.exc-empty-unread i {
+    color: var(--exc-danger);
+}
+
 .exc-empty-inline {
     flex-direction: row;
     justify-content: flex-start;

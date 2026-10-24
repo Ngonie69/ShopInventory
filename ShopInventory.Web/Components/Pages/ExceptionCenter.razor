@@ -84,6 +84,25 @@
                 </div>
             }
 
+            @* Nothing was read: say so, rather than draw zeroed tiles under the error and then
+               "Every integration queue is clear", which is the opposite of what is known. *@
+            @if (dashboard is null)
+            {
+                <section class="exc-card" id="exc-unread">
+                    <div class="exc-empty exc-empty-unread">
+                        <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                        <div>
+                            <strong>The integration queues could not be read.</strong>
+                            <p>Nothing below is known, so nothing is shown. Refresh to try again.</p>
+                        </div>
+                        <button type="button" class="exc-btn exc-btn-secondary" @onclick="ReloadAsync" disabled="@(isLoading || isRefreshing)">
+                            <i class="ph ph-arrows-clockwise" aria-hidden="true"></i> Refresh
+                        </button>
+                    </div>
+                </section>
+            }
+            else
+            {
             @* Items past their own retry schedule mean the worker is not draining the
                queue — a different problem from the failures themselves, so it is called
                out separately rather than buried in a row. *@
@@ -711,6 +730,7 @@
                         </span>
                     </div>
                 </section>
+            }
             }
         </div>
     }
