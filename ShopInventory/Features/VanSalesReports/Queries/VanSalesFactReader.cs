@@ -386,7 +386,7 @@ public static class VanSalesFactReader
     /// <see cref="SaleSourceSystems.VanSalesOnline"/>. Only a signed one is taken: an unsigned row's
     /// total is what the server meant to file, and the lines say the same thing.
     /// </remarks>
-    private static async Task<Dictionary<string, VanSaleMoney.Amount>> LoadSignedReceiptTotalsAsync(
+    internal static async Task<Dictionary<string, VanSaleMoney.Amount>> LoadSignedReceiptTotalsAsync(
         ApplicationDbContext db,
         IEnumerable<string> references,
         CancellationToken cancellationToken)
