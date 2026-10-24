@@ -36,17 +36,19 @@ public interface IVanSalesReportService
         VanSalesCoverageGranularity granularity = VanSalesCoverageGranularity.Month,
         CancellationToken cancellationToken = default);
 
-    Task<VanReplenishmentReportResponse?> GetReplenishmentReportAsync(
+    Task<ReportResult<VanReplenishmentReportResponse>> GetReplenishmentReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         string? vanWarehouseCode = null,
-        string? depotWarehouseCode = null);
+        string? depotWarehouseCode = null,
+        CancellationToken cancellationToken = default);
 
-    Task<VanStockReportResponse?> GetStockReportAsync(
+    Task<ReportResult<VanStockReportResponse>> GetStockReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         string? vanWarehouseCode = null,
-        int deadStockDays = 14);
+        int deadStockDays = 14,
+        CancellationToken cancellationToken = default);
 
     Task<List<RouteDto>> GetRoutesAsync(bool includeInactive = false);
 
@@ -218,60 +220,46 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         return await GetReportAsync<VanSalesCoverageReportResponse>(url, "coverage report", cancellationToken);
     }
 
-    public async Task<VanReplenishmentReportResponse?> GetReplenishmentReportAsync(
+    public async Task<ReportResult<VanReplenishmentReportResponse>> GetReplenishmentReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         string? vanWarehouseCode = null,
-        string? depotWarehouseCode = null)
+        string? depotWarehouseCode = null,
+        CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var queryParams = new List<string>();
+        var queryParams = new List<string>();
 
-            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
-            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
-            if (!string.IsNullOrWhiteSpace(vanWarehouseCode))
-                queryParams.Add($"vanWarehouseCode={Uri.EscapeDataString(vanWarehouseCode)}");
-            if (!string.IsNullOrWhiteSpace(depotWarehouseCode))
-                queryParams.Add($"depotWarehouseCode={Uri.EscapeDataString(depotWarehouseCode)}");
+        if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+        if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+        if (!string.IsNullOrWhiteSpace(vanWarehouseCode))
+            queryParams.Add($"vanWarehouseCode={Uri.EscapeDataString(vanWarehouseCode)}");
+        if (!string.IsNullOrWhiteSpace(depotWarehouseCode))
+            queryParams.Add($"depotWarehouseCode={Uri.EscapeDataString(depotWarehouseCode)}");
 
-            var url = queryParams.Count > 0
-                ? $"api/van-sales/replenishment-report?{string.Join("&", queryParams)}"
-                : "api/van-sales/replenishment-report";
+        var url = queryParams.Count > 0
+            ? $"api/van-sales/replenishment-report?{string.Join("&", queryParams)}"
+            : "api/van-sales/replenishment-report";
 
-            return await httpClient.GetFromJsonAsync<VanReplenishmentReportResponse>(url);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error fetching the van replenishment report");
-            return null;
-        }
+        return await GetReportAsync<VanReplenishmentReportResponse>(url, "replenishment report", cancellationToken);
     }
 
-    public async Task<VanStockReportResponse?> GetStockReportAsync(
+    public async Task<ReportResult<VanStockReportResponse>> GetStockReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         string? vanWarehouseCode = null,
-        int deadStockDays = 14)
+        int deadStockDays = 14,
+        CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var queryParams = new List<string> { $"deadStockDays={deadStockDays}" };
+        var queryParams = new List<string> { $"deadStockDays={deadStockDays}" };
 
-            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
-            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
-            if (!string.IsNullOrWhiteSpace(vanWarehouseCode))
-                queryParams.Add($"vanWarehouseCode={Uri.EscapeDataString(vanWarehouseCode)}");
+        if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+        if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+        if (!string.IsNullOrWhiteSpace(vanWarehouseCode))
+            queryParams.Add($"vanWarehouseCode={Uri.EscapeDataString(vanWarehouseCode)}");
 
-            var url = $"api/van-sales/stock-report?{string.Join("&", queryParams)}";
+        var url = $"api/van-sales/stock-report?{string.Join("&", queryParams)}";
 
-            return await httpClient.GetFromJsonAsync<VanStockReportResponse>(url);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error fetching the van stock report");
-            return null;
-        }
+        return await GetReportAsync<VanStockReportResponse>(url, "van stock report", cancellationToken);
     }
 
     public async Task<List<RouteDto>> GetRoutesAsync(bool includeInactive = false)

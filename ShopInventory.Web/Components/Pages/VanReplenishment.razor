@@ -38,45 +38,27 @@
             </button>
         </header>
 
-        <section class="vrp-filters" aria-label="Period and filters">
-            <div class="vrp-field vrp-field-date">
-                <label class="vrp-lbl" for="vrp-from">From</label>
-                <NocturneDateField Id="vrp-from" @bind-Date="fromDate" AriaLabel="From date" />
-            </div>
-            <div class="vrp-field vrp-field-date">
-                <label class="vrp-lbl" for="vrp-to">To</label>
-                <NocturneDateField Id="vrp-to" @bind-Date="toDate" AriaLabel="To date" />
-            </div>
-            <div class="vrp-field vrp-field-van">
-                <label class="vrp-lbl" for="vrp-van">Van</label>
-                <NocturneSelect Id="vrp-van" Class="nsel-block" TValue="string"
-                                Options="VanFilterOptions" @bind-Value="selectedVan"
-                                OnChanged="LoadAsync" AriaLabel="Filter by van"
-                                Placeholder="All vans" />
-            </div>
+        @* GeneratedAt is the API's CAT clock; the bar takes UTC. *@
+        <VanReportPeriodBar IdPrefix="vrp" @bind-From="fromDate" @bind-To="toDate" RecentDays="RecentDays"
+                            OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="@(report?.GeneratedAt.AddHours(-2))"
+                            ShownFrom="report?.FromDate" ShownTo="report?.ToDate">
+            <NocturneSelect Id="vrp-van" Class="nsel-block" TValue="string"
+                            Options="VanFilterOptions" @bind-Value="selectedVan"
+                            OnChanged="LoadAsync" AriaLabel="Filter by van"
+                            Placeholder="All vans" />
             @if (DepotChoices.Count > 1)
             {
-                <div class="vrp-field">
-                    <span class="vrp-lbl" id="vrp-depot-lbl">Depot</span>
-                    <div class="vrp-seg" role="group" aria-labelledby="vrp-depot-lbl">
-                        <button type="button" class="vrp-seg-btn @(selectedDepot is null ? "is-on" : null)"
-                                aria-pressed="@(selectedDepot is null)" @onclick="() => PickDepotAsync(null)">All</button>
-                        @foreach (var depot in DepotChoices)
-                        {
-                            <button type="button" class="vrp-seg-btn @(selectedDepot == depot ? "is-on" : null)"
-                                    aria-pressed="@(selectedDepot == depot)" @onclick="() => PickDepotAsync(depot)">@depot</button>
-                        }
-                    </div>
+                <div class="vrp-seg" role="group" aria-label="Depot">
+                    <button type="button" class="vrp-seg-btn @(selectedDepot is null ? "is-on" : null)"
+                            aria-pressed="@(selectedDepot is null)" @onclick="() => PickDepotAsync(null)">All depots</button>
+                    @foreach (var depot in DepotChoices)
+                    {
+                        <button type="button" class="vrp-seg-btn @(selectedDepot == depot ? "is-on" : null)"
+                                aria-pressed="@(selectedDepot == depot)" @onclick="() => PickDepotAsync(depot)">@depot</button>
+                    }
                 </div>
             }
-            <button type="button" class="vrp-btn vrp-btn-primary vrp-run" @onclick="LoadAsync" disabled="@isLoading">
-                @(isLoading ? "Loading…" : "Run")
-            </button>
-            @if (report is not null)
-            {
-                <span class="vrp-filters-meta">@PeriodDays days · read @report.GeneratedAt.ToString("d MMM HH:mm")</span>
-            }
-        </section>
+        </VanReportPeriodBar>
 
         @if (loadError is not null)
         {
@@ -89,6 +71,10 @@
                 <MudProgressCircular Indeterminate="true" Size="Size.Small" />
                 <span>Reading the requests…</span>
             </div>
+        }
+        else if (report is null && loadError is not null)
+        {
+            @* The error above says why the page is empty; nothing to choose. *@
         }
         else if (report is null)
         {

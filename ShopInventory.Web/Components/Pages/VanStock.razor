@@ -7,6 +7,8 @@
 @inject IVanSalesReportService VanSalesReportService
 @inject IReportExportService ExportService
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IDisposable
 
 <PageTitle>Van Stock - Shop Inventory</PageTitle>
 
@@ -57,30 +59,14 @@
         </div>
     </div>
 
-    <div class="vs-filters">
-        <div class="row g-3">
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vst-from">From</label>
-                <NocturneDateField Id="vst-from" @bind-Date="fromDate" AriaLabel="From date" />
-            </div>
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vst-to">To</label>
-                <NocturneDateField Id="vst-to" @bind-Date="toDate" AriaLabel="To date" />
-            </div>
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vst-dead">Call an item idle after</label>
-                <NocturneSelect Id="vst-dead" Class="nsel-block" TValue="string"
-                                Options="DeadStockOptions" @bind-Value="selectedDeadStockDays"
-                                OnChanged="LoadAsync"
-                                AriaLabel="Days carried without a sale before an item counts as idle" />
-            </div>
-            <div class="col-md-3 vs-actions">
-                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
-                    @(isLoading ? "Loading…" : "Run")
-                </button>
-            </div>
-        </div>
-    </div>
+    <VanReportPeriodBar IdPrefix="vst" @bind-From="fromDate" @bind-To="toDate" RecentDays="RecentDays"
+                        OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="readAtUtc"
+                        ShownFrom="report?.FromDate" ShownTo="report?.ToDate">
+        <NocturneSelect Id="vst-dead" Class="nsel-block" TValue="string"
+                        Options="DeadStockOptions" @bind-Value="selectedDeadStockDays"
+                        OnChanged="LoadAsync"
+                        AriaLabel="Days carried without a sale before an item counts as idle" />
+    </VanReportPeriodBar>
 
     @if (loadError is not null)
     {
@@ -93,6 +79,10 @@
             <MudProgressCircular Indeterminate="true" Size="Size.Small" />
             <span>Reading the morning counts and SAP's documents…</span>
         </div>
+    }
+    else if (report is null && loadError is not null)
+    {
+        @* The error above says why the page is empty; nothing to choose. *@
     }
     else if (report is null)
     {
@@ -820,6 +810,20 @@
 
     private bool isLoading;
     private string? loadError;
+    private DateTime? readAtUtc;
+
+    /// <summary>The page's own default, shown as a preset beside the standard ones.</summary>
+    private static readonly int[] RecentDays = [14];
+
+    private const string VanQueryName = "van";
+    private const string IdleQueryName = "idle";
+
+    [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanQueryName)] private string? VanQuery { get; set; }
+    [SupplyParameterFromQuery(Name = IdleQueryName)] private string? IdleQuery { get; set; }
+
+    private readonly LatestLoad loads = new();
 
     private static IEnumerable<INocturneSelectOption<string>> DeadStockOptions =>
     [
@@ -845,16 +849,30 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // CAT, not the server's clock: a trading day belongs to the van.
-        var today = DateTime.UtcNow.AddHours(2).Date;
-        fromDate = today.AddDays(-13);
-        toDate = today;
+        // A link or a refresh opens the report as it was; otherwise the page's own last 14 days.
+        var (defaultFrom, defaultTo) = VanReportPeriod.LastDays(RecentDays[0], VanReportPeriod.TodayCat);
+        fromDate = VanReportPeriod.ParseDay(FromQuery) ?? defaultFrom;
+        toDate = VanReportPeriod.ParseDay(ToQuery) ?? defaultTo;
+
+        if (DeadStockOptions.Any(option => option.Value == IdleQuery))
+        {
+            selectedDeadStockDays = IdleQuery!;
+        }
 
         await LoadAsync();
+
+        // The van a link or a refresh had open, once the report says it is there.
+        if (!string.IsNullOrWhiteSpace(VanQuery)
+            && vanViews.Any(van => string.Equals(van.Code, VanQuery, StringComparison.OrdinalIgnoreCase)))
+        {
+            selectedVan = vanViews.First(van => string.Equals(van.Code, VanQuery, StringComparison.OrdinalIgnoreCase)).Code;
+            WriteQuery();
+        }
     }
 
     private async Task LoadAsync()
     {
+        var token = loads.Begin();
         isLoading = true;
         loadError = null;
         StateHasChanged();
@@ -863,22 +881,30 @@
         {
             var deadStockDays = int.TryParse(selectedDeadStockDays, out var parsed) ? parsed : 14;
 
-            report = await VanSalesReportService.GetStockReportAsync(
+            var result = await VanSalesReportService.GetStockReportAsync(
                 fromDate,
                 toDate,
-                deadStockDays: deadStockDays);
+                deadStockDays: deadStockDays,
+                cancellationToken: token);
+            report = result.Value;
 
             if (report is null)
             {
-                loadError = "The stock report could not be loaded. Check that the API is reachable.";
+                loadError = result.Error;
                 vanViews = [];
             }
             else
             {
+                readAtUtc = DateTime.UtcNow;
                 vanViews = BuildVanViews(report);
                 openedMorning = null;
                 openedSalesDay = null;
+                WriteQuery();
             }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // A newer load replaced this one and owns the page now.
         }
         catch (Exception ex)
         {
@@ -886,8 +912,11 @@
         }
         finally
         {
-            isLoading = false;
-            StateHasChanged();
+            if (!token.IsCancellationRequested)
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
         }
     }
 
@@ -896,6 +925,7 @@
         selectedVan = code;
         openedMorning = null;
         openedSalesDay = null;
+        WriteQuery();
     }
 
     private void CloseVan()
@@ -903,7 +933,19 @@
         selectedVan = null;
         openedMorning = null;
         openedSalesDay = null;
+        WriteQuery();
     }
+
+    /// <summary>The period, the idle threshold and the open van, in the page's own URL.</summary>
+    private void WriteQuery()
+    {
+        var values = VanReportLinks.Query(report?.FromDate ?? fromDate, report?.ToDate ?? toDate);
+        values[IdleQueryName] = selectedDeadStockDays == "14" ? null : selectedDeadStockDays;
+        values[VanQueryName] = selectedVan;
+        VanReportLinks.WriteQuery(Navigation, values);
+    }
+
+    public void Dispose() => loads.Dispose();
 
     /// <summary>The morning whose documents are listed: the one clicked, else the latest with something to explain, else the latest.</summary>
     private VanStockMorning? OpenedMorning(VanView van) =>
