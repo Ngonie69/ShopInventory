@@ -10,6 +10,8 @@
 @inject IAuditService AuditService
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@implements IDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Route Sales Report - Shop Inventory</PageTitle>
@@ -78,51 +80,23 @@
         </div>
     </div>
 
-    <section class="ops-panel">
-        <div class="ops-panel-head">
-            <h2><i class="ph ph-funnel" aria-hidden="true"></i>Filter</h2>
-            <div class="ops-panel-tools">
-                @foreach (var range in QuickRanges)
-                {
-                    <button type="button"
-                            class="ops-btn ops-btn-ghost ops-btn-sm @(activeRangeDays == range.Days ? "is-on" : "")"
-                            @onclick="() => ApplyQuickRangeAsync(range.Days)">
-                        @range.Label
-                    </button>
-                }
-            </div>
-        </div>
-        <div class="ops-filters">
-            <div class="ops-field">
-                <label class="ops-label" for="rsr-route">Route</label>
-                <NocturneSelect Id="rsr-route" Class="nsel-block" Options="RouteFilterOptions"
-                                Value="selectedRouteCode"
-                                ValueChanged="@(code => OnRouteChangedAsync(code))"
-                                TValue="string" Caption="Filter by route"
-                                AriaLabel="Filter by route" Placeholder="All routes" />
-            </div>
-            <div class="ops-field">
-                <label class="ops-label" for="rsr-from">From</label>
-                <NocturneDateField Id="rsr-from" Date="fromDate"
-                                   DateChanged="@(value => OnDateChangedAsync(value, isFrom: true))"
-                                   AriaLabel="From date" />
-            </div>
-            <div class="ops-field">
-                <label class="ops-label" for="rsr-to">To</label>
-                <NocturneDateField Id="rsr-to" Date="toDate"
-                                   DateChanged="@(value => OnDateChangedAsync(value, isFrom: false))"
-                                   AriaLabel="To date" />
-            </div>
-            <div class="ops-field">
-                <label class="ops-label" for="rsr-dormant">Dormant after</label>
-                <NocturneSelect Id="rsr-dormant" Class="nsel-block" Options="DormantOptions"
-                                Value="dormantDays"
-                                ValueChanged="@(days => OnDormantChangedAsync(days))"
-                                TValue="int" Caption="Dormancy threshold"
-                                AriaLabel="Dormancy threshold" />
-            </div>
-        </div>
-    </section>
+    @* The period row every dated van report wears. The routes here are the vans' business partner
+       accounts, the thing a route customer is assigned to, so they travel in the URL as "account"
+       rather than as the route codes the other reports call "route". *@
+    <VanReportPeriodBar IdPrefix="rsr" @bind-From="fromDate" @bind-To="toDate" RecentDays="RecentDays"
+                        OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="readAtUtc"
+                        ShownFrom="summary?.From" ShownTo="summary?.To">
+        <NocturneSelect Id="rsr-route" Class="nsel-block" Options="RouteFilterOptions"
+                        Value="selectedRouteCode"
+                        ValueChanged="@(code => OnRouteChangedAsync(code))"
+                        TValue="string" Caption="Filter by route"
+                        AriaLabel="Filter by route" Placeholder="All routes" />
+        <NocturneSelect Id="rsr-dormant" Class="nsel-block" Options="DormantOptions"
+                        Value="dormantDays"
+                        ValueChanged="@(days => OnDormantChangedAsync(days))"
+                        TValue="int" Caption="Dormancy threshold"
+                        AriaLabel="Dormancy threshold" />
+    </VanReportPeriodBar>
 
     @if (isLoading)
     {
@@ -172,13 +146,13 @@
 
         <div class="ops-tabs">
             <button type="button" class="ops-tab @(activeView == View.Summary ? "is-on" : "")"
-                    @onclick="() => activeView = View.Summary">
+                    @onclick="() => ShowView(View.Summary)">
                 <i class="ph ph-list-checks" aria-hidden="true"></i>
                 <span>Route summary</span>
                 <span class="ops-tab-count">@AllCustomers.Count</span>
             </button>
             <button type="button" class="ops-tab @(activeView == View.Dormant ? "is-on" : "")"
-                    @onclick="() => activeView = View.Dormant">
+                    @onclick="() => ShowView(View.Dormant)">
                 <i class="ph ph-moon" aria-hidden="true"></i>
                 <span>Dormant</span>
                 <span class="ops-tab-count">@(DormantCount + NeverBoughtCount)</span>
@@ -456,13 +430,27 @@
 @code {
     private enum View { Summary, Dormant, ProductMix }
 
-    private static readonly (int Days, string Label)[] QuickRanges =
-    [
-        (30, "30 days"),
-        (90, "90 days"),
-        (180, "6 months"),
-        (365, "12 months")
-    ];
+    /// <summary>The page's own presets beside the standard ones; 90 days is its default.</summary>
+    private static readonly int[] RecentDays = [30, 90, 180, 365];
+
+    private const string AccountQueryName = "account";
+    private const string DormantQueryName = "dormant";
+    private const string ViewQueryName = "view";
+
+    [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
+    [SupplyParameterFromQuery(Name = AccountQueryName)] private string? AccountQuery { get; set; }
+    [SupplyParameterFromQuery(Name = DormantQueryName)] private int? DormantQuery { get; set; }
+    [SupplyParameterFromQuery(Name = ViewQueryName)] private string? ViewQuery { get; set; }
+
+    private readonly LatestLoad loads = new();
+    private DateTime? readAtUtc;
+
+    /// <summary>
+    /// Every account any load has named, so choosing one does not empty the list: a filtered load
+    /// answers with that route alone, and a list rebuilt from the last answer left nothing else to pick.
+    /// </summary>
+    private readonly HashSet<string> knownAccounts = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly NocturneSelectOption<int>[] DormantOptions =
     [
@@ -481,10 +469,9 @@
 
     private View activeView = View.Summary;
     private string? selectedRouteCode;
-    private DateTime? fromDate = DateTime.Today.AddDays(-89);
-    private DateTime? toDate = DateTime.Today;
+    private DateTime? fromDate;
+    private DateTime? toDate;
     private int dormantDays = 30;
-    private int? activeRangeDays = 90;
 
     private bool isLoading = true;
     private bool isLoadingProductMix;
@@ -534,7 +521,7 @@
             .ToList();
 
     private IEnumerable<NocturneSelectOption<string>> RouteFilterOptions =>
-        (summary?.Routes.Select(route => route.AssignedBusinessPartnerCode) ?? [])
+        knownAccounts
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
@@ -546,6 +533,22 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // A link or a refresh opens the report as it was; otherwise the last 90 days on the CAT clock.
+        var (defaultFrom, defaultTo) = VanReportPeriod.LastDays(90, VanReportPeriod.TodayCat);
+        fromDate = VanReportPeriod.ParseDay(FromQuery) ?? defaultFrom;
+        toDate = VanReportPeriod.ParseDay(ToQuery) ?? defaultTo;
+        selectedRouteCode = string.IsNullOrWhiteSpace(AccountQuery) ? null : AccountQuery.Trim();
+
+        if (DormantQuery is { } days && DormantOptions.Any(option => option.Value == days))
+        {
+            dormantDays = days;
+        }
+
+        if (Enum.TryParse<View>(ViewQuery, ignoreCase: true, out var view))
+        {
+            activeView = view;
+        }
+
         await LoadRouteNamesAsync();
         await LoadAsync();
         await AuditService.LogAsync(AuditActions.ViewCustomers, "RouteSalesReport", null);
@@ -572,15 +575,32 @@
 
     private async Task LoadAsync()
     {
+        var token = loads.Begin();
         isLoading = true;
         errorMessage = null;
 
         try
         {
-            summary = await RouteCustomerService.GetSalesSummaryAsync(
+            var loaded = await RouteCustomerService.GetSalesSummaryAsync(
                 selectedRouteCode, fromDate, toDate, dormantDays);
+
+            // The service takes no cancellation, so a stale answer is simply not shown.
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            summary = loaded;
+            readAtUtc = DateTime.UtcNow;
+
+            foreach (var route in summary.Routes)
+            {
+                knownAccounts.Add(route.AssignedBusinessPartnerCode);
+            }
+
+            WriteQuery();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!token.IsCancellationRequested)
         {
             // Not left as an empty report: "no customer has bought anything" and "the report failed" look
             // the same on the page, and only one of them should send somebody out to a route.
@@ -589,7 +609,15 @@
         }
         finally
         {
-            isLoading = false;
+            if (!token.IsCancellationRequested)
+            {
+                isLoading = false;
+            }
+        }
+
+        if (token.IsCancellationRequested)
+        {
+            return;
         }
 
         // The mix is already on screen, so it has to follow the filter rather than wait to be reopened.
@@ -604,9 +632,16 @@
     }
 
     /// <summary>Loaded on first open rather than with the page — it is a third query for a third tab.</summary>
+    private void ShowView(View view)
+    {
+        activeView = view;
+        WriteQuery();
+    }
+
     private async Task ShowProductMixAsync()
     {
         activeView = View.ProductMix;
+        WriteQuery();
 
         if (productMix is null && !isLoadingProductMix)
         {
@@ -641,34 +676,23 @@
         await LoadAsync();
     }
 
-    private async Task OnDateChangedAsync(DateTime? value, bool isFrom)
-    {
-        if (isFrom)
-        {
-            fromDate = value;
-        }
-        else
-        {
-            toDate = value;
-        }
-
-        activeRangeDays = null;
-        await LoadAsync();
-    }
-
     private async Task OnDormantChangedAsync(int days)
     {
         dormantDays = days;
         await LoadAsync();
     }
 
-    private async Task ApplyQuickRangeAsync(int days)
+    /// <summary>The period, account, dormancy and open view, in the page's own URL.</summary>
+    private void WriteQuery()
     {
-        toDate = DateTime.Today;
-        fromDate = DateTime.Today.AddDays(-(days - 1));
-        activeRangeDays = days;
-        await LoadAsync();
+        var values = VanReportLinks.Query(summary?.From ?? fromDate, summary?.To ?? toDate);
+        values[AccountQueryName] = string.IsNullOrWhiteSpace(selectedRouteCode) ? null : selectedRouteCode;
+        values[DormantQueryName] = dormantDays == 30 ? null : dormantDays;
+        values[ViewQueryName] = activeView == View.Summary ? null : activeView.ToString();
+        VanReportLinks.WriteQuery(Navigation, values);
     }
+
+    public void Dispose() => loads.Dispose();
 
     /// <summary>
     /// The customer's name, linked to their history — unless the record has been deleted, in which case
@@ -680,7 +704,10 @@
         {
             builder.OpenElement(0, "a");
             builder.AddAttribute(1, "class", "ops-link ops-name");
-            builder.AddAttribute(2, "href", $"/route-customers/{id}/sales");
+            // Over the same period, so the shop's own page opens on what the reader was looking at.
+            builder.AddAttribute(2, "href", summary is null
+                ? $"/route-customers/{id}/sales"
+                : VanReportLinks.RouteCustomer(id, summary.From, summary.To));
             builder.AddContent(3, customer.Name);
             builder.CloseElement();
 
