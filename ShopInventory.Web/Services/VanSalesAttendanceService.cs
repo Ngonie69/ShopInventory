@@ -14,9 +14,10 @@ namespace ShopInventory.Web.Services;
 /// </summary>
 public interface IVanSalesAttendanceService
 {
-    Task<VanVisitListResponse?> GetVisitsAsync(int page = 1, int pageSize = 20,
+    Task<ReportResult<VanVisitListResponse>> GetVisitsAsync(int page = 1, int pageSize = 20,
         Guid? userId = null, string? username = null, string? customerCode = null,
-        DateTime? fromDate = null, DateTime? toDate = null);
+        DateTime? fromDate = null, DateTime? toDate = null,
+        CancellationToken cancellationToken = default);
 
     /// <param name="fromDate">A CAT trading day, not an instant — sent as a plain date.</param>
     /// <param name="toDate">A CAT trading day, inclusive.</param>
@@ -35,27 +36,25 @@ public class VanSalesAttendanceService(
     ILogger<VanSalesAttendanceService> logger
 ) : IVanSalesAttendanceService
 {
-    public async Task<VanVisitListResponse?> GetVisitsAsync(int page = 1, int pageSize = 20,
-        Guid? userId = null, string? username = null, string? customerCode = null,
-        DateTime? fromDate = null, DateTime? toDate = null)
-    {
-        try
-        {
-            var queryParams = new List<string> { $"page={page}", $"pageSize={pageSize}" };
-            if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
-            if (!string.IsNullOrEmpty(username)) queryParams.Add($"username={Uri.EscapeDataString(username)}");
-            if (!string.IsNullOrEmpty(customerCode)) queryParams.Add($"customerCode={Uri.EscapeDataString(customerCode)}");
-            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-ddTHH:mm:ss}");
-            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-ddTHH:mm:ss}");
+    /// <summary>Reads one report, or the reason it could not be read. See <see cref="ReportReader"/>.</summary>
+    private Task<ReportResult<T>> GetReportAsync<T>(string url, string what, CancellationToken cancellationToken)
+        where T : class =>
+        ReportReader.GetAsync<T>(httpClient, logger, url, what, cancellationToken);
 
-            var url = $"api/van-sales/visits?{string.Join("&", queryParams)}";
-            return await httpClient.GetFromJsonAsync<VanVisitListResponse>(url);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error fetching van sales visits");
-            return null;
-        }
+    public async Task<ReportResult<VanVisitListResponse>> GetVisitsAsync(int page = 1, int pageSize = 20,
+        Guid? userId = null, string? username = null, string? customerCode = null,
+        DateTime? fromDate = null, DateTime? toDate = null,
+        CancellationToken cancellationToken = default)
+    {
+        var queryParams = new List<string> { $"page={page}", $"pageSize={pageSize}" };
+        if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
+        if (!string.IsNullOrEmpty(username)) queryParams.Add($"username={Uri.EscapeDataString(username)}");
+        if (!string.IsNullOrEmpty(customerCode)) queryParams.Add($"customerCode={Uri.EscapeDataString(customerCode)}");
+        if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-ddTHH:mm:ss}");
+        if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-ddTHH:mm:ss}");
+
+        var url = $"api/van-sales/visits?{string.Join("&", queryParams)}";
+        return await GetReportAsync<VanVisitListResponse>(url, "van activity", cancellationToken);
     }
 
     public async Task<VanVisitReportResponse?> GetReportAsync(

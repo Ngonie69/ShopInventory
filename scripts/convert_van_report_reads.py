@@ -27,7 +27,9 @@ and becomes
 with the interface member changed to match. GetReportAsync logs, reads the API's own refusal and
 lets a cancellation through, so the try/catch has nothing left to do.
 
-Usage: python -I scripts/convert_van_report_reads.py <repo root> <method name> "<what, e.g. performance report>"
+Usage: python -I scripts/convert_van_report_reads.py <repo root> <method name> "<what, e.g. performance report>" [service file]
+The service file defaults to VanSalesReportService.cs; VanSalesAttendanceService.cs has the same shape.
+The service needs a private GetReportAsync<T>(url, what, cancellationToken) delegating to ReportReader.
 One method per run, so each page's commit converts the read it calls and the build stays green.
 Idempotent: a converted method is reported and left alone.
 """
@@ -36,7 +38,8 @@ import sys
 from pathlib import Path
 
 root, method, what = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
-path = root / "ShopInventory.Web/Services/VanSalesReportService.cs"
+service = sys.argv[4] if len(sys.argv) > 4 else "VanSalesReportService.cs"
+path = root / "ShopInventory.Web/Services" / service
 raw = path.read_bytes()
 bom = raw.startswith(b"\xef\xbb\xbf")
 text = raw.decode("utf-8-sig")
