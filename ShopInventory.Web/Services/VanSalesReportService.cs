@@ -11,12 +11,13 @@ public interface IVanSalesReportService
         Guid? userId = null,
         string? routeCode = null);
 
-    Task<VanSalesPerformanceReportResponse?> GetPerformanceReportAsync(
+    Task<ReportResult<VanSalesPerformanceReportResponse>> GetPerformanceReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         Guid? userId = null,
         string? routeCode = null,
-        int topItems = 50);
+        int topItems = 50,
+        CancellationToken cancellationToken = default);
 
     Task<AdrPerformanceReportResponse?> GetAdrPerformanceReportAsync(
         DateTime? fromDate = null,
@@ -152,33 +153,26 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         }
     }
 
-    public async Task<VanSalesPerformanceReportResponse?> GetPerformanceReportAsync(
+    public async Task<ReportResult<VanSalesPerformanceReportResponse>> GetPerformanceReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         Guid? userId = null,
         string? routeCode = null,
-        int topItems = 50)
+        int topItems = 50,
+        CancellationToken cancellationToken = default)
     {
-        try
-        {
-            // Dates only, for the reason given above: these are CAT trading days, not instants.
-            var queryParams = new List<string> { $"topItems={topItems}" };
+        // Dates only, for the reason given above: these are CAT trading days, not instants.
+        var queryParams = new List<string> { $"topItems={topItems}" };
 
-            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
-            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
-            if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
-            if (!string.IsNullOrWhiteSpace(routeCode))
-                queryParams.Add($"routeCode={Uri.EscapeDataString(routeCode)}");
+        if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+        if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+        if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
+        if (!string.IsNullOrWhiteSpace(routeCode))
+            queryParams.Add($"routeCode={Uri.EscapeDataString(routeCode)}");
 
-            var url = $"api/van-sales/performance-report?{string.Join("&", queryParams)}";
+        var url = $"api/van-sales/performance-report?{string.Join("&", queryParams)}";
 
-            return await httpClient.GetFromJsonAsync<VanSalesPerformanceReportResponse>(url);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error fetching the van sales performance report");
-            return null;
-        }
+        return await GetReportAsync<VanSalesPerformanceReportResponse>(url, "performance report", cancellationToken);
     }
 
     public async Task<AdrPerformanceReportResponse?> GetAdrPerformanceReportAsync(

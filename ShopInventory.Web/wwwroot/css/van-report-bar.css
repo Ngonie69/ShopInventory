@@ -90,13 +90,19 @@
 
 .vrb-filters {
     display: flex;
+    flex: 1 1 360px;
     flex-wrap: wrap;
     align-items: center;
     gap: 10px;
 }
 
+/* Side by side, each sharing the row: a page's `nsel-block` would otherwise take
+   the whole width and stack the filters one under another. */
 .vrb-filters .nsel {
-    min-width: 180px;
+    flex: 1 1 180px;
+    width: auto;
+    min-width: 160px;
+    max-width: 280px;
 }
 
 .vrb-run {
@@ -156,4 +162,23 @@
     .vrb-run {
         width: 100%;
     }
+}
+
+/* — Drill-down links ————————————————————————————————————————————
+   A name in a van report table that opens the same thing in another report:
+   a rep's days, a route's days, a shop's own sales. Ink, not accent, so a
+   table of them still reads as a table; the dotted rule says it goes
+   somewhere. */
+
+.vrb-link {
+    color: inherit;
+    text-decoration: underline dotted;
+    text-decoration-color: var(--noct-mute-3);
+    text-underline-offset: 3px;
+}
+
+.vrb-link:hover,
+.vrb-link:focus-visible {
+    color: var(--noct-accent);
+    text-decoration-color: currentColor;
 }
