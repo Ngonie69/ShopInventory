@@ -176,6 +176,12 @@ Other integrations:
   Code that must talk to the platform specifically — the fiscalisation console, handset
   registration, signed-receipt ingest — may take `IFiscalisationApiClient` directly, but must guard
   on `FiscalisationSettings.UsesPlatform`.
+- **An invoice raised here names its user to the platform** (`FiscalReceiptOperator`, the `raisedBy` argument
+  of `FiscalizeInvoiceAsync`). Every SAP document posted from here carries ShopInventory's own SAP account, so
+  without it the platform's Receipts page shows that account ("Software") as the raiser. The invoice queue
+  (`InvoiceFiscalizationBackgroundService`) passes the user each work item was queued for; queue an invoice only
+  for the user who raised it. Fiscalising a document someone keyed into SAP (the manual Fiscalise) passes null,
+  so the platform names the SAP user who created it. The name reaches FDMS as the receipt's operator.
 - The van sales fiscal lease (`GetVanSalesFiscalLeaseHandler`) guards on that too, but **answers rather
   than refusing**, and the distinction is load-bearing. A lease is two halves: the signing half (device,
   QR url, day, counters), which only the platform can issue, and only to a handset with its own

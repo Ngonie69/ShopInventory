@@ -66,9 +66,11 @@ public class RevmaxFiscalizationService : IFiscalizationService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    /// <remarks><paramref name="raisedBy"/> is the platform's; REVMax is not told who raised an invoice.</remarks>
     public async Task<FiscalizationResult> FiscalizeInvoiceAsync(
         InvoiceDto invoice,
         CustomerFiscalDetails? customerDetails = null,
+        FiscalReceiptOperator? raisedBy = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoice);
