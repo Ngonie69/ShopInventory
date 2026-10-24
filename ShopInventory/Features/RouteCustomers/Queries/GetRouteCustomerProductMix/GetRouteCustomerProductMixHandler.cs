@@ -252,7 +252,7 @@ public sealed class GetRouteCustomerProductMixHandler(
         var linesQuery = db.StockReservationLines
             .AsNoTracking()
             .Where(line => line.Reservation.RouteCustomerCode != null)
-            .Where(line => line.Reservation.Status == ReservationStatus.Confirmed)
+            .Where(line => VanSaleReservations.SoldIds(db).Contains(line.ReservationId))
             .Where(line => line.Reservation.CreatedAt >= fromUtc && line.Reservation.CreatedAt < toUtcExclusive);
 
         if (customer is not null)

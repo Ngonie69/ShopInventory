@@ -231,10 +231,9 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         DateTime toUtcExclusive,
         CancellationToken cancellationToken)
     {
-        var reservationsQuery = db.StockReservations
+        var reservationsQuery = VanSaleReservations.Sold(db)
             .AsNoTracking()
             .Where(reservation => reservation.RouteCustomerCode != null)
-            .Where(reservation => reservation.Status == ReservationStatus.Confirmed)
             .Where(reservation => reservation.CreatedAt >= fromUtc && reservation.CreatedAt < toUtcExclusive);
 
         if (route is not null)
@@ -286,7 +285,7 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         var linesQuery = db.StockReservationLines
             .AsNoTracking()
             .Where(line => line.Reservation.RouteCustomerCode != null)
-            .Where(line => line.Reservation.Status == ReservationStatus.Confirmed)
+            .Where(line => VanSaleReservations.SoldIds(db).Contains(line.ReservationId))
             .Where(line => line.Reservation.CreatedAt >= fromUtc && line.Reservation.CreatedAt < toUtcExclusive);
 
         if (route is not null)
@@ -380,10 +379,9 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             })
             .ToListAsync(cancellationToken);
 
-        var onlineQuery = db.StockReservations
+        var onlineQuery = VanSaleReservations.Sold(db)
             .AsNoTracking()
-            .Where(reservation => reservation.RouteCustomerCode != null)
-            .Where(reservation => reservation.Status == ReservationStatus.Confirmed);
+            .Where(reservation => reservation.RouteCustomerCode != null);
 
         if (route is not null)
         {
@@ -464,7 +462,7 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         var onlineQuery = db.StockReservationLines
             .AsNoTracking()
             .Where(line => line.Reservation.RouteCustomerCode != null)
-            .Where(line => line.Reservation.Status == ReservationStatus.Confirmed)
+            .Where(line => VanSaleReservations.SoldIds(db).Contains(line.ReservationId))
             .Where(line => line.Reservation.CreatedAt >= fromUtc && line.Reservation.CreatedAt < toUtcExclusive);
 
         if (route is not null)

@@ -144,10 +144,9 @@ public sealed class VanDayPlans
             plans.AddCall(routes.TruckOf(visit.UserId), VanSalesFacts.TradingDayOf(visit.CheckInTime), visit.CustomerCode);
         }
 
-        var online = await db.StockReservations
+        var online = await VanSaleReservations.Sold(db)
             .AsNoTracking()
             .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
-                                  && reservation.Status == ReservationStatus.Confirmed
                                   && reservation.RouteCustomerCode != null
                                   && reservation.CreatedAt >= windowStartUtc
                                   && reservation.CreatedAt < windowEndUtc)

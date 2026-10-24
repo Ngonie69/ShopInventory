@@ -185,10 +185,9 @@ public sealed class GetRouteCustomerSalesHandler(
         DateTime toUtcExclusive,
         CancellationToken cancellationToken)
     {
-        var rows = await db.StockReservations
+        var rows = await VanSaleReservations.Sold(db)
             .AsNoTracking()
             .Include(reservation => reservation.Lines)
-            .Where(reservation => reservation.Status == ReservationStatus.Confirmed)
             .Where(reservation => reservation.CreatedAt >= fromUtc && reservation.CreatedAt < toUtcExclusive)
             .Where(reservation => reservation.RouteCustomerId == customer.Id ||
                 (reservation.RouteCustomerId == null &&
@@ -232,7 +231,10 @@ public sealed class GetRouteCustomerSalesHandler(
                 Total = money.Total,
                 VatAmount = money.Vat ?? 0m,
                 AmountPaid = money.Total,
-                Status = reservation.SAPDocNum.HasValue ? $"Posted as {reservation.SAPDocNum}" : "Posted",
+                // A queued sale is a sale (VanSaleReservations) that SAP has not taken yet.
+                Status = reservation.Status != ReservationStatus.Confirmed
+                    ? "Waiting for SAP"
+                    : reservation.SAPDocNum.HasValue ? $"Posted as {reservation.SAPDocNum}" : "Posted",
                 SapDocNum = reservation.SAPDocNum,
                 SapDocEntry = reservation.SAPDocEntry,
                 PostedAt = reservation.ConfirmedAt,

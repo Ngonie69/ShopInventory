@@ -508,6 +508,25 @@ public sealed class DepartureComplianceReportTests : IDisposable
         Assert.Equal(0m, report.Summary.TotalSales);
     }
 
+    /// <summary>
+    /// A sale made while SAP was down waits in the queue with its reservation Pending, and is takings
+    /// the rep has in hand: it is in the day's sales and its tender.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_waiting_in_the_queue_for_SAP_is_in_the_days_takings()
+    {
+        AddDay(plannedCustomers: 10);
+        AddOnlineSale("ONL-QUEUED", Utc(9, 0), "TUCK01", total: 100m, status: ReservationStatus.Pending);
+        await _context.SaveChangesAsync();
+
+        var day = await SingleDayAsync();
+
+        // Counted, which it was not. This fixture's reservations carry no lines, so there is nothing to
+        // gross up and the stored figure stands.
+        Assert.Equal(100m, day.SystemTotalSales);
+        Assert.Equal(100m, day.SystemCash);
+    }
+
     // --- Helpers ---
 
     private async Task<DepartureComplianceReportResult> RunAsync()
@@ -592,11 +611,27 @@ public sealed class DepartureComplianceReportTests : IDisposable
         DateTime createdAtUtc,
         string? routeCustomerCode,
         decimal total,
-        string? paymentMethod = "Cash")
+        string? paymentMethod = "Cash",
+        string status = ReservationStatus.Confirmed)
     {
+        var reservationId = Guid.NewGuid().ToString();
+        if (status != ReservationStatus.Confirmed)
+        {
+            // Queued for SAP, as the handset's fallback leaves a sale made while SAP was down.
+            _context.InvoiceQueue.Add(new InvoiceQueueEntity
+            {
+                ReservationId = reservationId,
+                ExternalReference = reference,
+                CustomerCode = VanAccount,
+                InvoicePayload = "{}",
+                SourceSystem = "KefalosVanSales",
+                Status = InvoiceQueueStatus.Fiscalized
+            });
+        }
+
         _context.StockReservations.Add(new StockReservationEntity
         {
-            ReservationId = Guid.NewGuid().ToString(),
+            ReservationId = reservationId,
             ExternalReferenceId = reference,
             SourceSystem = "KefalosVanSales",
             DocumentType = ReservationDocumentType.Invoice,
@@ -607,10 +642,10 @@ public sealed class DepartureComplianceReportTests : IDisposable
             TotalValue = total,
             Currency = "USD",
             PaymentMethod = paymentMethod,
-            Status = ReservationStatus.Confirmed,
+            Status = status,
             CreatedAt = createdAtUtc,
             ExpiresAt = createdAtUtc.AddHours(1),
-            ConfirmedAt = createdAtUtc,
+            ConfirmedAt = status == ReservationStatus.Confirmed ? createdAtUtc : null,
             CreatedBy = Rep.ToString()
         });
     }

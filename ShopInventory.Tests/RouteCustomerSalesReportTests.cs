@@ -594,6 +594,43 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
         Assert.Empty(detail.TotalsByCurrency);
     }
 
+    /// <summary>
+    /// A sale made while SAP was down is signed on the handset and waits in the invoice queue, its
+    /// reservation still Pending, until SAP comes back. It is a sale, and was missing from every report
+    /// for as long as it waited.
+    /// </summary>
+    [Theory]
+    [InlineData(InvoiceQueueStatus.Fiscalized)]
+    [InlineData(InvoiceQueueStatus.RequiresReview)]
+    public async Task A_sale_waiting_in_the_queue_for_SAP_is_counted(InvoiceQueueStatus queueStatus)
+    {
+        var reservationId = AddOnlineSale("VAN010-ONL-1", _tuckShopId, 250m, ReservationStatus.Pending);
+        QueueForSap(reservationId, "VAN010-ONL-1", queueStatus);
+
+        var detail = await DrillDownAsync(_tuckShopId);
+        var sale = Assert.Single(detail.Sales);
+        Assert.Equal("Waiting for SAP", sale.Status);
+        Assert.Equal(288.75m, sale.Total);
+
+        var summary = await SummaryAsync();
+        var tuckShop = summary.Routes.Single().Customers.Single(customer => customer.Code == "TUCK01");
+        Assert.Equal(1, tuckShop.SaleCount);
+        Assert.Equal(1, tuckShop.LineCount);
+        Assert.Equal(288.75m, tuckShop.TotalsByCurrency.Single().Gross);
+    }
+
+    /// <summary>A cancelled queue entry is a sale that never happened.</summary>
+    [Fact]
+    public async Task A_sale_whose_queue_entry_was_cancelled_is_not_counted()
+    {
+        var reservationId = AddOnlineSale("VAN010-ONL-1", _tuckShopId, 250m, ReservationStatus.Expired);
+        QueueForSap(reservationId, "VAN010-ONL-1", InvoiceQueueStatus.Cancelled);
+
+        var detail = await DrillDownAsync(_tuckShopId);
+
+        Assert.Equal(0, detail.SaleCount);
+    }
+
     [Fact]
     public async Task The_route_summary_includes_online_sales()
     {
@@ -749,7 +786,7 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
     /// left locally. CardCode is the van's business partner here too — the shop is only in the route
     /// customer columns.
     /// </summary>
-    private void AddOnlineSale(
+    private string AddOnlineSale(
         string reference,
         int routeCustomerId,
         decimal total,
@@ -761,10 +798,11 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
     {
         var customer = _context.RouteCustomers.AsNoTracking().Single(entity => entity.Id == routeCustomerId);
         var soldAt = createdAt ?? DateTime.UtcNow.AddDays(-1);
+        var reservationId = Guid.NewGuid().ToString();
 
         _context.StockReservations.Add(new StockReservationEntity
         {
-            ReservationId = Guid.NewGuid().ToString(),
+            ReservationId = reservationId,
             ExternalReferenceId = reference,
             SourceSystem = "KefalosVanSales",
             DocumentType = ReservationDocumentType.Invoice,
@@ -797,6 +835,23 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
             ]
         });
 
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+        return reservationId;
+    }
+
+    /// <summary>The invoice queue holding a sale SAP was down for, as the handset's queued fallback leaves it.</summary>
+    private void QueueForSap(string reservationId, string reference, InvoiceQueueStatus status)
+    {
+        _context.InvoiceQueue.Add(new InvoiceQueueEntity
+        {
+            ReservationId = reservationId,
+            ExternalReference = reference,
+            CustomerCode = RouteCode,
+            InvoicePayload = "{}",
+            SourceSystem = "KefalosVanSales",
+            Status = status
+        });
         _context.SaveChanges();
         _context.ChangeTracker.Clear();
     }
