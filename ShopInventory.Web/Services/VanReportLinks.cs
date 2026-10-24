@@ -56,10 +56,10 @@ public static class VanReportLinks
     public static string RouteCustomer(int routeCustomerId, DateTime from, DateTime to) =>
         Build($"/route-customers/{routeCustomerId}/sales", from, to);
 
-    /// <summary>The van invoices over the period, narrowed by the Invoices page's own search box.</summary>
-    public static string Invoices(DateTime from, DateTime to, string? search = null)
+    /// <summary>The van invoices over the period, for one rep, or narrowed by the Invoices page's own search box.</summary>
+    public static string Invoices(DateTime from, DateTime to, Guid? rep = null, string? search = null)
     {
-        var url = Build(InvoicesPath, from, to);
+        var url = Build(InvoicesPath, from, to, rep: rep);
         return string.IsNullOrWhiteSpace(search)
             ? url
             : $"{url}&search={Uri.EscapeDataString(search.Trim())}";

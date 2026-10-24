@@ -1921,6 +1921,25 @@
     color: var(--vs-faint);
 }
 
+/* Where this rep-day goes next: its calls, its invoices, the rep's attendance. */
+.vs .vsc-detail-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 16px;
+    margin-top: 13px;
+    font-size: 0.8rem;
+    color: var(--vs-ink-2);
+}
+
+.vs .vsc-detail-links-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vs-faint);
+}
+
 .vs .vsc-detail-foot {
     margin-top: 13px;
     padding-top: 11px;

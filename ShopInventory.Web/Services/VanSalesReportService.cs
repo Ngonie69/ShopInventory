@@ -5,11 +5,12 @@ namespace ShopInventory.Web.Services;
 
 public interface IVanSalesReportService
 {
-    Task<DepartureComplianceReportResponse?> GetComplianceReportAsync(
+    Task<ReportResult<DepartureComplianceReportResponse>> GetComplianceReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         Guid? userId = null,
-        string? routeCode = null);
+        string? routeCode = null,
+        CancellationToken cancellationToken = default);
 
     Task<ReportResult<VanSalesPerformanceReportResponse>> GetPerformanceReportAsync(
         DateTime? fromDate = null,
@@ -122,35 +123,28 @@ public interface IVanSalesReportService
 public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReportService> logger)
     : IVanSalesReportService
 {
-    public async Task<DepartureComplianceReportResponse?> GetComplianceReportAsync(
+    public async Task<ReportResult<DepartureComplianceReportResponse>> GetComplianceReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         Guid? userId = null,
-        string? routeCode = null)
+        string? routeCode = null,
+        CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var queryParams = new List<string>();
+        var queryParams = new List<string>();
 
-            // Dates only: these are CAT trading days, not instants. Sending a time component would
-            // invite the API to treat them as UTC and shift the window.
-            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
-            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
-            if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
-            if (!string.IsNullOrWhiteSpace(routeCode))
-                queryParams.Add($"routeCode={Uri.EscapeDataString(routeCode)}");
+        // Dates only: these are CAT trading days, not instants. Sending a time component would
+        // invite the API to treat them as UTC and shift the window.
+        if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+        if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+        if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
+        if (!string.IsNullOrWhiteSpace(routeCode))
+            queryParams.Add($"routeCode={Uri.EscapeDataString(routeCode)}");
 
-            var url = queryParams.Count > 0
-                ? $"api/van-sales/compliance-report?{string.Join("&", queryParams)}"
-                : "api/van-sales/compliance-report";
+        var url = queryParams.Count > 0
+            ? $"api/van-sales/compliance-report?{string.Join("&", queryParams)}"
+            : "api/van-sales/compliance-report";
 
-            return await httpClient.GetFromJsonAsync<DepartureComplianceReportResponse>(url);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error fetching the departure compliance report");
-            return null;
-        }
+        return await GetReportAsync<DepartureComplianceReportResponse>(url, "compliance report", cancellationToken);
     }
 
     public async Task<ReportResult<VanSalesPerformanceReportResponse>> GetPerformanceReportAsync(
