@@ -47,6 +47,7 @@ public sealed class RevmaxHistoryFiscalizationService(
     public async Task<FiscalizationResult> FiscalizeInvoiceAsync(
         InvoiceDto invoice,
         CustomerFiscalDetails? customerDetails = null,
+        FiscalReceiptOperator? raisedBy = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoice);
@@ -64,7 +65,7 @@ public sealed class RevmaxHistoryFiscalizationService(
             }
         }
 
-        return await platform.FiscalizeInvoiceAsync(invoice, customerDetails, cancellationToken);
+        return await platform.FiscalizeInvoiceAsync(invoice, customerDetails, raisedBy, cancellationToken);
     }
 
     /// <remarks>
