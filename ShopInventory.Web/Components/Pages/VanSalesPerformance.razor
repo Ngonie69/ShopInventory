@@ -7,6 +7,8 @@
 @inject IVanSalesReportService VanSalesReportService
 @inject IReportExportService ExportService
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IDisposable
 
 <PageTitle>Van Sales Performance - Shop Inventory</PageTitle>
 
@@ -56,43 +58,21 @@
         </div>
     </div>
 
-    <div class="vs-filters">
-        <div class="row g-3">
-            @* NocturneDateField and NocturneSelect throughout, never a native <input type="date">
-               or <select>: the platform popup is a window no page stylesheet reaches into, and it
-               arrives unreadable on this sheet's dark ground. *@
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vsp-from">From</label>
-                <NocturneDateField Id="vsp-from" @bind-Date="fromDate" AriaLabel="From date" />
-            </div>
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vsp-to">To</label>
-                <NocturneDateField Id="vsp-to" @bind-Date="toDate" AriaLabel="To date" />
-            </div>
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vsp-route">Route</label>
-                <NocturneSelect Id="vsp-route" Class="nsel-block" TValue="string"
-                                Options="RouteFilterOptions" @bind-Value="selectedRouteCode"
-                                OnChanged="LoadAsync" AriaLabel="Filter by route"
-                                Placeholder="All routes" />
-            </div>
-            @* The rep filter goes to the server, unlike the compliance page's, because this report
-               aggregates: filtering rows already loaded would leave every total, rank and average
-               computed over everybody and displayed under one rep's name. *@
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vsp-rep">Rep</label>
-                <NocturneSelect Id="vsp-rep" Class="nsel-block" TValue="string"
-                                Options="RepFilterOptions" @bind-Value="selectedRepId"
-                                OnChanged="LoadAsync" AriaLabel="Filter by rep"
-                                Placeholder="All reps" />
-            </div>
-            <div class="col-md-2 vs-actions">
-                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
-                    @(isLoading ? "Loading…" : "Run")
-                </button>
-            </div>
-        </div>
-    </div>
+    <VanReportPeriodBar IdPrefix="vsp" @bind-From="fromDate" @bind-To="toDate" RecentDays="RecentDays"
+                        OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="readAtUtc"
+                        ShownFrom="report?.FromDate" ShownTo="report?.ToDate">
+        <NocturneSelect Id="vsp-route" Class="nsel-block" TValue="string"
+                        Options="RouteFilterOptions" @bind-Value="selectedRouteCode"
+                        OnChanged="LoadAsync" AriaLabel="Filter by route"
+                        Placeholder="All routes" />
+        @* The rep filter goes to the server, unlike the compliance page's, because this report
+           aggregates: filtering rows already loaded would leave every total, rank and average
+           computed over everybody and displayed under one rep's name. *@
+        <NocturneSelect Id="vsp-rep" Class="nsel-block" TValue="string"
+                        Options="RepFilterOptions" @bind-Value="selectedRepId"
+                        OnChanged="LoadAsync" AriaLabel="Filter by rep"
+                        Placeholder="All reps" />
+    </VanReportPeriodBar>
 
     @if (loadError is not null)
     {
@@ -108,10 +88,14 @@
     }
     else if (report is null)
     {
-        <div class="vs-empty">
-            <div class="vs-empty-title">Nothing loaded yet</div>
-            <div>Choose a period and run the report.</div>
-        </div>
+        @* Under an error there is nothing to choose: the error says why the page is empty. *@
+        @if (loadError is null)
+        {
+            <div class="vs-empty">
+                <div class="vs-empty-title">Nothing loaded yet</div>
+                <div>Choose a period and run the report.</div>
+            </div>
+        }
     }
     else if (report.Summary.DocumentCount == 0)
     {
@@ -233,7 +217,7 @@
             {
                 <button type="button"
                         class="vs-chip @(activeSection == option.Key ? "vs-chip-info" : "vs-chip-quiet")"
-                        @onclick="() => activeSection = option.Key">
+                        @onclick="() => ShowSection(option.Key)">
                     @option.Label
                     <span class="vsp-section-count">@option.Count(report)</span>
                 </button>
@@ -315,7 +299,15 @@
                                as a route it cannot be shown to belong to. *@
                             <tr class="@(route.HasRouteDay ? null : "vsp-orphan")">
                                 <td>
-                                    @route.DisplayRoute
+                                    @if (route.HasRouteDay && !string.IsNullOrWhiteSpace(route.RouteCode))
+                                    {
+                                        <a class="vrb-link" href="@VanReportLinks.Compliance(report.FromDate, report.ToDate, route: route.RouteCode)"
+                                           title="This route's rep-days in Departure Compliance">@route.DisplayRoute</a>
+                                    }
+                                    else
+                                    {
+                                        @route.DisplayRoute
+                                    }
                                     @if (!route.HasRouteDay)
                                     {
                                         <span class="vs-chip vs-chip-warn vsp-inline-chip">unrouted</span>
@@ -374,7 +366,10 @@
                         {
                             var repLead = LeadCurrency(rep.TotalsByCurrency);
                             <tr>
-                                <td>@rep.DisplayName</td>
+                                <td>
+                                    <a class="vrb-link" href="@VanReportLinks.Compliance(report.FromDate, report.ToDate, rep: rep.UserId)"
+                                       title="This rep's days in Departure Compliance">@rep.DisplayName</a>
+                                </td>
                                 <td>@(rep.Routes.Count == 0 ? "—" : string.Join(", ", rep.Routes))</td>
                                 <td class="vs-num">@rep.TradingDayCount.ToString("N0")</td>
                                 <td class="vs-num">@Count(rep.Calls)</td>
@@ -822,6 +817,26 @@
 
     private bool isLoading;
     private string? loadError;
+    private DateTime? readAtUtc;
+
+    /// <summary>The page's own default, shown as a preset beside the standard ones.</summary>
+    private static readonly int[] RecentDays = [30];
+
+    private const string ViewQueryName = "view";
+
+    [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.Route)] private string? RouteQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.Rep)] private string? RepQuery { get; set; }
+    [SupplyParameterFromQuery(Name = ViewQueryName)] private string? ViewQuery { get; set; }
+
+    private readonly LatestLoad loads = new();
+
+    /// <summary>
+    /// Every rep any load has named, so choosing one does not empty the list: the API answers a rep
+    /// filter with that rep alone, and a list rebuilt from the last answer left nobody else to pick.
+    /// </summary>
+    private readonly Dictionary<Guid, string> knownReps = [];
 
     private IEnumerable<INocturneSelectOption<string>> RouteFilterOptions =>
         new[] { NocturneSelectOption.All("All routes") }
@@ -830,25 +845,31 @@
                 route.IsActive ? route.DisplayLabel : $"{route.DisplayLabel} (retired)")));
 
     /// <summary>
-    /// The reps the loaded period holds. Rebuilt from the last answer, so choosing one cannot ask
-    /// for somebody with nothing in the window — but the choice still goes back to the server,
-    /// because every figure on this page is an aggregate.
+    /// The reps any load has named. The choice goes back to the server, because every figure on
+    /// this page is an aggregate; the trading-day hint is this period's where the rep is in it.
     /// </summary>
     private IEnumerable<INocturneSelectOption<string>> RepFilterOptions =>
         new[] { NocturneSelectOption.All("All reps") }
-            .Concat((report?.Reps ?? [])
-                .OrderBy(rep => rep.DisplayName, StringComparer.OrdinalIgnoreCase)
-                .Select(rep => new NocturneSelectOption<string>(rep.UserId.ToString("N"), rep.DisplayName)
+            .Concat(knownReps
+                .OrderBy(rep => rep.Value, StringComparer.OrdinalIgnoreCase)
+                .Select(rep => new NocturneSelectOption<string>(VanReportLinks.RepKey(rep.Key), rep.Value)
                 {
-                    Hint = rep.TradingDayCount.ToString("N0")
+                    Hint = report?.Reps.FirstOrDefault(row => row.UserId == rep.Key)?.TradingDayCount.ToString("N0")
                 }));
 
     protected override async Task OnInitializedAsync()
     {
-        // CAT, not the server's clock: a trading day belongs to the van.
-        var today = DateTime.UtcNow.AddHours(2).Date;
-        fromDate = today.AddDays(-29);
-        toDate = today;
+        // A link or a refresh opens the report as it was; otherwise the page's own last 30 days.
+        var (defaultFrom, defaultTo) = VanReportPeriod.LastDays(RecentDays[0], VanReportPeriod.TodayCat);
+        fromDate = VanReportPeriod.ParseDay(FromQuery) ?? defaultFrom;
+        toDate = VanReportPeriod.ParseDay(ToQuery) ?? defaultTo;
+        selectedRouteCode = string.IsNullOrWhiteSpace(RouteQuery) ? null : RouteQuery.Trim();
+        selectedRepId = VanReportLinks.ParseRep(RepQuery) is { } repFromLink ? VanReportLinks.RepKey(repFromLink) : null;
+
+        if (Sections.Any(section => section.Key == ViewQuery))
+        {
+            activeSection = ViewQuery!;
+        }
 
         routes = await VanSalesReportService.GetRoutesAsync(includeInactive: true);
 
@@ -857,6 +878,7 @@
 
     private async Task LoadAsync()
     {
+        var token = loads.Begin();
         isLoading = true;
         loadError = null;
         StateHasChanged();
@@ -865,17 +887,30 @@
         {
             Guid? repId = Guid.TryParse(selectedRepId, out var parsed) ? parsed : null;
 
-            report = await VanSalesReportService.GetPerformanceReportAsync(
+            var result = await VanSalesReportService.GetPerformanceReportAsync(
                 fromDate,
                 toDate,
                 repId,
-                string.IsNullOrWhiteSpace(selectedRouteCode) ? null : selectedRouteCode);
+                string.IsNullOrWhiteSpace(selectedRouteCode) ? null : selectedRouteCode,
+                cancellationToken: token);
+
+            // The new period's figures or nothing: never the old figures under an error about the new.
+            report = result.Value;
 
             if (report is null)
             {
-                loadError = "The performance report could not be loaded. Check that the API is reachable.";
+                loadError = result.Error;
                 return;
             }
+
+            readAtUtc = DateTime.UtcNow;
+
+            foreach (var row in report.Reps)
+            {
+                knownReps[row.UserId] = row.DisplayName;
+            }
+
+            WriteQuery();
 
             // A rep filter naming somebody the new period does not hold would leave every table
             // empty with no visible reason for it.
@@ -885,16 +920,43 @@
                 selectedRepId = null;
             }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // A newer load replaced this one and owns the page now.
+        }
         catch (Exception ex)
         {
             loadError = $"Failed to load the performance report: {ex.Message}";
         }
         finally
         {
-            isLoading = false;
-            StateHasChanged();
+            if (!token.IsCancellationRequested)
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
         }
     }
+
+    private void ShowSection(string key)
+    {
+        activeSection = key;
+        WriteQuery();
+    }
+
+    /// <summary>The filters and the open section, in the page's own URL.</summary>
+    private void WriteQuery()
+    {
+        var query = VanReportLinks.Query(
+            fromDate,
+            toDate,
+            selectedRouteCode,
+            VanReportLinks.ParseRep(selectedRepId));
+        query[ViewQueryName] = activeSection == SectionRoutes ? null : activeSection;
+        VanReportLinks.WriteQuery(Navigation, query);
+    }
+
+    public void Dispose() => loads.Dispose();
 
     private async Task ExportAsync()
     {

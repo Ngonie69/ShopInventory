@@ -10,6 +10,8 @@
 @implements IAsyncDisposable
 @inject IVanSalesAttendanceService VanSalesAttendanceService
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IDisposable
 @inject IReportExportService ExportService
 
 <PageTitle>Van Sales Activity - Shop Inventory</PageTitle>
@@ -54,28 +56,30 @@
         </div>
     </div>
 
-    <div class="vsa-bar">
-        <div class="vsa-seg" role="group" aria-label="Period">
-            @foreach (var option in PeriodOptions)
-            {
-                <button type="button"
-                        class="vsa-seg-btn @(period == option.Key ? "vsa-seg-on" : "")"
-                        aria-pressed="@(period == option.Key)"
-                        disabled="@isLoading"
-                        @onclick="() => SetPeriodAsync(option.Key)">
-                    @PeriodLabel(option.Key)
-                </button>
-            }
-        </div>
-
+    <VanReportPeriodBar IdPrefix="vsa" @bind-From="fromDate" @bind-To="toDate" RecentDays="RecentDays"
+                        OnRun="RunAsync" Loading="isLoading" ReadAtUtc="readAtUtc"
+                        ShownFrom="shownFrom" ShownTo="shownTo">
         <div class="vsa-search">
             <span class="vsa-search-icon" aria-hidden="true">⌕</span>
             <input class="vsa-search-input"
                    value="@query"
                    @oninput="OnQueryInput"
+                   @onchange="WriteQuery"
                    aria-label="Filter rounds"
                    placeholder="Rep, van, route, customer or code" />
         </div>
+    </VanReportPeriodBar>
+
+    <div class="vsa-bar">
+        @if (repFilter is { } chosenRep)
+        {
+            @* A van report linked here for one rep's rounds. Named, so the narrowing is visible and
+               can be undone, rather than a search box quietly holding an id. *@
+            <button type="button" class="vsa-flag vsa-flag-on" @onclick="ClearRep"
+                    aria-label="@($"Showing {RepName(chosenRep)} only. Show every rep.")">
+                @RepName(chosenRep)<span class="vsa-flag-x" aria-hidden="true">×</span>
+            </button>
+        }
 
         <div class="vsa-flags" role="group" aria-label="Exception filters">
             @foreach (var flag in FlagOptions)
@@ -91,24 +95,6 @@
 
         <button type="button" class="vs-btn vsa-reset" @onclick="ResetAsync" disabled="@isLoading">Reset</button>
     </div>
-
-    @if (period == PeriodChoice.Custom)
-    {
-        @* NocturneDateField, never <input type="date"> — see the compliance page for why. *@
-        <div class="vsa-custom">
-            <div class="vsa-custom-field">
-                <label class="vs-filter-label" for="vsa-from">From</label>
-                <NocturneDateField Id="vsa-from" @bind-Date="fromDate" AriaLabel="From date" />
-            </div>
-            <div class="vsa-custom-field">
-                <label class="vs-filter-label" for="vsa-to">To</label>
-                <NocturneDateField Id="vsa-to" @bind-Date="toDate" AriaLabel="To date" />
-            </div>
-            <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
-                @(isLoading ? "Loading…" : "Apply")
-            </button>
-        </div>
-    }
 
     <div class="vsa-summary-line">@SummaryLine()</div>
 
@@ -229,6 +215,10 @@
                                 <div class="vsa-detail">
                                     <div class="vsa-detail-head">
                                         <div class="vsa-detail-line">@round.DetailLine</div>
+                                        <div class="vsa-detail-links">
+                                            <a class="vrb-link" href="@VanReportLinks.Compliance(round.Date, round.Date, rep: RepOf(round))">this day in Departure Compliance</a>
+                                            <a class="vrb-link" href="@VanReportLinks.Invoices(round.Date, round.Date, RepOf(round))">this day's invoices</a>
+                                        </div>
                                         @if (round.Stops.Count > 0)
                                         {
                                             <div class="vsa-detail-hint">Click a call to pin it on the map →</div>
@@ -392,15 +382,8 @@
 
     private const string MapElementId = "vsa-round-map";
 
-    private enum PeriodChoice { Today, Last3, Week, Custom }
-
-    private static readonly (PeriodChoice Key, int Days)[] PeriodOptions =
-    [
-        (PeriodChoice.Today, 0),
-        (PeriodChoice.Last3, 2),
-        (PeriodChoice.Week, 6),
-        (PeriodChoice.Custom, 6)
-    ];
+    /// <summary>The page's own presets beside the standard ones; the last is its default.</summary>
+    private static readonly int[] RecentDays = [3, 7];
 
     private static readonly (string Key, string Label)[] FlagOptions =
     [
@@ -410,7 +393,6 @@
         ("gap", "Idle 90m+")
     ];
 
-    private PeriodChoice period = PeriodChoice.Week;
     private DateTime? fromDate;
     private DateTime? toDate;
     private string query = string.Empty;
@@ -419,6 +401,15 @@
     private bool isLoading;
     private string? loadError;
     private int? truncatedAt;
+
+    /// <summary>One rep's rounds only, when a van report linked here for them.</summary>
+    private Guid? repFilter;
+
+    private DateTime? shownFrom;
+    private DateTime? shownTo;
+    private DateTime? readAtUtc;
+
+    private readonly LatestLoad loads = new();
 
     private List<Round> allRounds = [];
     private List<Round> filtered = [];
@@ -443,40 +434,47 @@
 
     private List<Stop> MapStops => MapRound?.Stops ?? [];
 
-    // Landed on from the attendance report's "Open call sheet", which knows the rep and the period
-    // the reader was looking at. Read once, at first load: these prefill the filters and are then
-    // the reader's to change, so a later edit is not overwritten by the address bar.
-    [SupplyParameterFromQuery(Name = "rep")] private string? RepQuery { get; set; }
-    [SupplyParameterFromQuery(Name = "from")] private string? FromQuery { get; set; }
-    [SupplyParameterFromQuery(Name = "to")] private string? ToQuery { get; set; }
+    // Landed on from another van report, which knows the rep and the period the reader was looking
+    // at. Read once, at first load: these prefill the filters and are then the reader's to change.
+    // "rep" is a user id from the van reports; any other text in it is an older link's search term.
+    [SupplyParameterFromQuery(Name = VanReportLinks.Rep)] private string? RepQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "q")] private string? SearchQuery { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
-        ApplyPeriodDates();
+        ApplyDefaultPeriod();
         ApplyQueryString();
         await LoadAsync();
     }
 
     /// <summary>
-    /// Prefills the search and the period from the address bar, when they are there and parse.
+    /// Prefills the period, the rep and the search from the address bar, when they are there and parse.
     ///
     /// Both dates or neither: a range with one end taken from the query and the other left on the
     /// default week is a window nobody asked for, and it would silently report on the wrong period.
     /// </summary>
     private void ApplyQueryString()
     {
-        if (!string.IsNullOrWhiteSpace(RepQuery))
+        if (VanReportLinks.ParseRep(RepQuery) is { } rep)
+        {
+            repFilter = rep;
+        }
+        else if (!string.IsNullOrWhiteSpace(RepQuery))
         {
             query = RepQuery.Trim();
         }
 
-        if (DateTime.TryParseExact(FromQuery, "yyyy-MM-dd", CultureInfo.InvariantCulture,
-                DateTimeStyles.None, out var from) &&
-            DateTime.TryParseExact(ToQuery, "yyyy-MM-dd", CultureInfo.InvariantCulture,
-                DateTimeStyles.None, out var to) &&
+        if (!string.IsNullOrWhiteSpace(SearchQuery))
+        {
+            query = SearchQuery.Trim();
+        }
+
+        if (VanReportPeriod.ParseDay(FromQuery) is { } from &&
+            VanReportPeriod.ParseDay(ToQuery) is { } to &&
             to >= from)
         {
-            period = PeriodChoice.Custom;
             fromDate = from;
             toDate = to;
         }
@@ -484,19 +482,24 @@
 
     // ---- Loading -----------------------------------------------------------------------------
 
-    private void ApplyPeriodDates()
+    /// <summary>The page's own default: the last seven days, today included.</summary>
+    private void ApplyDefaultPeriod()
     {
-        if (period == PeriodChoice.Custom) return;
+        (fromDate, toDate) = VanReportPeriod.LastDays(RecentDays[^1], Today());
+    }
 
-        var back = PeriodOptions.First(option => option.Key == period).Days;
-        var today = Today();
-
-        fromDate = today.AddDays(-back);
-        toDate = today;
+    /// <summary>A preset or Run: a new period starts on its first page with nothing opened.</summary>
+    private async Task RunAsync()
+    {
+        currentPage = 1;
+        expandedId = null;
+        activeStop = -1;
+        await LoadAsync();
     }
 
     private async Task LoadAsync()
     {
+        var token = loads.Begin();
         isLoading = true;
         loadError = null;
         truncatedAt = null;
@@ -513,12 +516,12 @@
 
             while (true)
             {
-                var response = await VanSalesAttendanceService.GetVisitsAsync(
-                    page, FetchPageSize, fromDate: fromUtc, toDate: toUtc);
+                var result = await VanSalesAttendanceService.GetVisitsAsync(
+                    page, FetchPageSize, fromDate: fromUtc, toDate: toUtc, cancellationToken: token);
 
-                if (response is null)
+                if (result.Value is not { } response)
                 {
-                    loadError = "Van sales activity could not be loaded. Check that the API is reachable.";
+                    loadError = result.Error;
                     allRounds = [];
                     Refilter();
                     return;
@@ -541,6 +544,14 @@
 
             allRounds = BuildRounds(visits);
             Refilter();
+            shownFrom = fromDate;
+            shownTo = toDate;
+            readAtUtc = DateTime.UtcNow;
+            WriteQuery();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // A newer load replaced this one and owns the page now.
         }
         catch (Exception ex)
         {
@@ -550,10 +561,40 @@
         }
         finally
         {
-            isLoading = false;
-            StateHasChanged();
+            if (!token.IsCancellationRequested)
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
         }
     }
+
+    /// <summary>The period, the rep and the search, in the page's own URL.</summary>
+    private void WriteQuery()
+    {
+        var values = VanReportLinks.Query(shownFrom ?? fromDate, shownTo ?? toDate, rep: repFilter);
+        values["q"] = string.IsNullOrWhiteSpace(query) ? null : query.Trim();
+        VanReportLinks.WriteQuery(Navigation, values);
+    }
+
+    private void ClearRep()
+    {
+        repFilter = null;
+        currentPage = 1;
+        expandedId = null;
+        activeStop = -1;
+        Refilter();
+        WriteQuery();
+    }
+
+    /// <summary>A round's rep, read back off its id, which leads with the rep's user id.</summary>
+    private static Guid? RepOf(Round round) =>
+        Guid.TryParseExact(round.Id.Split('-')[0], "N", out var rep) ? rep : null;
+
+    private string RepName(Guid rep) =>
+        allRounds.FirstOrDefault(round => RepOf(round) == rep)?.RepName ?? "the chosen rep";
+
+    public void Dispose() => loads.Dispose();
 
     // ---- Filtering ---------------------------------------------------------------------------
 
@@ -566,6 +607,7 @@
             .Where(round => !flags.Contains("offline") || round.OfflineCalls > 0)
             .Where(round => !flags.Contains("nofix") || round.NoFixCalls > 0)
             .Where(round => !flags.Contains("gap") || round.LongestGapMinutes >= IdleMinutes)
+            .Where(round => repFilter is not { } rep || RepOf(round) == rep)
             .Where(round => round.Matches(term))
             .ToList();
 
@@ -596,24 +638,6 @@
         pageRounds = filtered.Skip((currentPage - 1) * RoundsPerPage).Take(RoundsPerPage).ToList();
     }
 
-    private async Task SetPeriodAsync(PeriodChoice choice)
-    {
-        period = choice;
-        currentPage = 1;
-        expandedId = null;
-        activeStop = -1;
-
-        if (choice == PeriodChoice.Custom)
-        {
-            // Custom opens on whatever window was last loaded, so the pickers start from something
-            // real rather than from empty fields, and nothing is fetched until Apply is pressed.
-            return;
-        }
-
-        ApplyPeriodDates();
-        await LoadAsync();
-    }
-
     private void OnQueryInput(ChangeEventArgs e)
     {
         query = e.Value?.ToString() ?? string.Empty;
@@ -640,9 +664,9 @@
         currentPage = 1;
         expandedId = null;
         activeStop = -1;
-        period = PeriodChoice.Week;
+        repFilter = null;
 
-        ApplyPeriodDates();
+        ApplyDefaultPeriod();
         await LoadAsync();
     }
 
@@ -1186,22 +1210,5 @@
     {
         var whole = (int)Math.Round(minutes);
         return whole >= 60 ? $"{whole / 60}h{whole % 60:00}" : $"{whole}m";
-    }
-
-    private string PeriodLabel(PeriodChoice choice) => choice switch
-    {
-        PeriodChoice.Today => "Today",
-        PeriodChoice.Last3 => "Last 3 days",
-        PeriodChoice.Week => WeekLabel(),
-        _ => "Custom…"
-    };
-
-    /// <summary>The week button names its own dates, so the segmented control never hides the window.</summary>
-    private static string WeekLabel()
-    {
-        var today = Today();
-        var from = today.AddDays(-6);
-
-        return $"{from.ToString("dd", CultureInfo.InvariantCulture)} – {today.ToString("dd MMM", CultureInfo.InvariantCulture)}";
     }
 }

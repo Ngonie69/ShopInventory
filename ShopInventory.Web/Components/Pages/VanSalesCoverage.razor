@@ -7,6 +7,8 @@
 @inject IVanSalesReportService VanSalesReportService
 @inject IReportExportService ExportService
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IDisposable
 
 <PageTitle>Van Sales Coverage - Shop Inventory</PageTitle>
 
@@ -54,45 +56,23 @@
         </div>
     </div>
 
-    <div class="vs-filters">
-        <div class="row g-3">
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vsg-from">From</label>
-                <NocturneDateField Id="vsg-from" @bind-Date="fromDate" AriaLabel="From date" />
-            </div>
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vsg-to">To</label>
-                <NocturneDateField Id="vsg-to" @bind-Date="toDate" AriaLabel="To date" />
-            </div>
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vsg-route">Route</label>
-                <NocturneSelect Id="vsg-route" Class="nsel-block" TValue="string"
-                                Options="RouteFilterOptions" @bind-Value="selectedRouteCode"
-                                OnChanged="LoadAsync" AriaLabel="Filter by route"
-                                Placeholder="All routes" />
-            </div>
-            @* Not the route-customer pages' dormancy threshold, which answers a narrower question
-               about one shop. Exposed because the right answer depends on how often a route cycles,
-               and that is the reader's knowledge rather than the report's. *@
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vsg-lapse">Lapsed after</label>
-                <NocturneSelect Id="vsg-lapse" Class="nsel-block" TValue="string"
-                                Options="LapseOptions" @bind-Value="selectedLapseDays"
-                                OnChanged="LoadAsync" AriaLabel="Days without buying before a shop counts as lapsed" />
-            </div>
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vsg-grain">Buckets</label>
-                <NocturneSelect Id="vsg-grain" Class="nsel-block" TValue="string"
-                                Options="GranularityOptions" @bind-Value="selectedGranularity"
-                                OnChanged="LoadAsync" AriaLabel="Bucket size" />
-            </div>
-            <div class="col-md-2 vs-actions">
-                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
-                    @(isLoading ? "Loading…" : "Run")
-                </button>
-            </div>
-        </div>
-    </div>
+    <VanReportPeriodBar IdPrefix="vsg" @bind-From="fromDate" @bind-To="toDate" RecentDays="RecentDays"
+                        OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="readAtUtc"
+                        ShownFrom="report?.FromDate" ShownTo="report?.ToDate">
+        <NocturneSelect Id="vsg-route" Class="nsel-block" TValue="string"
+                        Options="RouteFilterOptions" @bind-Value="selectedRouteCode"
+                        OnChanged="LoadAsync" AriaLabel="Filter by route"
+                        Placeholder="All routes" />
+        @* Not the route-customer pages' dormancy threshold, which answers a narrower question
+           about one shop. Exposed because the right answer depends on how often a route cycles,
+           and that is the reader's knowledge rather than the report's. *@
+        <NocturneSelect Id="vsg-lapse" Class="nsel-block" TValue="string"
+                        Options="LapseOptions" @bind-Value="selectedLapseDays"
+                        OnChanged="LoadAsync" AriaLabel="Days without buying before a shop counts as lapsed" />
+        <NocturneSelect Id="vsg-grain" Class="nsel-block" TValue="string"
+                        Options="GranularityOptions" @bind-Value="selectedGranularity"
+                        OnChanged="LoadAsync" AriaLabel="Bucket size" />
+    </VanReportPeriodBar>
 
     @if (loadError is not null)
     {
@@ -105,6 +85,10 @@
             <MudProgressCircular Indeterminate="true" Size="Size.Small" />
             <span>Reading the base…</span>
         </div>
+    }
+    else if (report is null && loadError is not null)
+    {
+        @* The error above says why the page is empty; nothing to choose. *@
     }
     else if (report is null)
     {
@@ -173,7 +157,7 @@
             {
                 <button type="button"
                         class="vs-chip @(activeSection == option.Key ? "vs-chip-info" : "vs-chip-quiet")"
-                        @onclick="() => activeSection = option.Key">
+                        @onclick="() => ShowSection(option.Key)">
                     @option.Label
                     <span class="vsg-section-count">@option.Count(report)</span>
                 </button>
@@ -258,7 +242,10 @@
                         {
                             var efficiency = rep.EfficiencyByCurrency.FirstOrDefault();
                             <tr class="@(rep.OutletsAttributable ? null : "vsg-unattributable")">
-                                <td>@rep.DisplayName</td>
+                                <td>
+                                    <a class="vrb-link" href="@VanReportLinks.Compliance(report.FromDate, report.ToDate, rep: rep.UserId)"
+                                       title="This rep's days in Departure Compliance">@rep.DisplayName</a>
+                                </td>
                                 <td>
                                     @(rep.VanAccountCode ?? "—")
                                     @if (!rep.OutletsAttributable)
@@ -326,7 +313,15 @@
                             {
                                 <tr>
                                     <td>
-                                        @outlet.DisplayName
+                                        @if (outlet.RouteCustomerId is { } shopId)
+                                        {
+                                            <a class="vrb-link" href="@VanReportLinks.RouteCustomer(shopId, report.FromDate, report.ToDate)"
+                                               title="This shop's own sales">@outlet.DisplayName</a>
+                                        }
+                                        else
+                                        {
+                                            @outlet.DisplayName
+                                        }
                                         <span class="vsg-sub">@outlet.OutletCode</span>
                                     </td>
                                     <td>@outlet.VanAccountCode</td>
@@ -451,7 +446,15 @@
                             {
                                 <tr class="@(outlet.StillOnRoster ? null : "vsg-off-roster")">
                                     <td>
-                                        @outlet.DisplayName
+                                        @if (outlet.RouteCustomerId is { } shopId)
+                                        {
+                                            <a class="vrb-link" href="@VanReportLinks.RouteCustomer(shopId, report.FromDate, report.ToDate)"
+                                               title="This shop's own sales">@outlet.DisplayName</a>
+                                        }
+                                        else
+                                        {
+                                            @outlet.DisplayName
+                                        }
                                         <span class="vsg-sub">@outlet.OutletCode</span>
                                         @if (!outlet.StillOnRoster)
                                         {
@@ -550,7 +553,15 @@
                         {
                             <tr>
                                 <td>
-                                    @outlet.DisplayName
+                                    @if (outlet.RouteCustomerId is { } shopId)
+                                    {
+                                        <a class="vrb-link" href="@VanReportLinks.RouteCustomer(shopId, report.FromDate, report.ToDate)"
+                                           title="This shop's own sales">@outlet.DisplayName</a>
+                                    }
+                                    else
+                                    {
+                                        @outlet.DisplayName
+                                    }
                                     <span class="vsg-sub">@outlet.OutletCode</span>
                                     @if (outlet.IsNewInWindow)
                                     {
@@ -662,6 +673,23 @@
 
     private bool isLoading;
     private string? loadError;
+    private DateTime? readAtUtc;
+
+    /// <summary>The page's own default, shown as a preset beside the standard ones.</summary>
+    private static readonly int[] RecentDays = [90];
+
+    private const string ViewQueryName = "view";
+    private const string LapseQueryName = "lapse";
+    private const string GrainQueryName = "grain";
+
+    [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.Route)] private string? RouteQuery { get; set; }
+    [SupplyParameterFromQuery(Name = ViewQueryName)] private string? ViewQuery { get; set; }
+    [SupplyParameterFromQuery(Name = LapseQueryName)] private string? LapseQuery { get; set; }
+    [SupplyParameterFromQuery(Name = GrainQueryName)] private string? GrainQuery { get; set; }
+
+    private readonly LatestLoad loads = new();
 
     private IEnumerable<INocturneSelectOption<string>> RouteFilterOptions =>
         new[] { NocturneSelectOption.All("All routes") }
@@ -685,10 +713,26 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // CAT, not the server's clock: a trading day belongs to the van.
-        var today = DateTime.UtcNow.AddHours(2).Date;
-        fromDate = today.AddDays(-89);
-        toDate = today;
+        // A link or a refresh opens the report as it was; otherwise the page's own last 90 days.
+        var (defaultFrom, defaultTo) = VanReportPeriod.LastDays(RecentDays[0], VanReportPeriod.TodayCat);
+        fromDate = VanReportPeriod.ParseDay(FromQuery) ?? defaultFrom;
+        toDate = VanReportPeriod.ParseDay(ToQuery) ?? defaultTo;
+        selectedRouteCode = string.IsNullOrWhiteSpace(RouteQuery) ? null : RouteQuery.Trim();
+
+        if (Sections.Any(section => section.Key == ViewQuery))
+        {
+            activeSection = ViewQuery!;
+        }
+
+        if (LapseOptions.Any(option => option.Value == LapseQuery))
+        {
+            selectedLapseDays = LapseQuery!;
+        }
+
+        if (Enum.TryParse<VanSalesCoverageGranularity>(GrainQuery, ignoreCase: true, out var grainFromLink))
+        {
+            selectedGranularity = grainFromLink.ToString();
+        }
 
         routes = await VanSalesReportService.GetRoutesAsync(includeInactive: true);
 
@@ -697,6 +741,7 @@
 
     private async Task LoadAsync()
     {
+        var token = loads.Begin();
         isLoading = true;
         loadError = null;
         StateHasChanged();
@@ -709,17 +754,27 @@
                 ? grain
                 : VanSalesCoverageGranularity.Month;
 
-            report = await VanSalesReportService.GetCoverageReportAsync(
+            var result = await VanSalesReportService.GetCoverageReportAsync(
                 fromDate,
                 toDate,
                 routeCode: string.IsNullOrWhiteSpace(selectedRouteCode) ? null : selectedRouteCode,
                 lapseDays: lapseDays,
-                granularity: granularity);
+                granularity: granularity,
+                cancellationToken: token);
 
-            if (report is null)
+            // The new period's base or nothing: never the old figures under an error about the new.
+            report = result.Value;
+            loadError = result.Error;
+
+            if (report is not null)
             {
-                loadError = "The coverage report could not be loaded. Check that the API is reachable.";
+                readAtUtc = DateTime.UtcNow;
+                WriteQuery();
             }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // A newer load replaced this one and owns the page now.
         }
         catch (Exception ex)
         {
@@ -727,10 +782,31 @@
         }
         finally
         {
-            isLoading = false;
-            StateHasChanged();
+            if (!token.IsCancellationRequested)
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
         }
     }
+
+    private void ShowSection(string key)
+    {
+        activeSection = key;
+        WriteQuery();
+    }
+
+    /// <summary>The period, the route, the lapse and bucket choices and the open section, in the URL.</summary>
+    private void WriteQuery()
+    {
+        var values = VanReportLinks.Query(report?.FromDate ?? fromDate, report?.ToDate ?? toDate, selectedRouteCode);
+        values[ViewQueryName] = activeSection == SectionRates ? null : activeSection;
+        values[LapseQueryName] = selectedLapseDays == "90" ? null : selectedLapseDays;
+        values[GrainQueryName] = selectedGranularity == nameof(VanSalesCoverageGranularity.Month) ? null : selectedGranularity;
+        VanReportLinks.WriteQuery(Navigation, values);
+    }
+
+    public void Dispose() => loads.Dispose();
 
     private async Task ExportAsync()
     {

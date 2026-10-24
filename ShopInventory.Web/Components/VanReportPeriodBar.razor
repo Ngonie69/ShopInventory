@@ -1,0 +1,134 @@
+@using ShopInventory.Web.Models
+@*
+    The period row every dated van report wears: the presets, the two dates, the page's own filters,
+    Run, and a line under them saying what is on screen and when it was read.
+
+    A preset runs at once. Typed dates wait for Run — each keystroke is not a report — and until then
+    the line underneath says the dates on screen are not the ones in the boxes, rather than leaving
+    the reader to work out that they disagree.
+*@
+
+<div class="vrb" role="group" aria-label="@AriaLabel">
+    <div class="vrb-row">
+        <div class="vrb-seg" role="group" aria-label="Period">
+            @foreach (var option in options)
+            {
+                var on = IsOn(option);
+
+                <button type="button" class="@(on ? "vrb-on" : null)" aria-pressed="@(on ? "true" : "false")"
+                        disabled="@Loading" @onclick="() => PickAsync(option)">@option.Label</button>
+            }
+        </div>
+
+        <div class="vrb-dates">
+            <NocturneDateField Id="@($"{IdPrefix}-from")" Date="From" DateChanged="OnFromChangedAsync" AriaLabel="From date" />
+            <span class="vrb-to" aria-hidden="true">to</span>
+            <NocturneDateField Id="@($"{IdPrefix}-to")" Date="To" DateChanged="OnToChangedAsync" AriaLabel="To date" />
+        </div>
+
+        @if (ChildContent is not null)
+        {
+            <div class="vrb-filters">@ChildContent</div>
+        }
+
+        <button type="button" class="vrb-run" id="@($"{IdPrefix}-run")" disabled="@Loading" @onclick="RunAsync">
+            @(Loading ? "Loading…" : "Run")
+        </button>
+    </div>
+
+    <div class="vrb-meta" aria-live="polite">
+        @if (ShownFrom is { } shownFrom && ShownTo is { } shownTo)
+        {
+            <span>Showing <b>@VanReportPeriod.Describe(shownFrom, shownTo)</b></span>
+
+            @if (ReadAtUtc is { } readAt)
+            {
+                <span class="vrb-dot" aria-hidden="true">·</span>
+                <span>read @readAt.AddHours(2).ToString("HH:mm") CAT</span>
+            }
+
+            @if (Edited)
+            {
+                <span class="vrb-dot" aria-hidden="true">·</span>
+                <span class="vrb-pending">press Run to show @(From is { } f && To is { } t ? VanReportPeriod.Describe(f, t) : "the new dates")</span>
+            }
+        }
+        else if (!Loading)
+        {
+            <span>Nothing loaded yet</span>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>First day of the period in the boxes.</summary>
+    [Parameter] public DateTime? From { get; set; }
+    [Parameter] public EventCallback<DateTime?> FromChanged { get; set; }
+
+    /// <summary>Last day of the period in the boxes.</summary>
+    [Parameter] public DateTime? To { get; set; }
+    [Parameter] public EventCallback<DateTime?> ToChanged { get; set; }
+
+    /// <summary>A "Last N days" button for each, beside the standard set: the page's own default.</summary>
+    [Parameter] public IEnumerable<int>? RecentDays { get; set; }
+
+    /// <summary>"This month" as the whole calendar month. See <see cref="VanReportPeriod.Options"/>.</summary>
+    [Parameter] public bool WholeMonths { get; set; }
+
+    /// <summary>Runs the report for the period in the boxes. A preset sets them first.</summary>
+    [Parameter] public EventCallback OnRun { get; set; }
+
+    [Parameter] public bool Loading { get; set; }
+
+    /// <summary>The period the report on screen covers, which the boxes may since have moved off.</summary>
+    [Parameter] public DateTime? ShownFrom { get; set; }
+    [Parameter] public DateTime? ShownTo { get; set; }
+
+    /// <summary>When the report on screen was read, UTC.</summary>
+    [Parameter] public DateTime? ReadAtUtc { get; set; }
+
+    /// <summary>The page's own filters — a route, a rep — drawn between the dates and Run.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Prefixes the date fields' and Run's ids, which page tests and labels point at.</summary>
+    [Parameter] public string IdPrefix { get; set; } = "vrb";
+
+    [Parameter] public string AriaLabel { get; set; } = "Report period and filters";
+
+    private IReadOnlyList<VanReportPeriod.Option> options = [];
+
+    protected override void OnParametersSet()
+    {
+        options = VanReportPeriod.Options(VanReportPeriod.TodayCat, RecentDays, WholeMonths);
+    }
+
+    private bool IsOn(VanReportPeriod.Option option) =>
+        From?.Date == option.From && To?.Date == option.To;
+
+    private bool Edited =>
+        ShownFrom is { } shownFrom && ShownTo is { } shownTo
+        && (From?.Date != shownFrom.Date || To?.Date != shownTo.Date);
+
+    private async Task PickAsync(VanReportPeriod.Option option)
+    {
+        From = option.From;
+        To = option.To;
+        await FromChanged.InvokeAsync(From);
+        await ToChanged.InvokeAsync(To);
+        await OnRun.InvokeAsync();
+    }
+
+    private async Task OnFromChangedAsync(DateTime? value)
+    {
+        From = value;
+        await FromChanged.InvokeAsync(value);
+    }
+
+    private async Task OnToChangedAsync(DateTime? value)
+    {
+        To = value;
+        await ToChanged.InvokeAsync(value);
+    }
+
+    private Task RunAsync() => OnRun.InvokeAsync();
+}

@@ -14,6 +14,20 @@ public partial class VanReplenishment
     [Inject] private IReportExportService ExportService { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+
+    /// <summary>The page's own default, shown as a preset beside the standard ones.</summary>
+    private static readonly int[] RecentDays = [30];
+
+    private const string VanQueryName = "van";
+    private const string DepotQueryName = "depot";
+
+    [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanQueryName)] private string? VanQuery { get; set; }
+    [SupplyParameterFromQuery(Name = DepotQueryName)] private string? DepotQuery { get; set; }
+
+    private readonly LatestLoad loads = new();
 
     private enum DrawerMode { View, Record, ConfirmWithdraw, ConfirmPostInStock, ConfirmRetry }
 
@@ -79,35 +93,45 @@ public partial class VanReplenishment
     protected override async Task OnInitializedAsync()
     {
         using var pageReads = PageReads.Bind(PageLifetime);
-        // CAT, not the server's clock: a trading day belongs to the van.
-        var today = DateTime.UtcNow.AddHours(2).Date;
-        fromDate = today.AddDays(-29);
-        toDate = today;
+        // A link or a refresh opens the report as it was; otherwise the page's own last 30 days.
+        var (defaultFrom, defaultTo) = VanReportPeriod.LastDays(RecentDays[0], VanReportPeriod.TodayCat);
+        fromDate = VanReportPeriod.ParseDay(FromQuery) ?? defaultFrom;
+        toDate = VanReportPeriod.ParseDay(ToQuery) ?? defaultTo;
+        selectedVan = string.IsNullOrWhiteSpace(VanQuery) ? null : VanQuery.Trim();
+        selectedDepot = string.IsNullOrWhiteSpace(DepotQuery) ? null : DepotQuery.Trim();
 
         await LoadAsync();
     }
 
     private async Task LoadAsync()
     {
+        var token = loads.Begin();
         isLoading = true;
         loadError = null;
         StateHasChanged();
 
         try
         {
-            var loaded = await VanSalesReportService.GetReplenishmentReportAsync(
+            var result = await VanSalesReportService.GetReplenishmentReportAsync(
                 fromDate,
                 toDate,
                 string.IsNullOrWhiteSpace(selectedVan) ? null : selectedVan,
-                selectedDepot);
+                selectedDepot,
+                token);
 
-            if (loaded is null)
+            // The new period's requests or nothing: the old report used to stay on screen under the
+            // error about the new one, reading as the answer to the question just asked.
+            report = result.Value;
+            loadError = result.Error;
+
+            if (report is not null)
             {
-                loadError = "The replenishment report could not be loaded. Check that the API is reachable.";
-                return;
+                WriteQuery();
             }
-
-            report = loaded;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // A newer load replaced this one and owns the page now.
         }
         catch (Exception ex)
         {
@@ -115,9 +139,21 @@ public partial class VanReplenishment
         }
         finally
         {
-            isLoading = false;
-            StateHasChanged();
+            if (!token.IsCancellationRequested)
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
         }
+    }
+
+    /// <summary>The period, the van and the depot, in the page's own URL.</summary>
+    private void WriteQuery()
+    {
+        var values = VanReportLinks.Query(report?.FromDate ?? fromDate, report?.ToDate ?? toDate);
+        values[VanQueryName] = string.IsNullOrWhiteSpace(selectedVan) ? null : selectedVan;
+        values[DepotQueryName] = selectedDepot;
+        VanReportLinks.WriteQuery(Navigation, values);
     }
 
     private async Task PickDepotAsync(string? depot)
@@ -365,6 +401,7 @@ public partial class VanReplenishment
     {
         drawerCts?.Cancel();
         drawerCts?.Dispose();
+        loads.Dispose();
     }
 
     // ── Reading the report ──────────────────────────────────────────────────────

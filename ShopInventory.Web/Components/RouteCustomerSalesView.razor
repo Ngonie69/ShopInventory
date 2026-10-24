@@ -6,6 +6,7 @@
 @inject IReportExportService ExportService
 @inject IAuditService AuditService
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 
 <PageTitle>@(detail?.Customer.Name ?? SubjectNoun) sales - Shop Inventory</PageTitle>
@@ -490,8 +491,9 @@
     private Dictionary<string, string> routeDisplayNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> expandedReferences = new(StringComparer.Ordinal);
 
-    private DateTime? fromDate = DateTime.Today.AddDays(-89);
-    private DateTime? toDate = DateTime.Today;
+    // CAT, not the server's clock: a trading day belongs to the van.
+    private DateTime? fromDate = VanReportPeriod.TodayCat.AddDays(-89);
+    private DateTime? toDate = VanReportPeriod.TodayCat;
     private int? activeRangeDays = 90;
 
     private bool isLoading = true;
@@ -588,8 +590,31 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ApplyLinkedPeriod();
         await LoadRouteNamesAsync();
         await LoadAsync();
+    }
+
+    /// <summary>
+    /// The period a report linked here with, so a shop opened from a 30-day view shows those 30 days
+    /// rather than resetting to the default 90. Both dates or neither.
+    /// </summary>
+    private void ApplyLinkedPeriod()
+    {
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(Navigation.ToAbsoluteUri(Navigation.Uri).Query);
+
+        if (query.TryGetValue(VanReportLinks.From, out var fromValue)
+            && query.TryGetValue(VanReportLinks.To, out var toValue)
+            && VanReportPeriod.ParseDay(fromValue) is { } from
+            && VanReportPeriod.ParseDay(toValue) is { } to
+            && to >= from)
+        {
+            fromDate = from;
+            toDate = to;
+            activeRangeDays = to == VanReportPeriod.TodayCat
+                ? QuickRanges.Select(range => (int?)range.Days).FirstOrDefault(days => from == to.AddDays(-(days!.Value - 1)))
+                : null;
+        }
     }
 
     /// <summary>
@@ -672,8 +697,8 @@
 
     private async Task ApplyQuickRangeAsync(int days)
     {
-        toDate = DateTime.Today;
-        fromDate = DateTime.Today.AddDays(-(days - 1));
+        toDate = VanReportPeriod.TodayCat;
+        fromDate = VanReportPeriod.TodayCat.AddDays(-(days - 1));
         activeRangeDays = days;
         await LoadAsync();
     }

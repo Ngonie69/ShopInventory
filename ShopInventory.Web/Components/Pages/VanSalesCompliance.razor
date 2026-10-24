@@ -7,6 +7,8 @@
 @inject IVanSalesReportService VanSalesReportService
 @inject IReportExportService ExportService
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IDisposable
 
 <PageTitle>Departure Compliance - Shop Inventory</PageTitle>
 
@@ -61,49 +63,27 @@
         </div>
     </div>
 
-    <div class="vs-filters">
-        <div class="row g-3">
-            @* NocturneDateField, never <input type="date">: the native calendar is a platform
-               window no page stylesheet reaches into, so it arrives looking like Windows in the
-               middle of a Nocturne page and its glyph is unreadable on the dark ground. *@
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vs-from">From</label>
-                <NocturneDateField Id="vs-from" @bind-Date="fromDate" AriaLabel="From date" />
-            </div>
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vs-to">To</label>
-                <NocturneDateField Id="vs-to" @bind-Date="toDate" AriaLabel="To date" />
-            </div>
-            @* A filter-bar dropdown is a control the reader scans, so it is the component rather
-               than a native <select> — whose popup would composite this sheet's translucent field
-               fill onto white and hand back an unreadable list in dark theme. *@
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vs-route">Route</label>
-                <NocturneSelect Id="vs-route" Class="nsel-block" TValue="string"
-                                Options="RouteFilterOptions" @bind-Value="selectedRouteCode"
-                                OnChanged="LoadAsync" AriaLabel="Filter by route"
-                                Placeholder="All routes" />
-            </div>
-            @* The rep list is the one the period actually holds, not the staff list: it is built
-               from the loaded rows, so it can only offer someone with a rep-day to look at, and
-               choosing one costs no round trip. The route filter next to it goes to the server
-               instead, because it means something this page cannot work out — a row with no day
-               record carries no route, so the API drops it rather than showing it under a route
-               nothing says it belongs to. *@
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vs-rep">Rep</label>
-                <NocturneSelect Id="vs-rep" Class="nsel-block" TValue="string"
-                                Options="RepFilterOptions" @bind-Value="selectedRepId"
-                                AriaLabel="Filter by rep"
-                                Placeholder="All reps" />
-            </div>
-            <div class="col-md-2 vs-actions">
-                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
-                    @(isLoading ? "Loading…" : "Run")
-                </button>
-            </div>
-        </div>
-    </div>
+    <VanReportPeriodBar IdPrefix="vs" @bind-From="fromDate" @bind-To="toDate" RecentDays="RecentDays"
+                        OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="readAtUtc"
+                        ShownFrom="report?.FromDate" ShownTo="report?.ToDate">
+        @* A filter-bar dropdown is a control the reader scans, so it is the component rather
+           than a native <select> — whose popup would composite this sheet's translucent field
+           fill onto white and hand back an unreadable list in dark theme. *@
+        <NocturneSelect Id="vs-route" Class="nsel-block" TValue="string"
+                        Options="RouteFilterOptions" @bind-Value="selectedRouteCode"
+                        OnChanged="LoadAsync" AriaLabel="Filter by route"
+                        Placeholder="All routes" />
+        @* The rep list is the one the period actually holds, not the staff list: it is built
+           from the loaded rows, so it can only offer someone with a rep-day to look at, and
+           choosing one costs no round trip. The route filter next to it goes to the server
+           instead, because it means something this page cannot work out — a row with no day
+           record carries no route, so the API drops it rather than showing it under a route
+           nothing says it belongs to. *@
+        <NocturneSelect Id="vs-rep" Class="nsel-block" TValue="string"
+                        Options="RepFilterOptions" @bind-Value="selectedRepId"
+                        OnChanged="WriteQuery" AriaLabel="Filter by rep"
+                        Placeholder="All reps" />
+    </VanReportPeriodBar>
 
     @if (loadError is not null)
     {
@@ -119,10 +99,14 @@
     }
     else if (report is null)
     {
-        <div class="vs-empty">
-            <div class="vs-empty-title">Nothing loaded yet</div>
-            <div>Choose a period and run the report.</div>
-        </div>
+        @* Under an error there is nothing to choose: the error says why the page is empty. *@
+        @if (loadError is null)
+        {
+            <div class="vs-empty">
+                <div class="vs-empty-title">Nothing loaded yet</div>
+                <div>Choose a period and run the report.</div>
+            </div>
+        }
     }
     else if (allRows.Count == 0)
     {
@@ -495,6 +479,13 @@
                                 }
                             </div>
 
+                            <div class="vsc-detail-links">
+                                <span class="vsc-detail-links-label">Open</span>
+                                <a class="vrb-link" href="@VanReportLinks.Activity(day.TradingDate, day.TradingDate, day.UserId)">this day's calls</a>
+                                <a class="vrb-link" href="@VanReportLinks.Invoices(day.TradingDate, day.TradingDate, day.UserId)">this day's invoices</a>
+                                <a class="vrb-link" href="@VanReportLinks.Attendance(report.FromDate, report.ToDate, day.UserId)">@day.DisplayName's attendance</a>
+                            </div>
+
                             <div class="vsc-detail-foot">@DayNote(day)</div>
                         </div>
                     }
@@ -576,6 +567,20 @@
 
     private bool isLoading;
     private string? loadError;
+    private DateTime? readAtUtc;
+
+    /// <summary>The page's own default, shown as a preset beside the standard ones.</summary>
+    private static readonly int[] RecentDays = [14];
+
+    private const string FlagQueryName = "flag";
+
+    [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.Route)] private string? RouteQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.Rep)] private string? RepQuery { get; set; }
+    [SupplyParameterFromQuery(Name = FlagQueryName)] private string? FlagQuery { get; set; }
+
+    private readonly LatestLoad loads = new();
 
     /// <summary>
     /// The route picker's rows. Rebuilt from the loaded routes rather than cached, because the list
@@ -641,10 +646,17 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // CAT, not the server's clock: a trading day belongs to the van.
-        var today = DateTime.UtcNow.AddHours(2).Date;
-        fromDate = today.AddDays(-13);
-        toDate = today;
+        // A link or a refresh opens the report as it was; otherwise the page's own last 14 days.
+        var (defaultFrom, defaultTo) = VanReportPeriod.LastDays(RecentDays[0], VanReportPeriod.TodayCat);
+        fromDate = VanReportPeriod.ParseDay(FromQuery) ?? defaultFrom;
+        toDate = VanReportPeriod.ParseDay(ToQuery) ?? defaultTo;
+        selectedRouteCode = string.IsNullOrWhiteSpace(RouteQuery) ? null : RouteQuery.Trim();
+        selectedRepId = VanReportLinks.ParseRep(RepQuery) is { } repFromLink ? VanReportLinks.RepKey(repFromLink) : null;
+
+        if (DepartureComplianceClassifier.AllFilters.Any(filter => filter.Key == FlagQuery))
+        {
+            activeGapFilter = FlagQuery!;
+        }
 
         routes = await VanSalesReportService.GetRoutesAsync(includeInactive: true);
 
@@ -653,23 +665,29 @@
 
     private async Task LoadAsync()
     {
+        var token = loads.Begin();
         isLoading = true;
         loadError = null;
         StateHasChanged();
 
         try
         {
-            report = await VanSalesReportService.GetComplianceReportAsync(
+            var result = await VanSalesReportService.GetComplianceReportAsync(
                 fromDate,
                 toDate,
-                routeCode: string.IsNullOrWhiteSpace(selectedRouteCode) ? null : selectedRouteCode);
+                routeCode: string.IsNullOrWhiteSpace(selectedRouteCode) ? null : selectedRouteCode,
+                cancellationToken: token);
+
+            report = result.Value;
 
             if (report is null)
             {
-                loadError = "The compliance report could not be loaded. Check that the API is reachable.";
+                loadError = result.Error;
                 allRows = [];
                 return;
             }
+
+            readAtUtc = DateTime.UtcNow;
 
             allRows = report.Days
                 .Select(day => new ComplianceRow(
@@ -695,6 +713,11 @@
             }
 
             openRow = null;
+            WriteQuery();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // A newer load replaced this one and owns the page now.
         }
         catch (Exception ex)
         {
@@ -703,10 +726,27 @@
         }
         finally
         {
-            isLoading = false;
-            StateHasChanged();
+            if (!token.IsCancellationRequested)
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
         }
     }
+
+    /// <summary>The period, filters and exception chip, in the page's own URL.</summary>
+    private void WriteQuery()
+    {
+        var query = VanReportLinks.Query(
+            fromDate,
+            toDate,
+            selectedRouteCode,
+            VanReportLinks.ParseRep(selectedRepId));
+        query[FlagQueryName] = activeGapFilter == AllRepDays ? null : activeGapFilter;
+        VanReportLinks.WriteQuery(Navigation, query);
+    }
+
+    public void Dispose() => loads.Dispose();
 
     private void ToggleRow(string key) => openRow = openRow == key ? null : key;
 
@@ -714,6 +754,7 @@
     {
         activeGapFilter = key;
         openRow = null;
+        WriteQuery();
     }
 
     private void SortBy(SortKey key)

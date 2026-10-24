@@ -43,6 +43,9 @@ public partial class VanSalesInvoices : ComponentBase, IDisposable
 
     [SupplyParameterFromQuery(Name = "to")] public string? ToQuery { get; set; }
 
+    /// <summary>One rep's invoices, by user id, as the van reports link here.</summary>
+    [SupplyParameterFromQuery(Name = VanReportLinks.Rep)] public string? RepQuery { get; set; }
+
     /// <summary>A van order whose drawer opens once the page has loaded.</summary>
     [SupplyParameterFromQuery(Name = "open")] public string? OpenQuery { get; set; }
 
@@ -161,6 +164,12 @@ public partial class VanSalesInvoices : ComponentBase, IDisposable
             period = PeriodCustom;
             fromDate = from;
             toDate = to;
+        }
+
+        // A van report's "this rep's invoices" link names the rep by user id.
+        if (VanReportLinks.ParseRep(RepQuery) is { } rep)
+        {
+            repFilter = rep;
         }
 
         return LoadAsync();
