@@ -906,6 +906,10 @@ public partial class DesktopSalesReport : IDisposable
     private string Money(decimal value) =>
         $"{Currency} {value.ToString("N2", CultureInfo.InvariantCulture)}".Trim();
 
+    /// <summary>An amount without its currency, for where the currency is set apart beside it.</summary>
+    private static string Amount(decimal value) =>
+        value.ToString("N2", CultureInfo.InvariantCulture);
+
     private static string Pct(decimal percent) =>
         percent.ToString("0.#", CultureInfo.InvariantCulture) + "%";
 

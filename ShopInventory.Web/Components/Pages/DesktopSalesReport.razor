@@ -258,7 +258,9 @@
                 <section class="ops-sbd-headline" aria-label="Headline figures">
                     <div class="ops-sbd-kpi">
                         <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule is-accent"></span>Takings</div>
-                        <div class="ops-sbd-kpi-num">@Money(sales.TotalAmount)</div>
+                        @* The currency is set small so the amount never breaks away from it onto a line
+                           of its own; the card's width sizes the type (sales-breakdown.css). *@
+                        <div class="ops-sbd-kpi-num"><span class="ops-sbd-kpi-cur">@sales.Currency</span>@Amount(sales.TotalAmount)</div>
                         <div class="ops-sbd-kpi-change">
                             @if (change is { } percent)
                             {
@@ -289,12 +291,15 @@
                            when something was credited. *@
                         @if (credits && sales.CreditedAmount > 0)
                         {
+                            @* Two label-and-figure rows, the figures in one right-hand column. *@
                             <div class="ops-sbd-kpi-credits">
                                 <span>
-                                    Credited back <b>&minus; @Money(sales.CreditedAmount)</b>
-                                    on @Plural(sales.CreditedSalesCount, "sale")@(sales.FullyCreditedSalesCount > 0 ? $", {sales.FullyCreditedSalesCount} in full" : "")
+                                    Credited back
+                                    <small>@Plural(sales.CreditedSalesCount, "sale")@(sales.FullyCreditedSalesCount > 0 ? $", {sales.FullyCreditedSalesCount} in full" : "")</small>
                                 </span>
-                                <span>Net of credits <b>@Money(sales.NetOfCredits)</b></span>
+                                <b>&minus; @Money(sales.CreditedAmount)</b>
+                                <span>Net of credits</span>
+                                <b>@Money(sales.NetOfCredits)</b>
                             </div>
                         }
                     </div>
@@ -302,12 +307,12 @@
                     <div class="ops-sbd-figures">
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Before VAT</div>
-                            <div class="ops-sbd-fig-num">@Money(sales.NetAmount)</div>
+                            <div class="ops-sbd-fig-num"><span class="ops-sbd-kpi-cur">@sales.Currency</span>@Amount(sales.NetAmount)</div>
                             <div class="ops-sbd-fig-sub">VAT @Money(sales.VatAmount)</div>
                         </div>
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Average sale</div>
-                            <div class="ops-sbd-fig-num">@Money(sales.AverageSale)</div>
+                            <div class="ops-sbd-fig-num"><span class="ops-sbd-kpi-cur">@sales.Currency</span>@Amount(sales.AverageSale)</div>
                             <div class="ops-sbd-fig-sub">@sales.QuantitySold.ToString("#,##0.##") units · @Plural(sales.DistinctItems, "item")</div>
                         </div>
                         @{
@@ -532,7 +537,9 @@
                     </section>
 
                     @* ── Who took it ──────────────────────────────────────────────── *@
-                    <section class="ops-ds-card ops-sbd-who" aria-labelledby="dsa-breakdown-title">
+                    @* With gross profit the table gains two columns and needs the wider share of the
+                       row, or its last three columns sit behind a sideways scroll. *@
+                    <section class="ops-ds-card ops-sbd-who @(view.Focus.Margin is { Available: true } ? "has-gp" : "")" aria-labelledby="dsa-breakdown-title">
                         <div class="ops-ds-card-head">
                             <i class="ph ph-storefront" aria-hidden="true"></i>
                             <span class="ops-ds-card-label" id="dsa-breakdown-title">Who took it</span>
@@ -621,7 +628,7 @@
                                                     @if (credits && row.CreditedAmount > 0)
                                                     {
                                                         <div class="ops-sub ops-sbd-credited">&minus; @Money(row.CreditedAmount) credited</div>
-                                                        <div class="ops-sub">Net of credits @Money(row.NetOfCredits)</div>
+                                                        <div class="ops-sub">net @Money(row.NetOfCredits)</div>
                                                     }
                                                 </td>
                                                 @if (breakdownGp)
@@ -714,12 +721,12 @@
                     {
                         <p class="ops-sbd-gp-note">
                             <span>Gross profit</span>
-                            <span class="gpx-value @GrossProfitFormat.Tone(channelGp)">@GrossProfitFormat.Money(channelGp)</span>
+                            <span class="gpx-value @GrossProfitFormat.Tone(channelGp)">@Currency @GrossProfitFormat.Money(channelGp)</span>
                             @if (itemGroup.Business.MarginPercent is { } channelMargin)
                             {
                                 <span>&middot; @GrossProfitFormat.Percent(channelMargin) margin</span>
                             }
-                            <span>on @channelCosted.ToString("N2", System.Globalization.CultureInfo.InvariantCulture) of sales SAP holds, at the stock cost SAP booked when the goods left.</span>
+                            <span>on @Money(channelCosted) of sales SAP holds, at the stock cost SAP booked when the goods left.</span>
                         </p>
                     }
 
