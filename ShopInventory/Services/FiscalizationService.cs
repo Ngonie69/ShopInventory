@@ -26,10 +26,15 @@ public interface IFiscalizationService
     ///
     /// The platform implementation does not send <paramref name="customerDetails"/>: a buyer on the request
     /// would replace the one the platform reads from SAP. REVMax still uses them.
+    ///
+    /// <paramref name="raisedBy"/> is the ShopInventory user who raised the invoice, which the platform shows as
+    /// who raised it in place of ShopInventory's SAP account. Pass it only for an invoice raised here; for one keyed
+    /// into SAP, pass null so the SAP user who created it is named. See <see cref="FiscalReceiptOperator"/>.
     /// </remarks>
     Task<FiscalizationResult> FiscalizeInvoiceAsync(
         InvoiceDto invoice,
         CustomerFiscalDetails? customerDetails = null,
+        FiscalReceiptOperator? raisedBy = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -242,6 +247,7 @@ public class FiscalizationService : IFiscalizationService
     public Task<FiscalizationResult> FiscalizeInvoiceAsync(
         InvoiceDto invoice,
         CustomerFiscalDetails? customerDetails = null,
+        FiscalReceiptOperator? raisedBy = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoice);
@@ -251,6 +257,7 @@ public class FiscalizationService : IFiscalizationService
             SapDocumentType.Invoice,
             ReceiptType.FiscalInvoice,
             customerDetails,
+            raisedBy,
             cancellationToken);
     }
 
@@ -272,6 +279,7 @@ public class FiscalizationService : IFiscalizationService
             SapDocumentType.CreditNote,
             ReceiptType.CreditNote,
             customerDetails,
+            raisedBy: null,
             cancellationToken);
     }
 
@@ -283,6 +291,7 @@ public class FiscalizationService : IFiscalizationService
         SapDocumentType documentType,
         ReceiptType receiptType,
         CustomerFiscalDetails? customerDetails,
+        FiscalReceiptOperator? raisedBy,
         CancellationToken cancellationToken)
     {
         var documentNumber = document.DocNum.ToString(CultureInfo.InvariantCulture);
@@ -349,6 +358,10 @@ public class FiscalizationService : IFiscalizationService
                 documentType == SapDocumentType.CreditNote ? FiscalReceiptSource.SalesCreditNote : FiscalReceiptSource.SalesInvoice,
                 document.Lines?.Select(line => line.WarehouseCode) ?? [])
             .ApplyTo(request.Receipt);
+
+        // Who raised it, when this app did. Left unstated, the platform names the SAP account that created the
+        // document, which for everything posted from here is ShopInventory's own.
+        raisedBy?.ApplyTo(request.Receipt);
 
         var rawRequestJson = Serialize(request);
 

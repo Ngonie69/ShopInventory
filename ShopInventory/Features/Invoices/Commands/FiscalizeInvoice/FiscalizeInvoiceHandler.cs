@@ -152,9 +152,12 @@ public sealed class FiscalizeInvoiceHandler(
         }
 
         var customerDetails = BuildCustomerDetails(invoice);
+        // Names nobody: whoever presses Fiscalise did not necessarily raise the invoice, which may have been keyed
+        // into SAP. The platform then names the SAP user who created it.
         var fiscalizationResult = await fiscalizationService.FiscalizeInvoiceAsync(
             invoice,
             customerDetails,
+            raisedBy: null,
             cancellationToken);
 
         var syncResult = await sender.Send(
