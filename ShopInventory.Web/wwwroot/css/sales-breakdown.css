@@ -176,8 +176,11 @@
     gap: var(--ops-s4);
 }
 
+/* A size container, so the takings figure scales to the card rather than to the
+   window: the card is narrowest beside the three figures, not on a phone. */
 .ops-sbd .ops-sbd-headline > .ops-sbd-kpi {
-    flex: 1 1 260px;
+    flex: 1 1 300px;
+    container-type: inline-size;
 }
 
 .ops-sbd .ops-sbd-figures {
@@ -220,13 +223,29 @@
     background: var(--ops-accent);
 }
 
+/* One line, always. 12cqi keeps a seven-figure amount inside a 300px card;
+   wider cards reach the 42px the design draws. */
 .ops-sbd .ops-sbd-kpi-num {
-    font-size: 42px;
+    font-size: clamp(26px, 12cqi, 42px);
     font-weight: 500;
     line-height: 1.05;
     letter-spacing: -.02em;
+    white-space: nowrap;
     font-variant-numeric: tabular-nums;
     color: var(--ops-ink);
+}
+
+.ops-sbd .ops-sbd-kpi-cur {
+    margin-right: .3em;
+    font-size: .42em;
+    font-weight: 500;
+    letter-spacing: .06em;
+    color: var(--ops-mute-2);
+}
+
+/* The same label on the smaller figures beside it, a touch larger to stay legible. */
+.ops-sbd .ops-sbd-fig-num .ops-sbd-kpi-cur {
+    font-size: .5em;
 }
 
 .ops-sbd .ops-sbd-kpi-change {
@@ -333,6 +352,14 @@
     gap: var(--ops-s4);
     flex-wrap: wrap;
     margin-left: auto;
+}
+
+/* A segment that is also the head's end ("Who took it") keeps its options on
+   one line: wrapped, the last one dropped below the segment's fixed height and
+   was clipped out of sight. */
+.ops-sbd .ops-ds-seg.ops-sbd-head-end {
+    flex-wrap: nowrap;
+    gap: 0;
 }
 
 .ops-sbd .ops-sbd-tally {
@@ -629,13 +656,21 @@
 }
 
 .ops-sbd .ops-sbd-paid {
-    flex: 1 1 320px;
+    flex: 1 1 280px;
     gap: var(--ops-s4);
 }
 
 .ops-sbd .ops-sbd-who {
     flex: 1.3 1 400px;
     gap: var(--ops-s4);
+}
+
+/* Gross profit and margin add two columns, and the table cannot fold below
+   about 712px. The card starts at that plus its padding and takes most of any
+   room over; where the row is shorter the pair stacks, so every column is on
+   screen without scrolling the card sideways. */
+.ops-sbd .ops-sbd-who.has-gp {
+    flex: 3 1 760px;
 }
 
 .ops-sbd .ops-sbd-strip {
@@ -652,10 +687,13 @@
     flex-direction: column;
 }
 
+/* Name, share and total on the first line; the detail beneath runs the card's
+   full width. With the share under the total, the detail had only what the
+   total left over and broke mid-figure ("avg / USD 22.61") in a narrow card. */
 .ops-sbd .ops-sbd-method {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: baseline;
     gap: 2px var(--ops-s4);
     padding: 9px 2px;
     border: 0;
@@ -685,6 +723,8 @@
 }
 
 .ops-sbd .ops-sbd-method-total {
+    grid-row: 1;
+    grid-column: 3;
     font-size: 13.5px;
     text-align: right;
     white-space: nowrap;
@@ -693,7 +733,7 @@
 
 /* Indented past the swatch, so the sub-line reads under the name. */
 .ops-sbd .ops-sbd-method-sub {
-    grid-column: 1;
+    grid-column: 1 / -1;
     padding-left: 18px;
     font-size: 11.5px;
     line-height: 1.35;
@@ -702,6 +742,8 @@
 }
 
 .ops-sbd .ops-sbd-method-share {
+    grid-row: 1;
+    grid-column: 2;
     font-size: 11.5px;
     text-align: right;
     white-space: nowrap;
@@ -725,23 +767,42 @@
     font-variant-numeric: tabular-nums;
 }
 
-.ops-sbd .ops-sbd-method-sub .ops-sbd-credited {
-    margin-left: 6px;
+/* Under a payment method, each its own line: run on after the average they
+   wrapped mid-figure in a card this narrow. */
+.ops-sbd .ops-sbd-method-sub .ops-sbd-flag {
+    display: flex;
+    margin-left: 0;
 }
 
-/* Under the headline takings: what came off them, and what is left. */
+.ops-sbd .ops-sbd-method-sub .ops-sbd-credited {
+    display: block;
+}
+
+/* Under the headline takings: what came off them, and what is left, as two
+   rows with the figures in one right-hand column. */
 .ops-sbd .ops-sbd-kpi-credits {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--ops-s2) var(--ops-s6);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: var(--ops-s1, 4px) var(--ops-s4);
+    margin-top: var(--ops-s1, 4px);
     padding-top: var(--ops-s3);
+    border-top: 1px solid var(--ops-rule);
     font-size: 12.5px;
     color: var(--ops-mute-2);
     font-variant-numeric: tabular-nums;
 }
 
+.ops-sbd .ops-sbd-kpi-credits small {
+    margin-left: 4px;
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+}
+
 .ops-sbd .ops-sbd-kpi-credits b {
     font-weight: 500;
+    text-align: right;
+    white-space: nowrap;
     color: var(--ops-ink-2);
 }
 
@@ -1403,10 +1464,18 @@
     flex: 3 1 600px;
 }
 
+/* Each figure card sizes its own number, so on a laptop the three shrink a
+   little rather than cut "USD 272,144.70" to "USD 272,144…". The ellipsis
+   stays as the last resort for an amount no size would fit. */
+.ops-sbd .ops-sbd-figures > .ops-sbd-kpi {
+    container-type: inline-size;
+}
+
 .ops-sbd .ops-sbd-headline .ops-sbd-fig-num {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: clamp(17px, 13.5cqi, 25px);
 }
 
 .ops-sbd .ops-sbd-headline .ops-sbd-fig-sub {
@@ -1542,13 +1611,24 @@
         flex-basis: 100%;
     }
 
-    .ops-sbd .ops-sbd-kpi-num {
-        font-size: 34px;
-    }
-
     .ops-sbd .ops-sbd-head-end {
         flex: 1 1 100%;
         margin-left: 0;
+    }
+
+    /* A card's own segment (the four cuts of "Who took it", the best sellers'
+       lines of business) takes the row and its options share it. Left at their
+       desktop padding, Operator and Source fell off the end and could not be
+       pressed. */
+    .ops-sbd .ops-ds-card .ops-ds-seg {
+        max-width: 100%;
+    }
+
+    .ops-sbd .ops-ds-card .ops-ds-seg.ops-sbd-head-end .ops-ds-seg-opt {
+        flex: 1 1 auto;
+        justify-content: center;
+        padding: 0 6px;
+        font-size: 12px;
     }
 
     .ops-sbd .ops-sbd-cols {

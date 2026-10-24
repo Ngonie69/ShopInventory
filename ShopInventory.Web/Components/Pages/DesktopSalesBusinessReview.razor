@@ -175,7 +175,7 @@
                 <section class="ops-sbd-headline" aria-label="Headline figures">
                     <div class="ops-sbd-kpi">
                         <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule is-accent"></span>@BusinessLabel takings</div>
-                        <div class="ops-sbd-kpi-num">@Money(h.TotalAmount)</div>
+                        <div class="ops-sbd-kpi-num"><span class="ops-sbd-kpi-cur">@Currency</span>@Num(h.TotalAmount)</div>
                         <div class="ops-sbd-kpi-change">
                             @if (h.TotalChangePercent is { } change)
                             {
@@ -203,10 +203,12 @@
                         {
                             <div class="ops-sbd-kpi-credits">
                                 <span>
-                                    Credited back <b>&minus; @Money(h.CreditedAmount)</b>
-                                    on @Plural(h.CreditedSalesCount, "sale")@(h.FullyCreditedSalesCount > 0 ? $", {h.FullyCreditedSalesCount} in full" : "")
+                                    Credited back
+                                    <small>@Plural(h.CreditedSalesCount, "sale")@(h.FullyCreditedSalesCount > 0 ? $", {h.FullyCreditedSalesCount} in full" : "")</small>
                                 </span>
-                                <span>Net of credits <b>@Money(h.NetOfCredits)</b></span>
+                                <b>&minus; @Money(h.CreditedAmount)</b>
+                                <span>Net of credits</span>
+                                <b>@Money(h.NetOfCredits)</b>
                             </div>
                         }
                     </div>
@@ -214,7 +216,7 @@
                     <div class="ops-sbd-figures">
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Before VAT</div>
-                            <div class="ops-sbd-fig-num">@Money(h.NetAmount)</div>
+                            <div class="ops-sbd-fig-num"><span class="ops-sbd-kpi-cur">@Currency</span>@Num(h.NetAmount)</div>
                             <div class="ops-sbd-fig-sub">VAT @Money(h.VatAmount) · @Pct(h.EffectiveVatPercent) of net</div>
                         </div>
                         <div class="ops-sbd-kpi">
@@ -224,12 +226,12 @@
                         </div>
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Average sale</div>
-                            <div class="ops-sbd-fig-num">@Money(h.AverageSale)</div>
+                            <div class="ops-sbd-fig-num"><span class="ops-sbd-kpi-cur">@Currency</span>@Num(h.AverageSale)</div>
                             <div class="ops-sbd-fig-sub">@Plural(h.DistinctItems, "item") sold</div>
                         </div>
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Accepted short</div>
-                            <div class="ops-sbd-fig-num">@Money(h.ShortTendered)</div>
+                            <div class="ops-sbd-fig-num"><span class="ops-sbd-kpi-cur">@Currency</span>@Num(h.ShortTendered)</div>
                             <div class="ops-sbd-fig-sub">sales taken for less than their total</div>
                         </div>
                     </div>
