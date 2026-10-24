@@ -90,7 +90,11 @@ public class VanDailyTruckDay
     public decimal Innbucks { get; set; }
     public decimal OtherTender { get; set; }
     public decimal Untendered { get; set; }
+    /// <summary>Takings in any currency but US dollars. In none of the dollar figures.</summary>
     public decimal? OtherCurrencySales { get; set; }
+
+    /// <summary>The currencies <see cref="OtherCurrencySales"/> is in, joined with "/".</summary>
+    public string? OtherCurrencyCodes { get; set; }
 
     /// <summary>Sales on account, invoiced in SAP outside the van app and entered by the office. Not part of <see cref="Sales"/>.</summary>
     public decimal? AccountSales { get; set; }

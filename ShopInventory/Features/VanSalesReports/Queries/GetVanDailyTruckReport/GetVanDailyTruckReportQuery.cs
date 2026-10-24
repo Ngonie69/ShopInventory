@@ -74,6 +74,7 @@ public sealed record VanDailyTruckReportResult(
 /// <param name="ProductiveCalls">Distinct shops that bought, plus one if any sale names no shop.</param>
 /// <param name="CallsMade">Shops checked into or sold to.</param>
 /// <param name="AccountSales">Sales on account, invoiced in SAP outside the van app and entered by the office. Not part of <c>Sales</c>.</param>
+/// <param name="OtherCurrencyCodes">The currencies in <c>OtherCurrencySales</c>, upper-cased and joined with "/"; null when there are none.</param>
 /// <param name="StartingMileage">Odometer on leaving, as read, in <c>OdometerUnit</c>.</param>
 /// <param name="Kilometres">Distance in kilometres, whatever the odometer counts in.</param>
 /// <param name="DailySalesTarget">The route's target for the day; null on a day that is not a working day or a route with none.</param>
@@ -107,6 +108,7 @@ public sealed record VanDailyTruckDayDto(
     decimal OtherTender,
     decimal Untendered,
     decimal? OtherCurrencySales,
+    string? OtherCurrencyCodes,
     decimal? AccountSales,
     decimal? DeclaredTotal,
     int? StartingMileage,

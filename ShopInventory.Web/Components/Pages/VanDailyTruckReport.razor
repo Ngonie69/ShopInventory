@@ -45,7 +45,8 @@
             <h2 class="vs-title">Daily truck report</h2>
             <p class="vs-subtitle">
                 Each truck's month against its target, day by day. Sales are US dollars with VAT, counted
-                from the invoices. Fuel, account sales and the area worked are entered here by the office.
+                from the invoices; takings in other currencies are shown beside them, not added in. Fuel,
+                account sales and the area worked are entered here by the office.
             </p>
         </div>
         <div class="vsk-period">
@@ -205,6 +206,18 @@
             </div>
         }
 
+        @if (OtherCurrencyTakings(report.Days) is { Count: > 0 } otherTakings)
+        {
+            <div class="vsk-aside" id="vsk-other-currency">
+                <i class="ph ph-coins" aria-hidden="true"></i>
+                <span>
+                    <b>@string.Join(" and ", otherTakings.Select(entry => OtherMoney(entry.Codes, entry.Amount)))</b>
+                    was taken in other currencies on @otherTakings.Sum(entry => entry.Days) truck-day@(otherTakings.Sum(entry => entry.Days) == 1 ? "" : "s").
+                    It is in none of the dollar figures or targets; each truck and day shows its own below.
+                </span>
+            </div>
+        }
+
         <div class="vsc-sheet vsk-sheet">
             <div class="vsk-track vsk-cols">
                 <span>Truck</span>
@@ -273,6 +286,10 @@
                                 @if (GpLine(truck.GrossProfit, truck.MarginPercent, truck.CostedSalesCount, truck.SalesCount) is { } truckGp)
                                 {
                                     <span class="vsc-sub">@truckGp</span>
+                                }
+                                @if (OtherCurrencyLine(days) is { } truckOther)
+                                {
+                                    <span class="vsc-sub">+ @truckOther, not in sales</span>
                                 }
                                 @if (truck.PeriodTarget is > 0)
                                 {
@@ -380,6 +397,10 @@
                                         @if (GpLine(day.GrossProfit, day.MarginPercent, day.CostedSalesCount, day.SalesCount) is { } dayGp)
                                         {
                                             <span class="vsc-sub">@dayGp</span>
+                                        }
+                                        @if (day.OtherCurrencySales is decimal dayOther and > 0m)
+                                        {
+                                            <span class="vsc-sub">+ @OtherMoney(day.OtherCurrencyCodes, dayOther)</span>
                                         }
                                     </span>
                                     <span class="vs-right vsc-num">@(day.Ecocash > 0 ? Money(day.Ecocash) : "—")</span>
