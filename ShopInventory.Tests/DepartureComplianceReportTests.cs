@@ -467,6 +467,66 @@ public sealed class DepartureComplianceReportTests : IDisposable
         Assert.Equal(40m, day.SystemTotalSales);
     }
 
+    /// <summary>
+    /// A ZWG sale and a USD sale on one day are two figures, not one. Added together they gave a total
+    /// in neither currency, labelled with whichever sale came first, and the declaration's variance was
+    /// measured against it.
+    /// </summary>
+    [Fact]
+    public async Task A_day_in_two_currencies_keeps_the_dollars_and_states_the_rest()
+    {
+        AddDay(plannedCustomers: 10, declaredCash: 40m);
+        AddOfflineSale("OFF-ZWG", "TUCK01", total: 1000m, currency: "ZWG");
+        AddOfflineSale("OFF-USD", "TUCK01", total: 40m);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+        var day = Assert.Single(report.Days);
+
+        Assert.Equal("USD", day.Currency);
+        Assert.Equal(40m, day.SystemTotalSales);
+        Assert.Equal(40m, day.SystemCash);
+        Assert.Equal(1000m, day.OtherCurrencySales);
+        Assert.Equal("ZWG", day.OtherCurrencyCodes);
+        Assert.Equal(40m, report.Summary.TotalSales);
+    }
+
+    /// <summary>A day that sold only in another currency is that currency's, and left out of the dollar total.</summary>
+    [Fact]
+    public async Task A_day_in_another_currency_only_is_kept_out_of_the_dollar_total()
+    {
+        AddDay(plannedCustomers: 10);
+        AddOfflineSale("OFF-ZWG", "TUCK01", total: 1000m, currency: "ZWG");
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+        var day = Assert.Single(report.Days);
+
+        Assert.Equal("ZWG", day.Currency);
+        Assert.Equal(1000m, day.SystemTotalSales);
+        Assert.Null(day.OtherCurrencySales);
+        Assert.Equal(0m, report.Summary.TotalSales);
+    }
+
+    /// <summary>
+    /// A sale made while SAP was down waits in the queue with its reservation Pending, and is takings
+    /// the rep has in hand: it is in the day's sales and its tender.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_waiting_in_the_queue_for_SAP_is_in_the_days_takings()
+    {
+        AddDay(plannedCustomers: 10);
+        AddOnlineSale("ONL-QUEUED", Utc(9, 0), "TUCK01", total: 100m, status: ReservationStatus.Pending);
+        await _context.SaveChangesAsync();
+
+        var day = await SingleDayAsync();
+
+        // Counted, which it was not. This fixture's reservations carry no lines, so there is nothing to
+        // gross up and the stored figure stands.
+        Assert.Equal(100m, day.SystemTotalSales);
+        Assert.Equal(100m, day.SystemCash);
+    }
+
     // --- Helpers ---
 
     private async Task<DepartureComplianceReportResult> RunAsync()
@@ -524,7 +584,8 @@ public sealed class DepartureComplianceReportTests : IDisposable
         string? routeCustomerCode,
         decimal total,
         string? paymentMethod = "Cash",
-        string? createdBy = null)
+        string? createdBy = null,
+        string currency = "USD")
     {
         _context.DesktopSales.Add(new DesktopSaleEntity
         {
@@ -537,7 +598,7 @@ public sealed class DepartureComplianceReportTests : IDisposable
             DocDate = Day,
             TotalAmount = total,
             VatAmount = 0m,
-            Currency = "USD",
+            Currency = currency,
             WarehouseCode = VanWarehouse,
             PaymentMethod = paymentMethod,
             AmountPaid = total,
@@ -550,11 +611,27 @@ public sealed class DepartureComplianceReportTests : IDisposable
         DateTime createdAtUtc,
         string? routeCustomerCode,
         decimal total,
-        string? paymentMethod = "Cash")
+        string? paymentMethod = "Cash",
+        string status = ReservationStatus.Confirmed)
     {
+        var reservationId = Guid.NewGuid().ToString();
+        if (status != ReservationStatus.Confirmed)
+        {
+            // Queued for SAP, as the handset's fallback leaves a sale made while SAP was down.
+            _context.InvoiceQueue.Add(new InvoiceQueueEntity
+            {
+                ReservationId = reservationId,
+                ExternalReference = reference,
+                CustomerCode = VanAccount,
+                InvoicePayload = "{}",
+                SourceSystem = "KefalosVanSales",
+                Status = InvoiceQueueStatus.Fiscalized
+            });
+        }
+
         _context.StockReservations.Add(new StockReservationEntity
         {
-            ReservationId = Guid.NewGuid().ToString(),
+            ReservationId = reservationId,
             ExternalReferenceId = reference,
             SourceSystem = "KefalosVanSales",
             DocumentType = ReservationDocumentType.Invoice,
@@ -565,10 +642,10 @@ public sealed class DepartureComplianceReportTests : IDisposable
             TotalValue = total,
             Currency = "USD",
             PaymentMethod = paymentMethod,
-            Status = ReservationStatus.Confirmed,
+            Status = status,
             CreatedAt = createdAtUtc,
             ExpiresAt = createdAtUtc.AddHours(1),
-            ConfirmedAt = createdAtUtc,
+            ConfirmedAt = status == ReservationStatus.Confirmed ? createdAtUtc : null,
             CreatedBy = Rep.ToString()
         });
     }

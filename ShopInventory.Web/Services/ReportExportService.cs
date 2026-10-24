@@ -45,6 +45,11 @@ public interface IReportExportService
 
     byte[] ExportVanSalesPerformanceToExcel(VanSalesPerformanceReportResponse report);
     byte[] ExportVanDailyTruckReportToExcel(VanDailyTruckReportResponse report);
+    /// <summary>The Departure Compliance rows on screen, as the page shows them.</summary>
+    byte[] ExportDepartureComplianceToExcel(IReadOnlyList<DepartureComplianceExportRow> rows, DateTime? fromDate, DateTime? toDate);
+
+    /// <summary>The Van Activity calls on screen, round by round, as the page shows them.</summary>
+    byte[] ExportVanActivityToExcel(IReadOnlyList<VanActivityExportRow> rows, DateTime? fromDate, DateTime? toDate);
     byte[] ExportAdrPerformanceToExcel(AdrPerformanceReportResponse report);
 
     byte[] ExportVanSalesCoverageToExcel(VanSalesCoverageReportResponse report);

@@ -445,6 +445,33 @@ public partial class VanDailyTruckReport
 
     private static string Money(decimal? amount) => amount is { } value ? $"${value:N0}" : "—";
 
+    // — Takings in other currencies ———————————————————————————————————————————————————————————
+
+    /// <summary>
+    /// What a set of days took in currencies other than US dollars, one entry per currency mix, largest
+    /// first. These are in none of the dollar figures, so the page says so rather than leaving them out
+    /// silently: before this they were only in the Excel export.
+    /// </summary>
+    private static List<(string Codes, decimal Amount, int Days)> OtherCurrencyTakings(IEnumerable<VanDailyTruckDay> days) =>
+        days
+            .Where(day => day.OtherCurrencySales is > 0m)
+            .GroupBy(day => day.OtherCurrencyCodes ?? string.Empty)
+            .Select(group => (group.Key, group.Sum(day => day.OtherCurrencySales!.Value), group.Count()))
+            .OrderByDescending(entry => entry.Item2)
+            .ToList();
+
+    private static string OtherMoney(string? codes, decimal amount) =>
+        string.IsNullOrWhiteSpace(codes) ? $"{amount:N0} in another currency" : $"{codes} {amount:N0}";
+
+    /// <summary>"ZWG 12,400" or "ZWG 12,400 · ZAR 800" for a truck's days; null when it took only dollars.</summary>
+    private static string? OtherCurrencyLine(IEnumerable<VanDailyTruckDay> days)
+    {
+        var takings = OtherCurrencyTakings(days);
+        return takings.Count == 0
+            ? null
+            : string.Join(" · ", takings.Select(entry => OtherMoney(entry.Codes, entry.Amount)));
+    }
+
     /// <summary>
     /// "GP $1,234 · 24.1%" for dollar sales with SAP's booked profit, "GP not in SAP yet" for sales none
     /// of which is posted, and null where nothing sold or the report read no margin.

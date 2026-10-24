@@ -303,6 +303,27 @@ public sealed class VanDailyTruckReportTests : IDisposable
         Assert.Equal(0m, report.Total.Sales);
     }
 
+    /// <summary>
+    /// Takings in another currency are in none of the dollar figures. The day carries them with the
+    /// currency they are in, so the page can show them beside the dollars rather than a bare number.
+    /// </summary>
+    [Fact]
+    public async Task Takings_in_another_currency_are_kept_apart_and_say_what_they_are_in()
+    {
+        AddSale(Rep, Thursday, "SHOP1", 100m);
+        AddSale(Rep, Thursday, "SHOP2", 1000m, currency: "ZWG");
+        await _context.SaveChangesAsync();
+
+        var report = await ReportAsync();
+        var day = Day(report, _west1, Thursday);
+
+        Assert.Equal(115.50m, day.Sales);
+        Assert.Equal(1, day.SalesCount);
+        Assert.Equal(1155.00m, day.OtherCurrencySales);
+        Assert.Equal("ZWG", day.OtherCurrencyCodes);
+        Assert.Null(Day(report, _west1, Friday).OtherCurrencyCodes);
+    }
+
     // --- The period ---
 
     [Fact]
@@ -601,7 +622,7 @@ public sealed class VanDailyTruckReportTests : IDisposable
     }
 
     /// <summary>An online sale as it is stored: before tax, on a reservation.</summary>
-    private void AddSale(Guid rep, DateTime day, string shop, decimal net, string? paymentMethod = "Cash", int? sapDocEntry = null)
+    private void AddSale(Guid rep, DateTime day, string shop, decimal net, string? paymentMethod = "Cash", int? sapDocEntry = null, string currency = "USD")
     {
         var at = DateTime.SpecifyKind(day.AddHours(8), DateTimeKind.Utc);
 
@@ -616,7 +637,7 @@ public sealed class VanDailyTruckReportTests : IDisposable
             RouteCustomerCode = shop,
             RouteCustomerName = shop,
             TotalValue = net,
-            Currency = "USD",
+            Currency = currency,
             PaymentMethod = paymentMethod,
             Status = ReservationStatus.Confirmed,
             CreatedAt = at,

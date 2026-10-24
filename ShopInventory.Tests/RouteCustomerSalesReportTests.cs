@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -571,7 +572,8 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
 
         Assert.Equal(2, detail.SaleCount);
         Assert.Contains(detail.Sales, sale => sale.Source == RouteCustomerSaleSource.OnlineInvoice);
-        Assert.Equal(350m, detail.TotalsByCurrency.Single().Gross);
+        // 100 paid offline, and 250 before tax online, which is 288.75 as paid.
+        Assert.Equal(388.75m, detail.TotalsByCurrency.Single().Gross);
     }
 
     /// <summary>
@@ -592,6 +594,43 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
         Assert.Empty(detail.TotalsByCurrency);
     }
 
+    /// <summary>
+    /// A sale made while SAP was down is signed on the handset and waits in the invoice queue, its
+    /// reservation still Pending, until SAP comes back. It is a sale, and was missing from every report
+    /// for as long as it waited.
+    /// </summary>
+    [Theory]
+    [InlineData(InvoiceQueueStatus.Fiscalized)]
+    [InlineData(InvoiceQueueStatus.RequiresReview)]
+    public async Task A_sale_waiting_in_the_queue_for_SAP_is_counted(InvoiceQueueStatus queueStatus)
+    {
+        var reservationId = AddOnlineSale("VAN010-ONL-1", _tuckShopId, 250m, ReservationStatus.Pending);
+        QueueForSap(reservationId, "VAN010-ONL-1", queueStatus);
+
+        var detail = await DrillDownAsync(_tuckShopId);
+        var sale = Assert.Single(detail.Sales);
+        Assert.Equal("Waiting for SAP", sale.Status);
+        Assert.Equal(288.75m, sale.Total);
+
+        var summary = await SummaryAsync();
+        var tuckShop = summary.Routes.Single().Customers.Single(customer => customer.Code == "TUCK01");
+        Assert.Equal(1, tuckShop.SaleCount);
+        Assert.Equal(1, tuckShop.LineCount);
+        Assert.Equal(288.75m, tuckShop.TotalsByCurrency.Single().Gross);
+    }
+
+    /// <summary>A cancelled queue entry is a sale that never happened.</summary>
+    [Fact]
+    public async Task A_sale_whose_queue_entry_was_cancelled_is_not_counted()
+    {
+        var reservationId = AddOnlineSale("VAN010-ONL-1", _tuckShopId, 250m, ReservationStatus.Expired);
+        QueueForSap(reservationId, "VAN010-ONL-1", InvoiceQueueStatus.Cancelled);
+
+        var detail = await DrillDownAsync(_tuckShopId);
+
+        Assert.Equal(0, detail.SaleCount);
+    }
+
     [Fact]
     public async Task The_route_summary_includes_online_sales()
     {
@@ -602,7 +641,82 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
 
         Assert.Equal(1, tuckShop.SaleCount);
         Assert.Equal(1, tuckShop.LineCount);
-        Assert.Equal(250m, tuckShop.TotalsByCurrency.Single().Gross);
+        // Stored before tax, as SAP is given it; reported as paid, like the offline sales beside it.
+        Assert.Equal(288.75m, tuckShop.TotalsByCurrency.Single().Gross);
+        Assert.Equal(38.75m, tuckShop.TotalsByCurrency.Single().Vat);
+    }
+
+    /// <summary>
+    /// A reservation holds its money before tax and its quantity twice: as sold, in the unit UoMCode
+    /// names, and again in the inventory unit. The drill-down said "Tax inclusive, as paid" over the net
+    /// figure and showed 2 cases as 48 beside "CS".
+    /// </summary>
+    [Fact]
+    public async Task An_online_sale_is_shown_as_paid_in_the_unit_it_was_sold_in()
+    {
+        AddOnlineSale("VAN010-ONL-1", _tuckShopId, 250m, ReservationStatus.Confirmed,
+            soldQuantity: 2m, inventoryQuantity: 48m, uomCode: "CS");
+
+        var detail = await DrillDownAsync(_tuckShopId);
+
+        var sale = Assert.Single(detail.Sales);
+        Assert.Equal(288.75m, sale.Total);
+        Assert.Equal(38.75m, sale.VatAmount);
+        Assert.Equal(288.75m, sale.AmountPaid);
+
+        var line = Assert.Single(sale.Lines);
+        Assert.Equal(2m, line.Quantity);
+        Assert.Equal("CS", line.UoMCode);
+        Assert.Equal(144.38m, line.UnitPrice);
+        Assert.Equal(288.75m, line.LineTotal);
+
+        var mix = Assert.Single(detail.ProductMix);
+        Assert.Equal(2m, mix.Quantity);
+    }
+
+    /// <summary>
+    /// Where the handset's receipt for an online sale was signed, its total is the figure filed with
+    /// ZIMRA and the one the customer paid, so it is the one shown.
+    /// </summary>
+    [Fact]
+    public async Task An_online_sale_with_a_signed_receipt_shows_the_receipt_total()
+    {
+        AddOnlineSale("VAN010-ONL-1", _tuckShopId, 250m, ReservationStatus.Confirmed);
+        _context.DesktopSales.Add(new DesktopSaleEntity
+        {
+            ExternalReferenceId = "VAN010-ONL-1",
+            SourceSystem = SaleSourceSystems.VanSalesOnline,
+            FiscalizationStatus = DesktopSaleFiscalizationStatus.Success,
+            CardCode = RouteCode,
+            Currency = "USD",
+            DocDate = DateTime.UtcNow.Date,
+            TotalAmount = 288.74m,
+            VatAmount = 38.74m
+        });
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+
+        var detail = await DrillDownAsync(_tuckShopId);
+
+        var sale = Assert.Single(detail.Sales);
+        Assert.Equal(288.74m, sale.Total);
+        Assert.Equal(38.74m, sale.VatAmount);
+    }
+
+    [Fact]
+    public async Task The_route_product_mix_reports_online_lines_as_paid_in_the_unit_sold()
+    {
+        AddOnlineSale("VAN010-ONL-1", _tuckShopId, 250m, ReservationStatus.Confirmed,
+            soldQuantity: 2m, inventoryQuantity: 48m, uomCode: "CS");
+
+        var result = await new GetRouteCustomerProductMixHandler(_context).Handle(
+            new GetRouteCustomerProductMixQuery(RouteCode, null, null, null, 0),
+            CancellationToken.None);
+
+        Assert.False(result.IsError);
+        var item = Assert.Single(result.Value.Items);
+        Assert.Equal(2m, item.Quantity);
+        Assert.Equal(288.75m, item.TotalsByCurrency.Single().Gross);
     }
 
     // --- Product mix across a route ---
@@ -672,19 +786,23 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
     /// left locally. CardCode is the van's business partner here too — the shop is only in the route
     /// customer columns.
     /// </summary>
-    private void AddOnlineSale(
+    private string AddOnlineSale(
         string reference,
         int routeCustomerId,
         decimal total,
         string status,
-        DateTime? createdAt = null)
+        DateTime? createdAt = null,
+        decimal soldQuantity = 5m,
+        decimal? inventoryQuantity = null,
+        string? uomCode = null)
     {
         var customer = _context.RouteCustomers.AsNoTracking().Single(entity => entity.Id == routeCustomerId);
         var soldAt = createdAt ?? DateTime.UtcNow.AddDays(-1);
+        var reservationId = Guid.NewGuid().ToString();
 
         _context.StockReservations.Add(new StockReservationEntity
         {
-            ReservationId = Guid.NewGuid().ToString(),
+            ReservationId = reservationId,
             ExternalReferenceId = reference,
             SourceSystem = "KefalosVanSales",
             DocumentType = ReservationDocumentType.Invoice,
@@ -707,15 +825,33 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
                     LineNum = 0,
                     ItemCode = "CHE011",
                     ItemDescription = "Cheddar 1kg",
-                    ReservedQuantity = 5m,
-                    OriginalQuantity = 5m,
+                    ReservedQuantity = inventoryQuantity ?? soldQuantity,
+                    OriginalQuantity = soldQuantity,
+                    UoMCode = uomCode,
                     WarehouseCode = RouteCode,
-                    UnitPrice = total / 5m,
+                    UnitPrice = total / soldQuantity,
                     LineTotal = total
                 }
             ]
         });
 
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+        return reservationId;
+    }
+
+    /// <summary>The invoice queue holding a sale SAP was down for, as the handset's queued fallback leaves it.</summary>
+    private void QueueForSap(string reservationId, string reference, InvoiceQueueStatus status)
+    {
+        _context.InvoiceQueue.Add(new InvoiceQueueEntity
+        {
+            ReservationId = reservationId,
+            ExternalReference = reference,
+            CustomerCode = RouteCode,
+            InvoicePayload = "{}",
+            SourceSystem = "KefalosVanSales",
+            Status = status
+        });
         _context.SaveChanges();
         _context.ChangeTracker.Clear();
     }

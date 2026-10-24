@@ -72,12 +72,11 @@ public static class VanSalesFactReader
             })
             .ToListAsync(cancellationToken);
 
-        // Pending, cancelled and expired reservations are not sales. Only a confirmed one means an
-        // invoice was posted.
-        var online = await db.StockReservations
+        // A sale is a reservation SAP confirmed, or one signed and waiting in the invoice queue for SAP to
+        // come back (VanSaleReservations). Any other pending, cancelled or expired one is not a sale.
+        var online = await VanSaleReservations.Sold(db)
             .AsNoTracking()
             .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
-                                  && reservation.Status == ReservationStatus.Confirmed
                                   && reservation.CreatedAt >= windowStartUtc
                                   && reservation.CreatedAt < windowEndUtc
                                   && reservation.CreatedBy != null)
@@ -238,10 +237,9 @@ public static class VanSalesFactReader
             })
             .ToListAsync(cancellationToken);
 
-        var online = await db.StockReservations
+        var online = await VanSaleReservations.Sold(db)
             .AsNoTracking()
             .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
-                                  && reservation.Status == ReservationStatus.Confirmed
                                   && reservation.CreatedAt >= windowStartUtc
                                   && reservation.CreatedAt < windowEndUtc
                                   && reservation.CreatedBy != null)
@@ -386,7 +384,7 @@ public static class VanSalesFactReader
     /// <see cref="SaleSourceSystems.VanSalesOnline"/>. Only a signed one is taken: an unsigned row's
     /// total is what the server meant to file, and the lines say the same thing.
     /// </remarks>
-    private static async Task<Dictionary<string, VanSaleMoney.Amount>> LoadSignedReceiptTotalsAsync(
+    internal static async Task<Dictionary<string, VanSaleMoney.Amount>> LoadSignedReceiptTotalsAsync(
         ApplicationDbContext db,
         IEnumerable<string> references,
         CancellationToken cancellationToken)
@@ -448,10 +446,9 @@ public static class VanSalesFactReader
             })
             .ToListAsync(cancellationToken);
 
-        var online = await db.StockReservations
+        var online = await VanSaleReservations.Sold(db)
             .AsNoTracking()
             .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
-                                  && reservation.Status == ReservationStatus.Confirmed
                                   && reservation.RouteCustomerCode != null)
             .GroupBy(reservation => new { reservation.CardCode, reservation.RouteCustomerCode })
             .Select(group => new
@@ -524,10 +521,9 @@ public static class VanSalesFactReader
             })
             .ToListAsync(cancellationToken);
 
-        var online = await db.StockReservations
+        var online = await VanSaleReservations.Sold(db)
             .AsNoTracking()
             .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
-                                  && reservation.Status == ReservationStatus.Confirmed
                                   && reservation.RouteCustomerCode != null
                                   && reservation.CreatedAt < windowEndUtc)
             .GroupBy(reservation => new { reservation.CardCode, reservation.RouteCustomerCode })

@@ -2,9 +2,13 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSalesSummary;
@@ -32,9 +36,12 @@ namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSalesSum
 public sealed class GetRouteCustomerSalesSummaryHandler(
     ApplicationDbContext db,
     ISaleInvoiceCostReader? costReader = null,
-    ILogger<GetRouteCustomerSalesSummaryHandler>? logger = null
+    ILogger<GetRouteCustomerSalesSummaryHandler>? logger = null,
+    IOptions<TaxSettings>? tax = null
 ) : IRequestHandler<GetRouteCustomerSalesSummaryQuery, ErrorOr<RouteCustomerSalesSummaryDto>>
 {
+    private readonly TaxSettings _tax = tax?.Value ?? new TaxSettings();
+
     /// <summary>
     /// How a sale is tied back to a customer. The id is the real link; the code and route are the
     /// fallback for sales whose customer record has since been deleted. Code alone would not do — route
@@ -224,10 +231,9 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         DateTime toUtcExclusive,
         CancellationToken cancellationToken)
     {
-        var reservationsQuery = db.StockReservations
+        var reservationsQuery = VanSaleReservations.Sold(db)
             .AsNoTracking()
             .Where(reservation => reservation.RouteCustomerCode != null)
-            .Where(reservation => reservation.Status == ReservationStatus.Confirmed)
             .Where(reservation => reservation.CreatedAt >= fromUtc && reservation.CreatedAt < toUtcExclusive);
 
         if (route is not null)
@@ -269,19 +275,67 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
                 reservation => (reservation.RouteCustomerId, reservation.RouteCustomerCode, reservation.RouteCustomerName, reservation.CardCode, reservation.Currency),
                 reservation => (reservation.DocEntry, reservation.WarehouseCode));
 
-        return grouped.Select(row => new SaleAggregate
+        // A reservation is stored before tax, as SAP is given it, while the offline arm above is stored as
+        // the customer paid. The VAT is added here from the lines, each at its item's VAT group, so the two
+        // arms are the same kind of money. Summed in the database by item and tax code first, so this stays
+        // one grouped read rather than every line of the window; it rounds once per group where a receipt
+        // rounds once per sale, so a customer's total can differ from its receipts by a few cents.
+        // Read from the line table through its reservation, with the same predicates as above: a
+        // SelectMany off the reservations needs an APPLY, which SQLite cannot run.
+        var linesQuery = db.StockReservationLines
+            .AsNoTracking()
+            .Where(line => line.Reservation.RouteCustomerCode != null)
+            .Where(line => VanSaleReservations.SoldIds(db).Contains(line.ReservationId))
+            .Where(line => line.Reservation.CreatedAt >= fromUtc && line.Reservation.CreatedAt < toUtcExclusive);
+
+        if (route is not null)
         {
-            Key = BuildKey(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.CardCode),
-            DisplayCode = row.Key.RouteCustomerCode ?? string.Empty,
-            Name = row.Key.RouteCustomerName,
-            Currency = RouteCustomerSalesReporting.NormalizeCurrency(row.Key.Currency),
-            SaleCount = row.SaleCount,
-            Invoices = invoices[(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.RouteCustomerName, row.Key.CardCode, row.Key.Currency)].ToList(),
-            Gross = row.Gross,
-            // A reservation holds no tax split — that lives on the SAP invoice — so this reports no VAT
-            // rather than reporting zero VAT as if it had been checked.
-            Vat = 0m,
-            AmountPaid = row.Gross
+            linesQuery = linesQuery.Where(line => line.Reservation.CardCode == route);
+        }
+
+        var netLines = await linesQuery
+            .GroupBy(line => new
+            {
+                line.Reservation.RouteCustomerId,
+                line.Reservation.RouteCustomerCode,
+                line.Reservation.RouteCustomerName,
+                line.Reservation.CardCode,
+                line.Reservation.Currency,
+                line.ItemCode,
+                line.TaxCode
+            })
+            .Select(group => new { group.Key, Net = group.Sum(line => line.LineTotal) })
+            .ToListAsync(cancellationToken);
+
+        var vatGroups = await ItemVatGroups.ResolveAsync(
+            db, netLines.Select(line => line.Key.ItemCode), NullLogger.Instance, cancellationToken);
+
+        var vatByAggregate = netLines
+            .GroupBy(line => (line.Key.RouteCustomerId, line.Key.RouteCustomerCode, line.Key.RouteCustomerName, line.Key.CardCode, line.Key.Currency))
+            .ToDictionary(
+                group => group.Key,
+                group => group.Sum(line =>
+                    VanSaleMoney.GrossLine(line.Net, line.Key.ItemCode, line.Key.TaxCode, line.Key.Currency, vatGroups, _tax)
+                    - line.Net));
+
+        return grouped.Select(row =>
+        {
+            var vat = vatByAggregate.GetValueOrDefault(
+                (row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.RouteCustomerName, row.Key.CardCode, row.Key.Currency));
+            var gross = row.Gross + vat;
+
+            return new SaleAggregate
+            {
+                Key = BuildKey(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.CardCode),
+                DisplayCode = row.Key.RouteCustomerCode ?? string.Empty,
+                Name = row.Key.RouteCustomerName,
+                Currency = RouteCustomerSalesReporting.NormalizeCurrency(row.Key.Currency),
+                SaleCount = row.SaleCount,
+                Invoices = invoices[(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.RouteCustomerName, row.Key.CardCode, row.Key.Currency)].ToList(),
+                Gross = gross,
+                Vat = vat,
+                AmountPaid = gross
+            };
         }).ToList();
     }
 
@@ -325,10 +379,9 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             })
             .ToListAsync(cancellationToken);
 
-        var onlineQuery = db.StockReservations
+        var onlineQuery = VanSaleReservations.Sold(db)
             .AsNoTracking()
-            .Where(reservation => reservation.RouteCustomerCode != null)
-            .Where(reservation => reservation.Status == ReservationStatus.Confirmed);
+            .Where(reservation => reservation.RouteCustomerCode != null);
 
         if (route is not null)
         {
@@ -409,7 +462,7 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         var onlineQuery = db.StockReservationLines
             .AsNoTracking()
             .Where(line => line.Reservation.RouteCustomerCode != null)
-            .Where(line => line.Reservation.Status == ReservationStatus.Confirmed)
+            .Where(line => VanSaleReservations.SoldIds(db).Contains(line.ReservationId))
             .Where(line => line.Reservation.CreatedAt >= fromUtc && line.Reservation.CreatedAt < toUtcExclusive);
 
         if (route is not null)

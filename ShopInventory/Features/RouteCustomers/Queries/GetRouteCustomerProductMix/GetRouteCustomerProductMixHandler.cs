@@ -3,9 +3,13 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerProductMix;
@@ -19,9 +23,12 @@ namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerProductM
 public sealed class GetRouteCustomerProductMixHandler(
     ApplicationDbContext db,
     ISaleInvoiceCostReader? costReader = null,
-    ILogger<GetRouteCustomerProductMixHandler>? logger = null
+    ILogger<GetRouteCustomerProductMixHandler>? logger = null,
+    IOptions<TaxSettings>? tax = null
 ) : IRequestHandler<GetRouteCustomerProductMixQuery, ErrorOr<RouteCustomerProductMixDto>>
 {
+    private readonly TaxSettings _tax = tax?.Value ?? new TaxSettings();
+
     private sealed class ItemAggregate
     {
         public string ItemCode { get; init; } = string.Empty;
@@ -245,7 +252,7 @@ public sealed class GetRouteCustomerProductMixHandler(
         var linesQuery = db.StockReservationLines
             .AsNoTracking()
             .Where(line => line.Reservation.RouteCustomerCode != null)
-            .Where(line => line.Reservation.Status == ReservationStatus.Confirmed)
+            .Where(line => VanSaleReservations.SoldIds(db).Contains(line.ReservationId))
             .Where(line => line.Reservation.CreatedAt >= fromUtc && line.Reservation.CreatedAt < toUtcExclusive);
 
         if (customer is not null)
@@ -281,13 +288,17 @@ public sealed class GetRouteCustomerProductMixHandler(
                 line.ItemDescription,
                 line.UoMCode,
                 line.Reservation.Currency,
-                line.Reservation.RouteCustomerCode
+                line.Reservation.RouteCustomerCode,
+                // Kept apart so each group's VAT is added at its own rate below.
+                line.TaxCode
             })
             .Select(group => new
             {
                 group.Key,
-                Quantity = group.Sum(line => line.ReservedQuantity),
-                Gross = group.Sum(line => line.LineTotal),
+                // In the unit UoMCode names, which is what OriginalQuantity is. ReservedQuantity is the
+                // inventory unit: 2 cases would read as 48 beside "CS".
+                Quantity = group.Sum(line => line.OriginalQuantity),
+                Net = group.Sum(line => line.LineTotal),
                 LineCount = group.Count(),
                 LastSoldAt = group.Max(line => line.Reservation.CreatedAt)
             })
@@ -311,6 +322,11 @@ public sealed class GetRouteCustomerProductMixHandler(
                 line => (line.ItemCode, line.ItemDescription, line.UoMCode, line.Currency, line.RouteCustomerCode),
                 line => (line.DocEntry, (string?)line.WarehouseCode));
 
+        // Stored before tax, as SAP is given it; the offline lines above are stored as the customer paid.
+        // Grossed up by the rule every van report uses, so an item's value is one kind of money.
+        var vatGroups = await ItemVatGroups.ResolveAsync(
+            db, grouped.Select(row => row.Key.ItemCode), NullLogger.Instance, cancellationToken);
+
         return grouped.Select(row => new ItemAggregate
         {
             ItemCode = row.Key.ItemCode,
@@ -318,7 +334,7 @@ public sealed class GetRouteCustomerProductMixHandler(
             UoMCode = row.Key.UoMCode,
             Currency = RouteCustomerSalesReporting.NormalizeCurrency(row.Key.Currency),
             Quantity = row.Quantity,
-            Gross = row.Gross,
+            Gross = VanSaleMoney.GrossLine(row.Net, row.Key.ItemCode, row.Key.TaxCode, row.Key.Currency, vatGroups, _tax),
             LineCount = row.LineCount,
             LastSoldAt = Services.AuditService.ToCAT(row.LastSoldAt).Date,
             CustomerCodes = row.Key.RouteCustomerCode is null ? [] : [row.Key.RouteCustomerCode],

@@ -6,6 +6,7 @@ using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
+using ShopInventory.Features.VanSalesReports.Queries;
 
 namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerProductSales;
 
@@ -209,7 +210,7 @@ public sealed class GetRouteCustomerProductSalesHandler(
         var linesQuery = db.StockReservationLines
             .AsNoTracking()
             .Where(line => line.Reservation.RouteCustomerCode != null)
-            .Where(line => line.Reservation.Status == ReservationStatus.Confirmed)
+            .Where(line => VanSaleReservations.SoldIds(db).Contains(line.ReservationId))
             .Where(line => line.Reservation.CreatedAt >= fromUtc && line.Reservation.CreatedAt < toUtcExclusive);
 
         if (partner is not null)

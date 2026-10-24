@@ -3,10 +3,14 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
+using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSales;
@@ -22,9 +26,12 @@ namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSales;
 public sealed class GetRouteCustomerSalesHandler(
     ApplicationDbContext db,
     ISaleInvoiceCostReader? costReader = null,
-    ILogger<GetRouteCustomerSalesHandler>? logger = null
+    ILogger<GetRouteCustomerSalesHandler>? logger = null,
+    IOptions<TaxSettings>? tax = null
 ) : IRequestHandler<GetRouteCustomerSalesQuery, ErrorOr<RouteCustomerSalesDetailDto>>
 {
+    private readonly TaxSettings _tax = tax?.Value ?? new TaxSettings();
+
     public async Task<ErrorOr<RouteCustomerSalesDetailDto>> Handle(
         GetRouteCustomerSalesQuery query,
         CancellationToken cancellationToken)
@@ -178,10 +185,9 @@ public sealed class GetRouteCustomerSalesHandler(
         DateTime toUtcExclusive,
         CancellationToken cancellationToken)
     {
-        var rows = await db.StockReservations
+        var rows = await VanSaleReservations.Sold(db)
             .AsNoTracking()
             .Include(reservation => reservation.Lines)
-            .Where(reservation => reservation.Status == ReservationStatus.Confirmed)
             .Where(reservation => reservation.CreatedAt >= fromUtc && reservation.CreatedAt < toUtcExclusive)
             .Where(reservation => reservation.RouteCustomerId == customer.Id ||
                 (reservation.RouteCustomerId == null &&
@@ -189,36 +195,67 @@ public sealed class GetRouteCustomerSalesHandler(
                  reservation.CardCode == customer.AssignedBusinessPartnerCode))
             .ToListAsync(cancellationToken);
 
-        return rows.Select(reservation => new RouteCustomerSaleDto
+        // A reservation is stored before tax, as SAP is given it, and an offline sale as the customer paid
+        // it. Both are handed back with VAT, by the rule every van report uses (VanSaleMoney), so the two
+        // routes add up and the page's "tax inclusive, as paid" is true of both.
+        var receipts = await VanSalesFactReader.LoadSignedReceiptTotalsAsync(
+            db, rows.Select(reservation => reservation.ExternalReferenceId), cancellationToken);
+        var vatGroups = await ItemVatGroups.ResolveAsync(
+            db,
+            rows.SelectMany(reservation => reservation.Lines.Select(line => line.ItemCode)),
+            NullLogger.Instance,
+            cancellationToken);
+
+        return rows.Select(reservation =>
         {
-            Source = RouteCustomerSaleSource.OnlineInvoice,
-            Reference = reservation.ExternalReferenceId,
-            SoldAt = AuditService.ToCAT(reservation.CreatedAt),
-            Currency = RouteCustomerSalesReporting.NormalizeCurrency(reservation.Currency),
-            // A reservation records what was sold, not how it was taxed — the tax split lives on the SAP
-            // invoice. Reporting zero VAT would be a claim; leaving it out is not.
-            Total = reservation.TotalValue,
-            VatAmount = 0m,
-            AmountPaid = reservation.TotalValue,
-            Status = reservation.SAPDocNum.HasValue ? $"Posted as {reservation.SAPDocNum}" : "Posted",
-            SapDocNum = reservation.SAPDocNum,
-            SapDocEntry = reservation.SAPDocEntry,
-            PostedAt = reservation.ConfirmedAt,
-            WarehouseCode = reservation.Lines.FirstOrDefault()?.WarehouseCode,
-            Lines = reservation.Lines
-                .OrderBy(line => line.LineNum)
-                .Select(line => new RouteCustomerSaleLineDto
-                {
-                    LineNum = line.LineNum,
-                    ItemCode = line.ItemCode,
-                    ItemDescription = line.ItemDescription,
-                    Quantity = line.ReservedQuantity,
-                    UoMCode = line.UoMCode,
-                    UnitPrice = line.UnitPrice,
-                    LineTotal = line.LineTotal,
-                    WarehouseCode = line.WarehouseCode
-                })
-                .ToList()
+            var money = receipts.TryGetValue(reservation.ExternalReferenceId, out var receipt)
+                ? receipt
+                : VanSaleMoney.GrossUp(
+                    reservation.TotalValue,
+                    reservation.Lines
+                        .Select(line => new VanSaleMoney.NetLine(line.ItemCode, line.LineTotal, line.TaxCode))
+                        .ToList(),
+                    reservation.Currency,
+                    vatGroups,
+                    _tax);
+
+            decimal WithVat(StockReservationLineEntity line, decimal net) => VanSaleMoney.GrossLine(
+                net, line.ItemCode, line.TaxCode, reservation.Currency, vatGroups, _tax);
+
+            return new RouteCustomerSaleDto
+            {
+                Source = RouteCustomerSaleSource.OnlineInvoice,
+                Reference = reservation.ExternalReferenceId,
+                SoldAt = AuditService.ToCAT(reservation.CreatedAt),
+                Currency = RouteCustomerSalesReporting.NormalizeCurrency(reservation.Currency),
+                Total = money.Total,
+                VatAmount = money.Vat ?? 0m,
+                AmountPaid = money.Total,
+                // A queued sale is a sale (VanSaleReservations) that SAP has not taken yet.
+                Status = reservation.Status != ReservationStatus.Confirmed
+                    ? "Waiting for SAP"
+                    : reservation.SAPDocNum.HasValue ? $"Posted as {reservation.SAPDocNum}" : "Posted",
+                SapDocNum = reservation.SAPDocNum,
+                SapDocEntry = reservation.SAPDocEntry,
+                PostedAt = reservation.ConfirmedAt,
+                WarehouseCode = reservation.Lines.FirstOrDefault()?.WarehouseCode,
+                Lines = reservation.Lines
+                    .OrderBy(line => line.LineNum)
+                    .Select(line => new RouteCustomerSaleLineDto
+                    {
+                        LineNum = line.LineNum,
+                        ItemCode = line.ItemCode,
+                        ItemDescription = line.ItemDescription,
+                        // What was sold, in the unit UoMCode names. ReservedQuantity is the same line in
+                        // the inventory unit, so 2 cases read as 48 beside "CS".
+                        Quantity = line.OriginalQuantity,
+                        UoMCode = line.UoMCode,
+                        UnitPrice = WithVat(line, line.UnitPrice),
+                        LineTotal = WithVat(line, line.LineTotal),
+                        WarehouseCode = line.WarehouseCode
+                    })
+                    .ToList()
+            };
         }).ToList();
     }
 

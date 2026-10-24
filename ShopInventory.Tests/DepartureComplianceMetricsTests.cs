@@ -310,6 +310,8 @@ public sealed class DepartureComplianceMetricsTests
             SystemOther: other,
             SystemUntendered: untendered,
             SystemTotalSales: sales + other + untendered,
+            OtherCurrencySales: null,
+            OtherCurrencyCodes: null,
             DeclaredCash: declaredCash,
             DeclaredEcocash: declaredEcocash,
             DeclaredInnbucks: declaredInnbucks,

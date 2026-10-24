@@ -25,8 +25,10 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
 /// clocks and the rep attribution are solved there once, and a van estate's month is a few thousand rows.
 /// </para>
 /// <para>
-/// VAT is the fiscal receipt's and so is known only on offline sales. An online sale's split lives on its
-/// SAP invoice, so it adds nothing to <c>VatAmount</c> and its whole value to <c>NetAmount</c>.
+/// VAT is the fact reader's: an offline sale's from its fiscal receipt, an online sale's from its signed
+/// receipt or its lines grossed up at each item's VAT group (<c>VanSaleMoney</c>). Only an online sale
+/// with no lines has no VAT to report. Van credit notes are not read, so <c>CreditsCounted</c> stays false
+/// and nothing here is net of them.
 /// </para>
 /// <para>
 /// Margin, when asked for, is SAP's booked gross profit on the invoice each sale was posted as — the

@@ -3,9 +3,9 @@
 @attribute [Authorize(Roles = "Admin,Manager")]
 @rendermode InteractiveServer
 @using System.Globalization
-@using System.Text
 @using ShopInventory.Web.Models
 @inject IVanSalesReportService VanSalesReportService
+@inject IReportExportService ExportService
 @inject IJSRuntime JS
 
 <PageTitle>Departure Compliance - Shop Inventory</PageTitle>
@@ -170,8 +170,12 @@
             <div class="vsc-kpi">
                 <div class="vsc-kpi-mark"></div>
                 <div class="vsc-kpi-value">@totals.Sales.ToString("N0")</div>
-                <div class="vsc-kpi-label">Total sales</div>
+                <div class="vsc-kpi-label">Total sales, USD</div>
                 <div class="vsc-kpi-sub">AOV @FormatMoney(totals.Aov)</div>
+                @if (totals.OtherCurrencyLine is { } kpiOther)
+                {
+                    <div class="vsc-kpi-sub" id="vsc-other-currency">+ @kpiOther, not in these totals</div>
+                }
             </div>
 
             <div class="vsc-kpi">
@@ -350,7 +354,17 @@
                                 @FormatMoney(day.AverageOrderValue)
                             </span>
 
-                            <span class="vsc-strong vsc-right">@day.SystemTotalSales.ToString("N2")</span>
+                            <span class="vsc-strong vsc-right">
+                                @day.SystemTotalSales.ToString("N2")
+                                @if (!day.IsDollars)
+                                {
+                                    <span class="vsc-sub">@day.Currency, not in totals</span>
+                                }
+                                @if (day.OtherCurrencySales is decimal rowOther and not 0m)
+                                {
+                                    <span class="vsc-sub">+ @OtherMoney(day.OtherCurrencyCodes, rowOther)</span>
+                                }
+                            </span>
 
                             <span class="vsc-num vsc-right @KilometreInk(day)">
                                 @(day.KilometresTravelled?.ToString("N0") ?? "—")
@@ -498,7 +512,13 @@
                 <span class="vsc-num @NoneClass(totals.Ccr)">@FormatRate(totals.Ccr)</span>
                 <span class="vsc-num @NoneClass(totals.Pcr)">@FormatRate(totals.Pcr)</span>
                 <span class="vsc-num vsc-right @NoneClass(totals.Aov)">@FormatMoney(totals.Aov)</span>
-                <span class="vsc-strong vsc-right">@totals.Sales.ToString("N2")</span>
+                <span class="vsc-strong vsc-right">
+                    @totals.Sales.ToString("N2")
+                    @if (totals.OtherCurrencyLine is { } footOther)
+                    {
+                        <span class="vsc-sub">+ @footOther apart</span>
+                    }
+                </span>
                 <span class="vsc-num vsc-right @NoneClass(totals.Kilometres)">
                     @(totals.Kilometres?.ToString("N0") ?? "—")
                 </span>
@@ -812,7 +832,22 @@
                 }
             }
 
-            totals.Sales += day.SystemTotalSales;
+            // US dollars only. A day kept in another currency, and any other-currency takings on a
+            // dollar day, are counted apart: added in, they would give a total in no currency.
+            if (day.OtherCurrencySales is { } otherOnDay and not 0m)
+            {
+                totals.AddOther(day.OtherCurrencyCodes, otherOnDay);
+            }
+
+            if (!day.IsDollars)
+            {
+                totals.AddOther(day.Currency, day.SystemTotalSales);
+            }
+            else
+            {
+                totals.Sales += day.SystemTotalSales;
+                totals.DollarProductive += day.ProductiveCalls;
+            }
 
             if (day.KilometresTravelled is { } kilometres)
             {
@@ -820,7 +855,7 @@
                 totals.KilometreRows++;
             }
 
-            if (day.DeclaredTotal is { } declared)
+            if (day.DeclaredTotal is { } declared && day.IsDollars)
             {
                 totals.DeclaredRead += declared;
                 // Over the declaring rows only, so the base matches the total it sits under.
@@ -1042,6 +1077,9 @@
     private static string FormatMoney(decimal? amount) =>
         amount is null ? "—" : amount.Value.ToString("N2");
 
+    private static string OtherMoney(string? codes, decimal amount) =>
+        string.IsNullOrWhiteSpace(codes) ? $"{amount:N2} in another currency" : $"{codes} {amount:N2}";
+
     private static string FormatTime(DateTime? catTime) =>
         catTime?.ToString("HH:mm") ?? "—";
 
@@ -1205,135 +1243,25 @@
             return;
         }
 
-        var csv = BuildCsv(rows);
-
-        var bytes = Encoding.UTF8.GetPreamble()
-            .Concat(Encoding.UTF8.GetBytes(csv))
-            .ToArray();
-
-        var fileName = $"DepartureCompliance_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.csv";
-
         try
         {
-            await JS.InvokeVoidAsync("downloadFile", fileName, "text/csv;charset=utf-8",
-                Convert.ToBase64String(bytes));
+            var bytes = ExportService.ExportDepartureComplianceToExcel(
+                rows.Select(row => new DepartureComplianceExportRow(
+                        row.Day,
+                        DepartureComplianceClassifier.FlagList(row.Gaps),
+                        DepartureComplianceClassifier.SignalList(row.Signals),
+                        TelematicsStateText(row.Day.Telematics)))
+                    .ToList(),
+                fromDate,
+                toDate);
+
+            var fileName = $"DepartureCompliance_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.xlsx";
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
         }
         catch (Exception ex)
         {
             loadError = $"The export could not be downloaded: {ex.Message}";
         }
-    }
-
-    private static string BuildCsv(IEnumerable<ComplianceRow> rows)
-    {
-        var csv = new StringBuilder();
-
-        csv.AppendLine(
-            "Trading date,Rep,Username,Territory,Route code,Route,Truck,Time out,Time in,Day closed,"
-            + "Customers planned,Customers visited,Productive calls,CCR %,PCR %,AOV,"
-            + "Sales,Currency,Cash,Ecocash,Innbucks,Swipe,Untendered,Declarable takings,"
-            + "Declared cash,Declared ecocash,Declared innbucks,Declared total,Variance,"
-            + "Shortfall,Overage,"
-            + "Odometer out,Odometer in,Kilometres,New customers,Returns out,Returns back,Flags,Notes"
-            // Appended, never inserted. The header above is a contract: people have saved
-            // spreadsheets and pivots keyed to these column positions, and moving one silently
-            // re-points every formula that reads it.
-            + ",Verified out,Departure source,Departure delta (min),Vehicle ignition on,"
-            + "Vehicle ignition off,Vehicle left depot,Ignition cycles,Driving (min),Idle (min),"
-            + "Vehicle distance (km),Odometer divergence (km),Odometer reset,Tracker changed,"
-            + "Telematics state,Signals");
-
-        foreach (var row in rows)
-        {
-            var day = row.Day;
-
-            csv.AppendJoin(',',
-                Csv(day.TradingDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
-                Csv(day.DisplayName),
-                Csv(day.Username),
-                Csv(day.Territory),
-                Csv(day.RouteCode),
-                Csv(day.RouteName),
-                Csv(day.TruckRegNo),
-                Csv(day.TimeOut?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                Csv(day.TimeIn?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                Csv(day.HasDayRecord ? (day.IsClosed ? "yes" : "no") : "no day record"),
-                Number(day.PlannedCustomerCount),
-                Number(day.CustomersVisited),
-                Number(day.ProductiveCalls),
-                Percent(day.CallComplianceRate),
-                Percent(day.ProductiveCallRate),
-                Number(day.AverageOrderValue),
-                Number(day.SystemTotalSales),
-                Csv(day.Currency),
-                Number(day.SystemCash),
-                Number(day.SystemEcocash),
-                Number(day.SystemInnbucks),
-                Number(day.SystemOther),
-                Number(day.SystemUntendered),
-                Number(day.SystemDeclarableTakings),
-                Number(day.DeclaredCash),
-                Number(day.DeclaredEcocash),
-                Number(day.DeclaredInnbucks),
-                Number(day.DeclaredTotal),
-                Number(day.DeclaredVariance),
-                // Blank where there is no finding, which is not a finding of zero.
-                Number(day.DeclaredShortfall),
-                Number(day.DeclaredOverage),
-                Number(day.StartingMileage),
-                Number(day.ClosingMileage),
-                Number(day.KilometresTravelled),
-                Number(day.NewCustomers),
-                Number(day.RtiOut),
-                Number(day.RtiReturned),
-                Csv(DepartureComplianceClassifier.FlagList(row.Gaps)),
-                Csv(day.Notes),
-                Csv(day.EffectiveDeparture?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                // Which clock decided the day. A spreadsheet full of times says nothing about
-                // where each one came from unless this column is beside them.
-                Csv(day.DepartureIsVerified ? "vehicle" : day.HasDayRecord ? "handset" : string.Empty),
-                Number(day.DepartureDiscrepancyMinutes),
-                Csv(day.Telematics?.FirstIgnitionOn?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                Csv(day.Telematics?.LastIgnitionOff?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                Csv(day.Telematics?.FirstDeparture?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                Number(day.Telematics?.IgnitionCycleCount),
-                Number(day.Telematics?.DrivingMinutes),
-                Number(day.Telematics?.IdleMinutes),
-                Number(day.Telematics?.DistanceKm),
-                Number(day.OdometerDivergenceKm),
-                Csv(day.Telematics?.OdometerReset == true ? "yes" : string.Empty),
-                Csv(day.Telematics?.TerminalChanged == true ? "yes" : string.Empty),
-                Csv(TelematicsStateText(day.Telematics)),
-                // Its own column rather than folded into Flags, so "Flags" keeps meaning
-                // compliance findings for anyone with a saved pivot over it.
-                Csv(DepartureComplianceClassifier.SignalList(row.Signals)));
-
-            csv.AppendLine();
-        }
-
-        return csv.ToString();
-    }
-
-    /// <summary>Blank, not zero: a figure that was never taken must not arrive in a spreadsheet as one.</summary>
-    private static string Number(decimal? value) =>
-        value is null ? string.Empty : value.Value.ToString("0.00", CultureInfo.InvariantCulture);
-
-    private static string Number(int? value) =>
-        value is null ? string.Empty : value.Value.ToString(CultureInfo.InvariantCulture);
-
-    private static string Percent(double? rate) =>
-        rate is null ? string.Empty : (rate.Value * 100).ToString("0.#", CultureInfo.InvariantCulture);
-
-    private static string Csv(string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return string.Empty;
-        }
-
-        return value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r')
-            ? $"\"{value.Replace("\"", "\"\"")}\""
-            : value;
     }
 
     // — Shapes ——————————————————————————————————————————————————————————
@@ -1373,7 +1301,26 @@
 
         public double? Pcr => PcrCalls > 0 ? (double)PcrProductive / PcrCalls : null;
 
-        public decimal? Aov => Productive > 0 ? decimal.Round(Sales / Productive, 2) : null;
+        /// <summary>Buyers on the US dollar days, the base the dollar AOV is taken over.</summary>
+        public int DollarProductive { get; set; }
+
+        public decimal? Aov => DollarProductive > 0 ? decimal.Round(Sales / DollarProductive, 2) : null;
+
+        private readonly Dictionary<string, decimal> _other = new(StringComparer.OrdinalIgnoreCase);
+
+        public void AddOther(string? codes, decimal amount)
+        {
+            var key = string.IsNullOrWhiteSpace(codes) ? string.Empty : codes.Trim().ToUpperInvariant();
+            _other[key] = _other.GetValueOrDefault(key) + amount;
+        }
+
+        /// <summary>"ZWG 12,400 · ZAR 800" for what the period took outside US dollars; null when nothing.</summary>
+        public string? OtherCurrencyLine => _other.Count == 0
+            ? null
+            : string.Join(" · ", _other
+                .Where(pair => pair.Value != 0m)
+                .OrderByDescending(pair => pair.Value)
+                .Select(pair => OtherMoney(pair.Key, pair.Value)));
 
         /// <summary>Null where nothing was read, so the total cannot read as a period of zero mileage.</summary>
         public int? Kilometres => KilometreRows > 0 ? KilometresRead : null;

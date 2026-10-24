@@ -307,6 +307,14 @@ public sealed class GetVanDailyTruckReportHandler(
             OtherTender: Paid(VanSalesTender.Other),
             Untendered: Paid(VanSalesTender.Untendered),
             OtherCurrencySales: otherCurrencies == 0m ? null : otherCurrencies,
+            // Which currencies those are, so the page can say what the figure is in rather than show a bare number.
+            OtherCurrencyCodes: otherCurrencies == 0m
+                ? null
+                : string.Join("/", row.Sales
+                    .Where(sale => !IsDollars(sale))
+                    .Select(sale => VanSaleMoney.CurrencyOf(sale.Currency).ToUpperInvariant())
+                    .Distinct()
+                    .Order(StringComparer.Ordinal)),
             AccountSales: row.AccountSales,
             DeclaredTotal: declared.Count > 0 ? declared.Sum() : null,
             StartingMileage: odometer?.StartingMileage,
