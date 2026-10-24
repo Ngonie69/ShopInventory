@@ -246,7 +246,8 @@ public sealed record VanSalesUncoveredOutletResult(
     DateTime? LastPurchaseOn,
     int? DaysSinceLastPurchase,
     DateTime CapturedOn,
-    List<string> OwningReps)
+    List<string> OwningReps,
+    int? RouteCustomerId = null)
 {
     public string DisplayName => string.IsNullOrWhiteSpace(OutletName) ? OutletCode : OutletName;
 
@@ -390,7 +391,8 @@ public sealed record VanSalesLapsedOutletResult(
     int PriorPurchaseDayCount,
     List<VanSalesMoneyResult> LastPurchaseByCurrency,
     List<VanSalesMoneyResult> PriorTotalsByCurrency,
-    List<string> OwningReps)
+    List<string> OwningReps,
+    int? RouteCustomerId = null)
 {
     public string DisplayName => string.IsNullOrWhiteSpace(OutletName) ? OutletCode : OutletName;
 }
@@ -480,7 +482,8 @@ public sealed record VanSalesOutletActivityResult(
     DateTime LastPurchaseInWindow,
     DateTime? FirstEverPurchaseOn,
     double? AverageDaysBetweenPurchases,
-    List<VanSalesMoneyResult> TotalsByCurrency)
+    List<VanSalesMoneyResult> TotalsByCurrency,
+    int? RouteCustomerId = null)
 {
     public string DisplayName => string.IsNullOrWhiteSpace(OutletName) ? OutletCode : OutletName;
 

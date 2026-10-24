@@ -193,6 +193,27 @@ public sealed class VanSalesCoverageReportTests : IDisposable
     }
 
     /// <summary>
+    /// Each shop row names its route customer, so the page can open that shop's own sales. A shop's
+    /// code is unique only under its van account, so the code alone could not be linked.
+    /// </summary>
+    [Fact]
+    public async Task Every_shop_row_carries_its_route_customer_so_it_can_be_opened()
+    {
+        AddOutlet(VanAccount, "NEVER", "Never Visited");
+        AddOutlet(VanAccount, "GONE", "Used To Buy");
+        AddOutlet(VanAccount, "BOUGHT", "Bought");
+        AddSale(Rep, "OLD", "GONE", 40m, new DateTime(2026, 5, 2));
+        AddSale(Rep, "S1", "BOUGHT", 40m, new DateTime(2026, 8, 7));
+        await _context.SaveChangesAsync();
+
+        var ids = _context.RouteCustomers.ToDictionary(customer => customer.Code, customer => customer.Id);
+        var report = await RunAsync();
+
+        Assert.Equal(ids["NEVER"], report.UncoveredOutlets.Single(row => row.OutletCode == "NEVER").RouteCustomerId);
+        Assert.Equal(ids["GONE"], report.LapsedOutlets.Single(row => row.OutletCode == "GONE").RouteCustomerId);
+    }
+
+    /// <summary>
     /// A shop with no purchase anywhere in the read has never bought — a different finding from one
     /// that has lapsed, and the register must not blur them.
     /// </summary>

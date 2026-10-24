@@ -373,6 +373,7 @@ public sealed class GetVanSalesCoverageReportHandler(
             .Where(customer => accounts.Contains(customer.AssignedBusinessPartnerCode) && customer.IsActive)
             .Select(customer => new
             {
+                customer.Id,
                 customer.AssignedBusinessPartnerCode,
                 customer.Code,
                 customer.Name,
@@ -387,6 +388,7 @@ public sealed class GetVanSalesCoverageReportHandler(
                 group => group.Key,
                 group => group
                     .Select(customer => new RosterRow(
+                        customer.Id,
                         customer.Code,
                         customer.Name,
                         customer.Phone,
@@ -689,7 +691,8 @@ public sealed class GetVanSalesCoverageReportHandler(
                     LastPurchaseOn: lastOn,
                     DaysSinceLastPurchase: lastOn is { } day ? Math.Max(0, (int)(to - day).TotalDays) : null,
                     CapturedOn: outlet.CapturedOn,
-                    OwningReps: owningReps ?? []));
+                    OwningReps: owningReps ?? [],
+                    RouteCustomerId: outlet.Id));
             }
         }
 
@@ -925,7 +928,9 @@ public sealed class GetVanSalesCoverageReportHandler(
                     PriorPurchaseDayCount: group.Select(sale => sale.TradingDate).Distinct().Count(),
                     LastPurchaseByCurrency: VanSalesMeasures.MoneyByCurrency(lastDrop),
                     PriorTotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group),
-                    OwningReps: owningReps ?? []);
+                    OwningReps: owningReps ?? [],
+                    // So the row can open the shop's own sales page: the roster's id, else the sales'.
+                    RouteCustomerId: rosterRow?.Id ?? group.Select(sale => sale.RouteCustomerId).FirstOrDefault(id => id is not null));
             })
             .Where(row => row is not null)
             .Select(row => row!)
@@ -1075,7 +1080,8 @@ public sealed class GetVanSalesCoverageReportHandler(
                     LastPurchaseInWindow: purchaseDays[^1],
                     FirstEverPurchaseOn: firstEver == default ? null : firstEver,
                     AverageDaysBetweenPurchases: gap,
-                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group));
+                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group),
+                    RouteCustomerId: group.Select(sale => sale.RouteCustomerId).FirstOrDefault(id => id is not null));
             })
             .OrderByDescending(outlet => outlet.TotalsByCurrency.Sum(total => total.Gross))
             .ThenBy(outlet => outlet.DisplayName, StringComparer.OrdinalIgnoreCase)
@@ -1228,7 +1234,8 @@ public sealed class GetVanSalesCoverageReportHandler(
         public string DisplayName => string.IsNullOrWhiteSpace(FullName) ? Username : FullName;
     }
 
-    private sealed record RosterRow(string Code, string Name, string? Phone, DateTime CapturedOn);
+    /// <param name="Id">The route customer's id, which its own sales page is addressed by.</param>
+    private sealed record RosterRow(int Id, string Code, string Name, string? Phone, DateTime CapturedOn);
 
     private sealed record Bucket(string Label, DateTime Start, DateTime End, bool IsPartial);
 }

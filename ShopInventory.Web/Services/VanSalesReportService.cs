@@ -27,13 +27,14 @@ public interface IVanSalesReportService
         int topItems = 25,
         CancellationToken cancellationToken = default);
 
-    Task<VanSalesCoverageReportResponse?> GetCoverageReportAsync(
+    Task<ReportResult<VanSalesCoverageReportResponse>> GetCoverageReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         Guid? userId = null,
         string? routeCode = null,
         int lapseDays = 90,
-        VanSalesCoverageGranularity granularity = VanSalesCoverageGranularity.Month);
+        VanSalesCoverageGranularity granularity = VanSalesCoverageGranularity.Month,
+        CancellationToken cancellationToken = default);
 
     Task<VanReplenishmentReportResponse?> GetReplenishmentReportAsync(
         DateTime? fromDate = null,
@@ -191,37 +192,30 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         return await GetReportAsync<AdrPerformanceReportResponse>(url, "ADR performance report", cancellationToken);
     }
 
-    public async Task<VanSalesCoverageReportResponse?> GetCoverageReportAsync(
+    public async Task<ReportResult<VanSalesCoverageReportResponse>> GetCoverageReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         Guid? userId = null,
         string? routeCode = null,
         int lapseDays = 90,
-        VanSalesCoverageGranularity granularity = VanSalesCoverageGranularity.Month)
+        VanSalesCoverageGranularity granularity = VanSalesCoverageGranularity.Month,
+        CancellationToken cancellationToken = default)
     {
-        try
+        var queryParams = new List<string>
         {
-            var queryParams = new List<string>
-            {
-                $"lapseDays={lapseDays}",
-                $"granularity={granularity}"
-            };
+            $"lapseDays={lapseDays}",
+            $"granularity={granularity}"
+        };
 
-            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
-            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
-            if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
-            if (!string.IsNullOrWhiteSpace(routeCode))
-                queryParams.Add($"routeCode={Uri.EscapeDataString(routeCode)}");
+        if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+        if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+        if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
+        if (!string.IsNullOrWhiteSpace(routeCode))
+            queryParams.Add($"routeCode={Uri.EscapeDataString(routeCode)}");
 
-            var url = $"api/van-sales/coverage-report?{string.Join("&", queryParams)}";
+        var url = $"api/van-sales/coverage-report?{string.Join("&", queryParams)}";
 
-            return await httpClient.GetFromJsonAsync<VanSalesCoverageReportResponse>(url);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error fetching the van sales coverage report");
-            return null;
-        }
+        return await GetReportAsync<VanSalesCoverageReportResponse>(url, "coverage report", cancellationToken);
     }
 
     public async Task<VanReplenishmentReportResponse?> GetReplenishmentReportAsync(

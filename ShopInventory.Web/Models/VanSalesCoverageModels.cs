@@ -159,6 +159,9 @@ public class VanSalesEfficiency
 
 public class VanSalesUncoveredOutlet
 {
+    /// <summary>The route customer, for a link to their own sales page; null for a shop the API could not name.</summary>
+    public int? RouteCustomerId { get; set; }
+
     public string VanAccountCode { get; set; } = string.Empty;
     public string OutletCode { get; set; } = string.Empty;
     public string? OutletName { get; set; }
@@ -248,6 +251,9 @@ public class VanSalesChurnPoint
 
 public class VanSalesLapsedOutlet
 {
+    /// <summary>The route customer, for a link to their own sales page; null for a shop the API could not name.</summary>
+    public int? RouteCustomerId { get; set; }
+
     public string VanAccountCode { get; set; } = string.Empty;
     public string OutletCode { get; set; } = string.Empty;
     public string? OutletName { get; set; }
@@ -315,6 +321,9 @@ public class VanSalesOutletShare
 
 public class VanSalesOutletActivity
 {
+    /// <summary>The route customer, for a link to their own sales page; null for a shop the API could not name.</summary>
+    public int? RouteCustomerId { get; set; }
+
     public string VanAccountCode { get; set; } = string.Empty;
     public string OutletCode { get; set; } = string.Empty;
     public string? OutletName { get; set; }
