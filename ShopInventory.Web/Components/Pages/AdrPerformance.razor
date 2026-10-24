@@ -7,6 +7,8 @@
 @inject IVanSalesReportService VanSalesReportService
 @inject IReportExportService ExportService
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IDisposable
 
 <PageTitle>ADR Performance - Shop Inventory</PageTitle>
 
@@ -37,30 +39,14 @@
         </div>
     </div>
 
-    <div class="vs-filters">
-        <div class="row g-3">
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vsadr-from">From</label>
-                <NocturneDateField Id="vsadr-from" @bind-Date="fromDate" AriaLabel="From date" />
-            </div>
-            <div class="col-md-2">
-                <label class="vs-filter-label" for="vsadr-to">To</label>
-                <NocturneDateField Id="vsadr-to" @bind-Date="toDate" AriaLabel="To date" />
-            </div>
-            <div class="col-md-4">
-                <label class="vs-filter-label" for="vsadr-adr">ADR</label>
-                <NocturneSelect Id="vsadr-adr" Class="nsel-block" TValue="string"
-                                Options="AdrFilterOptions" @bind-Value="selectedAdrId"
-                                OnChanged="LoadAsync" AriaLabel="Filter by ADR"
-                                Placeholder="All ADRs" />
-            </div>
-            <div class="col-md-2 vs-actions">
-                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
-                    @(isLoading ? "Loading…" : "Run")
-                </button>
-            </div>
-        </div>
-    </div>
+    <VanReportPeriodBar IdPrefix="vsadr" @bind-From="fromDate" @bind-To="toDate" RecentDays="RecentDays"
+                        OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="readAtUtc"
+                        ShownFrom="report?.FromDate" ShownTo="report?.ToDate">
+        <NocturneSelect Id="vsadr-adr" Class="nsel-block" TValue="string"
+                        Options="AdrFilterOptions" @bind-Value="selectedAdrId"
+                        OnChanged="LoadAsync" AriaLabel="Filter by ADR"
+                        Placeholder="All ADRs" />
+    </VanReportPeriodBar>
 
     @if (loadError is not null)
     {
@@ -73,6 +59,10 @@
             <MudProgressCircular Indeterminate="true" Size="Size.Small" />
             <span>Reading the period…</span>
         </div>
+    }
+    else if (report is null && loadError is not null)
+    {
+        @* The error above says why the page is empty; nothing to choose. *@
     }
     else if (report is null)
     {
@@ -387,6 +377,19 @@
 
     private bool isLoading;
     private string? loadError;
+    private DateTime? readAtUtc;
+
+    /// <summary>The page's own default, shown as a preset beside the standard ones.</summary>
+    private static readonly int[] RecentDays = [30];
+
+    private const string TabQueryName = "tab";
+
+    [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.Rep)] private string? RepQuery { get; set; }
+    [SupplyParameterFromQuery(Name = TabQueryName)] private string? TabQuery { get; set; }
+
+    private readonly LatestLoad loads = new();
 
     private const string TabShops = "shops";
     private const string TabItems = "items";
@@ -410,7 +413,7 @@
             {
                 <button type="button"
                         class="vs-chip @(activeTab == key ? "vs-chip-info" : "vs-chip-quiet")"
-                        @onclick="() => activeTab = key">
+                        @onclick="() => ShowTab(key)">
                     @label
                     <span class="vsp-section-count">@count.ToString("N0")</span>
                 </button>
@@ -561,10 +564,16 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // CAT, not the server's clock: a trading day belongs to the van.
-        var today = DateTime.UtcNow.AddHours(2).Date;
-        fromDate = today.AddDays(-29);
-        toDate = today;
+        // A link or a refresh opens the report as it was; otherwise the page's own last 30 days.
+        var (defaultFrom, defaultTo) = VanReportPeriod.LastDays(RecentDays[0], VanReportPeriod.TodayCat);
+        fromDate = VanReportPeriod.ParseDay(FromQuery) ?? defaultFrom;
+        toDate = VanReportPeriod.ParseDay(ToQuery) ?? defaultTo;
+        selectedAdrId = VanReportLinks.ParseRep(RepQuery) is { } adrFromLink ? VanReportLinks.RepKey(adrFromLink) : null;
+
+        if (TabQuery is TabShops or TabItems or TabOrders)
+        {
+            activeTab = TabQuery;
+        }
 
         await LoadAsync();
     }
@@ -577,6 +586,7 @@
 
     private async Task LoadAsync()
     {
+        var token = loads.Begin();
         isLoading = true;
         loadError = null;
         StateHasChanged();
@@ -585,13 +595,18 @@
         {
             Guid? adrId = Guid.TryParse(selectedAdrId, out var parsed) ? parsed : null;
 
-            report = await VanSalesReportService.GetAdrPerformanceReportAsync(fromDate, toDate, adrId);
+            var result = await VanSalesReportService.GetAdrPerformanceReportAsync(
+                fromDate, toDate, adrId, cancellationToken: token);
+            report = result.Value;
 
             if (report is null)
             {
-                loadError = "The ADR performance report could not be loaded. Check that the API is reachable.";
+                loadError = result.Error;
                 return;
             }
+
+            readAtUtc = DateTime.UtcNow;
+            WriteQuery();
 
             if (adrId is null)
             {
@@ -604,16 +619,42 @@
                 await LoadAsync();
             }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // A newer load replaced this one and owns the page now.
+        }
         catch (Exception ex)
         {
             loadError = $"Failed to load the ADR performance report: {ex.Message}";
         }
         finally
         {
-            isLoading = false;
-            StateHasChanged();
+            if (!token.IsCancellationRequested)
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
         }
     }
+
+    private void ShowTab(string key)
+    {
+        activeTab = key;
+        WriteQuery();
+    }
+
+    /// <summary>The period, the ADR and the open tab, in the page's own URL.</summary>
+    private void WriteQuery()
+    {
+        var values = VanReportLinks.Query(
+            report?.FromDate ?? fromDate,
+            report?.ToDate ?? toDate,
+            rep: VanReportLinks.ParseRep(selectedAdrId));
+        values[TabQueryName] = activeTab == TabShops ? null : activeTab;
+        VanReportLinks.WriteQuery(Navigation, values);
+    }
+
+    public void Dispose() => loads.Dispose();
 
     private async Task ExportAsync()
     {

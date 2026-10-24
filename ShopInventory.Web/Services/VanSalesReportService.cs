@@ -20,11 +20,12 @@ public interface IVanSalesReportService
         int topItems = 50,
         CancellationToken cancellationToken = default);
 
-    Task<AdrPerformanceReportResponse?> GetAdrPerformanceReportAsync(
+    Task<ReportResult<AdrPerformanceReportResponse>> GetAdrPerformanceReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         Guid? userId = null,
-        int topItems = 25);
+        int topItems = 25,
+        CancellationToken cancellationToken = default);
 
     Task<VanSalesCoverageReportResponse?> GetCoverageReportAsync(
         DateTime? fromDate = null,
@@ -169,32 +170,25 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         return await GetReportAsync<VanSalesPerformanceReportResponse>(url, "performance report", cancellationToken);
     }
 
-    public async Task<AdrPerformanceReportResponse?> GetAdrPerformanceReportAsync(
+    public async Task<ReportResult<AdrPerformanceReportResponse>> GetAdrPerformanceReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
         Guid? userId = null,
-        int topItems = 25)
+        int topItems = 25,
+        CancellationToken cancellationToken = default)
     {
-        try
-        {
-            // Dates only: these are CAT trading days, not instants.
-            var queryParams = new List<string> { $"topItems={topItems}" };
+        // Dates only: these are CAT trading days, not instants.
+        var queryParams = new List<string> { $"topItems={topItems}" };
 
-            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
-            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
-            if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
+        if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+        if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+        if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
 
-            var url = queryParams.Count > 0
-                ? $"api/van-sales/adr-performance-report?{string.Join("&", queryParams)}"
-                : "api/van-sales/adr-performance-report";
+        var url = queryParams.Count > 0
+            ? $"api/van-sales/adr-performance-report?{string.Join("&", queryParams)}"
+            : "api/van-sales/adr-performance-report";
 
-            return await httpClient.GetFromJsonAsync<AdrPerformanceReportResponse>(url);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error fetching the ADR performance report");
-            return null;
-        }
+        return await GetReportAsync<AdrPerformanceReportResponse>(url, "ADR performance report", cancellationToken);
     }
 
     public async Task<VanSalesCoverageReportResponse?> GetCoverageReportAsync(
