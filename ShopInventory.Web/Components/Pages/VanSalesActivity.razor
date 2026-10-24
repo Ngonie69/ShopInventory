@@ -10,6 +10,7 @@
 @implements IAsyncDisposable
 @inject IVanSalesAttendanceService VanSalesAttendanceService
 @inject IJSRuntime JS
+@inject IReportExportService ExportService
 
 <PageTitle>Van Sales Activity - Shop Inventory</PageTitle>
 
@@ -47,8 +48,8 @@
             </p>
         </div>
         <div class="vsa-head-actions">
-            <button class="vs-btn" @onclick="ExportCsvAsync" disabled="@(isLoading || filtered.Count == 0)">
-                Export CSV
+            <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || filtered.Count == 0)">
+                Export
             </button>
         </div>
     </div>
@@ -833,48 +834,25 @@
 
     // ---- Export ------------------------------------------------------------------------------
 
-    private async Task ExportCsvAsync()
+    private async Task ExportAsync()
     {
         // The filtered set, not the page: the button sits beside the filters and exports what they
         // describe. Every round in view, call by call, in the order the reader is looking at.
-        var csv = new System.Text.StringBuilder();
-        csv.AppendLine("Rep,Van,Route,Trading day,Customer code,Customer,In CAT,Out CAT,Duration minutes,Latitude,Longitude,Fix,Accuracy m,Captured offline,Check-in notes,Check-out notes");
+        var rows = filtered
+            .SelectMany(round => round.CallRows.Select(call => new VanActivityExportRow(
+                round.RepName,
+                round.Date,
+                call.Visit,
+                ToCat(call.Visit.CheckInTime),
+                call.Visit.CheckOutTime is { } outTime ? ToCat(outTime) : null,
+                FixLabel(call.Visit))))
+            .ToList();
 
-        foreach (var round in filtered)
-        {
-            foreach (var call in round.CallRows)
-            {
-                var visit = call.Visit;
-
-                csv.AppendJoin(',',
-                    Csv(round.RepName),
-                    Csv(visit.TruckRegNo),
-                    Csv(visit.RouteName),
-                    Csv(round.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
-                    Csv(visit.CustomerCode),
-                    Csv(visit.CustomerName),
-                    Csv(ToCat(visit.CheckInTime).ToString("HH:mm", CultureInfo.InvariantCulture)),
-                    Csv(visit.CheckOutTime is { } outTime ? ToCat(outTime).ToString("HH:mm", CultureInfo.InvariantCulture) : "Open"),
-                    Csv(visit.DurationMinutes?.ToString("F0", CultureInfo.InvariantCulture)),
-                    Csv(visit.CheckInLatitude?.ToString("F6", CultureInfo.InvariantCulture)),
-                    Csv(visit.CheckInLongitude?.ToString("F6", CultureInfo.InvariantCulture)),
-                    Csv(FixLabel(visit)),
-                    Csv(visit.CheckInLocationAccuracyMetres?.ToString("F0", CultureInfo.InvariantCulture)),
-                    Csv(visit.WasCapturedOffline ? "Yes" : "No"),
-                    Csv(visit.CheckInNotes),
-                    Csv(visit.CheckOutNotes));
-                csv.AppendLine();
-            }
-        }
-
-        var bytes = System.Text.Encoding.UTF8.GetPreamble()
-            .Concat(System.Text.Encoding.UTF8.GetBytes(csv.ToString()))
-            .ToArray();
+        var bytes = ExportService.ExportVanActivityToExcel(rows, fromDate, toDate);
 
         await JS.InvokeVoidAsync(
             "downloadFile",
-            $"VanSalesActivity_{ToCat(DateTime.UtcNow):yyyyMMdd_HHmmss}.csv",
-            "text/csv;charset=utf-8",
+            $"VanSalesActivity_{ToCat(DateTime.UtcNow):yyyyMMdd_HHmmss}.xlsx",
             Convert.ToBase64String(bytes));
     }
 
@@ -883,18 +861,6 @@
         : visit.CheckInFixIsStale ? "Last known"
         : visit.HasPreciseCheckInFix ? "GPS"
         : visit.CheckInLocationSource ?? "Unknown";
-
-    /// <summary>
-    /// Quote a CSV field, and never let one open a formula. A customer name beginning "=" or "+" is
-    /// executed by Excel on open, and these names come from the handset.
-    /// </summary>
-    private static string Csv(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return string.Empty;
-
-        var safe = "=+-@\t\r".Contains(value[0]) ? "'" + value : value;
-        return "\"" + safe.Replace("\"", "\"\"") + "\"";
-    }
 
     // ---- Rounds ------------------------------------------------------------------------------
 

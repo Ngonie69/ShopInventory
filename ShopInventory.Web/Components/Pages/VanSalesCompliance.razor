@@ -3,9 +3,9 @@
 @attribute [Authorize(Roles = "Admin,Manager")]
 @rendermode InteractiveServer
 @using System.Globalization
-@using System.Text
 @using ShopInventory.Web.Models
 @inject IVanSalesReportService VanSalesReportService
+@inject IReportExportService ExportService
 @inject IJSRuntime JS
 
 <PageTitle>Departure Compliance - Shop Inventory</PageTitle>
@@ -1243,147 +1243,25 @@
             return;
         }
 
-        var csv = BuildCsv(rows);
-
-        var bytes = Encoding.UTF8.GetPreamble()
-            .Concat(Encoding.UTF8.GetBytes(csv))
-            .ToArray();
-
-        var fileName = $"DepartureCompliance_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.csv";
-
         try
         {
-            await JS.InvokeVoidAsync("downloadFile", fileName, "text/csv;charset=utf-8",
-                Convert.ToBase64String(bytes));
+            var bytes = ExportService.ExportDepartureComplianceToExcel(
+                rows.Select(row => new DepartureComplianceExportRow(
+                        row.Day,
+                        DepartureComplianceClassifier.FlagList(row.Gaps),
+                        DepartureComplianceClassifier.SignalList(row.Signals),
+                        TelematicsStateText(row.Day.Telematics)))
+                    .ToList(),
+                fromDate,
+                toDate);
+
+            var fileName = $"DepartureCompliance_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.xlsx";
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
         }
         catch (Exception ex)
         {
             loadError = $"The export could not be downloaded: {ex.Message}";
         }
-    }
-
-    private static string BuildCsv(IEnumerable<ComplianceRow> rows)
-    {
-        var csv = new StringBuilder();
-
-        csv.AppendLine(
-            "Trading date,Rep,Username,Territory,Route code,Route,Truck,Time out,Time in,Day closed,"
-            + "Customers planned,Customers visited,Productive calls,CCR %,PCR %,AOV,"
-            + "Sales,Currency,Cash,Ecocash,Innbucks,Swipe,Untendered,Declarable takings,"
-            + "Declared cash,Declared ecocash,Declared innbucks,Declared total,Variance,"
-            + "Shortfall,Overage,"
-            + "Odometer out,Odometer in,Kilometres,New customers,Returns out,Returns back,Flags,Notes"
-            // Appended, never inserted. The header above is a contract: people have saved
-            // spreadsheets and pivots keyed to these column positions, and moving one silently
-            // re-points every formula that reads it.
-            + ",Verified out,Departure source,Departure delta (min),Vehicle ignition on,"
-            + "Vehicle ignition off,Vehicle left depot,Ignition cycles,Driving (min),Idle (min),"
-            + "Vehicle distance (km),Odometer divergence (km),Odometer reset,Tracker changed,"
-            + "Telematics state,Signals"
-            + ",Other currency takings,Other currencies");
-
-        foreach (var row in rows)
-        {
-            var day = row.Day;
-
-            csv.AppendJoin(',',
-                Csv(day.TradingDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
-                Csv(day.DisplayName),
-                Csv(day.Username),
-                Csv(day.Territory),
-                Csv(day.RouteCode),
-                Csv(day.RouteName),
-                Csv(day.TruckRegNo),
-                Csv(day.TimeOut?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                Csv(day.TimeIn?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                Csv(day.HasDayRecord ? (day.IsClosed ? "yes" : "no") : "no day record"),
-                Number(day.PlannedCustomerCount),
-                Number(day.CustomersVisited),
-                Number(day.ProductiveCalls),
-                Percent(day.CallComplianceRate),
-                Percent(day.ProductiveCallRate),
-                Number(day.AverageOrderValue),
-                Number(day.SystemTotalSales),
-                Csv(day.Currency),
-                Number(day.SystemCash),
-                Number(day.SystemEcocash),
-                Number(day.SystemInnbucks),
-                Number(day.SystemOther),
-                Number(day.SystemUntendered),
-                Number(day.SystemDeclarableTakings),
-                Number(day.DeclaredCash),
-                Number(day.DeclaredEcocash),
-                Number(day.DeclaredInnbucks),
-                Number(day.DeclaredTotal),
-                Number(day.DeclaredVariance),
-                // Blank where there is no finding, which is not a finding of zero.
-                Number(day.DeclaredShortfall),
-                Number(day.DeclaredOverage),
-                Number(day.StartingMileage),
-                Number(day.ClosingMileage),
-                Number(day.KilometresTravelled),
-                Number(day.NewCustomers),
-                Number(day.RtiOut),
-                Number(day.RtiReturned),
-                Csv(DepartureComplianceClassifier.FlagList(row.Gaps)),
-                Csv(day.Notes),
-                Csv(day.EffectiveDeparture?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                // Which clock decided the day. A spreadsheet full of times says nothing about
-                // where each one came from unless this column is beside them.
-                Csv(day.DepartureIsVerified ? "vehicle" : day.HasDayRecord ? "handset" : string.Empty),
-                Number(day.DepartureDiscrepancyMinutes),
-                Csv(day.Telematics?.FirstIgnitionOn?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                Csv(day.Telematics?.LastIgnitionOff?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                Csv(day.Telematics?.FirstDeparture?.ToString("HH:mm", CultureInfo.InvariantCulture)),
-                Number(day.Telematics?.IgnitionCycleCount),
-                Number(day.Telematics?.DrivingMinutes),
-                Number(day.Telematics?.IdleMinutes),
-                Number(day.Telematics?.DistanceKm),
-                Number(day.OdometerDivergenceKm),
-                Csv(day.Telematics?.OdometerReset == true ? "yes" : string.Empty),
-                Csv(day.Telematics?.TerminalChanged == true ? "yes" : string.Empty),
-                Csv(TelematicsStateText(day.Telematics)),
-                // Its own column rather than folded into Flags, so "Flags" keeps meaning
-                // compliance findings for anyone with a saved pivot over it.
-                Csv(DepartureComplianceClassifier.SignalList(row.Signals)),
-                Number(day.OtherCurrencySales),
-                Csv(day.OtherCurrencyCodes));
-
-            csv.AppendLine();
-        }
-
-        return csv.ToString();
-    }
-
-    /// <summary>Blank, not zero: a figure that was never taken must not arrive in a spreadsheet as one.</summary>
-    private static string Number(decimal? value) =>
-        value is null ? string.Empty : value.Value.ToString("0.00", CultureInfo.InvariantCulture);
-
-    private static string Number(int? value) =>
-        value is null ? string.Empty : value.Value.ToString(CultureInfo.InvariantCulture);
-
-    private static string Percent(double? rate) =>
-        rate is null ? string.Empty : (rate.Value * 100).ToString("0.#", CultureInfo.InvariantCulture);
-
-    /// <summary>
-    /// One text cell. A value a spreadsheet would read as a formula is prefixed with an apostrophe:
-    /// Notes is typed by reps, and "=HYPERLINK(...)" in it would otherwise run when the file is opened.
-    /// </summary>
-    private static string Csv(string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return string.Empty;
-        }
-
-        if ("=+-@\t\r".Contains(value[0]))
-        {
-            value = "'" + value;
-        }
-
-        return value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r')
-            ? $"\"{value.Replace("\"", "\"\"")}\""
-            : value;
     }
 
     // — Shapes ——————————————————————————————————————————————————————————

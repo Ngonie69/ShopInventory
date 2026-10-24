@@ -322,6 +322,112 @@ public class ReportExportWorkbookTests
         Assert.Contains("Page", sheet.PageSetup.Footer.Right.GetText(XLHFOccurrence.OddPages));
     }
 
+    /// <summary>
+    /// Departure Compliance used to export a CSV: every figure text, rates as 0-100 strings, and rep
+    /// notes that needed an apostrophe guard to stop a leading "=" running on open. The workbook keeps
+    /// the CSV's column order, so a pivot rebuilt on it finds its columns where they were.
+    /// </summary>
+    [Fact]
+    public void The_compliance_workbook_keeps_the_csv_columns_and_writes_figures_as_figures()
+    {
+        var day = new DepartureComplianceDay
+        {
+            UserId = Guid.NewGuid(),
+            Username = "van010",
+            FullName = "Tendai Moyo",
+            TradingDate = new DateTime(2026, 10, 1),
+            RouteName = "Guruve",
+            HasDayRecord = true,
+            IsClosed = true,
+            PlannedCustomerCount = 8,
+            TruckPlannedCustomerCount = 8,
+            TruckCustomersVisited = 2,
+            ProductiveCalls = 2,
+            SystemCash = 40m,
+            SystemTotalSales = 40m,
+            Currency = "USD",
+            DeclaredCash = 35m,
+            Notes = "=HYPERLINK(\"http://example.invalid\",\"x\")",
+            OtherCurrencySales = 1000m,
+            OtherCurrencyCodes = "ZWG"
+        };
+
+        using var workbook = Open(_service.ExportDepartureComplianceToExcel(
+            [new DepartureComplianceExportRow(day, "short declaration", string.Empty, string.Empty)],
+            day.TradingDate,
+            day.TradingDate));
+        var sheet = workbook.Worksheet("Rep-days");
+
+        var headers = sheet.Row(2).CellsUsed().Select(cell => cell.GetString()).ToList();
+        Assert.Equal(56, headers.Count);
+        Assert.Equal("Trading date", headers[0]);
+        Assert.Equal("Notes", headers[38]);
+        Assert.Equal(["Other currency takings", "Other currencies"], headers[^2..]);
+
+        int Col(string name) => headers.IndexOf(name) + 1;
+
+        Assert.Equal(XLDataType.DateTime, sheet.Cell(3, Col("Trading date")).DataType);
+        Assert.Equal(40m, sheet.Cell(3, Col("Sales")).GetValue<decimal>());
+        Assert.Equal(-5m, sheet.Cell(3, Col("Variance")).GetValue<decimal>());
+        Assert.Equal(5m, sheet.Cell(3, Col("Shortfall")).GetValue<decimal>());
+        Assert.True(sheet.Cell(3, Col("Overage")).IsEmpty(), "no overage is a blank, not a zero");
+        Assert.Equal(0.25, sheet.Cell(3, Col("CCR")).GetValue<double>(), 3);
+        Assert.Equal("0.0%", sheet.Cell(3, Col("CCR")).Style.NumberFormat.Format);
+        Assert.Equal(1000m, sheet.Cell(3, Col("Other currency takings")).GetValue<decimal>());
+        Assert.Equal("ZWG", sheet.Cell(3, Col("Other currencies")).GetString());
+
+        // A note typed by a rep is text in the workbook, never a formula.
+        var notes = sheet.Cell(3, Col("Notes"));
+        Assert.False(notes.HasFormula);
+        Assert.Equal(day.Notes, notes.GetString());
+
+        Assert.True(sheet.AutoFilter.IsEnabled, "the rep-days have no filter dropdowns");
+    }
+
+    [Fact]
+    public void An_empty_compliance_export_says_so()
+    {
+        using var workbook = Open(_service.ExportDepartureComplianceToExcel([], null, null));
+        var text = string.Join(" | ", workbook.Worksheet("Rep-days").CellsUsed().Select(cell => cell.GetString()));
+
+        Assert.Contains("No rep-days match", text);
+    }
+
+    [Fact]
+    public void The_activity_workbook_writes_a_call_per_row_with_its_day_and_place_as_values()
+    {
+        var visit = new VanVisitDto
+        {
+            CustomerCode = "TUCK01",
+            CustomerName = "+Tuck Shop",
+            CheckInTime = new DateTime(2026, 10, 1, 6, 0, 0, DateTimeKind.Utc),
+            CheckInLatitude = -17.829123,
+            CheckInLongitude = 31.052456,
+            DurationMinutes = 12.4,
+            RouteName = "Guruve",
+            TruckRegNo = "AEK 1234"
+        };
+
+        using var workbook = Open(_service.ExportVanActivityToExcel(
+            [new VanActivityExportRow("Tendai Moyo", new DateTime(2026, 10, 1), visit, new DateTime(2026, 10, 1, 8, 0, 0), null, "GPS")],
+            new DateTime(2026, 10, 1),
+            new DateTime(2026, 10, 7)));
+        var sheet = workbook.Worksheet("Calls");
+
+        var headers = sheet.Row(2).CellsUsed().Select(cell => cell.GetString()).ToList();
+        int Col(string name) => headers.IndexOf(name) + 1;
+
+        Assert.Equal(16, headers.Count);
+        Assert.Equal(XLDataType.DateTime, sheet.Cell(3, Col("Trading day")).DataType);
+        Assert.Equal("08:00", sheet.Cell(3, Col("In CAT")).GetString());
+        Assert.Equal("Open", sheet.Cell(3, Col("Out CAT")).GetString());
+        Assert.Equal(12d, sheet.Cell(3, Col("Duration minutes")).GetValue<double>());
+        Assert.Equal(-17.829123, sheet.Cell(3, Col("Latitude")).GetValue<double>(), 6);
+        Assert.False(sheet.Cell(3, Col("Customer")).HasFormula);
+        Assert.Equal("+Tuck Shop", sheet.Cell(3, Col("Customer")).GetString());
+        Assert.True(sheet.AutoFilter.IsEnabled, "the calls have no filter dropdowns");
+    }
+
     [Fact]
     public void The_workbook_carries_its_own_identity_in_the_file_properties()
     {
