@@ -153,6 +153,8 @@ public sealed record DepartureComplianceDayDto(
     decimal SystemOther,
     decimal SystemUntendered,
     decimal SystemTotalSales,
+    decimal? OtherCurrencySales,
+    string? OtherCurrencyCodes,
 
     decimal? DeclaredCash,
     decimal? DeclaredEcocash,
@@ -308,7 +310,7 @@ public sealed record DepartureComplianceDayDto(
 /// <summary>
 /// The period as one line. Rates are recomputed from the totals rather than averaged across days,
 /// because a day with four planned calls and a day with two hundred are not equal opinions about the
-/// same number.
+/// same number. <c>TotalSales</c> is US dollars: days kept in another currency are left out of it.
 /// </summary>
 public sealed record DepartureComplianceSummary(
     int DayCount,

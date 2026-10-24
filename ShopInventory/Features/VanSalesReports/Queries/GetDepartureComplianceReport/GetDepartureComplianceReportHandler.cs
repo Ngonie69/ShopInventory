@@ -118,7 +118,7 @@ public sealed class GetDepartureComplianceReportHandler(
         {
             days.TryGetValue(key, out var day);
             visits.TryGetValue(key, out var visit);
-            sales.TryGetValue(key, out var sale);
+            sales.TryGetValue(key, out var saleAccumulator);
             newCustomers.TryGetValue(key, out var newCustomerCount);
             names.TryGetValue(key.UserId, out var name);
 
@@ -134,6 +134,10 @@ public sealed class GetDepartureComplianceReportHandler(
                 ? BuildTelematics(
                     PlateFor(days, routeTrucks, key), key, day, rollups, fleet, status)
                 : null;
+
+            // The day's money is in one currency, the one the rep declared in where they did: a
+            // declaration is measured against takings in its own currency, never a mix.
+            var sale = saleAccumulator?.ToTotals(day?.DeclaredCurrency);
 
             rows.Add(BuildRow(key, day, visit, sale, trucks, newCustomerCount, name, telematicsDay));
         }
@@ -210,6 +214,8 @@ public sealed class GetDepartureComplianceReportHandler(
             SystemOther: sale?.Other ?? 0,
             SystemUntendered: sale?.Untendered ?? 0,
             SystemTotalSales: sale?.Total ?? 0,
+            OtherCurrencySales: sale?.OtherCurrencyTotal,
+            OtherCurrencyCodes: sale?.OtherCurrencyCodes,
 
             DeclaredCash: day?.DeclaredCash,
             DeclaredEcocash: day?.DeclaredEcocash,
@@ -257,7 +263,11 @@ public sealed class GetDepartureComplianceReportHandler(
             // check-ins would add buyers on top with no calls beneath them.
             PcrProductiveCalls: truckDays.Where(row => row.PcrCalls > 0).Sum(row => row.TruckProductiveCalls),
             PcrCalls: truckDays.Sum(row => row.PcrCalls),
-            TotalSales: rows.Sum(row => row.SystemTotalSales),
+            // US dollar days only. A day kept in another currency is a figure in that currency, and adding
+            // it here would give a total in none.
+            TotalSales: rows
+                .Where(row => string.IsNullOrWhiteSpace(row.Currency) || string.Equals(row.Currency, "USD", StringComparison.OrdinalIgnoreCase))
+                .Sum(row => row.SystemTotalSales),
             NewCustomers: rows.Sum(row => row.NewCustomers),
             KilometresTravelled: kilometres.Count > 0 ? kilometres.Sum() : null);
     }
@@ -447,7 +457,7 @@ public sealed class GetDepartureComplianceReportHandler(
     /// shop that took an offline sale and an online invoice on the same day is one productive call,
     /// not two, and counting the tables separately would inflate the PCR.
     /// </summary>
-    private async Task<Dictionary<DayKey, SaleTotals>> LoadSalesAsync(
+    private async Task<Dictionary<DayKey, SaleAccumulator>> LoadSalesAsync(
         GetDepartureComplianceReportQuery query,
         DateTime from,
         DateTime to,
@@ -473,7 +483,7 @@ public sealed class GetDepartureComplianceReportHandler(
             accumulator.Add(sale);
         }
 
-        return grouped.ToDictionary(pair => pair.Key, pair => pair.Value.ToTotals());
+        return grouped;
     }
 
     /// <summary>
@@ -532,6 +542,8 @@ public sealed class GetDepartureComplianceReportHandler(
 
     private sealed record UserName(string Username, string? FullName);
 
+    /// <param name="OtherCurrencyTotal">What the day took in any currency but <c>Currency</c>; null when nothing.</param>
+    /// <param name="OtherCurrencyCodes">Those currencies, joined with "/".</param>
     private sealed record SaleTotals(
         int ProductiveCalls,
         decimal Cash,
@@ -540,7 +552,9 @@ public sealed class GetDepartureComplianceReportHandler(
         decimal Other,
         decimal Untendered,
         decimal Total,
-        string? Currency);
+        string? Currency,
+        decimal? OtherCurrencyTotal,
+        string? OtherCurrencyCodes);
 
     private sealed class SaleAccumulator
     {
@@ -553,13 +567,21 @@ public sealed class GetDepartureComplianceReportHandler(
         /// </summary>
         private bool _hasUnattributed;
 
-        private decimal _cash;
-        private decimal _ecocash;
-        private decimal _innbucks;
-        private decimal _other;
-        private decimal _untendered;
-        private decimal _total;
-        private string? _currency;
+        /// <summary>
+        /// The tenders per currency. Kept apart because adding a ZWG sale to a USD one gives a number
+        /// in neither, and the variance against a declaration would then be measured against it.
+        /// </summary>
+        private readonly Dictionary<string, Tenders> _byCurrency = new(StringComparer.OrdinalIgnoreCase);
+
+        private sealed class Tenders
+        {
+            public decimal Cash;
+            public decimal Ecocash;
+            public decimal Innbucks;
+            public decimal Other;
+            public decimal Untendered;
+            public decimal Total;
+        }
 
         public void Add(VanSaleFact sale)
         {
@@ -572,41 +594,67 @@ public sealed class GetDepartureComplianceReportHandler(
                 _customers.Add(sale.RouteCustomerCode);
             }
 
-            _total += sale.TotalAmount;
-            _currency ??= sale.Currency;
+            var currency = VanSaleMoney.CurrencyOf(sale.Currency).ToUpperInvariant();
+            if (!_byCurrency.TryGetValue(currency, out var tenders))
+            {
+                tenders = new Tenders();
+                _byCurrency[currency] = tenders;
+            }
+
+            tenders.Total += sale.TotalAmount;
 
             switch (sale.Tender)
             {
                 case VanSalesTender.Cash:
-                    _cash += sale.TotalAmount;
+                    tenders.Cash += sale.TotalAmount;
                     break;
                 case VanSalesTender.Ecocash:
-                    _ecocash += sale.TotalAmount;
+                    tenders.Ecocash += sale.TotalAmount;
                     break;
                 case VanSalesTender.Innbucks:
-                    _innbucks += sale.TotalAmount;
+                    tenders.Innbucks += sale.TotalAmount;
                     break;
                 // A swipe and a sale that named no tender are both outside the three declared
                 // columns, and both are kept out of them — but they are counted apart, because only
                 // the second is money the rep might have had in hand to declare. See
                 // DepartureComplianceDayDto.DeclaredOverage.
                 case VanSalesTender.Untendered:
-                    _untendered += sale.TotalAmount;
+                    tenders.Untendered += sale.TotalAmount;
                     break;
                 default:
-                    _other += sale.TotalAmount;
+                    tenders.Other += sale.TotalAmount;
                     break;
             }
         }
 
-        public SaleTotals ToTotals() => new(
-            _customers.Count + (_hasUnattributed ? 1 : 0),
-            _cash,
-            _ecocash,
-            _innbucks,
-            _other,
-            _untendered,
-            _total,
-            _currency);
+        /// <summary>
+        /// The day in one currency: the one declared in, else US dollars where any were taken, else
+        /// whichever took most. Everything in another currency is reported beside it, not in it.
+        /// </summary>
+        public SaleTotals ToTotals(string? declaredCurrency)
+        {
+            var currency = !string.IsNullOrWhiteSpace(declaredCurrency)
+                ? declaredCurrency.Trim().ToUpperInvariant()
+                : _byCurrency.ContainsKey("USD")
+                    ? "USD"
+                    : _byCurrency.OrderByDescending(pair => pair.Value.Total).Select(pair => pair.Key).FirstOrDefault();
+
+            var main = currency is not null && _byCurrency.TryGetValue(currency, out var found) ? found : new Tenders();
+            var others = _byCurrency
+                .Where(pair => !string.Equals(pair.Key, currency, StringComparison.OrdinalIgnoreCase) && pair.Value.Total != 0m)
+                .ToList();
+
+            return new SaleTotals(
+                _customers.Count + (_hasUnattributed ? 1 : 0),
+                main.Cash,
+                main.Ecocash,
+                main.Innbucks,
+                main.Other,
+                main.Untendered,
+                main.Total,
+                currency,
+                others.Count == 0 ? null : others.Sum(pair => pair.Value.Total),
+                others.Count == 0 ? null : string.Join("/", others.Select(pair => pair.Key).Order(StringComparer.Ordinal)));
+        }
     }
 }

@@ -170,8 +170,12 @@
             <div class="vsc-kpi">
                 <div class="vsc-kpi-mark"></div>
                 <div class="vsc-kpi-value">@totals.Sales.ToString("N0")</div>
-                <div class="vsc-kpi-label">Total sales</div>
+                <div class="vsc-kpi-label">Total sales, USD</div>
                 <div class="vsc-kpi-sub">AOV @FormatMoney(totals.Aov)</div>
+                @if (totals.OtherCurrencyLine is { } kpiOther)
+                {
+                    <div class="vsc-kpi-sub" id="vsc-other-currency">+ @kpiOther, not in these totals</div>
+                }
             </div>
 
             <div class="vsc-kpi">
@@ -350,7 +354,17 @@
                                 @FormatMoney(day.AverageOrderValue)
                             </span>
 
-                            <span class="vsc-strong vsc-right">@day.SystemTotalSales.ToString("N2")</span>
+                            <span class="vsc-strong vsc-right">
+                                @day.SystemTotalSales.ToString("N2")
+                                @if (!day.IsDollars)
+                                {
+                                    <span class="vsc-sub">@day.Currency, not in totals</span>
+                                }
+                                @if (day.OtherCurrencySales is decimal rowOther and not 0m)
+                                {
+                                    <span class="vsc-sub">+ @OtherMoney(day.OtherCurrencyCodes, rowOther)</span>
+                                }
+                            </span>
 
                             <span class="vsc-num vsc-right @KilometreInk(day)">
                                 @(day.KilometresTravelled?.ToString("N0") ?? "—")
@@ -498,7 +512,13 @@
                 <span class="vsc-num @NoneClass(totals.Ccr)">@FormatRate(totals.Ccr)</span>
                 <span class="vsc-num @NoneClass(totals.Pcr)">@FormatRate(totals.Pcr)</span>
                 <span class="vsc-num vsc-right @NoneClass(totals.Aov)">@FormatMoney(totals.Aov)</span>
-                <span class="vsc-strong vsc-right">@totals.Sales.ToString("N2")</span>
+                <span class="vsc-strong vsc-right">
+                    @totals.Sales.ToString("N2")
+                    @if (totals.OtherCurrencyLine is { } footOther)
+                    {
+                        <span class="vsc-sub">+ @footOther apart</span>
+                    }
+                </span>
                 <span class="vsc-num vsc-right @NoneClass(totals.Kilometres)">
                     @(totals.Kilometres?.ToString("N0") ?? "—")
                 </span>
@@ -812,7 +832,22 @@
                 }
             }
 
-            totals.Sales += day.SystemTotalSales;
+            // US dollars only. A day kept in another currency, and any other-currency takings on a
+            // dollar day, are counted apart: added in, they would give a total in no currency.
+            if (day.OtherCurrencySales is { } otherOnDay and not 0m)
+            {
+                totals.AddOther(day.OtherCurrencyCodes, otherOnDay);
+            }
+
+            if (!day.IsDollars)
+            {
+                totals.AddOther(day.Currency, day.SystemTotalSales);
+            }
+            else
+            {
+                totals.Sales += day.SystemTotalSales;
+                totals.DollarProductive += day.ProductiveCalls;
+            }
 
             if (day.KilometresTravelled is { } kilometres)
             {
@@ -820,7 +855,7 @@
                 totals.KilometreRows++;
             }
 
-            if (day.DeclaredTotal is { } declared)
+            if (day.DeclaredTotal is { } declared && day.IsDollars)
             {
                 totals.DeclaredRead += declared;
                 // Over the declaring rows only, so the base matches the total it sits under.
@@ -1042,6 +1077,9 @@
     private static string FormatMoney(decimal? amount) =>
         amount is null ? "—" : amount.Value.ToString("N2");
 
+    private static string OtherMoney(string? codes, decimal amount) =>
+        string.IsNullOrWhiteSpace(codes) ? $"{amount:N2} in another currency" : $"{codes} {amount:N2}";
+
     private static string FormatTime(DateTime? catTime) =>
         catTime?.ToString("HH:mm") ?? "—";
 
@@ -1241,7 +1279,8 @@
             + ",Verified out,Departure source,Departure delta (min),Vehicle ignition on,"
             + "Vehicle ignition off,Vehicle left depot,Ignition cycles,Driving (min),Idle (min),"
             + "Vehicle distance (km),Odometer divergence (km),Odometer reset,Tracker changed,"
-            + "Telematics state,Signals");
+            + "Telematics state,Signals"
+            + ",Other currency takings,Other currencies");
 
         foreach (var row in rows)
         {
@@ -1306,7 +1345,9 @@
                 Csv(TelematicsStateText(day.Telematics)),
                 // Its own column rather than folded into Flags, so "Flags" keeps meaning
                 // compliance findings for anyone with a saved pivot over it.
-                Csv(DepartureComplianceClassifier.SignalList(row.Signals)));
+                Csv(DepartureComplianceClassifier.SignalList(row.Signals)),
+                Number(day.OtherCurrencySales),
+                Csv(day.OtherCurrencyCodes));
 
             csv.AppendLine();
         }
@@ -1324,11 +1365,20 @@
     private static string Percent(double? rate) =>
         rate is null ? string.Empty : (rate.Value * 100).ToString("0.#", CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// One text cell. A value a spreadsheet would read as a formula is prefixed with an apostrophe:
+    /// Notes is typed by reps, and "=HYPERLINK(...)" in it would otherwise run when the file is opened.
+    /// </summary>
     private static string Csv(string? value)
     {
         if (string.IsNullOrEmpty(value))
         {
             return string.Empty;
+        }
+
+        if ("=+-@\t\r".Contains(value[0]))
+        {
+            value = "'" + value;
         }
 
         return value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r')
@@ -1373,7 +1423,26 @@
 
         public double? Pcr => PcrCalls > 0 ? (double)PcrProductive / PcrCalls : null;
 
-        public decimal? Aov => Productive > 0 ? decimal.Round(Sales / Productive, 2) : null;
+        /// <summary>Buyers on the US dollar days, the base the dollar AOV is taken over.</summary>
+        public int DollarProductive { get; set; }
+
+        public decimal? Aov => DollarProductive > 0 ? decimal.Round(Sales / DollarProductive, 2) : null;
+
+        private readonly Dictionary<string, decimal> _other = new(StringComparer.OrdinalIgnoreCase);
+
+        public void AddOther(string? codes, decimal amount)
+        {
+            var key = string.IsNullOrWhiteSpace(codes) ? string.Empty : codes.Trim().ToUpperInvariant();
+            _other[key] = _other.GetValueOrDefault(key) + amount;
+        }
+
+        /// <summary>"ZWG 12,400 · ZAR 800" for what the period took outside US dollars; null when nothing.</summary>
+        public string? OtherCurrencyLine => _other.Count == 0
+            ? null
+            : string.Join(" · ", _other
+                .Where(pair => pair.Value != 0m)
+                .OrderByDescending(pair => pair.Value)
+                .Select(pair => OtherMoney(pair.Key, pair.Value)));
 
         /// <summary>Null where nothing was read, so the total cannot read as a period of zero mileage.</summary>
         public int? Kilometres => KilometreRows > 0 ? KilometresRead : null;

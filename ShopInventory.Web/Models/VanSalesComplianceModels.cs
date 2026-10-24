@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 
 namespace ShopInventory.Web.Models;
 
@@ -155,6 +155,15 @@ public class DepartureComplianceDay
     public decimal SystemOther { get; set; }
     public decimal SystemUntendered { get; set; }
     public decimal SystemTotalSales { get; set; }
+
+    /// <summary>What the day took in currencies other than <see cref="Currency"/>. In none of the figures above.</summary>
+    public decimal? OtherCurrencySales { get; set; }
+
+    /// <summary>The currencies <see cref="OtherCurrencySales"/> is in, joined with "/".</summary>
+    public string? OtherCurrencyCodes { get; set; }
+
+    /// <summary>The day's money is US dollars: the page's period totals add only these.</summary>
+    public bool IsDollars => string.IsNullOrWhiteSpace(Currency) || string.Equals(Currency, "USD", StringComparison.OrdinalIgnoreCase);
 
     public decimal? DeclaredCash { get; set; }
     public decimal? DeclaredEcocash { get; set; }
