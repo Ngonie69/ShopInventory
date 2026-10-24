@@ -14,6 +14,7 @@
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
+@implements IDisposable
 
 <PageTitle>Attendance Report - Shop Inventory</PageTitle>
 
@@ -89,42 +90,22 @@
         </div>
     </div>
 
-    <div class="vna-filters">
-        @* NocturneDateField, never <input type="date"> — a native calendar is a
-           platform window no page stylesheet reaches into. Same reason the rep
-           picker below is a NocturneSelect. *@
-        <div class="vna-filter">
-            <label class="vna-filter-label" for="vna-from">From</label>
-            <div class="vna-filter-date">
-                <NocturneDateField Id="vna-from" @bind-Date="fromDate" AriaLabel="From date" />
-            </div>
-        </div>
-        <div class="vna-filter">
-            <label class="vna-filter-label" for="vna-to">To</label>
-            <div class="vna-filter-date">
-                <NocturneDateField Id="vna-to" @bind-Date="toDate" AriaLabel="To date" />
-            </div>
-        </div>
-        <div class="vna-filter">
-            <label class="vna-filter-label" for="vna-rep">Rep</label>
-            <NocturneSelect Class="nsel-block vna-filter-rep" TValue="string" Id="vna-rep"
-                            Options="RepOptions" Value="repFilter"
-                            ValueChanged="@(username => OnRepChanged(username))"
-                            Caption="Show one rep" AriaLabel="Filter by rep"
-                            Placeholder="All reps" />
-        </div>
-        <button type="button" class="vna-btn vna-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
-            <i class="bi bi-play-fill" aria-hidden="true"></i>
-            @(isLoading ? "Running…" : "Run")
-        </button>
-        <div class="vna-presets">
-            <button type="button" class="vna-btn vna-btn-quiet" @onclick="() => SetRangeAsync(7)" disabled="@isLoading">Last 7 days</button>
-            <button type="button" class="vna-btn vna-btn-quiet" @onclick="() => SetRangeAsync(14)" disabled="@isLoading">Last 14 days</button>
-            <button type="button" class="vna-btn vna-btn-quiet" @onclick="() => SetRangeAsync(30)" disabled="@isLoading">Last 30 days</button>
-            <button type="button" class="vna-btn vna-btn-quiet" @onclick="SetThisMonthAsync" disabled="@isLoading">This month</button>
-        </div>
+    @* The period row every dated van report wears. The rep picker is a NocturneSelect — a native
+       <select>'s popup is a platform window no page stylesheet reaches into. *@
+    <VanReportPeriodBar IdPrefix="vna" @bind-From="fromDate" @bind-To="toDate" RecentDays="RecentDays"
+                        OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="readAtUtc"
+                        ShownFrom="report?.FromDate" ShownTo="report?.ToDate">
+        <NocturneSelect Class="nsel-block vna-filter-rep" TValue="string" Id="vna-rep"
+                        Options="RepOptions" Value="repFilter"
+                        ValueChanged="@(username => OnRepChanged(username))"
+                        Caption="Show one rep" AriaLabel="Filter by rep"
+                        Placeholder="All reps" />
+    </VanReportPeriodBar>
+
+    @if (report is not null)
+    {
         <div class="vna-period">@PeriodSummary</div>
-    </div>
+    }
 
     @if (loadError is not null)
     {
@@ -140,10 +121,14 @@
     }
     else if (report is null)
     {
-        <div class="vna-empty">
-            <div class="vna-empty-title">Nothing loaded yet</div>
-            <div class="vna-empty-note">Choose a period and run the report.</div>
-        </div>
+        @* Under an error there is nothing to choose: the error says why the page is empty. *@
+        @if (loadError is null)
+        {
+            <div class="vna-empty">
+                <div class="vna-empty-title">Nothing loaded yet</div>
+                <div class="vna-empty-note">Choose a period and run the report.</div>
+            </div>
+        }
     }
     else if (report.RepSummaries.Count == 0)
     {
@@ -580,6 +565,22 @@
     private string repFilter = string.Empty;
 
     private string chip = AllChip;
+
+    /// <summary>The page's own presets beside the standard ones; the middle one is its default.</summary>
+    private static readonly int[] RecentDays = [7, 14, 30];
+
+    private const string ChipQueryName = "chip";
+
+    [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.Rep)] private string? RepQuery { get; set; }
+    [SupplyParameterFromQuery(Name = ChipQueryName)] private string? ChipQuery { get; set; }
+
+    /// <summary>A rep a link named by user id, chosen once the report says who that is.</summary>
+    private Guid? repFromLink;
+
+    private DateTime? readAtUtc;
+    private readonly LatestLoad loads = new();
     private string sort = SortCalls;
     private int direction = -1;
     private Guid? openRep;
@@ -704,15 +705,23 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var today = CatToday();
-        fromDate = today.AddDays(-13);
-        toDate = today;
+        // A link or a refresh opens the report as it was; otherwise the page's own last 14 days.
+        var (defaultFrom, defaultTo) = VanReportPeriod.LastDays(14, CatToday());
+        fromDate = VanReportPeriod.ParseDay(FromQuery) ?? defaultFrom;
+        toDate = VanReportPeriod.ParseDay(ToQuery) ?? defaultTo;
+        repFromLink = VanReportLinks.ParseRep(RepQuery);
+
+        if (ChipDefinitions.Any(definition => definition.Key == ChipQuery))
+        {
+            chip = ChipQuery!;
+        }
 
         await LoadAsync();
     }
 
     private async Task LoadAsync()
     {
+        var token = loads.Begin();
         isLoading = true;
         loadError = null;
         StateHasChanged();
@@ -722,13 +731,24 @@
             // Deliberately without the rep filter — see the page header. The whole fleet's period is
             // what names the trading days, fills the rep menu and gives the figures something to be
             // a share of; narrowing it here would make all three depend on who is being looked at.
-            report = await VanSalesAttendanceService.GetReportAsync(fromDate, toDate);
+            var result = await VanSalesAttendanceService.GetReportAsync(fromDate, toDate, cancellationToken: token);
+            report = result.Value;
 
             if (report is null)
             {
-                loadError = "The attendance report could not be loaded. Check that the API is reachable.";
+                loadError = result.Error;
                 Rebuild();
                 return;
+            }
+
+            readAtUtc = DateTime.UtcNow;
+
+            // The rep a link asked for, by id: the picker is keyed on username, so it waits for the
+            // report to say which username that is.
+            if (repFromLink is { } linked)
+            {
+                repFilter = report.RepSummaries.FirstOrDefault(rep => rep.UserId == linked)?.Username ?? repFilter;
+                repFromLink = null;
             }
 
             // A rep who has no calls in the new period cannot stay selected — the filter would hide
@@ -741,6 +761,11 @@
 
             openRep = null;
             Rebuild();
+            WriteQuery();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // A newer load replaced this one and owns the page now.
         }
         catch (Exception ex)
         {
@@ -750,34 +775,31 @@
         }
         finally
         {
-            isLoading = false;
-            StateHasChanged();
+            if (!token.IsCancellationRequested)
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
         }
     }
 
-    private async Task SetRangeAsync(int days)
+    /// <summary>The period, the rep and the chip, in the page's own URL.</summary>
+    private void WriteQuery()
     {
-        var today = CatToday();
-        fromDate = today.AddDays(-(days - 1));
-        toDate = today;
-
-        await LoadAsync();
+        var rep = report?.RepSummaries.FirstOrDefault(row => row.Username == repFilter)?.UserId;
+        var values = VanReportLinks.Query(report?.FromDate ?? fromDate, report?.ToDate ?? toDate, rep: rep);
+        values[ChipQueryName] = chip == AllChip ? null : chip;
+        VanReportLinks.WriteQuery(Nav, values);
     }
 
-    private async Task SetThisMonthAsync()
-    {
-        var today = CatToday();
-        fromDate = new DateTime(today.Year, today.Month, 1);
-        toDate = today;
-
-        await LoadAsync();
-    }
+    public void Dispose() => loads.Dispose();
 
     private void OnRepChanged(string? username)
     {
         repFilter = username ?? string.Empty;
         openRep = null;
         Rebuild();
+        WriteQuery();
     }
 
     private void SetChip(string key)
@@ -785,6 +807,7 @@
         chip = key;
         openRep = null;
         Rebuild();
+        WriteQuery();
     }
 
     private void SelectDay(DateTime day)
@@ -1105,15 +1128,11 @@
     private void OpenCallSheet(RepRow rep)
     {
         // The ledger takes the rep and the period from the query string, so the button lands on the
-        // same rep's calls rather than on a page the reader has to filter again by hand.
-        var url = Nav.GetUriWithQueryParameters("/van-sales/activity", new Dictionary<string, object?>
-        {
-            ["rep"] = rep.Name,
-            ["from"] = fromDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            ["to"] = toDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
-        });
+        // same rep's calls rather than on a page the reader has to filter again by hand. By user id:
+        // the name it used to send went into Activity's search box and matched customers too.
+        if (report is null) return;
 
-        Nav.NavigateTo(url);
+        Nav.NavigateTo(VanReportLinks.Activity(report.FromDate, report.ToDate, rep.UserId));
     }
 
     /// <summary>

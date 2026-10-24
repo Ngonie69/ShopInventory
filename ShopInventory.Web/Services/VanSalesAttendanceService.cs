@@ -26,9 +26,10 @@ public interface IVanSalesAttendanceService
     /// The same narrowing for a caller holding the name rather than the id — a screen that has the
     /// rep's name off a row, not a lookup. An alternative to the id, not a companion to it.
     /// </param>
-    Task<VanVisitReportResponse?> GetReportAsync(
+    Task<ReportResult<VanVisitReportResponse>> GetReportAsync(
         DateTime? fromDate = null, DateTime? toDate = null,
-        Guid? userId = null, string? username = null);
+        Guid? userId = null, string? username = null,
+        CancellationToken cancellationToken = default);
 }
 
 public class VanSalesAttendanceService(
@@ -57,31 +58,24 @@ public class VanSalesAttendanceService(
         return await GetReportAsync<VanVisitListResponse>(url, "van activity", cancellationToken);
     }
 
-    public async Task<VanVisitReportResponse?> GetReportAsync(
+    public async Task<ReportResult<VanVisitReportResponse>> GetReportAsync(
         DateTime? fromDate = null, DateTime? toDate = null,
-        Guid? userId = null, string? username = null)
+        Guid? userId = null, string? username = null,
+        CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var queryParams = new List<string>();
+        var queryParams = new List<string>();
 
-            // Date only. These are CAT trading days and the API takes them as given; sending a time
-            // component invites it to be read as an instant and shift the window by two hours.
-            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
-            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
-            if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
-            if (!string.IsNullOrEmpty(username)) queryParams.Add($"username={Uri.EscapeDataString(username)}");
+        // Date only. These are CAT trading days and the API takes them as given; sending a time
+        // component invites it to be read as an instant and shift the window by two hours.
+        if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+        if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+        if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
+        if (!string.IsNullOrEmpty(username)) queryParams.Add($"username={Uri.EscapeDataString(username)}");
 
-            var url = queryParams.Count > 0
-                ? $"api/van-sales/visits/report?{string.Join("&", queryParams)}"
-                : "api/van-sales/visits/report";
+        var url = queryParams.Count > 0
+            ? $"api/van-sales/visits/report?{string.Join("&", queryParams)}"
+            : "api/van-sales/visits/report";
 
-            return await httpClient.GetFromJsonAsync<VanVisitReportResponse>(url);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error fetching the van sales attendance report");
-            return null;
-        }
+        return await GetReportAsync<VanVisitReportResponse>(url, "attendance report", cancellationToken);
     }
 }
