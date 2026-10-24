@@ -35,6 +35,20 @@ public class VanReportPeriodTests
         Assert.Equal(new DateTime(2026, 10, 11), fourteen.From);
     }
 
+    /// <summary>
+    /// The Daily Truck Report's month is the calendar month: its target is built on all of the month's
+    /// working days, and a period that stops today cannot say how far behind the month a truck is.
+    /// </summary>
+    [Fact]
+    public void A_whole_month_report_takes_this_month_to_its_last_day()
+    {
+        var month = VanReportPeriod.Options(Today, wholeMonths: true).Single(option => option.Label == "This month");
+        var soFar = VanReportPeriod.Options(Today).Single(option => option.Label == "This month");
+
+        Assert.Equal((new DateTime(2026, 10, 1), new DateTime(2026, 10, 31)), (month.From, month.To));
+        Assert.Equal((new DateTime(2026, 10, 1), Today), (soFar.From, soFar.To));
+    }
+
     [Fact]
     public void On_a_monday_this_week_is_today()
     {
