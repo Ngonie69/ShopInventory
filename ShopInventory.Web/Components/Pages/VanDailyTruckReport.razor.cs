@@ -6,9 +6,18 @@ using ShopInventory.Web.Services;
 
 namespace ShopInventory.Web.Components.Pages;
 
-public partial class VanDailyTruckReport
+public partial class VanDailyTruckReport : IDisposable
 {
     [Inject] private IVanSalesReportService VanSalesReportService { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+
+    private const string CheckQueryName = "check";
+
+    [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
+    [SupplyParameterFromQuery(Name = CheckQueryName)] private string? CheckQuery { get; set; }
+
+    private readonly LatestLoad loads = new();
     [Inject] private IReportExportService ExportService { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
 
@@ -34,37 +43,27 @@ public partial class VanDailyTruckReport
     private string? entryNotes;
     private string? entryError;
 
+    /// <summary>
+    /// Opens on the period a link or a refresh names, else on the whole of this month: the period the
+    /// workbook this replaces was kept for. The whole month and not the month so far, because the
+    /// period's target is built on its working days, and a target that ends today cannot say how far
+    /// behind the month the trucks are. The days still to come are not listed, so nothing is judged
+    /// before it happens.
+    /// </summary>
     protected override async Task OnInitializedAsync()
     {
-        await RunMonthAsync(0);
-    }
+        var today = VanReportPeriod.TodayCat;
+        var monthStart = new DateTime(today.Year, today.Month, 1);
 
-    /// <summary>
-    /// The whole of a month, this one (0) or the last (-1): the period the workbook this replaces was
-    /// kept for. The whole month and not the month so far, because the period's target is built on its
-    /// working days, and a target that ends today cannot say how far behind the month the trucks are.
-    /// The days still to come are not listed, so nothing is judged before it happens.
-    /// </summary>
-    private async Task RunMonthAsync(int monthsBack)
-    {
-        var first = FirstOfMonth(monthsBack);
-        fromDate = first;
-        toDate = first.AddMonths(1).AddDays(-1);
+        fromDate = VanReportPeriod.ParseDay(FromQuery) ?? monthStart;
+        toDate = VanReportPeriod.ParseDay(ToQuery) ?? monthStart.AddMonths(1).AddDays(-1);
+
+        if (Enum.TryParse<DayCheck>(CheckQuery, ignoreCase: true, out var check))
+        {
+            filter = check;
+        }
 
         await LoadAsync();
-    }
-
-    /// <summary>Whether the dates on screen are that whole month, so its button can say so.</summary>
-    private bool IsMonth(int monthsBack)
-    {
-        var first = FirstOfMonth(monthsBack);
-        return fromDate == first && toDate == first.AddMonths(1).AddDays(-1);
-    }
-
-    private static DateTime FirstOfMonth(int monthsBack)
-    {
-        var today = IAuditService.ToCAT(DateTime.UtcNow).Date;
-        return new DateTime(today.Year, today.Month, 1).AddMonths(monthsBack);
     }
 
     private async Task LoadAsync()
@@ -75,6 +74,7 @@ public partial class VanDailyTruckReport
             return;
         }
 
+        var token = loads.Begin();
         isLoading = true;
         error = null;
         CancelEntry();
@@ -82,19 +82,39 @@ public partial class VanDailyTruckReport
 
         try
         {
-            report = await VanSalesReportService.GetDailyTruckReportAsync(from, to);
+            // The new period's trucks or nothing: never the old month under an error about the new one.
+            var result = await VanSalesReportService.GetDailyTruckReportAsync(from, to, token);
+            report = result.Value;
+            error = result.Error;
 
-            if (report is null)
+            if (report is not null)
             {
-                error = "The report could not be loaded. Check the period is 93 days or fewer and that the API is reachable.";
+                WriteQuery();
             }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // A newer load replaced this one and owns the page now.
         }
         finally
         {
-            isLoading = false;
-            StateHasChanged();
+            if (!token.IsCancellationRequested)
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
         }
     }
+
+    /// <summary>The period and the check the list is narrowed to, in the page's own URL.</summary>
+    private void WriteQuery()
+    {
+        var values = VanReportLinks.Query(report?.FromDate ?? fromDate, report?.ToDate ?? toDate);
+        values[CheckQueryName] = filter?.ToString();
+        VanReportLinks.WriteQuery(Navigation, values);
+    }
+
+    public void Dispose() => loads.Dispose();
 
     /// <summary>
     /// Downloads the report on screen as a workbook: the period that was run, not whatever the date
@@ -167,6 +187,7 @@ public partial class VanDailyTruckReport
     {
         filter = filter == check ? null : check;
         CancelEntry();
+        WriteQuery();
     }
 
     /// <summary>The trucks with at least one day the chosen check picks out; every truck with none chosen.</summary>
@@ -360,13 +381,13 @@ public partial class VanDailyTruckReport
             // source all move with one entry, and the server is the one that works them out.
             var refreshed = await VanSalesReportService.GetDailyTruckReportAsync(from, to);
 
-            if (refreshed is null)
+            if (refreshed.Value is null)
             {
-                entryError = "Saved, but the report could not be read back. Run it again.";
+                entryError = $"Saved, but the report could not be read back. {refreshed.Error} Run it again.";
                 return;
             }
 
-            report = refreshed;
+            report = refreshed.Value;
             editing = null;
         }
         finally

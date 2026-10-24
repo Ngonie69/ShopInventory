@@ -70,7 +70,7 @@ public interface IVanSalesReportService
     /// The daily truck report: a row per route per day and each route's period against its target.
     /// Null when the report could not be read, which is not the same as an empty one.
     /// </summary>
-    Task<VanDailyTruckReportResponse?> GetDailyTruckReportAsync(DateTime fromDate, DateTime toDate);
+    Task<ReportResult<VanDailyTruckReportResponse>> GetDailyTruckReportAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Saves the office's figures for a truck's day. Returns the entry as it now stands, or the
@@ -425,19 +425,13 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         }
     }
 
-    public async Task<VanDailyTruckReportResponse?> GetDailyTruckReportAsync(DateTime fromDate, DateTime toDate)
+    public async Task<ReportResult<VanDailyTruckReportResponse>> GetDailyTruckReportAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
-        try
-        {
-            // Dates only: these are CAT trading days, not instants.
-            return await httpClient.GetFromJsonAsync<VanDailyTruckReportResponse>(
-                $"api/van-sales/truck-report?fromDate={fromDate:yyyy-MM-dd}&toDate={toDate:yyyy-MM-dd}");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error fetching the daily truck report");
-            return null;
-        }
+        // Dates only: these are CAT trading days, not instants.
+        return await GetReportAsync<VanDailyTruckReportResponse>(
+            $"api/van-sales/truck-report?fromDate={fromDate:yyyy-MM-dd}&toDate={toDate:yyyy-MM-dd}",
+            "daily truck report",
+            cancellationToken);
     }
 
     public async Task<(VanTruckDayEntry? Entry, string? Error)> SaveTruckDayEntryAsync(

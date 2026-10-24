@@ -4353,6 +4353,13 @@
     color: var(--vs-mute-3);
 }
 
+/* An opened truck's way on to its rep-days in Departure Compliance. */
+.vs .vsk-ledger-links {
+    padding: 12px 16px 4px;
+    font-size: 0.8rem;
+    color: var(--vs-ink-2);
+}
+
 /* — Where the fleet stands ————————————————————————————————————— */
 
 .vs .vsk-hero {

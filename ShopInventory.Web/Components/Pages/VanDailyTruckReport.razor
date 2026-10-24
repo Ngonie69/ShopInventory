@@ -49,27 +49,19 @@
                 account sales and the area worked are entered here by the office.
             </p>
         </div>
-        <div class="vsk-period">
-            <div class="vsk-seg" role="group" aria-label="Period">
-                <button type="button" class="@(IsMonth(0) ? "vsk-seg-on" : "")" aria-pressed="@Aria(IsMonth(0))"
-                        disabled="@isLoading" @onclick="() => RunMonthAsync(0)">This month</button>
-                <button type="button" class="@(IsMonth(-1) ? "vsk-seg-on" : "")" aria-pressed="@Aria(IsMonth(-1))"
-                        disabled="@isLoading" @onclick="() => RunMonthAsync(-1)">Last month</button>
-            </div>
-            <div class="vsk-dates">
-                <NocturneDateField Id="vsk-from" @bind-Date="fromDate" AriaLabel="From date" />
-                <span class="vsk-dates-to" aria-hidden="true">to</span>
-                <NocturneDateField Id="vsk-to" @bind-Date="toDate" AriaLabel="To date" />
-            </div>
-            <button type="button" class="vs-btn vs-btn-accent" id="vsk-run" @onclick="LoadAsync" disabled="@isLoading">
-                @(isLoading ? "Loading…" : "Run")
-            </button>
+        <div class="vs-actions">
             <button type="button" class="vs-btn" id="vsk-export" @onclick="ExportAsync" disabled="@(isLoading || isExporting || report is null)">
                 <i class="ph ph-download-simple" aria-hidden="true"></i>
                 @(isExporting ? "Exporting…" : "Export")
             </button>
         </div>
     </div>
+
+    @* Whole months: the period's target is built on all of a month's working days, so "this month"
+       here is the calendar month, with the days still to come left unjudged. *@
+    <VanReportPeriodBar IdPrefix="vsk" @bind-From="fromDate" @bind-To="toDate" WholeMonths="true"
+                        OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="report?.GeneratedAtUtc"
+                        ShownFrom="report?.FromDate" ShownTo="report?.ToDate" />
 
     @if (error is not null)
     {
@@ -338,6 +330,12 @@
                     @if (isOpen)
                     {
                         <div class="vsc-detail vsk-ledger">
+                            @if (!string.IsNullOrWhiteSpace(truck.RouteCode))
+                            {
+                                <div class="vsk-ledger-links">
+                                    <a class="vrb-link" href="@VanReportLinks.Compliance(report.FromDate, report.ToDate, route: truck.RouteCode)">@truck.RouteName's rep-days in Departure Compliance</a>
+                                </div>
+                            }
                             <div class="vsk-day-track vsk-day-cols">
                                 <span>Day</span>
                                 <span>Area worked</span>
@@ -360,7 +358,15 @@
 
                                 <div class="vsk-day-track vsk-day @(day.HasActivity ? "" : "vsk-day-quiet") @(Marked(day) ? "vsk-day-marked" : "")" @key="day.TradingDate">
                                     <span class="vsc-cell">
-                                        <span class="vsc-day">@day.TradingDate.ToString("ddd d MMM")</span>
+                                        @if (day.HasActivity && !string.IsNullOrWhiteSpace(day.RouteCode))
+                                        {
+                                            <a class="vsc-day vrb-link" href="@VanReportLinks.Compliance(day.TradingDate, day.TradingDate, route: day.RouteCode)"
+                                               title="This truck-day in Departure Compliance">@day.TradingDate.ToString("ddd d MMM")</a>
+                                        }
+                                        else
+                                        {
+                                            <span class="vsc-day">@day.TradingDate.ToString("ddd d MMM")</span>
+                                        }
                                         @if (FlagFor(day) is { } flag)
                                         {
                                             <span class="vsc-sub @Ink(day.NotReported || day.DistanceWithoutSales || day.ReturnedLate)">@flag</span>

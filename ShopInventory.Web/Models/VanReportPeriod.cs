@@ -24,7 +24,12 @@ public static class VanReportPeriod
     /// The standard set — today, yesterday, this week, this month, last month — with a "Last N days"
     /// for each of <paramref name="recentDays"/>, which is how a page keeps its own default visible.
     /// </summary>
-    public static IReadOnlyList<Option> Options(DateTime today, IEnumerable<int>? recentDays = null)
+    /// <param name="wholeMonths">
+    /// "This month" as the whole calendar month rather than the month so far: for a report whose
+    /// target is built on all of a month's working days, which cannot say how far behind the month
+    /// it is from a period that stops today.
+    /// </param>
+    public static IReadOnlyList<Option> Options(DateTime today, IEnumerable<int>? recentDays = null, bool wholeMonths = false)
     {
         var monthStart = new DateTime(today.Year, today.Month, 1);
         var weekStart = today.AddDays(-(((int)today.DayOfWeek + 6) % 7)); // Monday
@@ -41,7 +46,7 @@ public static class VanReportPeriod
             options.Add(new($"Last {days} days", LastDays(days, today).From, today));
         }
 
-        options.Add(new("This month", monthStart, today));
+        options.Add(new("This month", monthStart, wholeMonths ? monthStart.AddMonths(1).AddDays(-1) : today));
         options.Add(new("Last month", monthStart.AddMonths(-1), monthStart.AddDays(-1)));
         return options;
     }

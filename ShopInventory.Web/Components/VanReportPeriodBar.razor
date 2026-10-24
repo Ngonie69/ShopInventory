@@ -72,6 +72,9 @@
     /// <summary>A "Last N days" button for each, beside the standard set: the page's own default.</summary>
     [Parameter] public IEnumerable<int>? RecentDays { get; set; }
 
+    /// <summary>"This month" as the whole calendar month. See <see cref="VanReportPeriod.Options"/>.</summary>
+    [Parameter] public bool WholeMonths { get; set; }
+
     /// <summary>Runs the report for the period in the boxes. A preset sets them first.</summary>
     [Parameter] public EventCallback OnRun { get; set; }
 
@@ -96,7 +99,7 @@
 
     protected override void OnParametersSet()
     {
-        options = VanReportPeriod.Options(VanReportPeriod.TodayCat, RecentDays);
+        options = VanReportPeriod.Options(VanReportPeriod.TodayCat, RecentDays, WholeMonths);
     }
 
     private bool IsOn(VanReportPeriod.Option option) =>
