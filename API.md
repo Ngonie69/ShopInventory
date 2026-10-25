@@ -1872,6 +1872,14 @@ is generated only after that process completes. For a request raised directly in
 Stock Officer Approval. For an app-raised request, the existing approval history is continued.
 Every successful submission and conversion is recorded in the audit log.
 
+A request converts once. The transfer it becomes carries `ITR-{docEntry}` in SAP's `U_OrderNumber`,
+and every conversion looks for that first. When SAP already holds it (an earlier conversion posted
+and then failed to close the request, or its reply was lost) the request is closed and the call
+answers with that transfer, posting nothing; the message says so. Only one conversion of a request
+runs at a time, whoever asks: a second answers 409 `InventoryTransfer.ConversionInProgress`. If SAP
+cannot be searched, nothing is posted and the call answers `InventoryTransfer.SapConnectionError`.
+Transfers converted before the marker existed, or in the SAP client, carry none and are not found.
+
 `POST /api/InventoryTransfer/request/{docEntry}/close` turns a request down, and closes the SAP
 document either way. For a request raised directly in SAP that is the whole of it — there is no
 approval to decide, so nothing is routed and no stage can refuse the caller. For a request raised
@@ -1938,7 +1946,7 @@ repeat returns the existing held transfer rather than opening a second approval.
 | GET | `/api/InventoryTransfer/pending` | List held transfers. `status` (default `AwaitingApproval`, or `all`), `warehouseCode`, `mineOnly`, `page`, `pageSize` |
 | GET | `/api/InventoryTransfer/pending/{id}` | Held transfer with lines and per-stage approval progress |
 | POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject. Admin, StockController, WashBay, DepotController, Manager |
-| POST | `/api/InventoryTransfer/pending/{id}/post` | Retry the SAP post after a `PostFailed` |
+| POST | `/api/InventoryTransfer/pending/{id}/post` | Retry the SAP post after a `PostFailed`. Any attempt after the first looks the transfer up in SAP by its draft number (`U_OrderNumber`) and records the document it finds instead of posting again. A failed lookup posts nothing. A timeout recorded before posts carried the draft number is refused with 409 `InventoryTransfer.PostOutcomeUnsearchable`: record its number or withdraw it |
 | POST | `/api/InventoryTransfer/pending/{id}/cancel` | Withdraw. Submitter or Admin only, before any decision |
 | GET | `/api/InventoryTransfer/pending/{id}/stock-check` | Each line against the source warehouse now: `InStock`, `Short` (with the available figure) or `Unread` |
 | POST | `/api/InventoryTransfer/pending/{id}/post-in-stock` | Post the lines the depot can fill from an `Approved`/`PostFailed` transfer; short lines are left out and kept in `DroppedLinesJson`. Refused after a timed-out post until SAP is checked |

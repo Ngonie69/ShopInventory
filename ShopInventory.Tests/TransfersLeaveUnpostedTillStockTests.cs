@@ -310,6 +310,9 @@ public sealed class TransfersLeaveUnpostedTillStockTests : IDisposable
                     Task.FromResult<InventoryTransferRequest?>(Request((int)args![0]!)),
                 nameof(ISAPServiceLayerClient.ConvertTransferRequestToTransferAsync) =>
                     Convert(),
+                // No earlier conversion of this request is in SAP.
+                nameof(ISAPServiceLayerClient.FindStockTransferByOrderNumberAsync) =>
+                    Task.FromResult<InventoryTransfer?>(null),
                 _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
             });
 

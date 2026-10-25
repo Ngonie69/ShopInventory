@@ -97,6 +97,16 @@ public static partial class Errors
                 "InventoryTransfer.PostInProgress",
                 "This transfer is already being posted to SAP. Give it a moment and refresh — posting it again would create a second document.");
 
+        /// <summary>
+        /// Someone else is converting this request right now. Keyed on the request, not the person, so
+        /// two people pressing Convert at once cannot both post a transfer.
+        /// </summary>
+        public static Error ConversionInProgress(int requestDocNum) =>
+            Error.Conflict(
+                "InventoryTransfer.ConversionInProgress",
+                $"Transfer request #{requestDocNum} is already being converted. Give it a moment and refresh; " +
+                "converting it again could post a second transfer.");
+
         public static Error PendingTransferNotFound(Guid id) =>
             Error.NotFound("InventoryTransfer.PendingTransferNotFound", $"Pending inventory transfer {id} was not found.");
 
@@ -115,6 +125,17 @@ public static partial class Errors
                 "InventoryTransfer.PostOutcomeUnknown",
                 "The last post of this transfer timed out, so SAP may already hold it. Look for it in SAP first: " +
                 "record its number if it is there, or retry the whole transfer if it is not.");
+
+        /// <summary>
+        /// The last post timed out before posts were stamped with an order number, so SAP cannot be
+        /// searched for it and posting again could move the stock twice.
+        /// </summary>
+        public static readonly Error PostOutcomeUnsearchable =
+            Error.Conflict(
+                "InventoryTransfer.PostOutcomeUnsearchable",
+                "The last post of this transfer timed out, and it was sent before transfers could be looked up in SAP " +
+                "automatically, so it was not posted again. Look for it in SAP: record its number if it is there, " +
+                "or withdraw it and raise it again if it is not.");
 
         public static Error WithdrawalNotAllowed(string status) =>
             Error.Conflict(
