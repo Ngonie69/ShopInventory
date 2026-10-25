@@ -329,6 +329,85 @@ public sealed class TransferRequestConversionTests : IDisposable
         Assert.Equal(0, sap.Conversions);
     }
 
+    // ── A request that was converted before ─────────────
+
+    [Fact]
+    public async Task A_request_whose_transfer_SAP_already_has_is_closed_and_not_converted_again()
+    {
+        // The first conversion posted and then failed to close the request, so it was still open.
+        var officer = await AddUserAsync(ApplicationRoles.StockController);
+        var sap = new RecordingSapClient
+        {
+            InSap = new InventoryTransfer { DocEntry = 6900, DocNum = 6900, FromWarehouse = Source, ToWarehouse = Destination }
+        };
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Equal(0, sap.Conversions);
+        Assert.Equal(1, sap.Closes);
+        Assert.Equal(6900, result.Value.Transfer!.DocEntry);
+        Assert.Contains("already been converted", result.Value.Message);
+    }
+
+    [Fact]
+    public async Task A_conversion_looks_for_the_request_marker_before_posting()
+    {
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var sap = new RecordingSapClient();
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.False(result.IsError);
+        Assert.Equal([$"ITR-{RequestDocEntry}"], sap.LookedUp);
+        Assert.Equal(1, sap.Conversions);
+    }
+
+    [Fact]
+    public async Task Nothing_is_converted_when_SAP_cannot_be_checked_for_an_earlier_conversion()
+    {
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var sap = new RecordingSapClient { LookupFailure = new HttpRequestException("SAP is down") };
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.SapConnectionError", result.FirstError.Code);
+        Assert.Equal(0, sap.Conversions);
+    }
+
+    [Fact]
+    public async Task Two_people_converting_one_request_contend_for_one_lock()
+    {
+        // The older guards were keyed on the person, so a stock officer and an administrator
+        // converting the same request each held their own lock and could both post.
+        var officer = await AddUserAsync(ApplicationRoles.StockController);
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var store = new AlwaysAcquiresStore();
+
+        await Handler(new RecordingSapClient(), store).Handle(new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
+        await Handler(new RecordingSapClient(), store).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.Equal(
+            [RequestDocEntry.ToString(), RequestDocEntry.ToString()],
+            store.KeysFor(ConvertTransferRequestHandler.ConversionPostScope));
+    }
+
+    [Fact]
+    public async Task A_conversion_already_running_is_refused_without_reaching_SAP()
+    {
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var sap = new RecordingSapClient();
+        var store = new AlwaysAcquiresStore { HeldScope = ConvertTransferRequestHandler.ConversionPostScope };
+
+        var result = await Handler(sap, store).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.ConversionInProgress", result.FirstError.Code);
+        Assert.Empty(sap.LookedUp);
+        Assert.Equal(0, sap.Conversions);
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     private Task<ApprovalRequestEntity> OpenApprovalAsync(User originator)
@@ -367,9 +446,9 @@ public sealed class TransferRequestConversionTests : IDisposable
     /// </summary>
     private readonly NoOpNotificationService _published = new();
 
-    private ConvertTransferRequestHandler Handler(RecordingSapClient sap) =>
+    private ConvertTransferRequestHandler Handler(RecordingSapClient sap, AlwaysAcquiresStore? store = null) =>
         new(sap.AsClient(), ApprovalService(), new TransferWarehouseAuthorizer(_context),
-            new AlwaysAcquiresStore(), new NoOpAuditService(), _published,
+            store ?? new AlwaysAcquiresStore(), new NoOpAuditService(), _published,
             // No till has sold from Source, so the stock check must not even be asked.
             StubProxy.Unused<IStockValidationService>(),
             new UnpostedTillClaims(_context, Options.Create(new DailyStockSettings()), NullLogger<UnpostedTillClaims>.Instance),
@@ -383,10 +462,18 @@ public sealed class TransferRequestConversionTests : IDisposable
     private sealed class RecordingSapClient
     {
         public int Conversions { get; private set; }
+        public int Closes { get; private set; }
+
+        /// <summary>What the lookup by order number finds: a transfer an earlier conversion made.</summary>
+        public InventoryTransfer? InSap { get; init; }
+        public Exception? LookupFailure { get; init; }
+        public List<string> LookedUp { get; } = [];
 
         public ISAPServiceLayerClient AsClient() =>
-            StubProxy.For<ISAPServiceLayerClient>((method, _) => method.Name switch
+            StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
             {
+                nameof(ISAPServiceLayerClient.FindStockTransferByOrderNumberAsync) => Find((string)args![0]!),
+                nameof(ISAPServiceLayerClient.CloseInventoryTransferRequestAsync) => Close(),
                 nameof(ISAPServiceLayerClient.GetInventoryTransferRequestByDocEntryAsync) =>
                     (object)Task.FromResult<InventoryTransferRequest?>(new InventoryTransferRequest
                     {
@@ -399,6 +486,20 @@ public sealed class TransferRequestConversionTests : IDisposable
                 nameof(ISAPServiceLayerClient.ConvertTransferRequestToTransferAsync) => Convert(),
                 _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
             });
+
+        private Task<InventoryTransfer?> Find(string orderNumber)
+        {
+            LookedUp.Add(orderNumber);
+            return LookupFailure is null
+                ? Task.FromResult(InSap)
+                : Task.FromException<InventoryTransfer?>(LookupFailure);
+        }
+
+        private Task Close()
+        {
+            Closes++;
+            return Task.CompletedTask;
+        }
 
         private Task<InventoryTransfer> Convert()
         {
@@ -413,15 +514,28 @@ public sealed class TransferRequestConversionTests : IDisposable
         }
     }
 
-    /// <summary>Grants every key: these tests are about the routing decision, not the replay guard.</summary>
+    /// <summary>
+    /// Grants every key, except in <see cref="HeldScope"/>, which reads as someone else's lock. Most
+    /// tests are about the routing decision, not the guards; the ones that are read the keys asked for.
+    /// </summary>
     private sealed class AlwaysAcquiresStore : IIdempotencyRequestStore
     {
         private long _nextId = 1;
+        private readonly List<(string Scope, string Key)> _asked = [];
+
+        public string? HeldScope { get; init; }
+
+        public List<string> KeysFor(string scope) =>
+            _asked.Where(entry => entry.Scope == scope).Select(entry => entry.Key).ToList();
 
         public Task<IdempotencyAcquireResult<TResponse>> TryAcquireAsync<TResponse>(
             string scope, string key, object request, CancellationToken cancellationToken)
-            => Task.FromResult(new IdempotencyAcquireResult<TResponse>(
-                IdempotencyAcquireOutcome.Acquired, _nextId++));
+        {
+            _asked.Add((scope, key));
+            return Task.FromResult(scope == HeldScope
+                ? new IdempotencyAcquireResult<TResponse>(IdempotencyAcquireOutcome.InProgress)
+                : new IdempotencyAcquireResult<TResponse>(IdempotencyAcquireOutcome.Acquired, _nextId++));
+        }
 
         public Task<IdempotencyAcquireResult<TResponse>> TryAcquireAsync<TResponse>(
             string scope, string key, object request, TimeSpan? inProgressLease, CancellationToken cancellationToken)

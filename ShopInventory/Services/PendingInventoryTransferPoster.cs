@@ -139,6 +139,10 @@ public sealed class PendingInventoryTransferPoster(
         bool postOnlyLinesInStock,
         CancellationToken cancellationToken)
     {
+        // Read before the stamp below overwrites it: an earlier attempt may have reached SAP.
+        var attemptedBefore = pending.LastAttemptedAtUtc is not null;
+        var priorError = pending.LastError;
+
         // Stamped before anything can fail. Every path out of here saves the entity, so this
         // costs no extra round trip, and an attempt that dies mid-flight still leaves the mark
         // that someone tried — the outcome is recorded separately in Status and LastError.
@@ -154,6 +158,9 @@ public sealed class PendingInventoryTransferPoster(
             return await FailAsync(pending, exception.Message, cancellationToken);
         }
 
+        // SAP's U_OrderNumber, so an attempt whose reply was lost can be found by the next one.
+        payload.OrderNumber = SapOrderNumber(pending);
+
         // SAP is the only record some people ever see, so the document carries the reason, who
         // raised it and who approved it. The payload is rebuilt from storage on every attempt,
         // so a retried post recomposes these rather than appending to them.
@@ -167,6 +174,28 @@ public sealed class PendingInventoryTransferPoster(
 
         try
         {
+            // First, because once an earlier attempt has moved the stock the check below reads the
+            // depot as short and would fail a transfer that is in fact done.
+            if (attemptedBefore)
+            {
+                var earlier = await FindEarlierPostAsync(pending, payload.OrderNumber, priorError, cancellationToken);
+                if (earlier.IsError)
+                    return earlier.Errors;
+
+                if (earlier.Value is { } found)
+                {
+                    logger.LogWarning(
+                        "Pending inventory transfer {PendingId} was already in SAP as DocEntry {DocEntry} ({OrderNumber}); " +
+                        "recording it instead of posting again",
+                        pending.Id, found.DocEntry, payload.OrderNumber);
+                    return await RecordPostedAsync(
+                        pending, found, postedByUserId,
+                        $"Transfer #{found.DocNum} from {pending.FromWarehouse} to {pending.ToWarehouse} was found in SAP " +
+                        "from an earlier attempt and recorded; nothing was posted again",
+                        cancellationToken);
+                }
+            }
+
             // Stock may have moved while the transfer waited for approval, so this check —
             // not the one taken at submission time — is the authoritative one.
             var stockValidationResult = await stockValidation.ValidateInventoryTransferStockAsync(payload, cancellationToken);
@@ -206,14 +235,7 @@ public sealed class PendingInventoryTransferPoster(
             }
 
             var transfer = await sapClient.CreateInventoryTransferAsync(payload, stockValidationResult.PreFetchedData, cancellationToken);
-            var transferDto = transfer.ToDto();
 
-            pending.Status = PendingInventoryTransferStatuses.Posted;
-            pending.SapDocEntry = transfer.DocEntry;
-            pending.SapDocNum = transfer.DocNum;
-            pending.PostedAtUtc = DateTime.UtcNow;
-            pending.PostedByUserId = postedByUserId;
-            pending.LastError = null;
             if (dropped.Count > 0)
             {
                 // What reached SAP is now the record of the transfer; what was left out moves to its
@@ -224,42 +246,29 @@ public sealed class PendingInventoryTransferPoster(
                 pending.TotalQuantity = payload.Lines.Sum(line => line.Quantity);
                 pending.DroppedLinesJson = PendingTransferDroppedLines.Serialize(dropped);
             }
-            await context.SaveChangesAsync(cancellationToken);
 
-            await approvalService.MarkGeneratedAsync(
-                ApprovalDocumentTypes.InventoryTransfer, pending.Id.ToString(),
-                transfer.DocEntry, transfer.DocNum, postedByUserId, byAuthorizer: true, cancellationToken);
-
-            logger.LogInformation(
-                "Approved inventory transfer {PendingId} posted to SAP. DocEntry: {DocEntry}, DocNum: {DocNum}",
-                pending.Id, transfer.DocEntry, transfer.DocNum);
-
-            try
-            {
-                await auditService.LogAsync(
-                    AuditActions.CreateTransfer, "InventoryTransfer", transfer.DocEntry.ToString(),
-                    $"Transfer #{transfer.DocNum} from {pending.FromWarehouse} to {pending.ToWarehouse} posted after approval", true);
-            }
-            catch { }
-
-            await NotifyPostedAsync(pending, transfer.DocEntry, transfer.DocNum, cancellationToken);
-            return transferDto;
+            return await RecordPostedAsync(
+                pending, transfer, postedByUserId,
+                $"Transfer #{transfer.DocNum} from {pending.FromWarehouse} to {pending.ToWarehouse} posted after approval",
+                cancellationToken);
         }
         catch (OperationCanceledException exception)
         {
             // Nothing cancels this token, so an OCE here is the SAP client's own timeout: the
             // request reached SAP and the answer was never read. The document may well exist, so
-            // the record is failed — visible and retryable — but says so rather than inviting a
-            // blind retry that would move the stock twice.
+            // the record is failed and says so. The next attempt looks the transfer up by its
+            // order number before posting anything, so a retry cannot move the stock twice.
             logger.LogError(exception,
                 "The SAP post for approved inventory transfer {PendingId} timed out; the outcome is unknown", pending.Id);
             await FailAsync(
                 pending,
+                // "timed out before SAP answered" is what PendingTransferFailureClassifier reads.
                 "The SAP post timed out before SAP answered, so it is not known whether the transfer was created. "
-                + "Check SAP for this transfer before retrying — retrying will post it again.",
+                + LookedUpOnRetry,
                 cancellationToken);
             return Errors.InventoryTransfer.CreationFailed(
-                "The transfer was approved, but SAP did not answer in time. Check SAP before retrying the post.");
+                "The transfer was approved, but SAP did not answer in time. Retry it: the retry looks for the transfer "
+                + "in SAP and only posts it if it is not there.");
         }
         catch (Exception exception)
         {
@@ -268,6 +277,126 @@ public sealed class PendingInventoryTransferPoster(
             return Errors.InventoryTransfer.CreationFailed(
                 $"The transfer was approved but could not be posted to SAP: {exception.Message}");
         }
+    }
+
+    /// <summary>
+    /// Ends every timeout recorded since posts carried an order number. Its absence marks a timeout
+    /// recorded before, whose document SAP cannot be searched for.
+    /// </summary>
+    internal const string LookedUpOnRetry = "A retry looks for it in SAP first and posts only if it is not there.";
+
+    /// <summary>
+    /// How far before the transfer's own date its SAP document may be dated. SAP dates a document by
+    /// its business day, which can trail the UTC clock, so the lookup reaches back a little.
+    /// </summary>
+    private static readonly TimeSpan LookupSlack = TimeSpan.FromDays(2);
+
+    /// <summary>
+    /// What this transfer carries in SAP's <c>U_OrderNumber</c>: its draft number, which is unique and
+    /// already the number people quote for it. Null only on transfers raised before draft numbers.
+    /// </summary>
+    internal static string? SapOrderNumber(PendingInventoryTransferEntity pending) =>
+        string.IsNullOrWhiteSpace(pending.DraftNumber) ? null : pending.DraftNumber.Trim();
+
+    /// <summary>
+    /// Looks for a document an earlier attempt put in SAP. Null when there is none and posting may
+    /// go ahead; an error when nothing should be posted.
+    /// </summary>
+    /// <remarks>
+    /// <para>Asked on every attempt after the first, not only after a timeout. It costs one read, and
+    /// a failure the poster did not recognise as a timeout can still have reached SAP.</para>
+    ///
+    /// <para>A failed lookup posts nothing and leaves the record as it was, so a timeout keeps its
+    /// "outcome unknown" reading for whoever looks next.</para>
+    ///
+    /// <para>A timeout recorded before posts carried an order number, or on a transfer with no draft
+    /// number, cannot be searched for. It is refused here, because posting it is exactly the blind
+    /// retry this exists to stop; the person checks SAP and records the number, or withdraws it.</para>
+    /// </remarks>
+    private async Task<ErrorOr<InventoryTransfer?>> FindEarlierPostAsync(
+        PendingInventoryTransferEntity pending,
+        string? orderNumber,
+        string? priorError,
+        CancellationToken cancellationToken)
+    {
+        var timedOutBefore =
+            PendingTransferFailureClassifier.Classify(priorError).Kind == PendingTransferFailureKinds.OutcomeUnknown;
+
+        if (orderNumber is null || (timedOutBefore && !priorError!.Contains(LookedUpOnRetry, StringComparison.Ordinal)))
+        {
+            if (!timedOutBefore)
+                return (InventoryTransfer?)null;
+
+            await SaveAttemptAsync(pending, cancellationToken);
+            return Errors.InventoryTransfer.PostOutcomeUnsearchable;
+        }
+
+        // The document is dated by the transfer's own date when one was given, else by the day it
+        // posted, which is never before the transfer was raised.
+        var datedFrom = pending.DocDate is { } docDate && docDate < pending.CreatedAtUtc
+            ? docDate
+            : pending.CreatedAtUtc;
+
+        try
+        {
+            return await sapClient.FindStockTransferByOrderNumberAsync(
+                orderNumber, datedFrom.Date - LookupSlack, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception,
+                "Could not look for an earlier SAP post of pending inventory transfer {PendingId} ({OrderNumber})",
+                pending.Id, orderNumber);
+            await SaveAttemptAsync(pending, cancellationToken);
+            return Errors.InventoryTransfer.SapConnectionError(
+                "Could not check SAP for an earlier attempt at this transfer, so nothing was posted. "
+                + "Retry once SAP is answering.");
+        }
+    }
+
+    /// <summary>Keeps the attempt's time without touching the record's status or error.</summary>
+    private async Task SaveAttemptAsync(PendingInventoryTransferEntity pending, CancellationToken cancellationToken)
+    {
+        try { await context.SaveChangesAsync(cancellationToken); }
+        catch (Exception exception) { logger.LogWarning(exception, "Could not record the attempt time for pending transfer {PendingId}", pending.Id); }
+    }
+
+    /// <summary>
+    /// Marks the transfer posted against <paramref name="transfer"/>, whether this attempt created it
+    /// or found it from an earlier one, and tells the people who need to know.
+    /// </summary>
+    private async Task<InventoryTransferDto> RecordPostedAsync(
+        PendingInventoryTransferEntity pending,
+        InventoryTransfer transfer,
+        Guid postedByUserId,
+        string auditDetail,
+        CancellationToken cancellationToken)
+    {
+        pending.Status = PendingInventoryTransferStatuses.Posted;
+        pending.SapDocEntry = transfer.DocEntry;
+        pending.SapDocNum = transfer.DocNum;
+        pending.PostedAtUtc = DateTime.UtcNow;
+        pending.PostedByUserId = postedByUserId;
+        pending.LastError = null;
+        await context.SaveChangesAsync(cancellationToken);
+
+        await approvalService.MarkGeneratedAsync(
+            ApprovalDocumentTypes.InventoryTransfer, pending.Id.ToString(),
+            transfer.DocEntry, transfer.DocNum, postedByUserId, byAuthorizer: true, cancellationToken);
+
+        logger.LogInformation(
+            "Approved inventory transfer {PendingId} recorded as posted. DocEntry: {DocEntry}, DocNum: {DocNum}",
+            pending.Id, transfer.DocEntry, transfer.DocNum);
+
+        try
+        {
+            await auditService.LogAsync(
+                AuditActions.CreateTransfer, "InventoryTransfer", transfer.DocEntry.ToString(), auditDetail, true);
+        }
+        catch { }
+
+        await NotifyPostedAsync(pending, transfer.DocEntry, transfer.DocNum, cancellationToken);
+        return transfer.ToDto();
     }
 
     private static string ShortageMessage(StockValidationResult result) =>

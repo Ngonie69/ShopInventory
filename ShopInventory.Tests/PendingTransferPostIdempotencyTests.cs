@@ -215,6 +215,152 @@ public sealed class PendingTransferPostIdempotencyTests : IDisposable
             store,
             NullLogger<PendingInventoryTransferPoster>.Instance);
 
+    // ── A retry after SAP did not answer ─────────────────────────
+
+    [Fact]
+    public async Task A_transfer_carries_its_draft_number_into_SAP_and_the_first_post_looks_nothing_up()
+    {
+        var pending = await GivenApprovedTransferAsync();
+        var sap = new BlockingSapClient();
+        sap.ReleaseSap.SetResult();
+
+        var result = await BuildPoster(_context, sap, BuildStore()).PostAsync(pending, Poster);
+
+        Assert.False(result.IsError);
+        Assert.Equal("DT-2026-00012", sap.LastPosted!.OrderNumber);
+        Assert.Empty(sap.LookedUp);
+    }
+
+    [Fact]
+    public async Task A_retry_after_a_timeout_records_the_transfer_SAP_already_has_instead_of_posting_it_again()
+    {
+        var pending = await GivenApprovedTransferAsync();
+        var store = BuildStore();
+
+        // SAP took the post and the reply never came back.
+        var timedOut = new BlockingSapClient { Failure = new OperationCanceledException("SAP client timeout") };
+        timedOut.ReleaseSap.SetResult();
+        var first = await BuildPoster(_context, timedOut, store).PostAsync(pending, Poster);
+        Assert.True(first.IsError);
+        var failed = await ReloadAsync(pending.Id);
+        Assert.Equal(PendingTransferFailureKinds.OutcomeUnknown, PendingTransferFailureClassifier.Classify(failed.LastError).Kind);
+
+        // The document is there, under the number the first attempt stamped on it.
+        var retrying = new BlockingSapClient
+        {
+            InSap = new InventoryTransfer { DocEntry = 7310, DocNum = 66120, FromWarehouse = "KEFBYC", ToWarehouse = "VAN011" }
+        };
+        retrying.ReleaseSap.SetResult();
+        var retry = await RetryHandler(NewContext(), retrying, store).Handle(
+            new ShopInventory.Features.InventoryTransfers.Commands.RetryPendingTransferPost.RetryPendingTransferPostCommand(pending.Id, await AdminIdAsync()),
+            default);
+
+        Assert.False(retry.IsError, string.Join("; ", retry.Errors.Select(error => error.Description)));
+        Assert.Equal(0, retrying.TransfersCreated);
+        Assert.Equal(["DT-2026-00012"], retrying.LookedUp);
+
+        await using var verify = NewContext();
+        var stored = await verify.PendingInventoryTransfers.AsNoTracking().FirstAsync(item => item.Id == pending.Id);
+        Assert.Equal(PendingInventoryTransferStatuses.Posted, stored.Status);
+        Assert.Equal(7310, stored.SapDocEntry);
+        Assert.Equal(66120, stored.SapDocNum);
+        Assert.Null(stored.LastError);
+    }
+
+    [Fact]
+    public async Task A_retry_after_a_timeout_posts_once_when_SAP_does_not_have_the_transfer()
+    {
+        var pending = await GivenApprovedTransferAsync();
+        var store = BuildStore();
+
+        var timedOut = new BlockingSapClient { Failure = new OperationCanceledException("SAP client timeout") };
+        timedOut.ReleaseSap.SetResult();
+        await BuildPoster(_context, timedOut, store).PostAsync(pending, Poster);
+
+        var retrying = new BlockingSapClient();
+        retrying.ReleaseSap.SetResult();
+        var retry = await BuildPoster(NewContext(), retrying, store).PostAsync(await ReloadAsync(pending.Id), Poster);
+
+        Assert.False(retry.IsError);
+        Assert.Single(retrying.LookedUp);
+        Assert.Equal(1, retrying.TransfersCreated);
+    }
+
+    [Fact]
+    public async Task A_lookup_that_fails_posts_nothing_and_keeps_the_timeout_on_record()
+    {
+        var pending = await GivenApprovedTransferAsync();
+        var store = BuildStore();
+
+        var timedOut = new BlockingSapClient { Failure = new OperationCanceledException("SAP client timeout") };
+        timedOut.ReleaseSap.SetResult();
+        await BuildPoster(_context, timedOut, store).PostAsync(pending, Poster);
+        var timeoutError = (await ReloadAsync(pending.Id)).LastError;
+
+        var unreachable = new BlockingSapClient { LookupFailure = new HttpRequestException("SAP is down") };
+        unreachable.ReleaseSap.SetResult();
+        var retry = await BuildPoster(NewContext(), unreachable, store).PostAsync(await ReloadAsync(pending.Id), Poster);
+
+        Assert.True(retry.IsError);
+        Assert.Equal("InventoryTransfer.SapConnectionError", retry.FirstError.Code);
+        Assert.Equal(0, unreachable.TransfersCreated);
+
+        // Whoever looks next must still read "SAP may already have this", not a new, milder error.
+        await using var verify = NewContext();
+        var stored = await verify.PendingInventoryTransfers.AsNoTracking().FirstAsync(item => item.Id == pending.Id);
+        Assert.Equal(timeoutError, stored.LastError);
+        Assert.Equal(PendingInventoryTransferStatuses.PostFailed, stored.Status);
+    }
+
+    [Fact]
+    public async Task A_timeout_recorded_before_posts_were_numbered_is_not_posted_blind()
+    {
+        var pending = await GivenApprovedTransferAsync();
+
+        // As the poster wrote it before this change: SAP was never told the draft number.
+        pending.Status = PendingInventoryTransferStatuses.PostFailed;
+        pending.LastAttemptedAtUtc = DateTime.UtcNow.AddHours(-3);
+        pending.LastError =
+            "The SAP post timed out before SAP answered, so it is not known whether the transfer was created. "
+            + "Check SAP for this transfer before retrying — retrying will post it again.";
+        await _context.SaveChangesAsync();
+
+        var sap = new BlockingSapClient();
+        sap.ReleaseSap.SetResult();
+        var retry = await BuildPoster(NewContext(), sap, BuildStore()).PostAsync(await ReloadAsync(pending.Id), Poster);
+
+        Assert.True(retry.IsError);
+        Assert.Equal("InventoryTransfer.PostOutcomeUnsearchable", retry.FirstError.Code);
+        Assert.Empty(sap.LookedUp);
+        Assert.Equal(0, sap.TransfersCreated);
+    }
+
+    private async Task<Guid> AdminIdAsync()
+    {
+        var admin = new User
+        {
+            Username = $"admin-{Guid.NewGuid():N}",
+            Email = $"{Guid.NewGuid():N}@example.com",
+            PasswordHash = "hash",
+            Role = ApplicationRoles.Admin,
+            IsActive = true
+        };
+        await using var context = NewContext();
+        context.Users.Add(admin);
+        await context.SaveChangesAsync();
+        return admin.Id;
+    }
+
+    private static ShopInventory.Features.InventoryTransfers.Commands.RetryPendingTransferPost.RetryPendingTransferPostHandler RetryHandler(
+        ApplicationDbContext context,
+        BlockingSapClient sap,
+        IIdempotencyRequestStore store)
+        => new(
+            context,
+            new TransferWarehouseAuthorizer(context),
+            BuildPoster(context, sap, store),
+            Options.Create(new SAPSettings { Enabled = true }));
+
     /// <summary>Holds the SAP create open so a second post can arrive mid-flight.</summary>
     private sealed class BlockingSapClient
     {
@@ -222,19 +368,36 @@ public sealed class PendingTransferPostIdempotencyTests : IDisposable
         public TaskCompletionSource ReleaseSap { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Exception? Failure { get; init; }
         public int TransfersCreated { get; private set; }
+        public CreateInventoryTransferRequest? LastPosted { get; private set; }
+
+        /// <summary>What a lookup by order number finds: a transfer an earlier attempt made.</summary>
+        public InventoryTransfer? InSap { get; init; }
+        public Exception? LookupFailure { get; init; }
+        public List<string> LookedUp { get; } = [];
 
         public ISAPServiceLayerClient AsClient() =>
             StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
             {
                 nameof(ISAPServiceLayerClient.CreateInventoryTransferAsync) =>
                     Create((CreateInventoryTransferRequest)args![0]!),
+                nameof(ISAPServiceLayerClient.FindStockTransferByOrderNumberAsync) =>
+                    Find((string)args![0]!),
                 _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
             });
+
+        private Task<InventoryTransfer?> Find(string orderNumber)
+        {
+            LookedUp.Add(orderNumber);
+            return LookupFailure is null
+                ? Task.FromResult(InSap)
+                : Task.FromException<InventoryTransfer?>(LookupFailure);
+        }
 
         private async Task<InventoryTransfer> Create(CreateInventoryTransferRequest request)
         {
             EnteredSap.TrySetResult();
             await ReleaseSap.Task;
+            LastPosted = request;
 
             if (Failure is not null) throw Failure;
 

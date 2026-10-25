@@ -271,6 +271,26 @@ public sealed class InventoryTransferBatchSerialAllocationTests
     }
 
     [Fact]
+    public async Task A_converted_request_stamps_its_marker_on_the_transfer_SAP_receives()
+    {
+        // The only way a later conversion can find this one: SAP gives the transfer no BaseEntry.
+        var sap = new AllocationServiceLayer
+        {
+            Items = { ["ITEM-A"] = (Batch: false, Serial: false) },
+            TransferRequest = """
+                {"DocEntry":55,"DocNum":900,"FromWarehouse":"WH-1","ToWarehouse":"WH-2","DocumentStatus":"bost_Open",
+                 "StockTransferLines":[
+                   {"LineNum":0,"ItemCode":"ITEM-A","Quantity":2,"FromWarehouseCode":"WH-1","WarehouseCode":"WH-2"}]}
+                """
+        };
+
+        await CreateClient(sap).ConvertTransferRequestToTransferAsync(55, CancellationToken.None);
+
+        using var posted = JsonDocument.Parse(sap.PostedTransfer!);
+        Assert.Equal("ITR-55", posted.RootElement.GetProperty("U_OrderNumber").GetString());
+    }
+
+    [Fact]
     public async Task Editing_a_request_replaces_its_lines_so_a_removed_line_goes()
     {
         // A PATCH merges collections unless told otherwise: a line left out was kept, so a line the

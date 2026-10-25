@@ -187,7 +187,7 @@
                                     <span class="vrp-chip vrp-chip-warn">Outcome unknown</span>
                                     <h3 class="vrp-h3">SAP did not answer in time — @Plural(unknown.Count, "request") may already be posted</h3>
                                 </div>
-                                <p class="vrp-cause-body">Look for each in SAP before anything else: retrying a transfer that did go through moves the stock twice. If it is there, record its number; if not, retry it.</p>
+                                <p class="vrp-cause-body">Retry looks for each one in SAP first and records it if it went through, so it is never posted twice. If you have already found it in SAP, record its number.</p>
                             </div>
                         </div>
                         @RowHeader
@@ -664,8 +664,8 @@
                             <p class="vrp-foot-text">
                                 @if (request.Cause == VanReplenishmentCauses.OutcomeUnknown)
                                 {
-                                    <strong>Only if it is not in SAP.</strong>
-                                    <text> If the timed-out post did go through, this posts it a second time and moves the stock twice.</text>
+                                    <strong>SAP is checked first.</strong>
+                                    <text> If the timed-out post went through, it is recorded instead of posted again. Older posts that SAP cannot be searched for are refused; record those by hand.</text>
                                 }
                                 else
                                 {
@@ -688,7 +688,7 @@
                                 @if (request.Cause == VanReplenishmentCauses.OutcomeUnknown)
                                 {
                                     <button type="button" class="vrp-btn vrp-btn-primary vrp-grow" @onclick="() => SetMode(DrawerMode.Record)">It is in SAP — record the number</button>
-                                    <button type="button" class="vrp-btn vrp-btn-warn" @onclick="() => SetMode(DrawerMode.ConfirmRetry)">Not in SAP — retry</button>
+                                    <button type="button" class="vrp-btn vrp-btn-warn" @onclick="() => SetMode(DrawerMode.ConfirmRetry)">Check SAP and retry</button>
                                 }
                                 else if (CanPostInStock)
                                 {
