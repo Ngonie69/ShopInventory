@@ -1,11 +1,10 @@
 using System.Net;
 using System.Net.Mail;
-using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Email;
 using ShopInventory.Models;
 
 namespace ShopInventory.Services;
@@ -34,7 +33,6 @@ public interface IEmailService
     Task<bool> SendEmailAsync(string toEmail, string subject, string body, List<(byte[] content, string fileName, string mimeType)>? attachments = null, string[]? ccEmails = null, CancellationToken cancellationToken = default);
     Task<EmailSentResponseDto> SendEmailFromTemplateAsync(string templateName, Dictionary<string, string> parameters, List<string> to, string subject, CancellationToken cancellationToken = default);
     Task QueueEmailAsync(SendEmailRequest request, string? category = null, CancellationToken cancellationToken = default);
-    Task ProcessEmailQueueAsync(CancellationToken cancellationToken = default);
     Task<EmailSentResponseDto> TestEmailConfigurationAsync(string toEmail, CancellationToken cancellationToken = default);
 }
 
@@ -230,13 +228,13 @@ public class EmailService : IEmailService
     {
         var queueItem = new EmailQueueItem
         {
-            ToAddresses = JsonSerializer.Serialize(request.To),
-            CcAddresses = request.Cc != null ? JsonSerializer.Serialize(request.Cc) : null,
-            BccAddresses = request.Bcc != null ? JsonSerializer.Serialize(request.Bcc) : null,
+            ToAddresses = EmailQueueAddresses.Serialize(request.To),
+            CcAddresses = request.Cc != null ? EmailQueueAddresses.Serialize(request.Cc) : null,
+            BccAddresses = request.Bcc != null ? EmailQueueAddresses.Serialize(request.Bcc) : null,
             Subject = request.Subject,
             Body = request.Body,
             IsHtml = request.IsHtml,
-            Status = "Pending",
+            Status = EmailQueueStatus.Pending,
             Category = category,
             CreatedAt = DateTime.UtcNow
         };
@@ -245,50 +243,6 @@ public class EmailService : IEmailService
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Email queued for: {Recipients}", string.Join(", ", request.To));
-    }
-
-    /// <summary>
-    /// Process pending emails in the queue
-    /// </summary>
-    public async Task ProcessEmailQueueAsync(CancellationToken cancellationToken = default)
-    {
-        var pendingEmails = await _context.EmailQueueItems
-            .Where(e => e.Status == "Pending" && e.AttemptCount < 3)
-            .OrderBy(e => e.CreatedAt)
-            .Take(10)
-            .ToListAsync(cancellationToken);
-
-        foreach (var email in pendingEmails)
-        {
-            email.Status = "Sending";
-            email.AttemptCount++;
-            await _context.SaveChangesAsync(cancellationToken);
-
-            var request = new SendEmailRequest
-            {
-                To = JsonSerializer.Deserialize<List<string>>(email.ToAddresses) ?? new List<string>(),
-                Cc = !string.IsNullOrEmpty(email.CcAddresses) ? JsonSerializer.Deserialize<List<string>>(email.CcAddresses) : null,
-                Bcc = !string.IsNullOrEmpty(email.BccAddresses) ? JsonSerializer.Deserialize<List<string>>(email.BccAddresses) : null,
-                Subject = email.Subject,
-                Body = email.Body,
-                IsHtml = email.IsHtml
-            };
-
-            var result = await SendEmailAsync(request, cancellationToken);
-
-            if (result.Success)
-            {
-                email.Status = "Sent";
-                email.SentAt = DateTime.UtcNow;
-            }
-            else
-            {
-                email.Status = email.AttemptCount >= 3 ? "Failed" : "Pending";
-                email.LastError = result.Message;
-            }
-
-            await _context.SaveChangesAsync(cancellationToken);
-        }
     }
 
     /// <summary>

@@ -87,6 +87,17 @@ public class QuartzScheduleShapeTests
         Assert.True(Attribute.IsDefined(typeof(ShopInventory.Services.CustomerInvoiceScanJob), typeof(DisallowConcurrentExecutionAttribute)));
     }
 
+    [Fact]
+    public void The_email_queue_job_is_declared_even_with_email_off_and_never_runs_twice_at_once()
+    {
+        // Email:Enabled is read on every pass instead, so switching email on needs no restart and every
+        // node declares the job alike. Without the job nothing sends what is queued.
+        var options = Build(new Dictionary<string, string?> { ["Email:Enabled"] = "false" });
+
+        Assert.Contains(options.JobDetails, job => job.Key.Name == ShopInventory.Services.EmailQueueJob.JobName);
+        Assert.True(Attribute.IsDefined(typeof(ShopInventory.Services.EmailQueueJob), typeof(DisallowConcurrentExecutionAttribute)));
+    }
+
     private static QuartzOptions Build(Dictionary<string, string?> settings)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();

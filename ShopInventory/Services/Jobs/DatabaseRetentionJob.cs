@@ -58,11 +58,12 @@ public sealed class DatabaseRetentionJob(
             .Where(row => row.CreatedAt < now.AddDays(-90))
             .OrderBy(row => row.Id)),
 
-        // Sent, or failed for the last time (the queue retries a failure until AttemptCount is 3).
+        // Sent, or failed. Failed is final: a failure the queue will retry stays Pending, and one dropped
+        // as stale is Failed with fewer than three attempts.
         Rule("EmailQueueItems", (db, now) => db.EmailQueueItems
             .Where(row =>
                 (row.Status == "Sent" && row.CreatedAt < now.AddDays(-30)) ||
-                (row.Status == "Failed" && row.AttemptCount >= 3 && row.CreatedAt < now.AddDays(-90)))
+                (row.Status == "Failed" && row.CreatedAt < now.AddDays(-90)))
             .OrderBy(row => row.Id)),
 
         // Staff tokens last 7 days, and the rotation grace needs a revoked row, not an expired one.

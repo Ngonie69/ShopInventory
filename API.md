@@ -5084,7 +5084,14 @@ window in `CustomerDocuments` and to the cap set on `/whatsapp-deliveries`. Choo
 | POST | `/api/Email/test` | Send a test email to the address in the body, to check the SMTP settings |
 | POST | `/api/Email/send` | Send an email now |
 | POST | `/api/Email/queue` | Queue one for later (`category`) |
-| POST | `/api/Email/process-queue` | Drain the queue now |
+| POST | `/api/Email/process-queue` | Drain the queue now; answers `{ message, sent, retrying, failed, expired }` |
+
+The `email-queue` Quartz job drains the queue every minute, so `/process-queue` is only needed to
+skip the wait. The queue holds what `/queue` is given and staff password reset emails
+(`POST /api/Password/reset/request`). A pass does nothing while `Email:Enabled` is off. Each email
+gets three attempts, and one still unsent 24 hours after it was queued is dropped (`Failed`) rather
+than sent late. Before 2026-10-26 nothing drained the queue on a schedule, and reset emails were
+stored in a shape the drain could not read, so none were ever sent.
 
 Every route here needs a token. `/test` carried `[AllowAnonymous]` until 2026-08-17, which let an
 unauthenticated caller make this server send mail from its own SMTP identity to any address they

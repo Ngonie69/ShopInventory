@@ -50,7 +50,7 @@ public sealed class DatabaseRetentionTests : IDisposable
             Seed(db, Email("Sent", attempts: 1, createdAt: Now.AddDays(-29)), doomed: false);
             Seed(db, Email("Failed", attempts: 3, createdAt: Now.AddDays(-91)), doomed: true);
             Seed(db, Email("Failed", attempts: 3, createdAt: Now.AddDays(-89)), doomed: false);
-            Seed(db, Email("Failed", attempts: 2, createdAt: Now.AddDays(-400)), doomed: false);
+            Seed(db, Email("Failed", attempts: 1, createdAt: Now.AddDays(-91)), doomed: true); // dropped as stale
             Seed(db, Email("Pending", attempts: 0, createdAt: Now.AddDays(-400)), doomed: false);
 
             Seed(db, StaffToken(expiresAt: Now.AddDays(-31)), doomed: true);
