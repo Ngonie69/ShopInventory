@@ -74,11 +74,18 @@ public sealed class ProcessEmailQueueHandler(
                 }
             }
 
-            if (sent + retrying + failed + expired > 0)
+            // The logs carry no figure read back from EmailQueueItems: CodeQL treats anything from that
+            // table as private (it holds addresses), row counts included. process-queue returns them all.
+            if (expired > 0)
+            {
+                logger.LogWarning("Queued emails more than a day old were dropped unsent (Status Failed).");
+            }
+
+            if (sent + retrying + failed > 0)
             {
                 logger.LogInformation(
-                    "Email queue pass: {Sent} sent, {Retrying} to retry, {Failed} given up, {Expired} expired",
-                    sent, retrying, failed, expired);
+                    "Email queue pass: {Sent} sent, {Retrying} to retry, {Failed} given up",
+                    sent, retrying, failed);
             }
 
             return new ProcessEmailQueueResult(sent, retrying, failed, expired);
@@ -177,11 +184,14 @@ public sealed class ProcessEmailQueueHandler(
                 .SetProperty(e => e.LastError, "Cut off mid-send on its last attempt."),
                 cancellationToken);
 
-        if (retried + givenUp > 0)
+        if (retried > 0)
         {
-            logger.LogWarning(
-                "{Count} queued email(s) were cut off mid-send: {Retried} will be tried again, {GivenUp} given up",
-                retried + givenUp, retried, givenUp);
+            logger.LogWarning("Queued emails cut off mid-send were put back to be tried again.");
+        }
+
+        if (givenUp > 0)
+        {
+            logger.LogWarning("Queued emails cut off mid-send on their last attempt were given up (Status Failed).");
         }
     }
 
