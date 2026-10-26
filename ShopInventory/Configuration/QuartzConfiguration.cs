@@ -92,6 +92,10 @@ public static class QuartzConfiguration
             AddIntervalJob<IncomingPaymentPostingJob>(q, "incoming-payment-posting", TimeSpan.FromSeconds(10));
             AddIntervalJob<ReservationCleanupJob>(q, "reservation-cleanup", TimeSpan.FromMinutes(1), startDelay: TimeSpan.FromSeconds(30));
 
+            // Queued emails (password resets, api/email/queue). Always declared; Email:Enabled is read
+            // on each pass, and with email off the pass leaves the queue alone.
+            AddIntervalJob<EmailQueueJob>(q, EmailQueueJob.JobName, TimeSpan.FromMinutes(1), startDelay: TimeSpan.FromSeconds(45));
+
             // Receipts vans signed offline, on their way to ZIMRA. Frequent because the deadline is the
             // fiscal day's automatic close, not end of day — a receipt still queued when its day closes is
             // one that never reaches ZIMRA at all.

@@ -294,7 +294,6 @@ public sealed class DesktopSalesReviewEmailTests : IDisposable
         public Task<DTOs.EmailSentResponseDto> SendEmailAsync(DTOs.SendEmailRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<DTOs.EmailSentResponseDto> SendEmailFromTemplateAsync(string templateName, Dictionary<string, string> parameters, List<string> to, string subject, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task QueueEmailAsync(DTOs.SendEmailRequest request, string? category = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task ProcessEmailQueueAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<DTOs.EmailSentResponseDto> TestEmailConfigurationAsync(string toEmail, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

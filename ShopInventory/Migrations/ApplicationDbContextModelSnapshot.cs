@@ -74,6 +74,9 @@ namespace ShopInventory.Migrations
                     b.Property<bool>("IsHtml")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("LastError")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");

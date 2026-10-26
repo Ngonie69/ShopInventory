@@ -72,6 +72,8 @@ public class EmailController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> ProcessEmailQueue(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new ProcessEmailQueueCommand(), cancellationToken);
-        return result.Match(_ => Ok(new { Message = "Email queue processing initiated" }), errors => Problem(errors));
+        return result.Match(
+            processed => Ok(new { Message = "Email queue processed", processed.Sent, processed.Retrying, processed.Failed, processed.Expired }),
+            errors => Problem(errors));
     }
 }

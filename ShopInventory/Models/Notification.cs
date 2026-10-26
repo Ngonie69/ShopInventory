@@ -274,6 +274,12 @@ public class EmailQueueItem
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
+    /// When the latest attempt claimed the row (UTC). A row left in Sending long after this was cut off
+    /// mid-send and is tried again.
+    /// </summary>
+    public DateTime? LastAttemptAt { get; set; }
+
+    /// <summary>
     /// When sent successfully
     /// </summary>
     public DateTime? SentAt { get; set; }
