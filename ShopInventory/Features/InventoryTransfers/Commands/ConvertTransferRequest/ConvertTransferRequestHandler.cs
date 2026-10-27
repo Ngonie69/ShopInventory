@@ -43,57 +43,55 @@ public sealed class ConvertTransferRequestHandler(
                 if (conversionCheck.IsError)
                     return conversionCheck.Errors;
 
-                // Admins and stock controllers may convert any request directly. A depot
-                // controller reaches this point only for an assigned source warehouse, but must
-                // still pass through an approval stage before anything posts to SAP.
-                var sourceScope = await warehouseAuthorizer.GetSourceScopeAsync(
-                    command.UserId, cancellationToken);
-                // A stage id means the caller used the approval action (including "Approve &
-                // Add"). Record that decision before generating instead of taking the role's
-                // ordinary direct-conversion shortcut.
-                if (sourceScope is null && !command.StageId.HasValue)
-                    return await ConvertWithoutApprovalAsync(command, document, cancellationToken);
+                // Every conversion passes through the request's approval, whoever presses Convert.
+                // Administrators, stock officers and the wash bay used to convert straight past it,
+                // even while the request still sat awaiting someone else, so the approval gated
+                // nothing for most requests. A request raised in SAP has no approval yet; one is
+                // opened here, routed by whoever raised it (the audit log or the requester in its
+                // comments), never by the person converting it.
+                var approval = await approvalService.EnsureRequestAsync(document, null, cancellationToken);
+                // Generated as well as Approved: a conversion that posted and then failed to close
+                // the request leaves it open in SAP with its approval marked generated. Going through
+                // again finds that transfer by its marker and closes the request, posting nothing.
+                if (approval.Status is ApprovalRequestStatuses.Approved
+                    or ApprovalRequestStatuses.Generated
+                    or ApprovalRequestStatuses.GeneratedByAuthorizer)
+                    return await GenerateApprovedAsync(command, document, cancellationToken);
+                if (approval.Status != ApprovalRequestStatuses.Pending)
+                    return Errors.InventoryTransfer.ApprovalAlreadyDecided(approval.Status);
 
-                if (sourceScope is not null)
+                // Someone who may decide a pending stage records that decision below and, if it is
+                // the last one, posts in the same action. Anyone else is told what it is waiting for.
+                var context = ApprovalDocumentContext.ForTransferRequest(document);
+                if (!await approvalService.CanAuthorizePendingStageAsync(context, command.UserId, command.StageId, cancellationToken))
                 {
-                    var approval = await approvalService.EnsureRequestAsync(
-                        document, command.UserId, cancellationToken);
-                    var (_, stages) = await approvalService.GetProgressAsync(
-                        ApprovalDocumentContext.ForTransferRequest(document), cancellationToken);
-                    var depotMayApprovePendingStage = stages.Any(stage =>
-                        string.Equals(stage.Status, ApprovalRequestStatuses.Pending, StringComparison.OrdinalIgnoreCase) &&
-                        (stage.AuthorizerUserIds.Contains(command.UserId) ||
-                         stage.AuthorizerRoles.Contains(ApplicationRoles.DepotController, StringComparer.OrdinalIgnoreCase)));
+                    var (_, stages) = await approvalService.GetProgressAsync(context, cancellationToken);
+                    var pendingStages = stages
+                        .Where(stage => string.Equals(
+                            stage.Status, ApprovalRequestStatuses.Pending, StringComparison.OrdinalIgnoreCase))
+                        .Select(stage => stage.StageName)
+                        .ToList();
+                    var awaiting = pendingStages.Count == 0
+                        ? approval.TemplateName
+                        : string.Join(", ", pendingStages);
 
-                    if (!depotMayApprovePendingStage)
+                    try
                     {
-                        var pendingStages = stages
-                            .Where(stage => string.Equals(
-                                stage.Status, ApprovalRequestStatuses.Pending, StringComparison.OrdinalIgnoreCase))
-                            .Select(stage => stage.StageName)
-                            .ToList();
-                        var awaiting = pendingStages.Count == 0
-                            ? approval.TemplateName
-                            : string.Join(", ", pendingStages);
-
-                        try
-                        {
-                            await auditService.LogAsync(
-                                AuditActions.SubmitTransferForApproval,
-                                "TransferRequest",
-                                command.DocEntry.ToString(),
-                                $"Depot controller submitted conversion of request #{document.DocNum} for approval. Awaiting: {awaiting}",
-                                true);
-                        }
-                        catch { }
-
-                        return new TransferRequestConvertedResponseDto
-                        {
-                            Message = $"Transfer request #{document.DocNum} is awaiting {awaiting} before it can post to SAP.",
-                            RequestDocEntry = command.DocEntry,
-                            Transfer = null
-                        };
+                        await auditService.LogAsync(
+                            AuditActions.SubmitTransferForApproval,
+                            "TransferRequest",
+                            command.DocEntry.ToString(),
+                            $"Conversion of request #{document.DocNum} asked for before approval. Awaiting: {awaiting}",
+                            true);
                     }
+                    catch { }
+
+                    return new TransferRequestConvertedResponseDto
+                    {
+                        Message = $"Transfer request #{document.DocNum} is awaiting {awaiting} before it can post to SAP.",
+                        RequestDocEntry = command.DocEntry,
+                        Transfer = null
+                    };
                 }
             }
 
@@ -363,11 +361,6 @@ public sealed class ConvertTransferRequestHandler(
     }
 
     /// <summary>
-    /// Converts a request the caller is authorised to issue stock for. The approval request, where
-    /// there is one, is closed off as generated so the document history remains accurate even
-    /// though conversion does not depend on where the request originated.
-    /// </summary>
-    /// <summary>
     /// Tells the rep who asked for this stock that it is now moving.
     /// </summary>
     /// <remarks>
@@ -465,7 +458,12 @@ public sealed class ConvertTransferRequestHandler(
         }
     }
 
-    private async Task<ErrorOr<TransferRequestConvertedResponseDto>> ConvertWithoutApprovalAsync(
+    /// <summary>
+    /// Posts the transfer for a request whose approval is already complete. Nobody decides anything
+    /// here, so the person generating it may be the one who raised it: the approval was someone
+    /// else's, and this only carries it out.
+    /// </summary>
+    private async Task<ErrorOr<TransferRequestConvertedResponseDto>> GenerateApprovedAsync(
         ConvertTransferRequestCommand command,
         InventoryTransferRequest document,
         CancellationToken cancellationToken)
@@ -474,9 +472,9 @@ public sealed class ConvertTransferRequestHandler(
         var release = false;
         try
         {
-            var key = $"{command.DocEntry}:direct:{command.UserId}";
+            var key = $"{command.DocEntry}:approved:{command.UserId}";
             var acquired = await idempotencyRequestStore.TryAcquireAsync<TransferRequestConvertedResponseDto>(
-                "inventory-transfer-request-direct-convert", key,
+                "inventory-transfer-request-generate-approved", key,
                 new { command.DocEntry, command.UserId }, cancellationToken);
             switch (acquired.Outcome)
             {
@@ -492,15 +490,14 @@ public sealed class ConvertTransferRequestHandler(
 
             var (transfer, alreadyInSap) = converted.Value;
             await approvalService.MarkGeneratedAsync(
-                command.DocEntry, transfer.DocEntry, transfer.DocNum, command.UserId, true, cancellationToken);
+                command.DocEntry, transfer.DocEntry, transfer.DocNum, command.UserId, false, cancellationToken);
 
             try
             {
                 await auditService.LogAsync(AuditActions.ConvertTransferRequest, "TransferRequest", command.DocEntry.ToString(),
                     alreadyInSap
                         ? $"Found transfer {transfer.DocEntry} already made from request #{document.DocNum}; closed the request without posting again"
-                        : $"Generated transfer {transfer.DocEntry} directly from request #{document.DocNum} " +
-                          $"(the user is authorised to issue stock from {document.FromWarehouse})", true);
+                        : $"Generated transfer {transfer.DocEntry} from approved request #{document.DocNum}", true);
             }
             catch { }
 
@@ -526,7 +523,7 @@ public sealed class ConvertTransferRequestHandler(
             if (release && idempotencyRequestId.HasValue)
             {
                 try { await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, CancellationToken.None); }
-                catch (Exception ex) { logger.LogWarning(ex, "Failed to release the direct conversion lock"); }
+                catch (Exception ex) { logger.LogWarning(ex, "Failed to release the approved-request generation lock"); }
             }
         }
     }

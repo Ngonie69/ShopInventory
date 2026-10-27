@@ -1863,14 +1863,23 @@ populated only for requests raised through this API, which open an approval requ
 created. A request raised directly in SAP has none, so it comes back with `approvalStatus: null` and
 an empty `approvalStages`, and `documentStatus` is the only status it carries.
 
-`POST /api/InventoryTransfer/request/{docEntry}/convert` applies the same rule regardless of where
-the request originated. An Admin or StockController converts it outright and generates the SAP
-transfer in one call. A DepotController may submit conversion only when the source warehouse is in
-their `assignedWarehouseCodes`; otherwise the call returns 403. A depot-controller submission does
-not post directly to SAP: it creates or continues the request's approval process, and the transfer
-is generated only after that process completes. For a request raised directly in SAP this opens
-Stock Officer Approval. For an app-raised request, the existing approval history is continued.
-Every successful submission and conversion is recorded in the audit log.
+`POST /api/InventoryTransfer/request/{docEntry}/convert` never posts past the request's approval,
+whoever calls it and wherever the request was raised. Admin, StockController and WashBay may convert
+from any source warehouse; a DepotController only from one in their `assignedWarehouseCodes`
+(otherwise 403). Then:
+
+- **Approved already:** the SAP transfer is generated in this call. The person who raised the
+  request may do this; the approval was someone else's.
+- **Pending, and the caller is an authorizer on a pending stage:** their approval is recorded for
+  that stage, and the transfer is generated in the same call when it was the last one. The person
+  who raised the request is refused with 403 `InventoryTransfer.SelfApprovalNotAllowed`.
+- **Pending, and the caller holds no pending stage:** nothing posts. The call answers 200 with
+  `transfer: null` and a message naming the stages it is awaiting.
+- **Not approved:** 409 `InventoryTransfer.ApprovalAlreadyDecided`.
+
+A request raised directly in SAP has no approval until it is first converted; that opens one,
+routed by whoever raised it (the audit log, or the requester email in its comments), never by the
+person converting. Every submission and conversion is recorded in the audit log.
 
 A request converts once. The transfer it becomes carries `ITR-{docEntry}` in SAP's `U_OrderNumber`,
 and every conversion looks for that first. When SAP already holds it (an earlier conversion posted
@@ -1945,12 +1954,12 @@ repeat returns the existing held transfer rather than opening a second approval.
 |--------|----------|-------------|
 | GET | `/api/InventoryTransfer/pending` | List held transfers. `status` (default `AwaitingApproval`, or `all`), `warehouseCode`, `mineOnly`, `page`, `pageSize` |
 | GET | `/api/InventoryTransfer/pending/{id}` | Held transfer with lines and per-stage approval progress |
-| POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject. Admin, StockController, WashBay, DepotController, Manager |
+| POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject. Admin, StockController, WashBay, DepotController, Manager. The person who raised the transfer, or who sent it back by raising its lines, cannot approve it (403 `InventoryTransfer.SelfApprovalNotAllowed`); they may reject it |
 | POST | `/api/InventoryTransfer/pending/{id}/post` | Retry the SAP post after a `PostFailed`. Any attempt after the first looks the transfer up in SAP by its draft number (`U_OrderNumber`) and records the document it finds instead of posting again. A failed lookup posts nothing. A timeout recorded before posts carried the draft number is refused with 409 `InventoryTransfer.PostOutcomeUnsearchable`: record its number or withdraw it |
-| POST | `/api/InventoryTransfer/pending/{id}/cancel` | Withdraw. Submitter or Admin only, before any decision |
+| POST | `/api/InventoryTransfer/pending/{id}/cancel` | Withdraw. Submitter or Admin only, while `AwaitingApproval` |
 | GET | `/api/InventoryTransfer/pending/{id}/stock-check` | Each line against the source warehouse now: `InStock`, `Short` (with the available figure) or `Unread` |
 | POST | `/api/InventoryTransfer/pending/{id}/post-in-stock` | Post the lines the depot can fill from an `Approved`/`PostFailed` transfer; short lines are left out and kept in `DroppedLinesJson`. Refused after a timed-out post until SAP is checked |
-| PUT | `/api/InventoryTransfer/pending/{id}/lines` | `{ "lines": [{ "lineNum", "quantity" }], "addedLines": [{ "itemCode", "quantity", "uoMCode"? }], "reason"? }`. Change an `Approved`/`PostFailed` transfer before it posts: a quantity may go up or down, `0` takes a line out, at least one line stays, and items not already on a kept line can be added. It stays approved without a new approval; every change is audited with the reason. A raised line loses its batch selection, which the post picks again; a serial-numbered line can only be taken out. Clears the failure and leaves it `Approved` for **post**. Refused after a timed-out post until SAP is checked, and while a post is running |
+| PUT | `/api/InventoryTransfer/pending/{id}/lines` | `{ "lines": [{ "lineNum", "quantity" }], "addedLines": [{ "itemCode", "quantity", "uoMCode"? }], "reason"? }`. Change an `Approved`/`PostFailed` transfer before it posts: a quantity may go up or down, `0` takes a line out, at least one line stays, and items not already on a kept line can be added. Lowering or taking out lines keeps the approval and leaves it `Approved` for **post**. Raising a line, or adding an item beyond what the transfer was approved with, clears every decision and sends it back to `AwaitingApproval`; the approvers are notified again, and the editor cannot approve it. Every change is audited with the reason. A raised line loses its batch selection, which the post picks again; a serial-numbered line can only be taken out. Clears the failure. Refused after a timed-out post until SAP is checked, and while a post is running |
 | POST | `/api/InventoryTransfer/pending/{id}/withdraw` | `{ "reason" }`. Close a `PostFailed` transfer instead of retrying it; the approval time is kept |
 | POST | `/api/InventoryTransfer/pending/{id}/record-sap-document` | `{ "sapDocNum" }`. Close a transfer against the document SAP created when its post timed out; the number is checked against SAP first |
 
@@ -5208,6 +5217,12 @@ The two decision routes are not interchangeable: one keys on a SAP `docEntry` (a
 that exists in SAP), the other on a local `Guid` (a transfer held here before it ever reaches SAP).
 `/api/InventoryTransfer/pending/{id}/decision` decides the same held transfers through the transfer
 controller — see [Inventory Transfers](#17-inventory-transfers).
+
+**Nobody approves their own document.** The engine refuses an approval from the person who raised
+the document, and from the person who last sent an approved transfer back by raising its lines
+(`ReopenedByUserId`), with 403 `InventoryTransfer.SelfApprovalNotAllowed`. Rejecting is allowed.
+That includes Admin, who holds every stage: an administrator's own transfer needs another
+administrator. Approvers are notified only of decisions they may give.
 
 **This engine is the only approval control for documents this API creates.** Posting through the SAP
 Service Layer bypasses B1's own approval procedures entirely, so a document that skips this engine

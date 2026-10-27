@@ -105,6 +105,20 @@ public interface IInventoryTransferApprovalService
     /// that arrived from SAP without ever passing through the approval process.
     /// </summary>
     Task<bool> HasApprovalAsync(string documentType, string documentKey, CancellationToken cancellationToken);
+    /// <summary>
+    /// Whether the user is an authorizer on a stage still awaiting a decision — <paramref name="stageId"/>
+    /// when given, any pending stage otherwise. By role and name only: someone barred from approving
+    /// their own document still counts, so <see cref="SubmitDecisionAsync(ApprovalDocumentContext, Guid, string, Guid?, string?, CancellationToken)"/>
+    /// can tell them why rather than leave them reading "awaiting" a stage they hold.
+    /// </summary>
+    Task<bool> CanAuthorizePendingStageAsync(ApprovalDocumentContext document, Guid userId, Guid? stageId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sends an approved document back to its approvers because it has changed since they approved
+    /// it. Every earlier decision is cleared, the approvers are told again, and the person who made
+    /// the change may not approve it.
+    /// </summary>
+    Task<ApprovalRequestEntity> ReopenAsync(ApprovalDocumentContext document, Guid reopenedByUserId, CancellationToken cancellationToken);
     Task MarkGeneratedAsync(int requestDocEntry, int transferDocEntry, int transferDocNum, Guid generatedByUserId, bool byAuthorizer, CancellationToken cancellationToken);
     Task MarkGeneratedAsync(string documentType, string documentKey, int generatedDocEntry, int generatedDocNum, Guid generatedByUserId, bool byAuthorizer, CancellationToken cancellationToken);
     Task<List<ApprovalStageDefinitionDto>> GetStagesAsync(CancellationToken cancellationToken);
@@ -351,6 +365,12 @@ public sealed class InventoryTransferApprovalService(
         if (request.Status is ApprovalRequestStatuses.Generated or ApprovalRequestStatuses.GeneratedByAuthorizer or ApprovalRequestStatuses.Cancelled)
             return Errors.InventoryTransfer.ApprovalAlreadyDecided(request.Status);
 
+        // Approval is a second pair of eyes, so the person who raised a document, or who changed it
+        // after it was approved, cannot be that pair. Turning their own document down is allowed:
+        // that only stops it, which they could do by withdrawing it anyway.
+        if (decision == ApprovalDecisionValues.Approved && OwnDecisionError(request, authorizer.Id) is { } own)
+            return own;
+
         var snapshots = Deserialize<ApprovalStageSnapshot>(request.StageSnapshotsJson);
         var progress = BuildProgress(request, snapshots);
         var eligibleStages = progress
@@ -426,6 +446,80 @@ public sealed class InventoryTransferApprovalService(
                 _ => $"Decision recorded for {selectedStage.StageName}; other approvals are still pending."
             }
         };
+    }
+
+    /// <summary>
+    /// Why <paramref name="userId"/> may not approve <paramref name="request"/>, or null when they may.
+    /// </summary>
+    /// <remarks>
+    /// Admin is an authorizer on every stage, and with the default templates every document an
+    /// administrator raises goes to Administrator Review, so without this one administrator could
+    /// raise, approve and post a transfer with nobody else looking at it.
+    /// </remarks>
+    public static Error? OwnDecisionError(ApprovalRequestEntity request, Guid userId)
+    {
+        if (request.OriginatorUserId == userId)
+            return Errors.InventoryTransfer.OwnDocumentApprovalNotAllowed(DocumentLabel(request.DocumentType).ToLowerInvariant());
+        if (request.ReopenedByUserId == userId)
+            return Errors.InventoryTransfer.OwnChangeApprovalNotAllowed(DocumentLabel(request.DocumentType).ToLowerInvariant());
+        return null;
+    }
+
+    /// <summary>Whether <paramref name="userId"/> may approve <paramref name="request"/> at all.</summary>
+    public static bool MayApprove(ApprovalRequestEntity request, Guid userId) => OwnDecisionError(request, userId) is null;
+
+    public async Task<bool> CanAuthorizePendingStageAsync(
+        ApprovalDocumentContext document,
+        Guid userId,
+        Guid? stageId,
+        CancellationToken cancellationToken)
+    {
+        var user = await context.Users.AsNoTracking()
+            .FirstOrDefaultAsync(item => item.Id == userId && item.IsActive, cancellationToken);
+        if (user is null)
+            return false;
+
+        var (_, stages) = await GetProgressAsync(document, cancellationToken);
+        return stages.Any(stage =>
+            stage.Status == ApprovalRequestStatuses.Pending &&
+            (stageId is null || stage.StageId == stageId) &&
+            IsAuthorizer(user, stage));
+    }
+
+    public async Task<ApprovalRequestEntity> ReopenAsync(
+        ApprovalDocumentContext document,
+        Guid reopenedByUserId,
+        CancellationToken cancellationToken)
+    {
+        var request = await EnsureRequestAsync(document, null, cancellationToken);
+        if (request.Status is ApprovalRequestStatuses.Generated or ApprovalRequestStatuses.GeneratedByAuthorizer or ApprovalRequestStatuses.Cancelled)
+            throw new InvalidOperationException(
+                $"The approval for {DocumentLabel(request.DocumentType).ToLowerInvariant()} {request.DocumentNumber ?? request.DocumentKey} is already {request.Status} and cannot be reopened.");
+
+        // The approvals were given to the document as it was. Kept, they would count towards the
+        // changed one and it would read as approved again before anyone had looked. The audit log
+        // still holds each of them.
+        context.ApprovalDecisions.RemoveRange(request.Decisions);
+        request.Decisions.Clear();
+        request.Status = ApprovalRequestStatuses.Pending;
+        request.CompletedAtUtc = null;
+        request.ReopenedByUserId = reopenedByUserId;
+        request.ReopenedAtUtc = DateTime.UtcNow;
+        await context.SaveChangesAsync(cancellationToken);
+
+        // The approvers' earlier alerts were cleared when the approval completed, and one alert per
+        // stage is all a person is sent, so they are removed to let the new round reach them. The
+        // originator's "approved" is no longer true either.
+        var prefix = ApprovalNotificationEntityPrefix(request.DocumentType, request.DocumentKey);
+        await context.Notifications
+            .Where(item => item.Category == "TransferApproval" &&
+                           item.EntityType == "TransferRequestApproval" &&
+                           item.EntityId != null &&
+                           item.EntityId.StartsWith(prefix))
+            .ExecuteDeleteAsync(cancellationToken);
+        await MarkOriginatorOutcomesReadAsync(request, cancellationToken);
+        await NotifyPendingAuthorizersAsync(request, Deserialize<ApprovalStageSnapshot>(request.StageSnapshotsJson), cancellationToken);
+        return request;
     }
 
     public Task MarkGeneratedAsync(
@@ -735,6 +829,7 @@ public sealed class InventoryTransferApprovalService(
     {
         var progress = BuildProgress(request, Deserialize<ApprovalStageSnapshot>(request.StageSnapshotsJson));
         dto.ApprovalRequestId = request.Id;
+        dto.OriginatorUserId = request.OriginatorUserId;
         dto.ApprovalTemplateName = request.TemplateName;
         dto.RequestedByRole = request.OriginatorRole;
         dto.ApprovalStatus = request.Status;
@@ -800,7 +895,10 @@ public sealed class InventoryTransferApprovalService(
                 var isDirectTransfer = request.DocumentType == ApprovalDocumentTypes.InventoryTransfer;
                 var label = DocumentLabel(request.DocumentType);
 
-                foreach (var recipient in recipients.Where(user => !decidedUserIds.Contains(user.Id)).DistinctBy(user => user.Id))
+                // Nobody is asked for a decision they are not allowed to give.
+                foreach (var recipient in recipients
+                             .Where(user => !decidedUserIds.Contains(user.Id) && MayApprove(request, user.Id))
+                             .DistinctBy(user => user.Id))
                 {
                     var entityId = ApprovalNotificationEntityId(request.DocumentType, request.DocumentKey, stage.StageId);
                     var exists = await context.Notifications.AsNoTracking().AnyAsync(item =>

@@ -57,6 +57,15 @@ public sealed class ApprovalRequestEntity
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAtUtc { get; set; }
     public DateTime? GeneratedAtUtc { get; set; }
+
+    /// <summary>
+    /// Who last sent an approved document back for approval by changing it, and when. That person
+    /// may not approve the change they made, just as the originator may not approve the document.
+    /// Null until the document is first reopened.
+    /// </summary>
+    public Guid? ReopenedByUserId { get; set; }
+    public DateTime? ReopenedAtUtc { get; set; }
+
     public ICollection<ApprovalDecisionEntity> Decisions { get; set; } = new List<ApprovalDecisionEntity>();
 }
 

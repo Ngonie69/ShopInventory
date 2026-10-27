@@ -240,6 +240,10 @@ public class InventoryTransferRequestDto
     [JsonPropertyName("approvalRequestId")]
     public Guid? ApprovalRequestId { get; set; }
 
+    /// <summary>Who raised the request in this app; they may not approve it. Null when raised in SAP.</summary>
+    [JsonPropertyName("originatorUserId")]
+    public Guid? OriginatorUserId { get; set; }
+
     [JsonPropertyName("approvalTemplateName")]
     public string? ApprovalTemplateName { get; set; }
 
