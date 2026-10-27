@@ -78,6 +78,14 @@ public static partial class Errors
         public static Error ApproverWarehouseRequired(string warehouseCode) =>
             Error.Forbidden("InventoryTransfer.ApproverWarehouseRequired", $"You can only approve transfer requests for your assigned warehouse. Required warehouse: {warehouseCode}.");
 
+        public static Error OwnDocumentApprovalNotAllowed(string documentLabel) =>
+            Error.Forbidden("InventoryTransfer.SelfApprovalNotAllowed",
+                $"You raised this {documentLabel}, so someone else has to approve it.");
+
+        public static Error OwnChangeApprovalNotAllowed(string documentLabel) =>
+            Error.Forbidden("InventoryTransfer.SelfApprovalNotAllowed",
+                $"You changed this {documentLabel} after it was approved, so someone else has to approve the change.");
+
         public static readonly Error SelfApprovalNotAllowed =
             Error.Forbidden("InventoryTransfer.SelfApprovalNotAllowed", "You cannot approve or reject your own transfer request.");
 

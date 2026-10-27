@@ -275,6 +275,12 @@ namespace ShopInventory.Migrations
                     b.Property<Guid?>("OriginatorUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("ReopenedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReopenedByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("StageSnapshotsJson")
                         .IsRequired()
                         .HasColumnType("text");

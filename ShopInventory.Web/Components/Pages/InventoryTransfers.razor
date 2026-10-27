@@ -1036,8 +1036,9 @@ else if (pendingActionTitle is not null)
             else if (pendingEditLines is not null)
             {
                 <p class="itx-note">
-                    Change a quantity, take a line out or add an item. The transfer stays approved, and each
-                    change is recorded against your name with the reason.
+                    Lower a quantity or take a line out and the transfer stays approved. Raise a quantity or
+                    add an item and it goes back for approval by someone other than you. Each change is
+                    recorded against your name with the reason.
                 </p>
                 @if (isCheckingPendingEditStock)
                 {
@@ -2061,8 +2062,8 @@ else if (pendingActionTitle is not null)
     // ── Changing an approved draft's lines before it posts ──
     // Null while the drawer is only showing the draft. SAP refuses a whole transfer for one short
     // line, so an approved draft a few units over what the depot holds could otherwise only be
-    // posted without that line or withdrawn. Lines can also go up and items can be added: the
-    // draft stays approved and the API audits each change.
+    // posted without that line or withdrawn. Lines can also go up and items can be added, but
+    // that sends the draft back for approval; the API audits each change.
     private List<PendingEditLineModel>? pendingEditLines;
     private List<ProductDto> pendingEditProducts = [];
     private IReadOnlyList<NocturnePickerOption> pendingEditItemOptions = [];
@@ -4680,13 +4681,19 @@ else if (pendingActionTitle is not null)
     private bool CanCurrentUserConvertRequest(InventoryTransferRequestDto? request)
         => ShowsRequestConversionAction(request) && CanActOnRequestSource(request);
 
+    // Every conversion passes through the request's approval, whatever the role: the server records
+    // the converter's own stage decision first, and posts only once every stage is approved.
     private string RequestConversionActionNote(InventoryTransferRequestDto request)
         => CanActOnRequestSource(request)
-            ? IsWarehouseScopedRole(currentUserRole)
-                ? "As a Depot Controller, this request must complete approval before the transfer can post to SAP."
-                : request.ApprovalStages.Count == 0
-                    ? "Raised in SAP. Converting generates the inventory transfer directly."
-                    : "Raised in the app. You are authorised to convert it directly to an inventory transfer."
+            ? string.Equals(request.ApprovalStatus, "Approved", StringComparison.OrdinalIgnoreCase)
+                ? "Approved. Converting posts the inventory transfer to SAP."
+                : IsOwnRequest(request)
+                    ? "You raised this request, so someone else has to approve it before it can post to SAP."
+                    : request.ApprovalStages.Count == 0
+                        ? "Raised in SAP. Converting opens its approval, and it posts once that is approved."
+                        : request.ApprovalStages.FirstOrDefault(stage => CanCurrentUserDecideStage(request, stage)) is { } stage
+                            ? $"Converting approves {stage.StageName}, and posts the transfer once every stage is approved."
+                            : $"{GetApprovalDisplayStatus(request)}. It posts to SAP once that is approved."
             : $"{request.FromWarehouse} is not one of your assigned warehouses. " +
               $"Converting issues stock out of {request.FromWarehouse}, so it is for whoever runs " +
               "that warehouse, a stock officer, or an administrator.";
@@ -4695,12 +4702,17 @@ else if (pendingActionTitle is not null)
     {
         if (!IsRequestConvertible(request) || !string.Equals(stage.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return false;
         if (string.IsNullOrWhiteSpace(currentUserRole)) return false;
+        if (IsOwnRequest(request)) return false;
         if (currentUserId.HasValue &&
             stage.Decisions.Any(x => x.AuthorizerUserId == currentUserId.Value)) return false;
         if (string.Equals(currentUserRole, "Admin", StringComparison.OrdinalIgnoreCase)) return true;
         return (currentUserId.HasValue && stage.AuthorizerUserIds.Contains(currentUserId.Value)) ||
                stage.AuthorizerRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase);
     }
+
+    /// <summary>The server refuses a person's approval of a request they raised; this hides the button.</summary>
+    private bool IsOwnRequest(InventoryTransferRequestDto? request)
+        => request?.OriginatorUserId is { } originator && currentUserId == originator;
 
     private string GetApprovalDisplayStatus(InventoryTransferRequestDto request)
     {

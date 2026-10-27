@@ -55,6 +55,8 @@ public sealed class PendingInventoryTransferEnricher(
             dto.CanCurrentUserDecide =
                 pending.Status == PendingInventoryTransferStatuses.AwaitingApproval &&
                 viewer is not null &&
+                // Whoever raised the transfer, or changed it after approval, withdraws it instead.
+                InventoryTransferApprovalService.MayApprove(request, viewer.Id) &&
                 IsInScope(scope, pending.FromWarehouse) &&
                 stages.Any(stage => stage.Status == ApprovalRequestStatuses.Pending && IsAuthorizer(viewer, stage));
 
