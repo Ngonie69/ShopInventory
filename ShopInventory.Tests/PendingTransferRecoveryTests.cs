@@ -290,6 +290,20 @@ public sealed class PendingTransferRecoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task Raising_one_line_alone_sends_the_transfer_back_for_approval()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720), ("RMA001", 4275));
+
+        var edited = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller, [new() { LineNum = 0, Quantity = 721 }], null),
+            default);
+
+        Assert.False(edited.IsError);
+        Assert.Equal(PendingInventoryTransferStatuses.AwaitingApproval, (await ReadAsync(pending.Id)).Status);
+        Assert.Equal([(pending.Id.ToString(), Controller)], _reopened);
+    }
+
+    [Fact]
     public async Task Items_can_be_added_without_changing_any_line()
     {
         var pending = await GivenFailedTransferAsync(("YOG144", 720));
