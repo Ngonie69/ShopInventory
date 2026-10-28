@@ -119,6 +119,12 @@ public partial class StockWriteOffs
         ("PostFailed", "Failed")
     ];
 
+    // Before the first render, so the page opens on the right half: the count for whoever posts, the
+    // read-only placeholder for a manager. Set after the loads it would show the wrong one until they end.
+    protected override async Task OnInitializedAsync() =>
+        canPostWriteOffs = ShopInventory.Web.Data.UserRoles.IsInAnyRole(
+            (await AuthenticationStateTask).User, ShopInventory.Web.Data.UserRoles.StockWriteOffPostRoles);
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (focusReview)
@@ -133,8 +139,6 @@ public partial class StockWriteOffs
         }
 
         hasInitialized = true;
-        canPostWriteOffs = ShopInventory.Web.Data.UserRoles.IsInAnyRole(
-            (await AuthenticationStateTask).User, ShopInventory.Web.Data.UserRoles.StockWriteOffPostRoles);
 
         await Task.WhenAll(LoadListAsync(), LoadWarehousesAsync(), LoadReasonsAsync(), LoadItemsAsync());
         StateHasChanged();
