@@ -73,8 +73,28 @@ that owes a change to the routes that change a password. Sign-in still succeeds 
 change-password screen is behind it — and every other request is answered **403**
 `Password.ChangeRequired` with a sentence saying why.
 
-It is off because nobody has yet watched each app meet that refusal. Before turning it on, on a
-test account in each app: flag the account with **Require Password Change**, sign in, and confirm
+It is off until every app in the field can meet that refusal. These are the first builds that
+read `passwordChangeRequired` at sign-in and open their own change-password screen; an older build
+shows the refusal's sentence but cannot always get the user out of it (the till's change never
+worked before 1.1.5.21, and the POD app's wiped its queue of saved PODs before 1.1.5):
+
+| App | Package | First build that handles it | Source |
+|-----|---------|-----------------------------|--------|
+| Till (KefShop) | MSIX, `.appinstaller` | 1.1.5.21 | Ngonie69/KefShop #112 |
+| Van app | `com.kefalos.vansales` | 2.1.1 (42) | DBSDEVS/KefalosVanSales #161, released as #165 |
+| Merchandiser app | `com.kefalocheese.so` | 1.0.10 (17) | Ngonie69/ShopInventory.Mobile #8, released as #9 |
+| POD app | `com.cheeseman.app` | 1.1.5 (33) | DBSDEVS/Cheeseman #13, released as #15 |
+
+The order:
+
+1. Publish the three Android builds on Google Play and install 1.1.5.21 or later on every till.
+2. In Web → **Settings**, raise each Android app's **Minimum supported version** to the build
+   above. The three apps send `X-App-Id` / `X-App-Version`, so an older build is answered **426**
+   and told to update; nobody is left on a build that cannot change its password.
+3. On a test account in each app, check the refusal itself (below).
+4. Turn `EnforceOnApiClients` on.
+
+To check the refusal on a test account in each app: flag the account with **Require Password Change**, sign in, and confirm
 that (a) the app shows the sentence rather than a blank screen or a generic error, (b) the app's own
 change-password screen still opens and works, and (c) signing in again afterwards is normal. The
 app-side fix, where one is needed, is to read `passwordChangeRequired` at sign-in and open the
