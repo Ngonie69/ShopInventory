@@ -178,7 +178,7 @@ public partial class SalesRepDashboard
             "Process mobile submissions",
             "Validate what the field captured and move it into the sales workflow.",
             "/mobile-drafts",
-            "Open Mobile Orders"),
+            "Open Retail Orders"),
         new("3",
             "Close the delivery loop",
             "Upload proof of delivery and chase the documents still outstanding.",

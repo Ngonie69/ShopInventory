@@ -20,7 +20,7 @@
 @rendermode InteractiveServer
 @implements IDisposable
 
-<PageTitle>@(IsVanSalesView ? "Van Sales Orders - Shop Inventory" : "Mobile Orders - Shop Inventory")</PageTitle>
+<PageTitle>@(IsVanSalesView ? "Van Sales Orders - Shop Inventory" : "Retail Sales Orders - Shop Inventory")</PageTitle>
 
 @* The imported Nocturne design (Mobile Orders.dc.html) is dark;
    wwwroot/css/mobile-orders.css — linked from App.razor — carries it and its
@@ -44,7 +44,7 @@
         <div class="mox-shell">
             <div class="mox-titles">
                 <div class="mox-kicker">@(IsVanSalesView ? "Van sales" : "Sales & billing")</div>
-                <h1 class="mox-title">@(IsVanSalesView ? "Van Sales Orders" : "Mobile Orders")</h1>
+                <h1 class="mox-title">@(IsVanSalesView ? "Van Sales Orders" : "Retail Sales Orders")</h1>
                 <p class="mox-sub">
                     @(IsVanSalesView
                         ? "ADR and sales-person orders captured against route customers. They post to SAP automatically; one still pending is one SAP has not yet accepted."
@@ -52,6 +52,17 @@
                 </p>
             </div>
             <div class="mox-head-actions">
+                @if (!IsVanSalesView)
+                {
+                    <div class="mox-tabs mox-viewtabs" role="group" aria-label="View">
+                        <button type="button" class="mox-tab @(showChecklist ? null : "is-on")"
+                                aria-pressed="@(!showChecklist)" @onclick="() => SetChecklistView(false)">Orders</button>
+                        <button type="button" class="mox-tab @(showChecklist ? "is-on" : null)"
+                                aria-pressed="@showChecklist" @onclick="() => SetChecklistView(true)">Route checklist</button>
+                    </div>
+                }
+                @if (!showChecklist)
+                {
                 <button type="button" class="mox-btn mox-btn-secondary" title="Download the listed orders as a workbook"
                         disabled="@(isExporting || filteredCount == 0)" @onclick="ExportToExcel">
                     @if (isExporting)
@@ -70,6 +81,7 @@
                         <span>@ExportLabel</span>
                     }
                 </button>
+                }
             </div>
         </div>
         <div class="mox-rule"></div>
@@ -89,6 +101,13 @@
             </div>
         }
 
+        @if (showChecklist)
+        {
+            <RetailRouteChecklist StatusName="GetDisplayStatusName" StatusTone="GetStatusToneClass"
+                                  OnOpenOrder="ViewOrder" CanEditRoutes="canEditRoutes" />
+        }
+        else
+        {
         @* Counts read "—" until the orders are in, rather than showing four
            zeroes that are about to jump. *@
         <section class="mox-stats">
@@ -295,7 +314,7 @@
                                         }
                                         else
                                         {
-                                            <strong>No mobile orders yet</strong>
+                                            <strong>No retail orders yet</strong>
                                             <span>Orders submitted from the mobile app will appear here for review.</span>
                                         }
                                     </div>
@@ -519,6 +538,7 @@
             </div>
 
         </section>
+        }
     </div>
 </div>
 
@@ -986,8 +1006,30 @@
         // Before LoadOrders, which hydrates missing prices and saves them when this viewer may.
         var user = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
         canSaveOrderPrices = user.IsInRole(UserRoles.Admin) || user.IsInRole(UserRoles.Cashier) || user.IsInRole(UserRoles.SalesRep);
+        canEditRoutes = user.IsInRole(UserRoles.Admin) || user.IsInRole(UserRoles.SalesRep);
+        showChecklist = !IsVanSalesView && string.Equals(View, "checklist", StringComparison.OrdinalIgnoreCase);
 
         await LoadOrders(includeSummary: true);
+    }
+
+    /// <summary>"checklist" opens the route checklist rather than the order list, so the view can be linked.</summary>
+    [SupplyParameterFromQuery(Name = "view")]
+    public string? View { get; set; }
+
+    /// <summary>The route checklist is on screen instead of the order list. Retail view only.</summary>
+    private bool showChecklist;
+
+    /// <summary>Admin and SalesRep own Delivery Routes, so only they are offered the link to it.</summary>
+    private bool canEditRoutes;
+
+    private void SetChecklistView(bool on)
+    {
+        if (showChecklist == on)
+            return;
+
+        showChecklist = on;
+        NavigationManager.NavigateTo(
+            NavigationManager.GetUriWithQueryParameter("view", on ? "checklist" : null), replace: true);
     }
 
     /// <summary>
@@ -2708,9 +2750,9 @@
             // Delivered and the invoice number come from SAP; the page asks only about the rows on screen.
             await LoadOrderPodStatusesAsync(rows, ordersLoadVersion, keepKnown: true);
 
-            var title = IsVanSalesView ? "Van Sales Orders" : "Mobile Orders";
+            var title = IsVanSalesView ? "Van Sales Orders" : "Retail Sales Orders";
             var bytes = ExportService.ExportMobileOrdersToExcel(rows, title, GetOrderInvoiceDocNum, GetDisplayStatusName);
-            var prefix = IsVanSalesView ? "Van_Sales_Orders" : "Mobile_Orders";
+            var prefix = IsVanSalesView ? "Van_Sales_Orders" : "Retail_Sales_Orders";
             await JS.InvokeVoidAsync(
                 "downloadFile",
                 $"{prefix}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx",
