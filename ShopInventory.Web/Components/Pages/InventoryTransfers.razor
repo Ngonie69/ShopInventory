@@ -1977,6 +1977,14 @@ else if (pendingActionTitle is not null)
                     </button>
                 }
             }
+            @if (shortConversionToConfirm is null)
+            {
+                <button type="button" class="itx-btn" disabled="@isPrinting"
+                        title="Print this request as a draft transfer sheet"
+                        @onclick="() => PrintTransferRequestDraft(selectedTransferRequest)">
+                    <i class="bi bi-printer"></i> @(IsRequestConvertible(selectedTransferRequest) ? "Print Draft" : "Print")
+                </button>
+            }
             <button type="button" class="itx-btn" @onclick="CloseRequestModal">Close</button>
         </div>
     </div>
@@ -3708,16 +3716,147 @@ else if (pendingActionTitle is not null)
     private string BuildPendingTransferDraftHtml(PendingInventoryTransferDto pending)
     {
         var posted = IsPostedToSap(pending);
-        var lines = pending.Lines;
+        var draftNumber = Html(DraftReference(pending));
+
+        return BuildTransferSheetHtml(new TransferPrintSheet(
+            DocTitle: posted ? $"Inventory Transfer {draftNumber}" : $"Draft Inventory Transfer {draftNumber}",
+            Heading: posted ? "Inventory Transfer" : "Inventory Transfer &mdash; Draft",
+            Badge: posted
+                ? $"<span class='badge posted'>POSTED TO SAP &#35;{pending.SapDocNum}</span>"
+                : "<span class='badge'>NOT POSTED TO SAP</span>",
+            IsDraft: !posted,
+            Notice: posted
+                ? $"<div class='notice posted'>Posted to SAP as inventory transfer &#35;{pending.SapDocNum}. "
+                  + "The stock has moved; this sheet is a copy of the posted document.</div>"
+                : "<div class='notice'>This is a draft. No stock has moved and no document exists in SAP. "
+                  + "It becomes an inventory transfer only once every approval stage above has been approved.</div>",
+            Reference: draftNumber,
+            StatusText: FormatPendingStatus(pending),
+            FromWarehouse: pending.FromWarehouse,
+            ToWarehouse: pending.ToWarehouse,
+            Facts:
+            [
+                ("Submitted by", pending.CreatedByName),
+                ("Submitted", pending.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")),
+                ("Approval process", pending.ApprovalTemplateName ?? "—"),
+                ("Total Lines", pending.Lines.Count.ToString())
+            ],
+            Comments: pending.Comments,
+            Lines: pending.Lines
+                .Select(line => new TransferPrintLine(line.ItemCode, LineItemName(line),
+                    line.FromWarehouseCode ?? pending.FromWarehouse, line.ToWarehouseCode ?? pending.ToWarehouse,
+                    line.Quantity, line.UoMCode))
+                .ToList(),
+            Stages: pending.ApprovalStages));
+    }
+
+    private async Task PrintTransferRequestDraft(InventoryTransferRequestDto? request)
+    {
+        if (request == null || isPrinting) return;
+
+        isPrinting = true;
+        errorMessage = null;
+
+        try
+        {
+            await JS.InvokeVoidAsync("printReportHtml", BuildTransferRequestDraftHtml(request));
+            await AuditService.LogAsync(AuditActions.ViewTransfers, "InventoryTransferRequest", request.DocEntry.ToString());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to print transfer request {DocEntry}", request.DocEntry);
+            errorMessage = "Failed to print the draft.";
+        }
+        finally
+        {
+            isPrinting = false;
+        }
+    }
+
+    /// <summary>
+    /// Print sheet for a transfer request. A request moves no stock, so while it is still open
+    /// it prints as a draft transfer. A request that is closed, converted or rejected prints
+    /// without the draft markings and says so, rather than passing for a live picking sheet.
+    /// </summary>
+    private string BuildTransferRequestDraftHtml(InventoryTransferRequestDto request)
+    {
+        var open = IsRequestConvertible(request);
+        var reference = Html($"#{request.DocNum}");
+        var status = GetApprovalDisplayStatus(request);
+        var lines = request.Lines ?? [];
+
+        return BuildTransferSheetHtml(new TransferPrintSheet(
+            DocTitle: open ? $"Draft Transfer Request {reference}" : $"Transfer Request {reference}",
+            Heading: open ? "Transfer Request &mdash; Draft" : "Transfer Request",
+            Badge: open
+                ? "<span class='badge'>NOT POSTED TO SAP</span>"
+                : $"<span class='badge closed'>{Html(status.ToUpperInvariant())}</span>",
+            IsDraft: open,
+            Notice: open
+                ? "<div class='notice'>This is a draft. No stock has moved: a transfer request is not an inventory "
+                  + "transfer. Stock moves only once the request is approved and converted to a transfer in SAP.</div>"
+                : $"<div class='notice closed'>This request is {Html(status.ToLowerInvariant())} and can no longer be "
+                  + "converted. This sheet is a copy for reference only.</div>",
+            Reference: reference,
+            StatusText: status,
+            FromWarehouse: request.FromWarehouse,
+            ToWarehouse: request.ToWarehouse,
+            Facts:
+            [
+                ("Requester", request.RequesterName ?? "—"),
+                ("Email", request.RequesterEmail ?? "—"),
+                ("Raised", FormatDate(request.DocDate)),
+                ("Due", FormatDate(request.DueDate)),
+                ("Approval process", request.ApprovalTemplateName ?? "—"),
+                ("Total Lines", lines.Count.ToString())
+            ],
+            Comments: request.Comments,
+            Lines: lines
+                .Select(line => new TransferPrintLine(line.ItemCode, line.ItemDescription,
+                    line.FromWarehouseCode ?? request.FromWarehouse, line.ToWarehouseCode ?? request.ToWarehouse,
+                    line.Quantity, line.UoMCode))
+                .ToList(),
+            Stages: request.ApprovalStages));
+    }
+
+    private sealed record TransferPrintLine(
+        string? ItemCode, string? ItemName, string? FromWarehouse, string? ToWarehouse, decimal Quantity, string? UoMCode);
+
+    /// <summary>
+    /// What one print sheet says. Badge, Heading, Notice and Reference are markup built by the
+    /// callers; every other text value is encoded when the sheet is written.
+    /// </summary>
+    private sealed record TransferPrintSheet(
+        string DocTitle,
+        string Heading,
+        string Badge,
+        bool IsDraft,
+        string Notice,
+        string Reference,
+        string StatusText,
+        string? FromWarehouse,
+        string? ToWarehouse,
+        IReadOnlyList<(string Label, string? Value)> Facts,
+        string? Comments,
+        IReadOnlyList<TransferPrintLine> Lines,
+        IReadOnlyList<ApprovalStageProgressModel> Stages);
+
+    /// <summary>
+    /// The A4 sheet behind both draft prints: held transfers and transfer requests.
+    /// A draft carries a DRAFT watermark on every page.
+    /// </summary>
+    private string BuildTransferSheetHtml(TransferPrintSheet sheet)
+    {
+        var lines = sheet.Lines;
         var rows = new StringBuilder();
         var lineNumber = 1;
 
         foreach (var line in lines)
         {
             rows.Append($"<tr><td>{lineNumber++}</td>")
-                .Append($"<td><strong>{Html(line.ItemCode)}</strong>{ItemDescriptionCell(LineItemName(line))}</td>")
-                .Append($"<td>{Html(line.FromWarehouseCode ?? pending.FromWarehouse)}</td>")
-                .Append($"<td>{Html(line.ToWarehouseCode ?? pending.ToWarehouse)}</td>")
+                .Append($"<td><strong>{Html(line.ItemCode)}</strong>{ItemDescriptionCell(line.ItemName)}</td>")
+                .Append($"<td>{Html(line.FromWarehouse)}</td>")
+                .Append($"<td>{Html(line.ToWarehouse)}</td>")
                 .Append($"<td class='num'>{Html(QuantityDisplay.Format(line.Quantity, line.UoMCode))}</td>")
                 .Append($"<td>{Html(line.UoMCode)}</td></tr>");
         }
@@ -3726,36 +3865,24 @@ else if (pendingActionTitle is not null)
             rows.Append("<tr><td colspan='6' class='muted'>No line items recorded.</td></tr>");
 
         var stages = new StringBuilder();
-        foreach (var stage in pending.ApprovalStages)
+        foreach (var stage in sheet.Stages)
         {
             stages.Append($"<tr><td>{Html(stage.StageName)}</td>")
                   .Append($"<td>{Html(string.Join(", ", stage.AuthorizerRoles))}</td>")
                   .Append($"<td>{Html(stage.Status)} ({stage.ApprovalCount}/{stage.ApprovalsRequired})</td></tr>");
         }
 
-        if (pending.ApprovalStages.Count == 0)
+        if (sheet.Stages.Count == 0)
             stages.Append("<tr><td colspan='3' class='muted'>No approval stages recorded.</td></tr>");
 
+        var facts = string.Concat(sheet.Facts.Select(fact =>
+            $"<div><span class='k'>{Html(fact.Label)}</span>{Html(fact.Value)}</div>"));
         var totalQty = Html(QuantityDisplay.Format(lines.Sum(l => l.Quantity)));
-        var comments = string.IsNullOrWhiteSpace(pending.Comments)
+        var comments = string.IsNullOrWhiteSpace(sheet.Comments)
             ? string.Empty
-            : $"<div class='comments'><span class='k'>Comments</span>{Html(pending.Comments)}</div>";
+            : $"<div class='comments'><span class='k'>Comments</span>{Html(sheet.Comments)}</div>";
         var printedAt = IAuditService.ToCAT(DateTime.UtcNow).ToString("dd MMM yyyy HH:mm");
-        var submitted = pending.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm");
-        var draftNumber = Html(DraftReference(pending));
-        var docTitle = posted
-            ? $"Inventory Transfer {draftNumber}"
-            : $"Draft Inventory Transfer {draftNumber}";
-        var heading = posted ? "Inventory Transfer" : "Inventory Transfer &mdash; Draft";
-        var badge = posted
-            ? $"<span class='badge posted'>POSTED TO SAP &#35;{pending.SapDocNum}</span>"
-            : "<span class='badge'>NOT POSTED TO SAP</span>";
-        var watermark = posted ? string.Empty : "<div class=\"watermark\">DRAFT</div>";
-        var notice = posted
-            ? $"<div class='notice posted'>Posted to SAP as inventory transfer &#35;{pending.SapDocNum}. "
-              + "The stock has moved; this sheet is a copy of the posted document.</div>"
-            : "<div class='notice'>This is a draft. No stock has moved and no document exists in SAP. "
-              + "It becomes an inventory transfer only once every approval stage above has been approved.</div>";
+        var watermark = sheet.IsDraft ? "<div class=\"watermark\">DRAFT</div>" : string.Empty;
         var logoDataUri = GetBrandLogoDataUri();
         var logo = logoDataUri == null
             ? string.Empty
@@ -3766,7 +3893,7 @@ else if (pendingActionTitle is not null)
             <html>
             <head>
                 <meta charset="utf-8">
-                <title>{{docTitle}}</title>
+                <title>{{sheet.DocTitle}}</title>
                 <style>
                     @page { size: A4; margin: 14mm; }
                     body { font-family: Arial, Helvetica, sans-serif; color: #111827; font-size: 12px; margin: 0;
@@ -3782,6 +3909,7 @@ else if (pendingActionTitle is not null)
                     .badge { display: inline-block; border: 1px solid #b45309; color: #b45309; border-radius: 3px;
                              padding: 2px 8px; font-size: 11px; font-weight: 700; letter-spacing: .5px; }
                     .badge.posted { border-color: #047857; color: #047857; }
+                    .badge.closed { border-color: #6b7280; color: #6b7280; }
                     .route { display: flex; align-items: center; gap: 16px; border: 1px solid #d1d5db;
                              padding: 12px; margin-bottom: 16px; }
                     .route .leg { flex: 1; text-align: center; }
@@ -3801,6 +3929,7 @@ else if (pendingActionTitle is not null)
                     .notice { border: 1px solid #b45309; background: #fffbeb; color: #92400e; padding: 10px;
                               margin-top: 18px; font-size: 11px; }
                     .notice.posted { border-color: #047857; background: #ecfdf5; color: #065f46; }
+                    .notice.closed { border-color: #6b7280; background: #f9fafb; color: #374151; }
                     .foot { margin-top: 24px; font-size: 10px; color: #6b7280; text-align: center; }
 
                     /* Sits behind the content on every printed page. print-color-adjust keeps the
@@ -3820,14 +3949,14 @@ else if (pendingActionTitle is not null)
                         {{logo}}
                         <div>
                             <div class="company">{{Html(AppSettings.CompanyName)}}</div>
-                            <h1>{{heading}}</h1>
-                            {{badge}}
+                            <h1>{{sheet.Heading}}</h1>
+                            {{sheet.Badge}}
                         </div>
                     </div>
                     <div class="doc-no">
-                        {{draftNumber}}
+                        {{sheet.Reference}}
                         <div class="muted" style="font-weight:400;font-size:11px;">
-                            {{Html(FormatPendingStatus(pending))}}
+                            {{Html(sheet.StatusText)}}
                         </div>
                     </div>
                 </div>
@@ -3835,21 +3964,16 @@ else if (pendingActionTitle is not null)
                 <div class="route">
                     <div class="leg">
                         <span class="k">Source</span>
-                        <span class="code">{{Html(pending.FromWarehouse)}}</span>
+                        <span class="code">{{Html(sheet.FromWarehouse)}}</span>
                     </div>
                     <div style="font-size:18px;">&rarr;</div>
                     <div class="leg">
                         <span class="k">Destination</span>
-                        <span class="code">{{Html(pending.ToWarehouse)}}</span>
+                        <span class="code">{{Html(sheet.ToWarehouse)}}</span>
                     </div>
                 </div>
 
-                <div class="grid">
-                    <div><span class="k">Submitted by</span>{{Html(pending.CreatedByName)}}</div>
-                    <div><span class="k">Submitted</span>{{Html(submitted)}}</div>
-                    <div><span class="k">Approval process</span>{{Html(pending.ApprovalTemplateName ?? "—")}}</div>
-                    <div><span class="k">Total Lines</span>{{lines.Count}}</div>
-                </div>
+                <div class="grid">{{facts}}</div>
 
                 {{comments}}
 
@@ -3877,7 +4001,7 @@ else if (pendingActionTitle is not null)
                     <div class="sig">Received by (name / signature / date)</div>
                 </div>
 
-                {{notice}}
+                {{sheet.Notice}}
 
                 <div class="foot">Printed {{printedAt}} CAT</div>
             </body>
