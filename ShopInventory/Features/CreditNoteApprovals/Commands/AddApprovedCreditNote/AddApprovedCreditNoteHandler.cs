@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -32,6 +33,7 @@ public sealed class AddApprovedCreditNoteHandler(
     ISAPServiceLayerClient sap,
     ICreditNoteProjectionSyncService projectionSync,
     SapCreditNoteFiscaliser fiscaliser,
+    IStockLedger stockLedger,
     IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
     IOptions<SAPSettings> sapSettings,
@@ -164,6 +166,7 @@ public sealed class AddApprovedCreditNoteHandler(
             if (creditNote is not null)
             {
                 await TryProjectAsync(creditNote);
+                await TryReturnUnitsAsync(creditNote);
             }
 
             var fiscalisation = approvalSettings.Value.FiscaliseAfterAdd
@@ -295,6 +298,42 @@ public sealed class AddApprovedCreditNoteHandler(
         {
             // SAP is authoritative; the clustered sync job repairs the projection within minutes.
             logger.LogWarning(exception, "Failed to write credit note {DocEntry} through to the local projection", creditNote.DocEntry);
+        }
+    }
+
+    /// <summary>
+    /// Puts the units the credit note brought back into today's local stock, as a credit note raised
+    /// here already does.
+    /// </summary>
+    /// <remarks>
+    /// Without this, Local stock read low for every approved return until the hourly SAP check or
+    /// the next morning's fetch restated it, and tills were refused stock that was on the shelf. SAP
+    /// has already moved the stock, so the lines are read from the credit note itself. If it could not
+    /// be read back, the hourly check catches it up. Best effort: the credit note is in SAP whatever
+    /// happens here.
+    /// </remarks>
+    private async Task TryReturnUnitsAsync(SAPCreditNote creditNote)
+    {
+        var returned = SapCreditNoteStockReturn.LinesOf(creditNote);
+        if (returned.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await stockLedger.ReleaseAsync(
+                returned,
+                $"credit note {creditNote.DocNum}",
+                SapCreditNoteStockReturn.DocumentKey(creditNote.DocEntry),
+                CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Credit note {DocNum} was added, but its units could not be returned to local stock",
+                creditNote.DocNum);
         }
     }
 

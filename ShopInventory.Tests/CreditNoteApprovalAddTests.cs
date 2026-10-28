@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -13,6 +14,7 @@ using ShopInventory.Features.CreditNoteApprovals.Commands.AddApprovedCreditNote;
 using ShopInventory.Features.CreditNotes;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Models;
+using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
@@ -40,7 +42,8 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
         _options = new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlite(_connection).Options;
-        _context = new ApplicationDbContext(_options);
+        // Holds snapshot rows on SQLite, so the stock ledger the handler returns units to is the real one.
+        _context = new SnapshotSqliteContext(_options);
         _context.Database.EnsureCreated();
     }
 
@@ -299,6 +302,82 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         Assert.Equal(9001, landedResult.Value.CreditNoteDocEntry);
     }
 
+    /// <summary>
+    /// SAP puts the returned goods back in the warehouse when the draft is added, so local stock has
+    /// to take them back too. Before this, only a credit note raised here returned its units, and an
+    /// approved return left Local stock short until the hourly SAP check or the next morning's fetch.
+    /// </summary>
+    [Fact]
+    public async Task Adding_returns_the_credit_notes_units_to_local_stock()
+    {
+        await StockOnHand("KEFSHOP", ("CHE011", 10m), ("CHE012", 5m));
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123))
+        {
+            SaveReturns = 9001,
+            DraftAfterSave = ClosedDraft(88123),
+            Lines =
+            [
+                new SAPCreditNoteLine { LineNum = 0, ItemCode = "CHE011", Quantity = 4, WarehouseCode = "KEFSHOP" },
+                // Entered in boxes of 12: stock is counted in units, which is InventoryQuantity.
+                new SAPCreditNoteLine { LineNum = 1, ItemCode = "CHE012", Quantity = 2, InventoryQuantity = 24, WarehouseCode = "KEFSHOP" },
+                // Credits money only. SAP moved no stock, so neither may the ledger.
+                new SAPCreditNoteLine { LineNum = 2, ItemCode = "CHE011", Quantity = 3, WarehouseCode = "KEFSHOP", WithoutInventoryMovement = SapYesNo.Yes }
+            ]
+        };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        var ledger = Ledger();
+        Assert.Equal(14m, (await ledger.ReadAsync("CHE011", "KEFSHOP")).Available);
+        Assert.Equal(29m, (await ledger.ReadAsync("CHE012", "KEFSHOP")).Available);
+
+        var movements = await _context.StockMovements.ToListAsync();
+        Assert.NotEmpty(movements);
+        Assert.All(movements, movement =>
+        {
+            Assert.Equal(StockMovementKinds.Release, movement.Kind);
+            Assert.Equal(SapCreditNoteStockReturn.DocumentKey(9001), movement.DocumentKey);
+        });
+    }
+
+    [Fact]
+    public async Task A_repeated_add_returns_the_units_once()
+    {
+        await StockOnHand("KEFSHOP", ("CHE011", 10m));
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123))
+        {
+            SaveReturns = 9001,
+            DraftAfterSave = ClosedDraft(88123),
+            Lines = [new SAPCreditNoteLine { LineNum = 0, ItemCode = "CHE011", Quantity = 4, WarehouseCode = "KEFSHOP" }]
+        };
+        var handler = Handler(sap, new RecordingFiscalisation(), new RecordingAuditService(), store: Store());
+
+        await handler.Handle(Command(3110), CancellationToken.None);
+        await handler.Handle(Command(3110), CancellationToken.None);
+
+        // Returning twice is the direction that oversells.
+        Assert.Equal(14m, (await Ledger().ReadAsync("CHE011", "KEFSHOP")).Available);
+    }
+
+    [Fact]
+    public async Task A_ledger_that_cannot_take_the_units_back_does_not_fail_the_add()
+    {
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123))
+        {
+            SaveReturns = 9001,
+            DraftAfterSave = ClosedDraft(88123),
+            Lines = [new SAPCreditNoteLine { LineNum = 0, ItemCode = "CHE011", Quantity = 4, WarehouseCode = "KEFSHOP" }]
+        };
+        var broken = StubProxy.For<IStockLedger>((_, _) => throw new InvalidOperationException("database unavailable"));
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService(), ledger: broken)
+            .Handle(Command(3110), CancellationToken.None);
+
+        Assert.False(result.IsError, "the credit note is in SAP; local stock is best effort");
+        Assert.Equal(9001, result.Value.CreditNoteDocEntry);
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────────
 
     private AddApprovedCreditNoteHandler Handler(
@@ -306,7 +385,8 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         RecordingFiscalisation fiscal,
         RecordingAuditService audit,
         bool fiscaliseAfterAdd = true,
-        IIdempotencyRequestStore? store = null) => new(
+        IIdempotencyRequestStore? store = null,
+        IStockLedger? ledger = null) => new(
         _context,
         sap.AsClient(),
         sap.AsProjection(),
@@ -317,11 +397,42 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
             fiscal.AsSender(),
             Options.Create(new FiscalisationSettings()),
             NullLogger<SapCreditNoteFiscaliser>.Instance),
+        ledger ?? Ledger(),
         store ?? Store(),
         audit,
         Options.Create(new SAPSettings { Enabled = true }),
         Options.Create(new CreditNoteApprovalSettings { FiscaliseAfterAdd = fiscaliseAfterAdd }),
         NullLogger<AddApprovedCreditNoteHandler>.Instance);
+
+    private StockLedger Ledger()
+        => new(_context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance);
+
+    /// <summary>Today's complete snapshot for <paramref name="warehouse"/>, holding the given units.</summary>
+    private async Task StockOnHand(string warehouse, params (string Item, decimal Units)[] rows)
+    {
+        var snapshot = new DailyStockSnapshotEntity
+        {
+            SnapshotDate = StockLedgerDay.Today(new DailyStockSettings().StockFetchTimeCAT),
+            WarehouseCode = warehouse,
+            Status = StockSnapshotStatus.Complete
+        };
+        _context.DailyStockSnapshots.Add(snapshot);
+        await _context.SaveChangesAsync();
+
+        foreach (var (item, units) in rows)
+        {
+            _context.DailyStockSnapshotItems.Add(new DailyStockSnapshotItemEntity
+            {
+                SnapshotId = snapshot.Id,
+                ItemCode = item,
+                WarehouseCode = warehouse,
+                // See SnapshotSqliteContext for why this is set by hand.
+                Version = 1
+            }.Opened(units));
+        }
+
+        await _context.SaveChangesAsync();
+    }
 
     private IIdempotencyRequestStore Store()
         => new IdempotencyRequestStore(new SingleDbContextScopeFactory(_options), Options.Create(new SecuritySettings()));
@@ -367,7 +478,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         DocObjectCode = SapDocObjectCodes.CreditNotes
     };
 
-    private static SAPCreditNote CreditNote(int docEntry) => new()
+    private static SAPCreditNote CreditNote(int docEntry, List<SAPCreditNoteLine>? lines = null) => new()
     {
         DocEntry = docEntry,
         DocNum = docEntry,
@@ -378,7 +489,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         DocCurrency = "USD",
         Comments = "Damaged goods",
         DocumentStatus = SapDocumentStatuses.Open,
-        DocumentLines =
+        DocumentLines = lines ??
         [
             new SAPCreditNoteLine { LineNum = 0, ItemCode = "CHE011", Quantity = -4, UnitPrice = 61.40m, LineTotal = -245.60m, BaseType = 13, BaseEntry = 77001 }
         ]
@@ -403,6 +514,9 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         /// <summary>The remarks on invoice 77001, the one the credit note is based on.</summary>
         public string? BaseInvoiceComments { get; init; }
 
+        /// <summary>The lines the added credit note reads back with, when a test needs its own.</summary>
+        public List<SAPCreditNoteLine>? Lines { get; init; }
+
         public List<(int DraftEntry, CancellationToken Token)> Saves { get; } = [];
         public List<SAPCreditNote> Projected { get; } = [];
 
@@ -416,7 +530,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
                 => Task.FromResult(_saved ? NewestAfter : NewestBefore),
             nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync) => Save(args!),
             nameof(ISAPServiceLayerClient.GetCreditNoteByDocEntryAsync)
-                => Task.FromResult<SAPCreditNote?>((int)args![0]! == (CreditNoteDocEntry ?? SaveReturns) ? CreditNote((int)args[0]!) : null),
+                => Task.FromResult<SAPCreditNote?>((int)args![0]! == (CreditNoteDocEntry ?? SaveReturns) ? CreditNote((int)args[0]!, Lines) : null),
             // The invoice the credit note's lines are based on. Its receipt is filed under the DocNum,
             // which is a different number from the BaseEntry the credit note carries.
             nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync)
