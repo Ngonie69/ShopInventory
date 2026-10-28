@@ -117,6 +117,23 @@ public class SAPCreditNoteLine
     [JsonPropertyName("Quantity")]
     public decimal Quantity { get; set; }
 
+    /// <summary>
+    /// The quantity in the item's inventory unit, the unit stock is counted in. SAP leaves it empty
+    /// on a line entered in that unit already; read <see cref="StockQuantity"/>.
+    /// </summary>
+    [JsonPropertyName("InventoryQuantity")]
+    public decimal? InventoryQuantity { get; set; }
+
+    /// <summary>The quantity this line put back on the shelf, in the unit stock is counted in.</summary>
+    [JsonIgnore]
+    public decimal StockQuantity => InventoryQuantity is { } inventory && inventory != 0m ? inventory : Quantity;
+
+    /// <summary>
+    /// <c>tYES</c> when the line credits money only and moved no stock back into the warehouse.
+    /// </summary>
+    [JsonPropertyName("WithoutInventoryMovement")]
+    public string? WithoutInventoryMovement { get; set; }
+
     [JsonPropertyName("UnitPrice")]
     public decimal UnitPrice { get; set; }
 
