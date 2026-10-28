@@ -136,38 +136,73 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task A_partner_with_no_mapping_is_held_rather_than_posted_to_SAPs_default_account()
+    public async Task A_partner_with_no_mapping_is_not_paid_and_its_invoices_stay_open()
     {
-        // SAP's default cash account is 700300, the factory's. Every daily payment before the mapping went there.
-        await GivenSaleAsync("BP-9", docEntry: 901, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
+        // No mapping means no switch to turn on. SAP's default cash account is 700300, the factory's, so
+        // claiming these would also risk posting them there.
+        var sale = await GivenSaleAsync("BP-9", docEntry: 901, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
 
-        var held = await Run(Cat(Day, 17, 0));
+        var unmapped = await Run(Cat(Day, 17, 0));
 
-        Assert.Equal(1, held.Created);
-        Assert.Equal(1, held.Held);
+        Assert.Equal(0, unmapped.Created);
         Assert.Equal(0, _sap.CreateCalls);
-        var pending = await _context.DailyIncomingPayments.AsNoTracking().SingleAsync();
-        Assert.Equal(DailyIncomingPaymentStatus.Pending, pending.Status);
-        Assert.Equal(0, pending.Attempts);
-        Assert.Contains("No active G/L mapping for BP-9", pending.LastError);
+        Assert.Empty(await _context.DailyIncomingPayments.AsNoTracking().ToListAsync());
+        Assert.Null((await Reload(sale)).PaymentStatus);
 
         GivenMapping("BP-9", "701500", "701100");
-        var mapped = await Run(Cat(Day, 17, 10));
+        var mapped = await Run(Cat(Day.AddDays(1), 17, 0));
 
         Assert.Equal(1, mapped.Posted);
-        Assert.Equal("701500", Assert.Single(_sap.Held).Request.CashAccount);
+        var request = Assert.Single(_sap.Held).Request;
+        Assert.Equal("701500", request.CashAccount);
+        Assert.Equal(901, Assert.Single(request.PaymentInvoices!).DocEntry);
     }
 
     [Fact]
-    public async Task An_inactive_mapping_holds_the_payment()
+    public async Task Only_switched_on_partners_are_paid()
     {
-        GivenMapping("BP-1", "700300", "701100", isActive: false);
+        GivenMapping("BP-2", "700610", "701100", isActive: false);
+        var off = await GivenSaleAsync("BP-2", docEntry: 201, TenderTypes.Cash, 30m, postedAt: Cat(Day, 9, 0));
         await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
 
         var result = await Run(Cat(Day, 17, 0));
 
-        Assert.Equal(1, result.Held);
+        Assert.Equal(1, result.Created);
+        Assert.Equal(0, result.Held);
+        Assert.Equal("BP-1", Assert.Single(_sap.Held).Request.CardCode);
+        Assert.Null((await Reload(off)).PaymentStatus);
+    }
+
+    [Fact]
+    public async Task Switching_a_partner_on_pays_its_open_invoices_within_the_lookback()
+    {
+        GivenMapping("BP-1", "700300", "701100", isActive: false);
+        await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
+
+        await Run(Cat(Day, 17, 0));
         Assert.Equal(0, _sap.CreateCalls);
+
+        GivenMapping("BP-1", "700300", "701100", isActive: true);
+        var result = await Run(Cat(Day.AddDays(2), 17, 0));
+
+        Assert.Equal(1, result.Posted);
+        Assert.Equal(101, Assert.Single(Assert.Single(_sap.Held).Request.PaymentInvoices!).DocEntry);
+    }
+
+    [Fact]
+    public async Task A_payment_claimed_before_its_partner_was_switched_off_is_held()
+    {
+        await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
+        _sap.NextCreate = CreateOutcome.Refuse;
+        await Run(Cat(Day, 17, 0));
+
+        GivenMapping("BP-1", "700300", "701100", isActive: false);
+        var result = await Run(Cat(Day, 17, 10));
+
+        Assert.Equal(1, result.Held);
+        var pending = await _context.DailyIncomingPayments.AsNoTracking().SingleAsync();
+        Assert.Equal(DailyIncomingPaymentStatus.Pending, pending.Status);
+        Assert.Contains("switched off", pending.LastError);
     }
 
     [Fact]

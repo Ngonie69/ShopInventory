@@ -14,7 +14,6 @@
 @inject IJSRuntime JS
 @inject ISAPSettingsService SAPSettingsService
 @inject IFiscalisationSettingsService FiscalisationSettingsService
-@inject IDailyIncomingPaymentSettingsService DailyIncomingPaymentSettingsService
 @inject IMobileVersionPolicySettingsService MobileVersionPolicySettingsService
 @inject IMaintenanceService MaintenanceService
 @inject IPodReportEmailService PodEmailService
@@ -811,55 +810,23 @@
                             </div>
                         </div>
 
-                        <!-- Daily incoming payment for desktop sales -->
+                        <!-- Daily incoming payment: switched per partner on its own page, not here. -->
                         <div class="stg-row">
                             <div class="stg-row-info">
                                 <div class="stg-row-label"><span>Daily Incoming Payment for Shop &amp; Vending Sales</span></div>
                                 <span class="stg-row-desc">
-                                    On: each customer gets <strong>one incoming payment</strong> a day settling its till,
-                                    vending and consolidated invoices. Partners mapped to the van run are paid at
-                                    <strong>20:00</strong>; everyone else, shops and unmapped partners, at <strong>17:00</strong>.
-                                    An unmapped partner's payment is <strong>held, not posted</strong>, until its G/L accounts are
-                                    set on <a href="/reports/desktop-sales/payments">Daily Incoming Payments</a>. Off: shop and vending sales post
-                                    <strong>invoices only</strong> and they stay open in SAP. Takes effect on the next run, no restart needed.
+                                    Switched on or off <strong>per business partner</strong>. A partner that is on gets
+                                    <strong>one incoming payment</strong> a day settling its till, vending and van invoices; a partner
+                                    that is off, or has no G/L accounts, posts <strong>invoices only</strong> and they stay open in SAP.
                                 </span>
-                                @if (dailyPaymentSettings is null)
-                                {
-                                    <span class="stg-row-meta"><i class="ph ph-warning"></i>Couldn't read the current setting from the API</span>
-                                }
-                                else if (dailyPaymentSettings.UpdatedAtUtc is DateTime changedAt)
-                                {
-                                    <span class="stg-row-meta"><i class="ph ph-clock-counter-clockwise"></i>Last changed @changedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
-                                }
-                                else
-                                {
-                                    <span class="stg-row-meta"><i class="ph ph-gear"></i>Using the server default</span>
-                                }
                             </div>
                             <div class="stg-row-control">
-                                @if (confirmingDailyPaymentOn)
-                                {
-                                    <span class="stg-sched-confirm">Pay invoices from the last 7 days?</span>
-                                    <button type="button" class="stg-btn stg-btn-primary stg-btn-sm" disabled="@savingDailyPayment"
-                                            @onclick="() => SetDailyPaymentAsync(true)">Turn on</button>
-                                    <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" disabled="@savingDailyPayment"
-                                            @onclick="() => confirmingDailyPaymentOn = false">Cancel</button>
-                                }
-                                else
-                                {
-                                    <label class="stg-switch" @key="dailyPaymentToggleKey">
-                                        <input type="checkbox" checked="@(dailyPaymentSettings?.Enabled == true)"
-                                               disabled="@(dailyPaymentSettings is null || savingDailyPayment)"
-                                               @onchange="OnDailyPaymentToggled" />
-                                        <span class="stg-switch-track"></span>
-                                        <span class="stg-switch-text">@(dailyPaymentSettings?.Enabled == true ? "On" : "Off")</span>
-                                    </label>
-                                }
+                                <a class="stg-btn stg-btn-secondary stg-btn-sm" href="/reports/desktop-sales/payments?tab=accounts">Choose partners</a>
                             </div>
                         </div>
 
                         <!-- G/L account: the manual payment form's default only. The daily payment
-                             above posts to each partner's own accounts and never reads this. -->
+                             posts to each partner's own accounts and never reads this. -->
                         <div class="stg-row">
                             <div class="stg-row-info">
                                 <div class="stg-row-label"><span>Manual Payment Default G/L Account</span></div>
@@ -2252,13 +2219,6 @@
 
     // Payment settings fields
     private string paymentGLAccount = "";
-    private DailyIncomingPaymentSettings? dailyPaymentSettings;
-    private bool confirmingDailyPaymentOn;
-    private bool savingDailyPayment;
-
-    // Blazor leaves a clicked checkbox as the user left it when the bound value did not change, so a
-    // refused save would show Off while the setting is still On. A new key rebuilds it from the setting.
-    private int dailyPaymentToggleKey;
     private string defaultPaymentMethod = "cash";
     private List<CachedGLAccount> cachedGLAccounts = new();
     private bool glOpen;
@@ -2471,12 +2431,13 @@
     private SapConnectionSwitchSettings? sapConnectionSwitch;
     private bool confirmingSapConnectionOff;
     private bool savingSapConnection;
-    // Rebuilds the checkbox from sapConnectionSwitch after a refused or cancelled change; see dailyPaymentToggleKey.
+    // Blazor leaves a clicked checkbox as the user left it when the bound value did not change, so a
+    // refused save would show Off while the setting is still On. A new key rebuilds it from sapConnectionSwitch.
     private int sapConnectionToggleKey;
     private PostingDatePolicySettings? postingDatePolicy;
     private bool confirmingPostingDateOn;
     private bool savingPostingDate;
-    // Rebuilds the checkbox from postingDatePolicy after a refused or cancelled change; see dailyPaymentToggleKey.
+    // Rebuilds the checkbox from postingDatePolicy after a refused or cancelled change; see sapConnectionToggleKey.
     private int postingDateToggleKey;
     private bool isLoadingSAPSettings = false;
     private bool isSAPSaving = false;
@@ -2833,8 +2794,7 @@
 
     /// <summary>
     /// Opens a category directly. <c>data-sync</c> is what the pages that used to sync their own
-    /// master data link to, now that only Data Sync does; <c>payments</c> is where Daily Incoming
-    /// Payments sends an admin to switch the daily payment.
+    /// master data link to, now that only Data Sync does; <c>payments</c> opens the payment defaults.
     /// </summary>
     [SupplyParameterFromQuery(Name = "section")]
     public string? Section { get; set; }
@@ -4324,54 +4284,10 @@
 
             var methodSetting = await SettingsService.GetValueAsync(SettingKeys.DefaultPaymentMethod);
             defaultPaymentMethod = methodSetting ?? "cash";
-
-            dailyPaymentSettings = await DailyIncomingPaymentSettingsService.GetAsync();
         }
         catch (Exception ex)
         {
             errorMessage = $"Failed to load payment settings data: {ex.Message}";
-        }
-    }
-
-    private async Task OnDailyPaymentToggled(ChangeEventArgs e)
-    {
-        if (e.Value is true)
-        {
-            // Turning on settles a backlog in SAP, so it takes a second click. The checkbox is
-            // re-rendered from dailyPaymentSettings, which has not changed, so it springs back to off.
-            confirmingDailyPaymentOn = true;
-            return;
-        }
-
-        await SetDailyPaymentAsync(false);
-    }
-
-    private async Task SetDailyPaymentAsync(bool enabled)
-    {
-        savingDailyPayment = true;
-        successMessage = null;
-        errorMessage = null;
-
-        try
-        {
-            var result = await DailyIncomingPaymentSettingsService.SetEnabledAsync(enabled);
-            if (result.Success && result.Settings is not null)
-            {
-                dailyPaymentSettings = result.Settings;
-                successMessage = enabled
-                    ? "Daily incoming payments are on. The next run at or after 17:00 pays each customer's open shop and vending invoices."
-                    : "Daily incoming payments are off. Shop and vending sales now post invoices only.";
-            }
-            else
-            {
-                errorMessage = result.Error ?? "We couldn't change the daily incoming payment setting.";
-            }
-        }
-        finally
-        {
-            confirmingDailyPaymentOn = false;
-            savingDailyPayment = false;
-            dailyPaymentToggleKey++;
         }
     }
 

@@ -1686,21 +1686,6 @@ customer's payments and match on the invoice yourself.
 }
 ```
 
-**Daily incoming payment for desktop sales**
-
-**Base route:** `/api/daily-incoming-payment-settings`
-**Auth:** Bearer + Admin role
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/daily-incoming-payment-settings` | Whether desktop sales get their 17:00 daily incoming payment, or post invoices only |
-| PUT | `/api/daily-incoming-payment-settings` | Turn it on or off: `{ "enabled": false }` |
-
-Both answer `{ "enabled": false, "updatedAtUtc": "2026-09-18T10:00:00Z" }`; `updatedAtUtc` is null until
-someone has saved it, while `DesktopSalePosting:DailyPaymentEnabled` (off) still decides. The switch is a
-`SystemConfigs` row the `daily-incoming-payment` job reads on every run, so a change needs no restart.
-Turning it back on pays invoices up to `DailyPaymentLookbackDays` (7) old. Web → Settings → Payments sets it.
-
 **Daily incoming payments and their G/L accounts**
 
 **Base route:** `/api/daily-incoming-payments`
@@ -1712,10 +1697,16 @@ Turning it back on pays invoices up to `DailyPaymentLookbackDays` (7) old. Web �
 | GET | `/api/daily-incoming-payments/{id}` | One payment with the invoices it settles and the till, van or consolidated sale behind each |
 | GET | `/api/daily-incoming-payments/gl-mappings` | Every partner's cash and electronic G/L accounts, run (`Shops` 17:00 / `Vans` 20:00) and email recipients |
 | PUT | `/api/daily-incoming-payments/gl-mappings/{cardCode}` | Create or replace a partner's mapping: `{ "cashAccount": "700300", "electronicAccount": "701100", "run": "Shops", "notifyEmails": "a@x.com, b@x.com", "isActive": true }`. Both accounts are checked in SAP first |
+| PUT | `/api/daily-incoming-payments/gl-mappings/{cardCode}/active` | Switch one partner's daily payment on or off: `{ "isActive": true }`. No SAP call; 404 if the partner has no mapping |
 
+Each partner is switched on or off on its own by its mapping's `isActive`; there is no switch for every
+partner at once. The `daily-incoming-payment` job reads the mappings on every run, so a change needs no
+restart. A partner that is off, or has no mapping, is not paid: its invoices post to SAP and stay open.
+Switching one on pays its open invoices up to `DailyPaymentLookbackDays` (7) old. A payment claimed before
+its partner was switched off is held (`Pending`, "Daily payments for … are switched off") rather than
+posted, and released the next day if the partner stays off.
 Cash posts to the cash account; Ecocash, Innbucks and swipe post to the electronic account as transfer
-money. A partner with no active mapping is held (`Pending`, "No active G/L mapping") rather than posted
-to SAP's default account. Every payment's `DAYPAY-yyyyMMdd-CARDCODE` reference is also its SAP
+money. Every payment's `DAYPAY-yyyyMMdd-CARDCODE` reference is also its SAP
 `CounterReference` and `JournalRemarks`. Once it posts, the mapping's recipients are emailed the totals
 and the invoice list.
 

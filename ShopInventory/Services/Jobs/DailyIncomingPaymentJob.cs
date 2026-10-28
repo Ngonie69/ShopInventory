@@ -22,15 +22,8 @@ public sealed class DailyIncomingPaymentJob(
 
         try
         {
-            // Read every run, not at startup: an admin switches this from Web -> Settings and expects
-            // the next run to honour it.
-            var paymentSwitch = scope.ServiceProvider.GetRequiredService<DailyIncomingPaymentSwitch>();
-            if (!(await paymentSwitch.GetAsync(context.CancellationToken)).Enabled)
-            {
-                logger.LogInformation("Daily incoming payments are switched off; posting nothing.");
-                return;
-            }
-
+            // Which partners are paid is decided per partner by the service, from the G/L mappings it
+            // reads at the start of every pass, so switching a partner on or off needs no restart.
             var service = scope.ServiceProvider.GetRequiredService<DailyIncomingPaymentService>();
             var result = await service.RunAsync(DateTime.UtcNow, context.CancellationToken);
 

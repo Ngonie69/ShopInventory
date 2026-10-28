@@ -29,9 +29,11 @@ namespace ShopInventory.Services;
 /// <list type="number">
 /// <item>Asks SAP about payments whose post was sent and never answered.</item>
 /// <item>Hands back the invoices of an earlier day's payment that never reached SAP, so today's picks them up.</item>
-/// <item>Creates the day's payment for each customer that has none yet, claiming its invoices.</item>
-/// <item>Posts the day's payments that have not posted, to the partner's mapped G/L accounts. A partner
-/// with no active mapping is held, never posted to SAP's default account.</item>
+/// <item>Creates the day's payment for each switched-on partner that has none yet, claiming its invoices.
+/// A partner is switched on by its active <see cref="IncomingPaymentGlMappingEntity"/>; any other partner's
+/// invoices are left open.</item>
+/// <item>Posts the day's payments that have not posted, to the partner's mapped G/L accounts. A payment
+/// whose partner was switched off after it was claimed is held, never posted to SAP's default account.</item>
 /// <item>Emails the people who receive the cash for each payment that has posted.</item>
 /// </list>
 /// </para>
@@ -92,6 +94,13 @@ public sealed class DailyIncomingPaymentService(
             .Select(mapping => mapping.CardCode)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // Each partner is switched on or off on its own. An off partner's invoices are not claimed, so they
+        // stay open in SAP for finance, exactly as before the daily payment existed.
+        var enabledPartners = mappings.Values
+            .Where(mapping => mapping.IsActive)
+            .Select(mapping => mapping.CardCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         await ResolveUnresolvedAsync(utcNow, result, cancellationToken);
 
         foreach (var run in new[] { DailyPaymentRun.Shops, DailyPaymentRun.Vans })
@@ -100,7 +109,7 @@ public sealed class DailyIncomingPaymentService(
                 ? ParseTime(settings.Value.VanDailyPaymentTimeCAT, new TimeSpan(20, 0, 0))
                 : ParseTime(settings.Value.DailyPaymentTimeCAT, new TimeSpan(17, 0, 0));
             var (paymentDate, cutoffUtc) = PeriodFor(utcNow, time, QuartzConfiguration.CatTimeZone);
-            var scope = new RunScope(run, vanPartners);
+            var scope = new RunScope(run, vanPartners, enabledPartners);
 
             if (run == DailyPaymentRun.Shops)
             {
@@ -132,10 +141,16 @@ public sealed class DailyIncomingPaymentService(
     }
 
     /// <summary>Which partners a run pays: a van run pays the van-mapped partners, a shop run every other.</summary>
-    private sealed record RunScope(DailyPaymentRun Run, IReadOnlySet<string> VanPartners)
+    /// <param name="EnabledPartners">The partners whose daily payment is switched on.</param>
+    private sealed record RunScope(DailyPaymentRun Run, IReadOnlySet<string> VanPartners, IReadOnlySet<string> EnabledPartners)
     {
+        /// <summary>Whether the partner belongs to this run, switched on or not.</summary>
         public bool Includes(string? cardCode) =>
             (Run == DailyPaymentRun.Vans) == VanPartners.Contains(cardCode ?? string.Empty);
+
+        /// <summary>Whether this run claims the partner's invoices: it belongs to the run and is switched on.</summary>
+        public bool Claims(string? cardCode) =>
+            Includes(cardCode) && EnabledPartners.Contains(cardCode ?? string.Empty);
     }
 
     /// <summary>
@@ -310,7 +325,7 @@ public sealed class DailyIncomingPaymentService(
                                && ClaimingStatuses.Contains(line.DailyIncomingPayment!.Status)))
             .OrderBy(sale => sale.Id)
             .ToListAsync(cancellationToken);
-        sales = sales.Where(sale => scope.Includes(sale.CardCode)).ToList();
+        sales = sales.Where(sale => scope.Claims(sale.CardCode)).ToList();
 
         var consolidations = await context.SaleConsolidations
             .Where(consolidation => consolidation.SapDocEntry != null
@@ -326,7 +341,7 @@ public sealed class DailyIncomingPaymentService(
                                         && ClaimingStatuses.Contains(line.DailyIncomingPayment!.Status)))
             .OrderBy(consolidation => consolidation.Id)
             .ToListAsync(cancellationToken);
-        consolidations = consolidations.Where(consolidation => scope.Includes(consolidation.CardCode)).ToList();
+        consolidations = consolidations.Where(consolidation => scope.Claims(consolidation.CardCode)).ToList();
 
         // An online van sale went straight to SAP, and its confirmed reservation is its only local record.
         var lookbackStartUtc = DateTime.SpecifyKind(lookbackStart, DateTimeKind.Utc).AddHours(-2);
@@ -343,7 +358,7 @@ public sealed class DailyIncomingPaymentService(
                                       && ClaimingStatuses.Contains(line.DailyIncomingPayment!.Status)))
             .OrderBy(reservation => reservation.Id)
             .ToListAsync(cancellationToken);
-        reservations = reservations.Where(reservation => scope.Includes(reservation.CardCode)).ToList();
+        reservations = reservations.Where(reservation => scope.Claims(reservation.CardCode)).ToList();
 
         var consolidationIds = consolidations.Select(consolidation => consolidation.Id).ToList();
         var linkedSales = consolidationIds.Count == 0
@@ -505,10 +520,14 @@ public sealed class DailyIncomingPaymentService(
 
             if (!mappings.TryGetValue(payment.CardCode, out var mapping) || !mapping.IsActive)
             {
-                // Held, not counted as an attempt. Posting without accounts would put the money in SAP's
-                // default, the factory's cash. It goes out on the next pass after a mapping is added.
-                payment.LastError = $"No active G/L mapping for {payment.CardCode}. Add one on the Incoming Payments "
-                                    + "page and this payment posts on the next pass.";
+                // Claimed while the partner was on, then switched off (or its mapping removed) before it was
+                // sent. Held, not counted as an attempt, and never posted to SAP's default account, the
+                // factory's cash. If the partner stays off, the next day's pass releases its invoices.
+                payment.LastError = mapping is null
+                    ? $"No G/L mapping for {payment.CardCode}. Add one on the Incoming Payments page and switch it "
+                      + "on, and this payment posts on the next pass."
+                    : $"Daily payments for {payment.CardCode} are switched off. Switch the partner back on and this "
+                      + "payment posts on the next pass.";
                 result.Held++;
                 await context.SaveChangesAsync(CancellationToken.None);
                 continue;

@@ -1,7 +1,9 @@
 using MediatR;
+using ShopInventory.Common.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Features.DailyIncomingPayments.Commands.SaveIncomingPaymentGlMapping;
+using ShopInventory.Features.DailyIncomingPayments.Commands.SetIncomingPaymentGlMappingActive;
 using ShopInventory.Features.DailyIncomingPayments.Queries.GetDailyIncomingPayment;
 using ShopInventory.Features.DailyIncomingPayments.Queries.GetDailyIncomingPayments;
 using ShopInventory.Features.DailyIncomingPayments.Queries.GetIncomingPaymentGlMappings;
@@ -14,7 +16,7 @@ namespace ShopInventory.Controllers;
 /// </summary>
 [Route("api/daily-incoming-payments")]
 [Authorize(Policy = "ApiAccess")]
-public class DailyIncomingPaymentsController(IMediator mediator) : ApiControllerBase
+public class DailyIncomingPaymentsController(IMediator mediator, ICallerAccountReader callerAccounts) : ApiControllerBase
 {
     /// <summary>
     /// Daily incoming payments for trading days <paramref name="from"/> to <paramref name="to"/>, newest first
@@ -74,9 +76,39 @@ public class DailyIncomingPaymentsController(IMediator mediator) : ApiController
                 request.Run,
                 request.NotifyEmails,
                 request.IsActive,
-                User.Identity?.Name),
+                await ActorAsync(cancellationToken)),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Switches one business partner's daily incoming payment on or off. Off leaves its invoices open in
+    /// SAP; on pays its invoices from the last <c>DailyPaymentLookbackDays</c> days at the next run.
+    /// </summary>
+    [Authorize(Roles = "Admin")]
+    [HttpPut("gl-mappings/{cardCode}/active")]
+    public async Task<IActionResult> SetGlMappingActive(
+        string cardCode,
+        [FromBody] SetIncomingPaymentGlMappingActiveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new SetIncomingPaymentGlMappingActiveCommand(cardCode, request.IsActive, await ActorAsync(cancellationToken)),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The person who made the change, from their account. <c>User.Identity.Name</c> names the Web's
+    /// integration key, which rides on the same request ahead of the user's token.
+    /// </summary>
+    private async Task<string?> ActorAsync(CancellationToken cancellationToken)
+    {
+        var caller = await callerAccounts.ReadAsync(User, cancellationToken);
+        return caller.IsError || caller.Value.IsServiceCaller
+            ? User.Identity?.Name
+            : caller.Value.Username;
     }
 }

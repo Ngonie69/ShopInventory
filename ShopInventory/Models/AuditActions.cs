@@ -200,7 +200,9 @@ public static class AuditActions
     public const string UpdateMobileVersionPolicy = "UpdateMobileVersionPolicy";
     public const string SetMaintenance = "SetMaintenance";
     public const string UpdateFiscalisationSettings = "UpdateFiscalisationSettings";
+    /// <summary>The retired all-partner switch. Kept so older audit rows still read; nothing writes it now.</summary>
     public const string UpdateDailyIncomingPaymentSettings = "UpdateDailyIncomingPaymentSettings";
+    public const string SetIncomingPaymentGlMappingActive = "SetIncomingPaymentGlMappingActive";
     public const string UpdateIncomingPaymentGlMapping = "UpdateIncomingPaymentGlMapping";
     public const string UpdateFiscalPrintForm = "UpdateFiscalPrintForm";
     public const string UpdateDesktopSalesReviewSchedule = "UpdateDesktopSalesReviewSchedule";
