@@ -28,15 +28,23 @@ public sealed class CreditNoteApprovalPermissionTests
             bucket!.Select(permission => permission.Code).ToArray());
     }
 
-    [Theory]
-    [InlineData(ApplicationRoles.Admin)]
-    [InlineData(ApplicationRoles.Manager)]
-    public void Managers_and_administrators_hold_both_by_default(string role)
+    [Fact]
+    public void Administrators_hold_both_by_default()
     {
-        var permissions = Permission.GetDefaultPermissionsForRole(role);
+        var permissions = Permission.GetDefaultPermissionsForRole(ApplicationRoles.Admin);
 
         Assert.Contains(Permission.ApproveSapCreditNotes, permissions);
         Assert.Contains(Permission.AddApprovedCreditNotes, permissions);
+    }
+
+    /// <summary>A manager decides nothing since 2026-10-28, credit memos included.</summary>
+    [Fact]
+    public void A_manager_holds_neither()
+    {
+        var permissions = Permission.GetDefaultPermissionsForRole(ApplicationRoles.Manager);
+
+        Assert.DoesNotContain(Permission.ApproveSapCreditNotes, permissions);
+        Assert.DoesNotContain(Permission.AddApprovedCreditNotes, permissions);
     }
 
     /// <summary>Raising a credit note is not deciding one.</summary>

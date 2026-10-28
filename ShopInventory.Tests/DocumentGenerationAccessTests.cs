@@ -41,6 +41,12 @@ public sealed class DocumentGenerationAccessTests
         Sign
     }
 
+    private static bool IsRead(DocumentAction action) => action is DocumentAction.Generate or DocumentAction.Download;
+
+    // Signing is judged as a read of the entity, but a manager, who is read-only, signs nothing.
+    private static bool MaySign(string role, DocumentAction action) =>
+        action != DocumentAction.Sign || role != ApplicationRoles.Manager;
+
     // Invoice: who may render it (generate, download, sign) and who may email it.
     [Theory]
     [InlineData(ApplicationRoles.Admin, true, true)]
@@ -58,7 +64,7 @@ public sealed class DocumentGenerationAccessTests
     {
         foreach (var action in Enum.GetValues<DocumentAction>())
         {
-            var expected = action == DocumentAction.Email ? mayEmail : mayRender;
+            var expected = action == DocumentAction.Email ? mayEmail : mayRender && MaySign(role, action);
             var outcome = await RunAsync(action, role, "Invoice", InvoiceId);
 
             Assert.True(expected == outcome.Admitted, $"{role} {action} Invoice: expected admitted={expected}");
@@ -80,7 +86,8 @@ public sealed class DocumentGenerationAccessTests
         }
     }
 
-    // A document type the access service has no rule for is open to Admin and Manager only.
+    // A document type the access service has no rule for is open to Admin and Manager only, and to the
+    // manager only to read: since 2026-10-28 a manager renders and downloads, and neither emails nor signs.
     [Theory]
     [InlineData(ApplicationRoles.Admin, true)]
     [InlineData(ApplicationRoles.Manager, true)]
@@ -93,9 +100,10 @@ public sealed class DocumentGenerationAccessTests
     {
         foreach (var action in Enum.GetValues<DocumentAction>())
         {
+            var expected = admitted && (role != ApplicationRoles.Manager || IsRead(action));
             var outcome = await RunAsync(action, role, "SalesOrder", 17);
 
-            Assert.True(admitted == outcome.Admitted, $"{role} {action} SalesOrder");
+            Assert.True(expected == outcome.Admitted, $"{role} {action} SalesOrder");
             Assert.Equal(outcome.Admitted, outcome.ServiceCalled);
         }
     }

@@ -484,7 +484,8 @@ public sealed class MarketBreakageTests : IDisposable
     [InlineData(ApplicationRoles.Adr, true, false)]
     [InlineData(ApplicationRoles.StockController, true, true)]
     [InlineData(ApplicationRoles.DepotController, false, true)]
-    [InlineData(ApplicationRoles.Manager, false, true)]
+    // A manager reads and confirms nothing since 2026-10-28.
+    [InlineData(ApplicationRoles.Manager, false, false)]
     [InlineData(ApplicationRoles.Cashier, false, false)]
     [InlineData(ApplicationRoles.Driver, false, false)]
     public void Reps_report_and_the_office_confirms(string role, bool mayReport, bool mayConfirm)
