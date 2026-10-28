@@ -316,10 +316,21 @@ public sealed class WebPageGatePermissionAlignmentTests
             .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Single(method => method.Name == actionName);
 
-        var attributes = typeof(TController).GetCustomAttributes<RequirePermissionAttribute>(inherit: true)
+        Assert.NotEmpty(typeof(TController).GetCustomAttributes<RequirePermissionAttribute>(inherit: true)
+            .Concat(action.GetCustomAttributes<RequirePermissionAttribute>(inherit: true)));
+
+        return await PassesPermissions(typeof(TController), action, role);
+    }
+
+    /// <summary>
+    /// Whether every [RequirePermission] on the controller and the action lets the role's default
+    /// permissions through. True when there is none.
+    /// </summary>
+    internal static async Task<bool> PassesPermissions(Type controller, MethodInfo action, string role)
+    {
+        var attributes = controller.GetCustomAttributes<RequirePermissionAttribute>(inherit: true)
             .Concat(action.GetCustomAttributes<RequirePermissionAttribute>(inherit: true))
             .ToArray();
-        Assert.NotEmpty(attributes);
 
         foreach (var attribute in attributes)
         {

@@ -76,6 +76,27 @@ public sealed class DocumentAttachmentAccessService(
         return EnsureEntityAccessInternalAsync(entityType, entityId, null, isWriteOperation, cancellationToken);
     }
 
+    /// <summary>
+    /// Refuses a caller whose every role is Manager, who reads documents and adds nothing to them.
+    /// For writes that are judged as reads of the entity, such as signing a document.
+    /// </summary>
+    public async Task<ErrorOr<bool>> RefuseReadOnlyManagerAsync(CancellationToken cancellationToken)
+    {
+        var currentUserResult = await ResolveCurrentUserAsync(cancellationToken);
+        if (currentUserResult.IsError)
+        {
+            return currentUserResult.Errors;
+        }
+
+        var (_, roles, _, isApiKeyBypass) = currentUserResult.Value;
+        if (!isApiKeyBypass && roles.Count > 0 && roles.All(role => IsRole(role, ApplicationRoles.Manager)))
+        {
+            return Errors.Document.AccessDenied("Managers can view documents but not sign them.");
+        }
+
+        return true;
+    }
+
     private async Task<ErrorOr<bool>> EnsureEntityAccessInternalAsync(
         string entityType,
         int entityId,
@@ -124,6 +145,13 @@ public sealed class DocumentAttachmentAccessService(
         string? assignedSection,
         CancellationToken cancellationToken)
     {
+        // A manager reads every document's attachments and writes none: no upload, removal or
+        // signature on any entity type. Another role the account holds is still asked.
+        if (isWriteOperation && IsRole(role, ApplicationRoles.Manager))
+        {
+            return Errors.Document.AccessDenied("Managers can view attachments but not add or remove them.");
+        }
+
         List<string>? cachedPermissions = null;
 
         async Task<IReadOnlyCollection<string>> GetPermissionsAsync()

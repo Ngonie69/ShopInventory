@@ -228,7 +228,15 @@ public static class UserRoles
     /// </summary>
     public const string QuotationRoles = "Admin,Cashier,SalesRep";
     public const string PaymentRoles = "Admin,Cashier";
-    public const string InventoryTransferRoles = "Admin,Manager,StockController,WashBay,DepotController";
+    /// <summary>
+    /// Who raises, edits, decides, posts and cancels inventory transfers and transfer requests. Not the
+    /// manager, who reads them on /inventory-transfers (<see cref="InventoryTransferViewRoles"/>) and
+    /// does none of it; the API agrees, refusing a manager <c>stock.transfer</c> and every write gate.
+    /// </summary>
+    public const string InventoryTransferRoles = "Admin,StockController,WashBay,DepotController";
+
+    /// <summary>Who can open /inventory-transfers: <see cref="InventoryTransferRoles"/> and the manager, read only.</summary>
+    public const string InventoryTransferViewRoles = "Admin,Manager,StockController,WashBay,DepotController";
 
     /// <summary>
     /// Who can open /credit-notes/approvals: the people who decide another person's SAP credit memo
@@ -236,24 +244,25 @@ public static class UserRoles
     /// thereby approve them. The API agrees through its <c>creditnotes.approve</c> and
     /// <c>creditnotes.add_approved</c> permissions; <c>CreditNoteApprovalAccessTests</c> pins the two.
     /// The wash bay is here to decide only the requests at its own SAP stage, which the API narrows;
-    /// it cannot add, which <see cref="CreditNoteAddRoles"/> narrows.
+    /// it cannot add, which <see cref="CreditNoteAddRoles"/> narrows. Not the manager, who decides
+    /// nothing (2026-10-28) and reads credit notes on /credit-notes.
     /// </summary>
-    public const string CreditNoteApprovalRoles = "Admin,Manager,WashBay";
+    public const string CreditNoteApprovalRoles = "Admin,WashBay";
 
     /// <summary>
     /// Who on <see cref="CreditNoteApprovalRoles"/> is offered "Add credit note". Posting the approved
     /// memo is <c>creditnotes.add_approved</c>, which the wash bay does not hold, so showing it the
     /// button would only submit into a 403.
     /// </summary>
-    public const string CreditNoteAddRoles = "Admin,Manager";
+    public const string CreditNoteAddRoles = "Admin";
 
     /// <summary>
     /// Who can open /market-breakages: the office that counts the broken stock a van brings back and
     /// confirms it into a transfer to returns, or rejects it. The API agrees through
     /// <c>vansales.breakages.confirm</c>; <c>MarketBreakageAccessTests</c> pins the two. Reps report
-    /// from the handset and never see this page.
+    /// from the handset and never see this page. Nor does the manager, who confirms nothing.
     /// </summary>
-    public const string MarketBreakageRoles = "Admin,Manager,StockController,DepotController";
+    public const string MarketBreakageRoles = "Admin,StockController,DepotController";
 
     /// <summary>
     /// Who can open /factory-transfers: the two sides of the factory floor, Distribution, the depots it
@@ -279,12 +288,27 @@ public static class UserRoles
     public const string StockWriteOffRoles = "Admin,Manager,StockController";
 
     /// <summary>
+    /// Who on /stock-write-offs counts stock and writes it off: <see cref="StockWriteOffRoles"/> without
+    /// the manager, who reads the write-offs. The API agrees through <c>stock.writeoffs.post</c>.
+    /// </summary>
+    public const string StockWriteOffPostRoles = "Admin,StockController";
+
+    /// <summary>
     /// Who can open /count-variance: the roles that answer for a count coming up short. The API reads
     /// on <c>stock.view</c>; <c>WebPageGatePermissionAlignmentTests</c> pins the two.
     /// </summary>
     public const string CountVarianceRoles = "Admin,Manager,StockController";
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
-    public const string PurchasingRoles = "Admin,Manager";
+
+    /// <summary>
+    /// Who raises, edits, approves and receives purchasing documents: purchase orders, requests,
+    /// quotations, goods receipts and A/P invoices. The administrator only; a manager reads them
+    /// (<see cref="PurchasingViewRoles"/>) and holds none of the API's purchasing write codes.
+    /// </summary>
+    public const string PurchasingRoles = "Admin";
+
+    /// <summary>Who can open the purchasing lists: <see cref="PurchasingRoles"/> and the manager, read only.</summary>
+    public const string PurchasingViewRoles = "Admin,Manager";
 
     /// <summary>
     /// Sales order vs invoice. The insights roles read it across every customer; a sales rep reads
@@ -297,6 +321,36 @@ public static class UserRoles
     /// <c>VendingController</c> is gated on the same three.
     /// </summary>
     public const string VendingRoles = "Admin,Manager,Cashier";
+
+    /// <summary>
+    /// Who on /vending adds, edits, removes and imports vendors: <see cref="VendingRoles"/> without the
+    /// manager, who reads them. The API agrees through <c>customers.create</c>, <c>customers.edit</c>
+    /// and <c>customers.delete</c>.
+    /// </summary>
+    public const string VendingWriteRoles = "Admin,Cashier";
+
+    /// <summary>
+    /// Who can open /van-sales-customer-orders: the depot roles that fulfil the orders shops placed,
+    /// and the manager, read only.
+    /// </summary>
+    public const string VanCustomerOrderViewRoles = "Admin,Manager,Cashier,StockController,DepotController";
+
+    /// <summary>
+    /// Who on /van-sales-customer-orders records deliveries and converts orders into sales orders.
+    /// The API agrees through <c>vansales.customer_orders.fulfil</c>, which a manager does not hold.
+    /// </summary>
+    public const string VanCustomerOrderFulfilRoles = "Admin,Cashier,StockController,DepotController";
+
+    /// <summary>
+    /// Who can open /exception-center: the roles that clear failures, and the manager, read only.
+    /// </summary>
+    public const string ExceptionCenterViewRoles = "Admin,Cashier,StockController,Manager";
+
+    /// <summary>
+    /// Who on /exception-center acknowledges, takes and retries an item. Retrying re-posts a failed
+    /// document, so not the manager. Must match ExceptionCenterController's write gates.
+    /// </summary>
+    public const string ExceptionCenterWriteRoles = "Admin,Cashier,StockController";
 
     public const string PodRoles ="Admin,Cashier,PodOperator,Driver,SalesRep";
 

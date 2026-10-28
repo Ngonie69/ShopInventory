@@ -279,7 +279,7 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
     /// Verify a document signature
     /// </summary>
     [HttpPost("signatures/{id}/verify")]
-    [Authorize(Roles = "Admin,Manager")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> VerifySignature(int id, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new VerifySignatureCommand(id), cancellationToken);

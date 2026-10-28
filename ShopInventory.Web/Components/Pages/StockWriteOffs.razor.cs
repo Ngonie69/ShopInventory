@@ -51,6 +51,11 @@ public partial class StockWriteOffs
     [Inject] private IProductService ProductService { get; set; } = default!;
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
     [Inject] private ILogger<StockWriteOffs> Logger { get; set; } = default!;
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    // Whether this person counts and posts write-offs, or only reads them, as a manager does. The
+    // API refuses a manager stock.writeoffs.post, so the page offers nothing that would meet it.
+    private bool canPostWriteOffs;
 
     private const int PageSize = 30;
 
@@ -128,6 +133,8 @@ public partial class StockWriteOffs
         }
 
         hasInitialized = true;
+        canPostWriteOffs = ShopInventory.Web.Data.UserRoles.IsInAnyRole(
+            (await AuthenticationStateTask).User, ShopInventory.Web.Data.UserRoles.StockWriteOffPostRoles);
 
         await Task.WhenAll(LoadListAsync(), LoadWarehousesAsync(), LoadReasonsAsync(), LoadItemsAsync());
         StateHasChanged();
@@ -501,7 +508,7 @@ public partial class StockWriteOffs
         && !string.IsNullOrWhiteSpace(warehouseCode)
         && !string.IsNullOrWhiteSpace(reason);
 
-    private bool CanPost => !isPosting && CanReview;
+    private bool CanPost => canPostWriteOffs && !isPosting && CanReview;
 
     // ── Review and post ────────────────────────────────────────────────────────────────────────
 

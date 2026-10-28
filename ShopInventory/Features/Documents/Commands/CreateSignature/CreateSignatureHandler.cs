@@ -25,6 +25,12 @@ public sealed class CreateSignatureHandler(
             return access.Errors;
         }
 
+        var signer = await accessService.RefuseReadOnlyManagerAsync(cancellationToken);
+        if (signer.IsError)
+        {
+            return signer.Errors;
+        }
+
         try
         {
             var signature = await documentService.CreateSignatureAsync(

@@ -314,7 +314,6 @@ public sealed class UploadCratePodHandler(
             }
 
             if (string.Equals(currentRole, "Admin", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(currentRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(currentRole, "PodOperator", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(currentRole, "Operator", StringComparison.OrdinalIgnoreCase))
             {

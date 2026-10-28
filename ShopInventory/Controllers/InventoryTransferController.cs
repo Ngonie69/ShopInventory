@@ -137,7 +137,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// source warehouse is one of their assigned warehouses.
     /// </summary>
     [HttpPost("pending/{id:guid}/decision")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> DecidePendingInventoryTransfer(
@@ -158,7 +158,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// Re-attempts the SAP post for a transfer that was approved but failed to post.
     /// </summary>
     [HttpPost("pending/{id:guid}/post")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> RetryPendingInventoryTransferPost(Guid id, CancellationToken cancellationToken)
     {
@@ -190,7 +190,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// Posts the lines of an approved transfer that the depot can fill, leaving the short ones out.
     /// </summary>
     [HttpPost("pending/{id:guid}/post-in-stock")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> PostPendingInventoryTransferLinesInStock(Guid id, CancellationToken cancellationToken)
     {
@@ -207,7 +207,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// out a line, or adds an item — so it can post. The transfer stays approved; each change is audited.
     /// </summary>
     [HttpPut("pending/{id:guid}/lines")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status409Conflict)]
@@ -230,7 +230,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// Withdraws an approved transfer that failed to post, instead of retrying it.
     /// </summary>
     [HttpPost("pending/{id:guid}/withdraw")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> WithdrawPendingInventoryTransfer(
         Guid id,
@@ -251,7 +251,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// had in fact created it — so it is closed without posting it a second time.
     /// </summary>
     [HttpPost("pending/{id:guid}/record-sap-document")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> RecordPendingInventoryTransferSapDocument(
         Guid id,
@@ -271,7 +271,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// Withdraws a transfer the caller submitted, before any decision has been recorded.
     /// </summary>
     [HttpPost("pending/{id:guid}/cancel")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     [ProducesResponseType(typeof(PendingInventoryTransferDecisionResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> CancelPendingInventoryTransfer(Guid id, CancellationToken cancellationToken)
     {
@@ -435,7 +435,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// held.
     /// </summary>
     [HttpPatch("request/{docEntry:int}")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     [ProducesResponseType(typeof(TransferRequestEditResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(TransferRequestEditResponseDto), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
@@ -499,7 +499,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// Approves or rejects a held change. Approving the final stage writes it to SAP.
     /// </summary>
     [HttpPost("request-edits/{id:guid}/decision")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     [ProducesResponseType(typeof(PendingTransferRequestEditDecisionResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> DecidePendingRequestEdit(
@@ -521,7 +521,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// Withdraws a change the caller proposed, before any decision has been recorded.
     /// </summary>
     [HttpPost("request-edits/{id:guid}/cancel")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     [ProducesResponseType(typeof(PendingTransferRequestEditDecisionResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> CancelPendingRequestEdit(Guid id, CancellationToken cancellationToken)
     {

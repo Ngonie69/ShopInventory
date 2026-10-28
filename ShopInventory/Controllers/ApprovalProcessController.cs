@@ -83,7 +83,7 @@ public sealed class ApprovalProcessController(
     /// Decide a transfer request
     /// </summary>
     [HttpPost("transfer-requests/{docEntry:int}/decision")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     public async Task<IActionResult> SubmitDecision(
         int docEntry,
         [FromBody] SubmitApprovalDecisionDto request,
@@ -114,7 +114,7 @@ public sealed class ApprovalProcessController(
     /// The final approval posts the transfer to SAP.
     /// </summary>
     [HttpPost("transfers/{pendingTransferId:guid}/decision")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,Manager")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     public async Task<IActionResult> SubmitTransferDecision(
         Guid pendingTransferId,
         [FromBody] SubmitPendingTransferDecisionDto request,

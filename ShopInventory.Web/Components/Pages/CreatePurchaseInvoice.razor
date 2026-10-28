@@ -1,5 +1,5 @@
 @page "/purchase-invoices/create"
-@attribute [Authorize(Roles = "Admin,Manager")]
+@attribute [Authorize(Roles = UserRoles.PurchasingRoles)]
 @rendermode InteractiveServer
 
 <PageTitle>Create A/P Invoice</PageTitle>

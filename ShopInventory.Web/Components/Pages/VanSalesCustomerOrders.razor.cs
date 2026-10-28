@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
+using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
 
@@ -28,7 +31,19 @@ public partial class VanSalesCustomerOrders
     private string? businessPartnerCode;
     private string? status;
 
-    protected override Task OnInitializedAsync() => ReloadAsync();
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    /// <summary>
+    /// Whether this person records deliveries and converts orders. A manager reads the orders and
+    /// does neither; the API refuses a manager <c>vansales.customer_orders.fulfil</c>.
+    /// </summary>
+    private bool canFulfil;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canFulfil = UserRoles.IsInAnyRole((await AuthenticationStateTask).User, UserRoles.VanCustomerOrderFulfilRoles);
+        await ReloadAsync();
+    }
 
     private async Task ReloadAsync()
     {

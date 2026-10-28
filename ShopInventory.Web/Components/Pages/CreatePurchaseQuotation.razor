@@ -1,5 +1,5 @@
 @page "/purchase-quotations/create"
-@attribute [Authorize(Roles = "Admin,Manager")]
+@attribute [Authorize(Roles = UserRoles.PurchasingRoles)]
 @rendermode InteractiveServer
 
 <PageTitle>Create Purchase Quotation</PageTitle>
