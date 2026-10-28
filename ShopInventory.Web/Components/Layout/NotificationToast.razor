@@ -77,10 +77,16 @@
 
     [Parameter] public EventCallback OnOpen { get; set; }
 
-    // EntityId is the fallback because it already holds the order number for a
-    // sales order, and unlike Data it survives being re-read from the list.
+    // EntityId is a fallback for sales orders only, where it holds the order
+    // number. Every other producer keys EntityId for its own de-duplication — a
+    // transfer approval writes "DocEntry:stage-guid", a factory transfer a bare
+    // Guid — so headlining it put an internal key in front of the user.
     private string? DocumentNumber =>
-        Notification.DataValue(NotificationDataKeys.OrderNumber) ?? Notification.EntityId;
+        Notification.DataValue(NotificationDataKeys.OrderNumber)
+        ?? (IsSalesOrder ? Notification.EntityId : null);
+
+    private bool IsSalesOrder =>
+        string.Equals(Notification.Category, "SalesOrder", StringComparison.OrdinalIgnoreCase);
 
     private string? Party => Notification.DataValue(NotificationDataKeys.CustomerName);
 
@@ -123,9 +129,12 @@
         return text.ToString();
     }
 
-    private string OpenLabel => Notification.Category switch
+    // "TransferRequestApproval" is the entity type of the alert that asks someone
+    // for a decision; the outcome alerts under the same category only report one.
+    private string OpenLabel => (Notification.Category, Notification.EntityType) switch
     {
-        "SalesOrder" => "View order",
+        ("SalesOrder", _) => "View order",
+        ("TransferApproval", "TransferRequestApproval") => "Review",
         _ => "Open"
     };
 
