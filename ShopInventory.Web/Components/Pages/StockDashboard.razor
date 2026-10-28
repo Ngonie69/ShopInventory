@@ -53,10 +53,13 @@
                     }
                 </span>
 
-                <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="/inventory-transfer/create">
-                    <DashIcon Name="plus-circle" Size="15" />
-                    Create transfer
-                </a>
+                @* Raising a transfer is the stock controller's; a manager reads this dashboard. *@
+                <AuthorizeView Roles="@UserRoles.InventoryTransferRoles" Context="createTransferCtx">
+                    <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="/inventory-transfer/create">
+                        <DashIcon Name="plus-circle" Size="15" />
+                        Create transfer
+                    </a>
+                </AuthorizeView>
             </div>
         </div>
     </header>

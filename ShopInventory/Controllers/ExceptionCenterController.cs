@@ -38,6 +38,7 @@ public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
     /// Retry many at once
     /// </summary>
     [HttpPost("items/retry-batch")]
+    [Authorize(Roles = "Admin,ApiUser,Cashier,StockController")]
     [ProducesResponseType(typeof(ExceptionCenterBatchRetryResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> RetryBatch(
@@ -60,6 +61,7 @@ public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
     /// by exactly the value they always were, so existing callers need no change.
     /// </remarks>
     [HttpPost("items/{source}/{itemKey}/retry")]
+    [Authorize(Roles = "Admin,ApiUser,Cashier,StockController")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -73,6 +75,7 @@ public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
     /// Mark one exception centre item as seen
     /// </summary>
     [HttpPost("items/{source}/{itemKey}/acknowledge")]
+    [Authorize(Roles = "Admin,ApiUser,Cashier,StockController")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> AcknowledgeItem(string source, string itemKey, CancellationToken cancellationToken)
@@ -85,6 +88,7 @@ public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
     /// Take ownership of an exception centre item
     /// </summary>
     [HttpPost("items/{source}/{itemKey}/assign-to-me")]
+    [Authorize(Roles = "Admin,ApiUser,Cashier,StockController")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> AssignItem(string source, string itemKey, CancellationToken cancellationToken)

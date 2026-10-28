@@ -9,7 +9,8 @@ using static ShopInventory.Tests.WebPageGatePermissionAlignmentTests;
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// A manager runs the business and leaves set-up and administration of the system to the administrator.
+/// A manager reads the business and does nothing to it (2026-10-28), and leaves set-up and
+/// administration of the system to the administrator (2026-10-05).
 /// </summary>
 /// <remarks>
 /// Pinned three ways, because each one alone has let a role reach what it should not: the role's API
@@ -35,6 +36,22 @@ public sealed class ManagerRoleScopeTests
         // Sending a customer an invoice, and pointing a customer's invoices at a phone, are the
         // cashier's; a manager reads the delivery history and sends nothing.
         Permission.SendInvoicesWhatsApp, Permission.ManageCustomerWhatsApp,
+        // 2026-10-28: read-only. Nothing raised, posted, converted, approved or rejected.
+        .. DroppedOn20261028,
+    ];
+
+    /// <summary>The write codes taken off the role on 2026-10-28, when it became read-only.</summary>
+    private static readonly string[] DroppedOn20261028 =
+    [
+        Permission.CreateProducts, Permission.EditProducts, Permission.ManageProductPrices,
+        Permission.TransferStock, Permission.TransferInventory, Permission.AdjustStock, Permission.AdjustInventory,
+        Permission.PostStockWriteOffs,
+        Permission.CreatePurchaseOrders, Permission.EditPurchaseOrders, Permission.ApprovePurchaseOrders,
+        Permission.ReceivePurchaseOrders, Permission.CreatePurchaseRequests, Permission.CreatePurchaseQuotations,
+        Permission.CreateGoodsReceiptPurchaseOrders, Permission.CreatePurchaseInvoices,
+        Permission.ApproveSalesOrders, Permission.ApproveSapCreditNotes, Permission.AddApprovedCreditNotes,
+        Permission.CreateCustomers, Permission.EditCustomers,
+        Permission.FulfilVanSalesCustomerOrders, Permission.ConfirmMarketBreakages,
     ];
 
     [Theory]
@@ -44,25 +61,41 @@ public sealed class ManagerRoleScopeTests
         Assert.DoesNotContain(code, Permission.GetDefaultPermissionsForRole(ApplicationRoles.Manager));
     }
 
-    /// <summary>The business a manager reads, approves and oversees, which the split must not take away.</summary>
+    /// <summary>The business a manager reads, which making the role read-only must not take away.</summary>
     [Theory]
     [InlineData(Permission.ViewInvoices)]
     [InlineData(Permission.ViewPayments)]
     [InlineData(Permission.ViewSalesOrders)]
-    [InlineData(Permission.ApproveSalesOrders)]
     [InlineData(Permission.ViewQuotations)]
-    [InlineData(Permission.ApproveSapCreditNotes)]
-    [InlineData(Permission.AddApprovedCreditNotes)]
-    [InlineData(Permission.ApprovePurchaseOrders)]
+    [InlineData(Permission.ViewPurchaseOrders)]
+    [InlineData(Permission.ViewPurchaseRequests)]
+    [InlineData(Permission.ViewPurchaseQuotations)]
+    [InlineData(Permission.ViewGoodsReceiptPurchaseOrders)]
+    [InlineData(Permission.ViewPurchaseInvoices)]
     [InlineData(Permission.ViewReports)]
+    [InlineData(Permission.ExportReports)]
     [InlineData(Permission.ViewStock)]
-    [InlineData(Permission.TransferStock)]
+    [InlineData(Permission.ViewInventory)]
+    [InlineData(Permission.ViewStockWriteOffs)]
+    [InlineData(Permission.ViewCustomers)]
+    [InlineData(Permission.ViewProducts)]
     [InlineData(Permission.ViewVanSalesAttendance)]
-    [InlineData(Permission.FulfilVanSalesCustomerOrders)]
-    [InlineData(Permission.ConfirmMarketBreakages)]
     public void A_manager_keeps_the_business(string code)
     {
         Assert.Contains(code, Permission.GetDefaultPermissionsForRole(ApplicationRoles.Manager));
+    }
+
+    /// <summary>
+    /// Read-only, stated once rather than code by code: every permission the role carries reads
+    /// something. A code added to the role later that does anything else fails here.
+    /// </summary>
+    [Fact]
+    public void Every_manager_permission_is_a_read()
+    {
+        Assert.All(
+            Permission.GetDefaultPermissionsForRole(ApplicationRoles.Manager),
+            code => Assert.True(code.EndsWith(".view", StringComparison.Ordinal) || code == Permission.ExportReports,
+                $"{code} is not a read, and a manager holds only reads."));
     }
 
     /// <summary>
@@ -96,6 +129,26 @@ public sealed class ManagerRoleScopeTests
         Assert.Equal(droppedOn20261005.Order(), stripped.Order());
     }
 
+    /// <summary>
+    /// The 2026-10-28 migration removes from existing manager accounts exactly the write codes the
+    /// role dropped that day, for the same reason as the one above.
+    /// </summary>
+    [Fact]
+    public void The_read_only_migration_strips_the_write_codes_the_role_dropped()
+    {
+        var sql = string.Concat(new RemoveManagerWritePermissions().UpOperations
+            .OfType<Microsoft.EntityFrameworkCore.Migrations.Operations.SqlOperation>()
+            .Select(operation => operation.Sql));
+        var list = Regex.Match(sql, @"ARRAY\[(?<codes>[^\]]*)\]").Groups["codes"].Value;
+        var stripped = Regex.Matches(list, "'([^']+)'").Select(match => match.Groups[1].Value).ToArray();
+        Assert.NotEmpty(stripped);
+
+        var defaults = Permission.GetDefaultPermissionsForRole(ApplicationRoles.Manager);
+        Assert.All(stripped, code => Assert.DoesNotContain(code, defaults));
+        Assert.All(stripped, code => Assert.Contains(code, Permission.GetAllPermissions()));
+        Assert.Equal(DroppedOn20261028.Order(), stripped.Order());
+    }
+
     /// <summary>Pages that set the system up or administer it.</summary>
     [Theory]
     [InlineData("SyncStatus")]
@@ -125,6 +178,17 @@ public sealed class ManagerRoleScopeTests
     [InlineData("PodDashboard")]
     [InlineData("StockDashboard")]
     [InlineData("ManagerDashboard")]
+    [InlineData("InventoryTransfers")]
+    [InlineData("PurchaseOrders")]
+    [InlineData("PurchaseRequests")]
+    [InlineData("PurchaseQuotations")]
+    [InlineData("GoodsReceiptPurchaseOrders")]
+    [InlineData("PurchaseInvoices")]
+    [InlineData("StockWriteOffs")]
+    [InlineData("VanSalesCustomerOrders")]
+    [InlineData("ExceptionCenter")]
+    [InlineData("Vending")]
+    [InlineData("VanReplenishment")]
     public void A_manager_can_open_the_business_pages(string page)
     {
         Assert.Contains(ApplicationRoles.Manager, GateRoles(page));
@@ -140,6 +204,16 @@ public sealed class ManagerRoleScopeTests
     [InlineData("CreateSalesOrder")]
     [InlineData("SalesOrderEdit")]
     [InlineData("CreateQuotation")]
+    [InlineData("CreateInventoryTransfer")]
+    [InlineData("CreateTransferRequest")]
+    [InlineData("CreatePurchaseOrder")]
+    [InlineData("CreatePurchaseRequest")]
+    [InlineData("CreatePurchaseQuotation")]
+    [InlineData("CreateGoodsReceiptPurchaseOrder")]
+    [InlineData("CreatePurchaseInvoice")]
+    // Queues whose only purpose is deciding: approving credit memos, confirming breakages.
+    [InlineData("CreditNoteApprovals")]
+    [InlineData("MarketBreakages")]
     public void No_page_that_raises_a_document_admits_a_manager(string page)
     {
         Assert.DoesNotContain(ApplicationRoles.Manager, GateRoles(page));
@@ -194,6 +268,148 @@ public sealed class ManagerRoleScopeTests
         var roles = ActionRoles(controller, action);
         Assert.NotEmpty(roles);
         Assert.DoesNotContain(ApplicationRoles.Manager, roles);
+    }
+
+    /// <summary>
+    /// The writes a manager may still make, each with why it raises nothing. Everything else that
+    /// writes refuses a manager at its role gate, its policy or its permission filter.
+    /// </summary>
+    private static readonly Dictionary<string, string> WritesAManagerMayMake = new()
+    {
+        // The manager's own account and devices.
+        ["AuthController.*"] = "signing in and out, passkeys, the manager's own password",
+        ["PasswordController.*"] = "the manager's own password",
+        ["TwoFactorController.*"] = "the manager's own second factor",
+        ["NotificationController.*"] = "marking the manager's own notifications read",
+        ["PushNotificationController.RegisterDevice"] = "the manager's own handset",
+        ["PushNotificationController.UnregisterDevice"] = "the manager's own handset",
+        ["PushNotificationController.TestPush"] = "a test push to the manager's own handset",
+        ["VanSalesCompatibilityController.ChangePassword"] = "the handset user's own password",
+        // Reads sent as a POST because the question is a body.
+        ["DesktopIntegrationController.ValidateInvoice"] = "checks an invoice, raises nothing",
+        ["DesktopIntegrationController.ValidateStockAvailability"] = "checks stock, raises nothing",
+        ["DesktopIntegrationController.ValidateTransfer"] = "checks a transfer, raises nothing",
+        ["StockController.GetSalesInWarehousePost"] = "reads a warehouse's sales",
+        ["VanSalesCompatibilityController.GetOrderHistory"] = "reads order history",
+        ["VanSalesCompatibilityController.GetSalesOrderHistory"] = "reads sales order history",
+        ["DesktopIntegrationController.RefreshWarehouseStock"] = "re-reads SAP stock into the snapshot the page shows",
+        // Report emails, kept on 2026-10-28: a report emailed is a report read somewhere else.
+        ["DesktopIntegrationController.EmailEndOfDayReport"] = "report email",
+        ["DesktopIntegrationController.SendDesktopSalesReviewEmail"] = "report email",
+        ["ReportController.SendSalesPerformanceEmail"] = "report email",
+        // Printing a document that exists. Emailing, attaching, removing and signing ask
+        // DocumentAttachmentAccessService, which refuses a manager every write (pinned below).
+        ["DocumentController.GenerateDocument"] = "renders an existing document",
+        ["DocumentController.GenerateAndDownloadDocument"] = "renders an existing document",
+        ["DocumentController.EmailDocument"] = "refused in the handler: it asks for write access",
+        ["DocumentController.UploadAttachment"] = "refused in the handler",
+        ["DocumentController.DeleteAttachment"] = "refused in the handler",
+        ["DocumentController.CreateSignature"] = "refused in the handler",
+        // Van POD uploads ask the same attachment service, as a write.
+        ["VanSalesCompatibilityController.UploadPod"] = "refused in the handler",
+        ["VanSalesCompatibilityController.UploadPodFile"] = "refused in the handler",
+        ["VanSalesCompatibilityController.UploadInvoicePodFile"] = "refused in the handler",
+    };
+
+    /// <summary>
+    /// Every API write, read off the compiled controllers. A write a manager passes must be one of
+    /// <see cref="WritesAManagerMayMake"/>; adding a write that admits a manager fails here until it is
+    /// either closed to the manager or listed with its reason.
+    /// </summary>
+    [Fact]
+    public async Task No_api_write_admits_a_manager_beyond_the_listed_ones()
+    {
+        var admitted = new List<string>();
+        // [AllowAnonymous] writes (sign-in, payment callbacks, webhooks) are nobody's in particular.
+        foreach (var (controller, action) in WriteActions()
+            .Where(write => !write.Action.GetCustomAttributes<AllowAnonymousAttribute>(inherit: true).Any()))
+        {
+            if (await ManagerPasses(controller, action))
+            {
+                admitted.Add($"{controller.Name}.{action.Name}");
+            }
+        }
+
+        bool Listed(string key) =>
+            WritesAManagerMayMake.ContainsKey(key) ||
+            WritesAManagerMayMake.ContainsKey(key[..key.IndexOf('.')] + ".*");
+
+        var unlisted = admitted.Where(key => !Listed(key)).Order().ToList();
+        Assert.True(unlisted.Count == 0, "Writes a manager can make: " + string.Join(", ", unlisted));
+
+        // A listed write that no longer admits a manager is a stale entry.
+        var stale = WritesAManagerMayMake.Keys
+            .Where(key => !key.EndsWith(".*", StringComparison.Ordinal) && !admitted.Contains(key)).Order().ToList();
+        Assert.True(stale.Count == 0, "Listed writes that no longer admit a manager: " + string.Join(", ", stale));
+    }
+
+    /// <summary>The negative control for the sweep: it does see the writes a cashier and a stock controller make.</summary>
+    [Fact]
+    public async Task The_sweep_sees_writes_other_roles_make()
+    {
+        var transfer = typeof(InventoryTransferController).GetMethod(nameof(InventoryTransferController.DecidePendingInventoryTransfer))!;
+        Assert.True(await RolePasses(typeof(InventoryTransferController), transfer, ApplicationRoles.StockController));
+        Assert.False(await RolePasses(typeof(InventoryTransferController), transfer, ApplicationRoles.Manager));
+
+        var writeOff = typeof(StockWriteOffController).GetMethods().Single(method => method.Name == "Create");
+        Assert.True(await RolePasses(typeof(StockWriteOffController), writeOff, ApplicationRoles.StockController));
+        Assert.False(await RolePasses(typeof(StockWriteOffController), writeOff, ApplicationRoles.Manager));
+    }
+
+    private static IEnumerable<(Type Controller, MethodInfo Action)> WriteActions() =>
+        typeof(InventoryTransferController).Assembly.GetTypes()
+            .Where(type => type is { IsClass: true, IsAbstract: false } && typeof(Microsoft.AspNetCore.Mvc.ControllerBase).IsAssignableFrom(type))
+            .SelectMany(type => type
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                .Where(method => method.GetCustomAttributes<Microsoft.AspNetCore.Mvc.Routing.HttpMethodAttribute>()
+                    .SelectMany(verb => verb.HttpMethods)
+                    .Any(verb => verb is "POST" or "PUT" or "PATCH" or "DELETE"))
+                .Select(method => (type, method)));
+
+    private static Task<bool> ManagerPasses(Type controller, MethodInfo action) =>
+        RolePasses(controller, action, ApplicationRoles.Manager);
+
+    /// <summary>
+    /// Whether a user holding only <paramref name="role"/> and its default permissions gets through
+    /// the action's role gates, named policies and permission filters. [AllowAnonymous] passes.
+    /// </summary>
+    private static async Task<bool> RolePasses(Type controller, MethodInfo action, string role)
+    {
+        var authorize = controller.GetCustomAttributes<AuthorizeAttribute>(inherit: true)
+            .Concat(action.GetCustomAttributes<AuthorizeAttribute>(inherit: true))
+            .ToList();
+
+        if (action.GetCustomAttributes<AllowAnonymousAttribute>(inherit: true).Any())
+        {
+            return true;
+        }
+
+        foreach (var gate in authorize)
+        {
+            if (!string.IsNullOrWhiteSpace(gate.Roles) &&
+                !gate.Roles.Split(',', StringSplitOptions.TrimEntries).Contains(role))
+            {
+                return false;
+            }
+
+            switch (gate.Policy)
+            {
+                case null or "ApiAccess" or "ApiAccessWithOperator":
+                    break;
+                // AdminOnly asks for system.admin; the other two are an integration's key and the
+                // customer app's token, never a staff login.
+                case "AdminOnly":
+                    if (!Permission.GetDefaultPermissionsForRole(role).Contains(Permission.SystemAdmin)) return false;
+                    break;
+                case "ServiceKeyOnly" or "VanSalesCustomerAccess":
+                    return false;
+                default:
+                    Assert.Fail($"{controller.Name}.{action.Name} uses policy {gate.Policy}, which this test does not know.");
+                    break;
+            }
+        }
+
+        return await PassesPermissions(controller, action, role);
     }
 
     /// <summary>

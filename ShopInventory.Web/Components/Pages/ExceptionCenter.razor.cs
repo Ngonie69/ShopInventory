@@ -28,6 +28,10 @@ public partial class ExceptionCenter : IDisposable
     private bool isRefreshing;
     private bool hasInitialized;
     private bool hasLoggedView;
+
+    // Whether this person acknowledges, takes and retries items. A manager reads the queue and does
+    // none of it: retrying re-posts a document, and the API's write gates leave the manager out.
+    private bool canWork;
     private string? errorMessage;
     private string? successMessage;
     private string currentUsername = string.Empty;
@@ -385,6 +389,7 @@ public partial class ExceptionCenter : IDisposable
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         currentUsername = authState.User.Identity?.Name ?? string.Empty;
+        canWork = UserRoles.IsInAnyRole(authState.User, UserRoles.ExceptionCenterWriteRoles);
     }
 
     // ── Filtering ───────────────────────────────────────────────────────────
@@ -497,7 +502,8 @@ public partial class ExceptionCenter : IDisposable
     // ── Presentation helpers ────────────────────────────────────────────────
 
     private bool CanAssignToCurrentUser(ExceptionCenterItemModel item)
-        => !string.IsNullOrWhiteSpace(currentUsername)
+        => canWork
+           && !string.IsNullOrWhiteSpace(currentUsername)
            && !string.Equals(item.AssignedToUsername, currentUsername, StringComparison.OrdinalIgnoreCase);
 
     private static string GetItemKey(ExceptionCenterItemModel item) => $"{item.Source}:{item.ItemKey}";

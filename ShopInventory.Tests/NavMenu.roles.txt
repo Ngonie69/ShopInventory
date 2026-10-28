@@ -93,7 +93,6 @@ Sales
     Sales Orders  /sales-orders
     Quotations  /quotations
     Credit Notes  /credit-notes
-    Credit Note Approvals  /credit-notes/approvals
 Customers & Products
     Customers  /customers
     Products  /products
@@ -106,15 +105,10 @@ Inventory
     Count Variance  /count-variance
 Purchasing
     Purchase Requests  /purchase-requests
-    Create Request  /purchase-requests/create
     Purchase Quotations  /purchase-quotations
-    Create PQ  /purchase-quotations/create
     Purchase Orders  /purchase-orders
-    Create PO  /purchase-orders/create
     Goods Receipt POs  /goods-receipt-pos
-    Create GRPO  /goods-receipt-pos/create
     A/P Invoices  /purchase-invoices
-    Create A/P Invoice  /purchase-invoices/create
 Finance
     Incoming Payments  /payments
     G/L Accounts  /gl-accounts
@@ -126,7 +120,6 @@ Tills & Vending
     Vending Sales  /vending/sales
 Van Sales
     Customer Orders  /van-sales-customer-orders
-    Market Breakages  /market-breakages
     Van Invoices  /van-sales/invoices
     Van Credit Notes  /van-sales/credit-notes
 Van Reports

@@ -132,18 +132,25 @@
                         disabled="@(isExportingReport || overview is null || overview.Depots.Count == 0)">
                     <i class="bi @(isExportingReport ? "bi-hourglass-split" : "bi-file-earmark-spreadsheet")"></i>@(isExportingReport ? "Building report…" : "Export report")
                 </button>
-                <button type="button" class="shop-btn shop-btn-ghost" @onclick="DownloadTemplateAsync"
-                        disabled="@(isDownloadingTemplate || overview is null || overview.Depots.Count == 0)">
-                    <i class="bi bi-file-earmark-arrow-down"></i>@(isDownloadingTemplate ? "Preparing…" : "Download template")
-                </button>
-                <button type="button" class="shop-btn shop-btn-ghost" @onclick="StartImport"
-                        disabled="@(isSaving || overview is null || overview.Depots.Count == 0)">
-                    <i class="bi bi-file-earmark-arrow-up"></i>Upload vendors
-                </button>
-                <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew"
-                        disabled="@(isSaving || overview is null || overview.Depots.Count == 0)">
-                    <i class="bi bi-plus-lg"></i>Add vendor
-                </button>
+                @* Adding, importing, editing and removing vendors are the cashier's and the administrator's; a manager reads them. *@
+                <AuthorizeView Roles="@UserRoles.VendingWriteRoles" Context="vendorTemplateCtx">
+                    <button type="button" class="shop-btn shop-btn-ghost" @onclick="DownloadTemplateAsync"
+                            disabled="@(isDownloadingTemplate || overview is null || overview.Depots.Count == 0)">
+                        <i class="bi bi-file-earmark-arrow-down"></i>@(isDownloadingTemplate ? "Preparing…" : "Download template")
+                    </button>
+                </AuthorizeView>
+                <AuthorizeView Roles="@UserRoles.VendingWriteRoles" Context="vendorImportCtx">
+                    <button type="button" class="shop-btn shop-btn-ghost" @onclick="StartImport"
+                            disabled="@(isSaving || overview is null || overview.Depots.Count == 0)">
+                        <i class="bi bi-file-earmark-arrow-up"></i>Upload vendors
+                    </button>
+                </AuthorizeView>
+                <AuthorizeView Roles="@UserRoles.VendingWriteRoles" Context="vendorNewCtx">
+                    <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew"
+                            disabled="@(isSaving || overview is null || overview.Depots.Count == 0)">
+                        <i class="bi bi-plus-lg"></i>Add vendor
+                    </button>
+                </AuthorizeView>
             </div>
         </div>
 
@@ -332,9 +339,11 @@
                                 {
                                     <h3>No vendors at @(string.IsNullOrEmpty(depotFilter) ? "any depot" : DepotName(depotFilter)) yet</h3>
                                     <p>Add one, and the depot's cashiers can invoice them once the till refreshes its list.</p>
-                                    <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew">
-                                        <i class="bi bi-plus-lg"></i>Add vendor
-                                    </button>
+                                    <AuthorizeView Roles="@UserRoles.VendingWriteRoles" Context="vendorNewCtx2">
+                                        <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew">
+                                            <i class="bi bi-plus-lg"></i>Add vendor
+                                        </button>
+                                    </AuthorizeView>
                                 }
                                 else
                                 {
@@ -393,17 +402,19 @@
                                                             @onclick="@(() => Navigation.NavigateTo(VendorSalesHref(vendor)))">
                                                         <i class="bi bi-graph-up"></i>
                                                     </button>
-                                                    <button type="button" class="shop-action-btn"
-                                                            title="Edit @VendorName(vendor)" aria-label="Edit @VendorName(vendor)"
-                                                            @onclick="() => StartEdit(vendor)" disabled="@isSaving">
-                                                        <i class="bi bi-pencil"></i>
-                                                    </button>
-                                                    <button type="button" class="shop-action-btn"
-                                                            title="@(vendor.IsActive ? "Remove" : "Restore") @VendorName(vendor)"
-                                                            aria-label="@(vendor.IsActive ? "Remove" : "Restore") @VendorName(vendor)"
-                                                            @onclick="() => StartToggle(vendor)" disabled="@isSaving">
-                                                        <i class="bi @(vendor.IsActive ? "bi-person-dash" : "bi-arrow-counterclockwise")"></i>
-                                                    </button>
+                                                    <AuthorizeView Roles="@UserRoles.VendingWriteRoles" Context="vendorRowCtx">
+                                                        <button type="button" class="shop-action-btn"
+                                                                title="Edit @VendorName(vendor)" aria-label="Edit @VendorName(vendor)"
+                                                                @onclick="() => StartEdit(vendor)" disabled="@isSaving">
+                                                            <i class="bi bi-pencil"></i>
+                                                        </button>
+                                                        <button type="button" class="shop-action-btn"
+                                                                title="@(vendor.IsActive ? "Remove" : "Restore") @VendorName(vendor)"
+                                                                aria-label="@(vendor.IsActive ? "Remove" : "Restore") @VendorName(vendor)"
+                                                                @onclick="() => StartToggle(vendor)" disabled="@isSaving">
+                                                            <i class="bi @(vendor.IsActive ? "bi-person-dash" : "bi-arrow-counterclockwise")"></i>
+                                                        </button>
+                                                    </AuthorizeView>
                                                 </div>
                                             </td>
                                         </tr>

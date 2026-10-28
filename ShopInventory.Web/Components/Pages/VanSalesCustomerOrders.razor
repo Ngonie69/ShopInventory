@@ -2,7 +2,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Manager,Cashier,StockController,DepotController")]
+@attribute [Authorize(Roles = UserRoles.VanCustomerOrderViewRoles)]
 @inject IVanSalesOrderService VanSalesOrderService
 @inject ISnackbar Snackbar
 @rendermode InteractiveServer
@@ -149,7 +149,7 @@
                                 </td>
                                 <td class="ops-num">@line.QuantityOrdered.ToString("N2") @line.UnitOfMeasure</td>
                                 <td class="ops-num">
-                                    @if (order.Status == VanSalesOrderStatusModel.Accepted)
+                                    @if (canFulfil && order.Status == VanSalesOrderStatusModel.Accepted)
                                     {
                                         <input type="number" class="ops-input ops-qty" step="0.01" min="0"
                                                max="@line.QuantityOrdered"
@@ -165,7 +165,7 @@
                     </tbody>
                 </table>
 
-                @if (order.Status == VanSalesOrderStatusModel.Accepted)
+                @if (canFulfil && order.Status == VanSalesOrderStatusModel.Accepted)
                 {
                     <div class="ops-panel-tools">
                         <button class="ops-btn" disabled="@isBusy"

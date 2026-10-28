@@ -227,7 +227,7 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
-                        <AuthorizeView Roles="@UserRoles.InventoryTransferRoles" Context="transferCtx">
+                        <AuthorizeView Roles="@UserRoles.InventoryTransferViewRoles" Context="transferCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/inventory-transfers" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
@@ -292,7 +292,7 @@
             </AuthorizeView>
 
             @* ── Purchasing ── *@
-            <AuthorizeView Roles="Admin,Manager" Context="purchasingCtx">
+            <AuthorizeView Roles="@UserRoles.PurchasingViewRoles" Context="purchasingCtx">
                 <Authorized>
                     <NavSection Title="Purchasing">
                         <NavLink class="snav-link" href="/purchase-requests" Match="NavLinkMatch.Prefix">
@@ -301,60 +301,70 @@
                             </span>
                             <span class="snav-text">Purchase Requests</span>
                         </NavLink>
-                        <NavLink class="snav-link sub-link" href="/purchase-requests/create" Match="NavLinkMatch.All">
-                            <span class="snav-icon">
-                                <i class="ph ph-file-plus" aria-hidden="true"></i>
-                            </span>
-                            <span class="snav-text">Create Request</span>
-                        </NavLink>
+                        <AuthorizeView Roles="@UserRoles.PurchasingRoles" Context="purchaserequestsCreateCtx">
+                            <NavLink class="snav-link sub-link" href="/purchase-requests/create" Match="NavLinkMatch.All">
+                                <span class="snav-icon">
+                                    <i class="ph ph-file-plus" aria-hidden="true"></i>
+                                </span>
+                                <span class="snav-text">Create Request</span>
+                            </NavLink>
+                        </AuthorizeView>
                         <NavLink class="snav-link" href="/purchase-quotations" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
                                 <i class="ph ph-file-text" aria-hidden="true"></i>
                             </span>
                             <span class="snav-text">Purchase Quotations</span>
                         </NavLink>
-                        <NavLink class="snav-link sub-link" href="/purchase-quotations/create" Match="NavLinkMatch.All">
-                            <span class="snav-icon">
-                                <i class="ph ph-file-plus" aria-hidden="true"></i>
-                            </span>
-                            <span class="snav-text">Create PQ</span>
-                        </NavLink>
+                        <AuthorizeView Roles="@UserRoles.PurchasingRoles" Context="purchasequotationsCreateCtx">
+                            <NavLink class="snav-link sub-link" href="/purchase-quotations/create" Match="NavLinkMatch.All">
+                                <span class="snav-icon">
+                                    <i class="ph ph-file-plus" aria-hidden="true"></i>
+                                </span>
+                                <span class="snav-text">Create PQ</span>
+                            </NavLink>
+                        </AuthorizeView>
                         <NavLink class="snav-link" href="/purchase-orders" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
                                 <i class="ph ph-shopping-bag" aria-hidden="true"></i>
                             </span>
                             <span class="snav-text">Purchase Orders</span>
                         </NavLink>
-                        <NavLink class="snav-link sub-link" href="/purchase-orders/create" Match="NavLinkMatch.All">
-                            <span class="snav-icon">
-                                <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                            </span>
-                            <span class="snav-text">Create PO</span>
-                        </NavLink>
+                        <AuthorizeView Roles="@UserRoles.PurchasingRoles" Context="purchaseordersCreateCtx">
+                            <NavLink class="snav-link sub-link" href="/purchase-orders/create" Match="NavLinkMatch.All">
+                                <span class="snav-icon">
+                                    <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                                </span>
+                                <span class="snav-text">Create PO</span>
+                            </NavLink>
+                        </AuthorizeView>
                         <NavLink class="snav-link" href="/goods-receipt-pos" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
                                 <i class="ph ph-truck" aria-hidden="true"></i>
                             </span>
                             <span class="snav-text">Goods Receipt POs</span>
                         </NavLink>
-                        <NavLink class="snav-link sub-link" href="/goods-receipt-pos/create" Match="NavLinkMatch.All">
-                            <span class="snav-icon">
-                                <i class="ph ph-tray" aria-hidden="true"></i>
-                            </span>
-                            <span class="snav-text">Create GRPO</span>
-                        </NavLink>
+                        <AuthorizeView Roles="@UserRoles.PurchasingRoles" Context="goodsreceiptposCreateCtx">
+                            <NavLink class="snav-link sub-link" href="/goods-receipt-pos/create" Match="NavLinkMatch.All">
+                                <span class="snav-icon">
+                                    <i class="ph ph-tray" aria-hidden="true"></i>
+                                </span>
+                                <span class="snav-text">Create GRPO</span>
+                            </NavLink>
+                        </AuthorizeView>
                         <NavLink class="snav-link" href="/purchase-invoices" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
                                 <i class="ph ph-receipt" aria-hidden="true"></i>
                             </span>
                             <span class="snav-text">A/P Invoices</span>
                         </NavLink>
-                        <NavLink class="snav-link sub-link" href="/purchase-invoices/create" Match="NavLinkMatch.All">
-                            <span class="snav-icon">
-                                <i class="ph ph-file-plus" aria-hidden="true"></i>
-                            </span>
-                            <span class="snav-text">Create A/P Invoice</span>
-                        </NavLink>
+                        <AuthorizeView Roles="@UserRoles.PurchasingRoles" Context="purchaseinvoicesCreateCtx">
+                            <NavLink class="snav-link sub-link" href="/purchase-invoices/create" Match="NavLinkMatch.All">
+                                <span class="snav-icon">
+                                    <i class="ph ph-file-plus" aria-hidden="true"></i>
+                                </span>
+                                <span class="snav-text">Create A/P Invoice</span>
+                            </NavLink>
+                        </AuthorizeView>
                     </NavSection>
                 </Authorized>
             </AuthorizeView>

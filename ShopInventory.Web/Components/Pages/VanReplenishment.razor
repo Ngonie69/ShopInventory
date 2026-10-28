@@ -196,10 +196,13 @@
                             <div class="vrp-row" @key="request.Id">
                                 @RequestCells(request)
                                 <span class="vrp-row-short">Last tried @(request.LastAttemptedAt?.ToString("d MMM HH:mm") ?? "—")</span>
-                                <span class="vrp-row-actions">
-                                    <button type="button" class="vrp-btn vrp-btn-ghost vrp-btn-sm" @onclick="() => OpenAsync(request, DrawerMode.Record)">It is in SAP</button>
-                                    <button type="button" class="vrp-btn vrp-btn-warn vrp-btn-sm" @onclick="() => OpenAsync(request, DrawerMode.ConfirmRetry)">Not in SAP — retry</button>
-                                </span>
+                                @* Recording, retrying, posting and withdrawing are the administrator's; a manager reads this report. *@
+                                <AuthorizeView Roles="@UserRoles.Admin" Context="fixRowCtx">
+                                    <span class="vrp-row-actions">
+                                        <button type="button" class="vrp-btn vrp-btn-ghost vrp-btn-sm" @onclick="() => OpenAsync(request, DrawerMode.Record)">It is in SAP</button>
+                                        <button type="button" class="vrp-btn vrp-btn-warn vrp-btn-sm" @onclick="() => OpenAsync(request, DrawerMode.ConfirmRetry)">Not in SAP — retry</button>
+                                    </span>
+                                </AuthorizeView>
                             </div>
                         }
                     </div>
@@ -223,9 +226,11 @@
                             <div class="vrp-row" @key="request.Id">
                                 @RequestCells(request)
                                 <span class="vrp-row-short">Approved @(request.DecidedAt?.ToString("d MMM HH:mm") ?? "—")</span>
-                                <span class="vrp-row-actions">
-                                    <button type="button" class="vrp-btn vrp-btn-primary vrp-btn-sm" @onclick="() => OpenAsync(request, DrawerMode.ConfirmRetry)">Post to SAP</button>
-                                </span>
+                                <AuthorizeView Roles="@UserRoles.Admin" Context="fixRowCtx2">
+                                    <span class="vrp-row-actions">
+                                        <button type="button" class="vrp-btn vrp-btn-primary vrp-btn-sm" @onclick="() => OpenAsync(request, DrawerMode.ConfirmRetry)">Post to SAP</button>
+                                    </span>
+                                </AuthorizeView>
                             </div>
                         }
                     </div>
@@ -250,12 +255,14 @@
                                     at the last try and held back anyway. Retrying changes nothing until @depot.DepotWarehouseCode is restocked; posting the lines in stock sends those now.
                                 </p>
                             </div>
-                            <div class="vrp-cause-actions">
-                                <button type="button" class="vrp-btn vrp-btn-ghost" disabled="@(bulk is not null)"
-                                        @onclick="() => StartBulk(BulkKind.Withdraw, rows)">Withdraw all @rows.Count</button>
-                                <button type="button" class="vrp-btn vrp-btn-primary" disabled="@(bulk is not null || depot.LinesInStock == 0)"
-                                        @onclick="() => StartBulk(BulkKind.PostInStock, rows)">Post the lines in stock</button>
-                            </div>
+                            <AuthorizeView Roles="@UserRoles.Admin" Context="fixBulkCtx">
+                                <div class="vrp-cause-actions">
+                                    <button type="button" class="vrp-btn vrp-btn-ghost" disabled="@(bulk is not null)"
+                                            @onclick="() => StartBulk(BulkKind.Withdraw, rows)">Withdraw all @rows.Count</button>
+                                    <button type="button" class="vrp-btn vrp-btn-primary" disabled="@(bulk is not null || depot.LinesInStock == 0)"
+                                            @onclick="() => StartBulk(BulkKind.PostInStock, rows)">Post the lines in stock</button>
+                                </div>
+                            </AuthorizeView>
                         </div>
 
                         @if (bulk is not null && bulk.Depot == depot.DepotWarehouseCode)
@@ -684,26 +691,28 @@
                             {
                                 <p class="vrp-foot-text">@PostInStockExplainer</p>
                             }
-                            <div class="vrp-foot-row">
-                                @if (request.Cause == VanReplenishmentCauses.OutcomeUnknown)
-                                {
-                                    <button type="button" class="vrp-btn vrp-btn-primary vrp-grow" @onclick="() => SetMode(DrawerMode.Record)">It is in SAP — record the number</button>
-                                    <button type="button" class="vrp-btn vrp-btn-warn" @onclick="() => SetMode(DrawerMode.ConfirmRetry)">Check SAP and retry</button>
-                                }
-                                else if (CanPostInStock)
-                                {
-                                    <button type="button" class="vrp-btn vrp-btn-primary vrp-grow" @onclick="() => SetMode(DrawerMode.ConfirmPostInStock)">Post the @drawer.Stock!.LinesInStock lines in stock</button>
-                                    <button type="button" class="vrp-btn vrp-btn-ghost" @onclick="() => SetMode(DrawerMode.ConfirmRetry)">Retry all @request.LineCount</button>
-                                }
-                                else
-                                {
-                                    <button type="button" class="vrp-btn vrp-btn-primary vrp-grow" disabled="@(drawer.StockLoading)" @onclick="() => SetMode(DrawerMode.ConfirmRetry)">@RetryLabel</button>
-                                }
-                                @if (request.Status == "PostFailed")
-                                {
-                                    <button type="button" class="vrp-btn vrp-btn-danger-ghost" @onclick="() => SetMode(DrawerMode.ConfirmWithdraw)">Withdraw</button>
-                                }
-                            </div>
+                            <AuthorizeView Roles="@UserRoles.Admin" Context="fixDrawerCtx">
+                                <div class="vrp-foot-row">
+                                    @if (request.Cause == VanReplenishmentCauses.OutcomeUnknown)
+                                    {
+                                        <button type="button" class="vrp-btn vrp-btn-primary vrp-grow" @onclick="() => SetMode(DrawerMode.Record)">It is in SAP — record the number</button>
+                                        <button type="button" class="vrp-btn vrp-btn-warn" @onclick="() => SetMode(DrawerMode.ConfirmRetry)">Check SAP and retry</button>
+                                    }
+                                    else if (CanPostInStock)
+                                    {
+                                        <button type="button" class="vrp-btn vrp-btn-primary vrp-grow" @onclick="() => SetMode(DrawerMode.ConfirmPostInStock)">Post the @drawer.Stock!.LinesInStock lines in stock</button>
+                                        <button type="button" class="vrp-btn vrp-btn-ghost" @onclick="() => SetMode(DrawerMode.ConfirmRetry)">Retry all @request.LineCount</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="vrp-btn vrp-btn-primary vrp-grow" disabled="@(drawer.StockLoading)" @onclick="() => SetMode(DrawerMode.ConfirmRetry)">@RetryLabel</button>
+                                    }
+                                    @if (request.Status == "PostFailed")
+                                    {
+                                        <button type="button" class="vrp-btn vrp-btn-danger-ghost" @onclick="() => SetMode(DrawerMode.ConfirmWithdraw)">Withdraw</button>
+                                    }
+                                </div>
+                            </AuthorizeView>
                             break;
                     }
                 </div>

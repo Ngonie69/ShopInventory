@@ -39,6 +39,7 @@ public class VendingController(ISender mediator) : ApiControllerBase
     /// against that row with a 200, and nothing is saved.
     /// </summary>
     [HttpPost("vendors/import")]
+    [Authorize(Roles = $"{ApplicationRoles.Admin},{ApplicationRoles.Cashier}")]
     [RequirePermission(Permission.CreateCustomers)]
     public async Task<IActionResult> ImportVendors(
         [FromBody] ImportVendorsRequest request,

@@ -414,9 +414,12 @@
                                 <button type="button" class="vna-btn vna-btn-accent" @onclick="() => OpenCallSheet(rep)">
                                     <i class="bi bi-search" aria-hidden="true"></i>Open call sheet
                                 </button>
-                                <button type="button" class="vna-btn" @onclick="() => OpenAskDialog(rep)">
-                                    <i class="bi bi-chat-left-text" aria-hidden="true"></i>Ask @rep.FirstName to explain
-                                </button>
+                                @* Sending the rep a push is the administrator's (POST api/PushNotification/send is Admin only). *@
+                                <AuthorizeView Roles="@UserRoles.Admin" Context="askRepCtx">
+                                    <button type="button" class="vna-btn" @onclick="() => OpenAskDialog(rep)">
+                                        <i class="bi bi-chat-left-text" aria-hidden="true"></i>Ask @rep.FirstName to explain
+                                    </button>
+                                </AuthorizeView>
                                 <span class="vna-audit">@rep.AuditNote</span>
                             </div>
                         </div>

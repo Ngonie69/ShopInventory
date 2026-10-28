@@ -3,7 +3,7 @@
 @using Microsoft.AspNetCore.WebUtilities
 @using System.Text
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = UserRoles.InventoryTransferRoles)]
+@attribute [Authorize(Roles = UserRoles.InventoryTransferViewRoles)]
 @inject IInventoryTransferService TransferService
 @inject IApprovalProcessService ApprovalProcessService
 @inject IMasterDataCacheService CacheService
@@ -66,9 +66,11 @@ else if (pendingActionTitle is not null)
             <p>Stock movements between warehouses, vans and bonds.</p>
         </div>
         <div class="itx-head-actions">
-            <a href="/transfer-request/create" class="itx-btn">
-                <i class="bi bi-file-earmark-plus"></i> New request
-            </a>
+            <AuthorizeView Roles="@UserRoles.InventoryTransferRoles" Context="newRequestCtx">
+                <a href="/transfer-request/create" class="itx-btn">
+                    <i class="bi bi-file-earmark-plus"></i> New request
+                </a>
+            </AuthorizeView>
             <AuthorizeView Roles="@UserRoles.InventoryTransferRoles">
                 <a href="/inventory-transfer/create" class="itx-btn itx-btn-primary">
                     <i class="bi bi-plus-lg"></i> New transfer
@@ -625,9 +627,11 @@ else if (pendingActionTitle is not null)
                             _ => "No transfer requests have been created yet."
                         })
                     </p>
-                    <a href="/transfer-request/create" class="itx-btn itx-btn-primary">
-                        <i class="bi bi-plus-lg"></i> Create first request
-                    </a>
+                    <AuthorizeView Roles="@UserRoles.InventoryTransferRoles" Context="firstRequestCtx">
+                        <a href="/transfer-request/create" class="itx-btn itx-btn-primary">
+                            <i class="bi bi-plus-lg"></i> Create first request
+                        </a>
+                    </AuthorizeView>
                 </div>
             }
             </div>
@@ -808,7 +812,7 @@ else if (pendingActionTitle is not null)
                                     @* Row actions stop the click bubbling: the row itself opens the drawer. *@
                                     <td class="itx-col-right" @onclick:stopPropagation="true">
                                         <span class="itx-rowactions">
-                                            @if (pending.CanCurrentUserDecide)
+                                            @if (canWriteTransfers && pending.CanCurrentUserDecide)
                                             {
                                                 <button type="button" class="itx-btn itx-btn-sm itx-btn-primary" disabled="@isDecidingPending"
                                                         @onclick="@(() => DecidePendingTransferAsync(pending, ApprovedDecision))">
@@ -821,7 +825,7 @@ else if (pendingActionTitle is not null)
                                             }
                                             @* Approved belongs here too: the post runs inside the approval request, so a
                                                record still sitting at Approved is one whose post never finished. *@
-                                            else if (pending.Status is PendingTransferStatuses.PostFailed or PendingTransferStatuses.Approved)
+                                            else if (canWriteTransfers && pending.Status is PendingTransferStatuses.PostFailed or PendingTransferStatuses.Approved)
                                             {
                                                 <button type="button" class="itx-btn itx-btn-sm" disabled="@isDecidingPending"
                                                         title="Post this approved transfer to SAP"
@@ -838,7 +842,7 @@ else if (pendingActionTitle is not null)
                                                     }
                                                 </button>
                                             }
-                                            else if (pending.Status == PendingTransferStatuses.AwaitingApproval && pending.CreatedByUserId == currentUserId)
+                                            else if (canWriteTransfers && pending.Status == PendingTransferStatuses.AwaitingApproval && pending.CreatedByUserId == currentUserId)
                                             {
                                                 <button type="button" class="itx-btn itx-btn-sm" disabled="@isDecidingPending"
                                                         @onclick="() => CancelPendingTransferAsync(pending)">
@@ -1194,7 +1198,7 @@ else if (pendingActionTitle is not null)
                 </div>
             }
 
-            @if (selectedPendingTransfer.CanCurrentUserDecide)
+            @if (canWriteTransfers && selectedPendingTransfer.CanCurrentUserDecide)
             {
                 <label class="itx-label" for="itx-pending-remarks">Remarks (optional)</label>
                 <textarea id="itx-pending-remarks" class="itx-input" rows="2"
@@ -1247,7 +1251,7 @@ else if (pendingActionTitle is not null)
                     <span>Edit lines</span>
                 </button>
             }
-            @if (selectedPendingTransfer.Status is PendingTransferStatuses.Approved or PendingTransferStatuses.PostFailed)
+            @if (canWriteTransfers && selectedPendingTransfer.Status is PendingTransferStatuses.Approved or PendingTransferStatuses.PostFailed)
             {
                 <button type="button" class="itx-btn itx-btn-primary" disabled="@isDecidingPending"
                         title="Post this approved transfer to SAP"
@@ -1589,7 +1593,7 @@ else if (pendingActionTitle is not null)
                         </tbody>
                     </table>
                 </div>
-                @if (heldEditForSelectedRequest.CanCurrentUserDecide)
+                @if (canWriteTransfers && heldEditForSelectedRequest.CanCurrentUserDecide)
                 {
                     <label class="itx-label" for="itx-edit-remarks">Remarks</label>
                     <textarea id="itx-edit-remarks" class="itx-input" rows="2"
@@ -1607,7 +1611,7 @@ else if (pendingActionTitle is not null)
                         </button>
                     </div>
                 }
-                else if (heldEditForSelectedRequest.CreatedByUserId == currentUserId)
+                else if (canWriteTransfers && heldEditForSelectedRequest.CreatedByUserId == currentUserId)
                 {
                     <div class="itx-actions">
                         <button type="button" class="itx-btn itx-btn-sm" disabled="@isDecidingRequestEdit"
@@ -2025,6 +2029,12 @@ else if (pendingActionTitle is not null)
     private bool isRejecting = false;
     private Guid? currentUserId;
     private string? currentUserRole;
+
+    // A manager opens this page to read transfers and requests, and is offered nothing that raises,
+    // edits, decides, posts or withdraws one: the API refuses a manager every one of those calls.
+    // True when the account holds any role of InventoryTransferRoles, so a manager who also holds,
+    // say, StockController keeps that role's buttons.
+    private bool canWriteTransfers;
     private HashSet<string> assignedWarehouseCodes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<Guid, string?> decisionRemarks = [];
     private const int transferRequestBatchSize = 100;
@@ -2088,9 +2098,8 @@ else if (pendingActionTitle is not null)
 
     // ── Editing a transfer request ──────────────────────
     private static readonly string[] RequestEditorRoles =
-        [UserRoles.Admin, UserRoles.StockController, UserRoles.WashBay, UserRoles.DepotController, UserRoles.Manager];
-    // Mirrors [Authorize] on POST api/inventorytransfer/request/{docEntry}/convert. Managers may
-    // edit a request but not convert one, so this is deliberately not RequestEditorRoles.
+        [UserRoles.Admin, UserRoles.StockController, UserRoles.WashBay, UserRoles.DepotController];
+    // Mirrors [Authorize] on POST api/inventorytransfer/request/{docEntry}/convert.
     private static readonly string[] RequestConverterRoles =
         [UserRoles.Admin, UserRoles.StockController, UserRoles.WashBay, UserRoles.DepotController];
     private bool isEditingRequestLines = false;
@@ -2775,6 +2784,7 @@ else if (pendingActionTitle is not null)
         var userIdValue = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         currentUserId = Guid.TryParse(userIdValue, out var parsedUserId) ? parsedUserId : null;
         currentUserRole = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+        canWriteTransfers = UserRoles.IsInAnyRole(authState.User, UserRoles.InventoryTransferRoles);
         assignedWarehouseCodes = authState.User.FindAll("warehouse")
             .Select(claim => claim.Value)
             .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -2987,7 +2997,8 @@ else if (pendingActionTitle is not null)
     /// line, and also refuses a draft whose last post timed out, since that one may already be in SAP.
     /// </summary>
     private bool CanEditPendingLines(PendingInventoryTransferDto pending) =>
-        pending.Status is PendingTransferStatuses.Approved or PendingTransferStatuses.PostFailed
+        canWriteTransfers
+        && pending.Status is PendingTransferStatuses.Approved or PendingTransferStatuses.PostFailed
         && pending.Lines.Count > 0
         && !isLoadingPendingDetail;
 
@@ -4792,7 +4803,8 @@ else if (pendingActionTitle is not null)
     /// resolves and validates that id authoritatively when the action is submitted.
     /// </summary>
     private bool ShowsRequestConversionAction(InventoryTransferRequestDto? request)
-        => request is not null &&
+        => canWriteTransfers &&
+           request is not null &&
            IsRequestConvertible(request) &&
            currentUserRole is not null &&
            RequestConverterRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase);
@@ -4824,6 +4836,7 @@ else if (pendingActionTitle is not null)
 
     private bool CanCurrentUserDecideStage(InventoryTransferRequestDto? request, ApprovalStageProgressModel stage)
     {
+        if (!canWriteTransfers) return false;
         if (!IsRequestConvertible(request) || !string.Equals(stage.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return false;
         if (string.IsNullOrWhiteSpace(currentUserRole)) return false;
         if (IsOwnRequest(request)) return false;
@@ -4858,7 +4871,8 @@ else if (pendingActionTitle is not null)
            request.ApprovalStages.All(x => x.StageId == stage.StageId || x.Status == "Approved");
 
     private bool CanCurrentUserGenerate(InventoryTransferRequestDto request)
-        => string.Equals(request.ApprovalStatus, "Approved", StringComparison.OrdinalIgnoreCase) &&
+        => canWriteTransfers &&
+           string.Equals(request.ApprovalStatus, "Approved", StringComparison.OrdinalIgnoreCase) &&
            currentUserId.HasValue &&
            (string.Equals(currentUserRole, "Admin", StringComparison.OrdinalIgnoreCase) ||
             request.ApprovalStages.Any(stage => stage.AuthorizerUserIds.Contains(currentUserId.Value) ||

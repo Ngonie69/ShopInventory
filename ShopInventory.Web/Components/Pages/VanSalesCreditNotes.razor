@@ -424,7 +424,7 @@
                             <div>Raise the credit memo by hand in SAP, then record its number here.</div>
                         </div>
                     </div>
-                    <AuthorizeView Roles="Admin,Manager" Context="raiseCtx">
+                    <AuthorizeView Roles="Admin" Context="raiseCtx">
                         <Authorized>
                             <div class="vsd-block">
                                 <label class="vsd-def-k" for="vcn-raise-docnum">Raised in SAP? Credit memo number</label>
@@ -637,7 +637,7 @@
                    holds and SAP refused — and to the roles its route admits, since it raises a SAP document. *@
                 @if (note.CreditId is not null && note.CreditSapStatus == DesktopCreditSapStatuses.Failed)
                 {
-                    <AuthorizeView Roles="Admin,Manager" Context="retryCtx">
+                    <AuthorizeView Roles="Admin" Context="retryCtx">
                         <Authorized>
                             <button type="button" class="vsd-btn vsd-btn-primary" @onclick="() => RetrySapAsync(note)"
                                     disabled="@(isRetrying || isMarking || isLoading)"

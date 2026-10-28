@@ -103,12 +103,13 @@ public sealed class ApiKeyWithUserTokenPermissionTests
     [Fact]
     public async Task A_web_user_holding_the_permission_is_let_through()
     {
-        var manager = Guid.NewGuid();
+        // An administrator holds creditnotes.add_approved by default; a manager has not since 2026-10-28.
+        var admin = Guid.NewGuid();
 
         var httpContext = await AuthenticateAsync(
             apiKey: WebApiKey,
-            bearerToken: UserToken(manager, ApplicationRoles.Manager),
-            users: RoleDefaults(manager, ApplicationRoles.Manager));
+            bearerToken: UserToken(admin, ApplicationRoles.Admin),
+            users: RoleDefaults(admin, ApplicationRoles.Admin));
 
         var context = FilterContext(httpContext);
         await new RequirePermissionAttribute(AddApprovedCreditNotePermissions()).OnAuthorizationAsync(context);

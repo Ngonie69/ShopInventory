@@ -408,7 +408,7 @@
                                         }
                                         @if (row.SapStatus == DesktopCreditSapStatuses.Failed)
                                         {
-                                            <AuthorizeView Roles="Admin,Manager" Context="retryCtx">
+                                            <AuthorizeView Roles="Admin" Context="retryCtx">
                                                 <Authorized>
                                                     <button type="button" class="ops-btn ops-btn-primary ops-btn-sm ops-dcl-retry"
                                                             disabled="@(retrying is not null)" @onclick="() => RetryAsync(row)"
@@ -531,7 +531,7 @@
                    stock reconciliation keeps the returned units on the ledger. *@
                 @if (credit.Status == "Fiscalised" && credit.SapStatus == DesktopCreditSapStatuses.ManualInSap)
                 {
-                    <AuthorizeView Roles="Admin,Manager" Context="raiseCtx">
+                    <AuthorizeView Roles="Admin" Context="raiseCtx">
                         <Authorized>
                             <div class="ops-ds-block ops-field">
                                 <label class="ops-label" for="dcl-raise-docnum">Raised in SAP? Credit memo number</label>

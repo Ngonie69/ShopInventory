@@ -24,18 +24,18 @@ public sealed class DesktopCreditNoteListController(
     public Task<IActionResult> List([FromQuery] DesktopCreditNoteListQuery query, CancellationToken ct) =>
         Run(id => service.ListAsync(id, query, ct));
 
-    /// <summary>Sends a refused SAP credit memo again. It raises a SAP document, so managers only.</summary>
+    /// <summary>Sends a refused SAP credit memo again. It raises a SAP document, so administrators only.</summary>
     [HttpPost("{id:guid}/retry-sap")]
-    [Authorize(Policy = "ApiAccess", Roles = "Admin,Manager")]
+    [Authorize(Policy = "ApiAccess", Roles = "Admin")]
     public Task<IActionResult> RetrySap(Guid id, CancellationToken ct) =>
         Run(caller => service.RetrySapAsync(caller, id, ct));
 
     /// <summary>
     /// Records the SAP memo a person raised by hand for a ManualInSap credit. It ends the ledger's hold
-    /// on the returned units, so managers only.
+    /// on the returned units, so administrators only.
     /// </summary>
     [HttpPost("{id:guid}/mark-raised")]
-    [Authorize(Policy = "ApiAccess", Roles = "Admin,Manager")]
+    [Authorize(Policy = "ApiAccess", Roles = "Admin")]
     public Task<IActionResult> MarkRaised(Guid id, [FromBody] MarkDesktopCreditRaisedRequest request, CancellationToken ct) =>
         Run(caller => service.MarkRaisedInSapAsync(caller, id, request.SapDocNum, ct));
 

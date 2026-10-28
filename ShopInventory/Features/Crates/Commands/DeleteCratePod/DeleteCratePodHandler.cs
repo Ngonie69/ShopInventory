@@ -96,8 +96,7 @@ public sealed class DeleteCratePodHandler(
                 return Errors.CrateTracking.AccessDenied("This crate POD is outside your assigned POD section.");
             }
         }
-        else if (!string.Equals(currentUser.Role, "Admin", StringComparison.OrdinalIgnoreCase) &&
-                 !string.Equals(currentUser.Role, "Manager", StringComparison.OrdinalIgnoreCase))
+        else if (!string.Equals(currentUser.Role, "Admin", StringComparison.OrdinalIgnoreCase))
         {
             return Errors.CrateTracking.AccessDenied("You do not have permission to delete crate POD submissions.");
         }

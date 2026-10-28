@@ -35,7 +35,7 @@
                     </p>
                 </div>
                 <div class="swo-head-aside">
-                    @if (selected is not null)
+                    @if (canPostWriteOffs && selected is not null)
                     {
                         <button type="button" class="swo-btn swo-btn-primary" @onclick="StartNew">
                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
@@ -64,7 +64,7 @@
         </div>
     </header>
 
-    <div class="swo-shell swo-body @(selected is null ? "is-compose" : "is-detail")">
+    <div class="swo-shell swo-body @(selected is null && canPostWriteOffs ? "is-compose" : "is-detail")">
 
         @* ── History ────────────────────────────────────────────────────────── *@
         <aside class="swo-queue" aria-label="Recent write-offs">
@@ -146,7 +146,7 @@
                             raised by @selected.RaisedByName
                         </p>
                     </div>
-                    @if (selected.Status != "PostFailed")
+                    @if (canPostWriteOffs && selected.Status != "PostFailed")
                     {
                         <button type="button" class="swo-btn swo-btn-ghost" @onclick="CopyAsNew">
                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h11v11H9zM5 15V4h11" /></svg>
@@ -176,13 +176,16 @@
                                 <span>@selected.LastError</span>
                             </div>
                         }
-                        <div class="swo-fail-actions">
-                            <button type="button" class="swo-btn swo-btn-primary" @onclick="CopyAsNew">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h11v11H9zM5 15V4h11" /></svg>
-                                Copy into a new write-off
-                            </button>
-                            <span class="swo-fail-hint">Check the count first. The copy keeps the warehouse, reason and lines.</span>
-                        </div>
+                        @if (canPostWriteOffs)
+                        {
+                            <div class="swo-fail-actions">
+                                <button type="button" class="swo-btn swo-btn-primary" @onclick="CopyAsNew">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h11v11H9zM5 15V4h11" /></svg>
+                                    Copy into a new write-off
+                                </button>
+                                <span class="swo-fail-hint">Check the count first. The copy keeps the warehouse, reason and lines.</span>
+                            </div>
+                        }
                     </div>
                 }
                 else if (!string.IsNullOrWhiteSpace(selected.LastError))
@@ -275,6 +278,13 @@
                         <div class="swo-remarks-text">@selected.Remarks</div>
                     </div>
                 }
+            </main>
+        }
+        else if (!canPostWriteOffs)
+        {
+            @* A manager reads write-offs and raises none, so there is no count to start. *@
+            <main class="swo-card swo-detail" aria-label="Write-offs">
+                <p class="swo-empty">Open a write-off from the list to read it. Counting stock and writing it off is the stock controller's.</p>
             </main>
         }
         else

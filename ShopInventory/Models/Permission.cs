@@ -354,33 +354,29 @@ public static class Permissions
         {
             ApplicationRoles.Admin => GetAllPermissions(), // Admin gets everything
             ApplicationRoles.ApiUser => GetAllPermissions(),
-            // A manager runs the business and leaves the system to the administrator. Invoices, payments,
-            // sales orders and quotations are read, not raised: those stay the cashier's. Nothing here
-            // reaches user accounts, settings, the audit trail, sync, or the set-up a business runs on —
-            // selling routes and their stops, route customers, customer app logins. Removing a code here
-            // does not reach an account created before the change, because user creation stores the role
-            // defaults on the account; the RemoveManagerSetupPermissions migration strips them there.
+            // A manager reads the business and does nothing to it (2026-10-28). No document is raised,
+            // edited, posted, converted, approved or rejected under this role — not invoices, payments,
+            // sales orders or quotations (2026-10-05), and not purchasing, transfers, write-offs,
+            // breakages, credit memo approvals, products or customers either. Exporting a report is a
+            // read. Nothing here reaches user accounts, settings, the audit trail, sync or set-up.
+            // Removing a code here does not reach an account created before the change, because user
+            // creation stores the role defaults on the account; the RemoveManagerSetupPermissions and
+            // RemoveManagerWritePermissions migrations strip them there.
             ApplicationRoles.Manager => new List<string>
             {
-                ViewDashboard, ViewProducts, CreateProducts, EditProducts, ManageProductPrices,
+                ViewDashboard, ViewProducts,
                 ViewInvoices,
                 ViewPayments,
-                ViewStock, ViewInventory, TransferStock, TransferInventory, AdjustStock, AdjustInventory,
-                ViewStockWriteOffs, PostStockWriteOffs,
-                ViewPurchaseOrders, CreatePurchaseOrders, EditPurchaseOrders, ApprovePurchaseOrders, ReceivePurchaseOrders,
-                ViewPurchaseRequests, CreatePurchaseRequests,
-                ViewPurchaseQuotations, CreatePurchaseQuotations,
-                ViewGoodsReceiptPurchaseOrders, CreateGoodsReceiptPurchaseOrders,
-                ViewPurchaseInvoices, CreatePurchaseInvoices,
-                ViewSalesOrders, ApproveSalesOrders,
+                ViewStock, ViewInventory,
+                ViewStockWriteOffs,
+                ViewPurchaseOrders, ViewPurchaseRequests, ViewPurchaseQuotations,
+                ViewGoodsReceiptPurchaseOrders, ViewPurchaseInvoices,
+                ViewSalesOrders,
                 ViewQuotations,
-                ApproveSapCreditNotes, AddApprovedCreditNotes,
                 ViewReports, ExportReports,
-                ViewCustomers, CreateCustomers, EditCustomers,
-                // Van sales: attendance and fulfilling customer orders. A manager oversees the vans; the
-                // routes themselves are set-up, and merchandiser timesheets are the sales rep's to read.
-                ViewVanSalesAttendance, FulfilVanSalesCustomerOrders,
-                ConfirmMarketBreakages
+                ViewCustomers,
+                // Van sales attendance. Merchandiser timesheets are the sales rep's to read.
+                ViewVanSalesAttendance
             },
             ApplicationRoles.User => new List<string>
             {

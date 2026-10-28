@@ -1,5 +1,5 @@
 @page "/exception-center"
-@attribute [Authorize(Roles = "Admin,Cashier,StockController,Manager")]
+@attribute [Authorize(Roles = UserRoles.ExceptionCenterViewRoles)]
 @rendermode InteractiveServer
 
 <PageTitle>Exception Center - Shop Inventory</PageTitle>
@@ -282,7 +282,7 @@
                                             @(isFocused ? "Clear filter" : $"Filter queue ({cluster.Count})")
                                         </button>
                                         <span class="exc-cause-foot-spacer"></span>
-                                        @if (cluster.RetryableCount > 0)
+                                        @if (canWork && cluster.RetryableCount > 0)
                                         {
                                             <button type="button" class="exc-btn exc-btn-sm exc-btn-primary"
                                                     disabled="@retryingClusters.Contains(cluster.Signature)"
@@ -629,7 +629,7 @@
                                             </td>
                                             <td class="exc-right">
                                                 <div class="exc-actions">
-                                                    @if (!item.IsAcknowledged)
+                                                    @if (canWork && !item.IsAcknowledged)
                                                     {
                                                         <button type="button" class="exc-btn exc-btn-sm exc-btn-secondary"
                                                                 disabled="@acknowledgingKeys.Contains(key)"
@@ -647,7 +647,7 @@
                                                                 : string.IsNullOrWhiteSpace(item.AssignedToUsername) ? "Take" : "Take over")
                                                         </button>
                                                     }
-                                                    @if (item.CanRetry)
+                                                    @if (canWork && item.CanRetry)
                                                     {
                                                         <button type="button" class="exc-btn exc-btn-sm exc-btn-primary"
                                                                 disabled="@retryingKeys.Contains(key)"
