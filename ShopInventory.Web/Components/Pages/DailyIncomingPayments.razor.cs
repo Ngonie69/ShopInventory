@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Features.DailyIncomingPayments;
 using ShopInventory.Web.Features.DailyIncomingPayments.Commands.SaveIncomingPaymentGlMapping;
+using ShopInventory.Web.Features.DailyIncomingPayments.Commands.SetIncomingPaymentGlMappingActive;
 using ShopInventory.Web.Features.DailyIncomingPayments.Queries.GetDailyIncomingPayment;
 using ShopInventory.Web.Features.DailyIncomingPayments.Queries.GetDailyIncomingPayments;
 using ShopInventory.Web.Features.DailyIncomingPayments.Queries.GetIncomingPaymentGlMappings;
@@ -19,6 +20,10 @@ namespace ShopInventory.Web.Components.Pages;
 /// accounts they post to.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Each partner is switched on or off on its own, from its row on the G/L accounts tab. A partner that is
+/// off, or has no row, posts invoices only; there is no switch for everyone at once.
+/// </para>
 /// Everyone who reads desktop sales can see both tabs. Only an admin can change an account, because
 /// a wrong account moves real money to the wrong ledger; the API enforces the same split.
 /// </remarks>
@@ -31,7 +36,7 @@ public partial class DailyIncomingPayments
 
     /// <summary>
     /// The API's <c>DesktopSalePosting:DailyPaymentTimeCAT</c> and <c>VanDailyPaymentTimeCAT</c> defaults. The
-    /// API does not publish its settings, and Settings › Payments states the same times.
+    /// API does not publish its settings.
     /// </summary>
     private static readonly TimeSpan ShopsRunTime = new(17, 0, 0);
     private static readonly TimeSpan VansRunTime = new(20, 0, 0);
@@ -39,10 +44,16 @@ public partial class DailyIncomingPayments
     /// <summary>SAP's default cash account: where a payment with no accounts would land.</summary>
     private const string SapDefaultCashAccount = "700300";
 
-    /// <summary>The prefix the API writes on a payment it holds for want of a G/L mapping.</summary>
-    private const string HeldForMappingPrefix = "No active G/L mapping";
+    /// <summary>
+    /// The prefixes the API writes on a payment it holds instead of posting: no mapping (the first is what
+    /// builds before the per-partner switch wrote), or the partner switched off after it was claimed.
+    /// </summary>
+    private static readonly string[] HeldPrefixes = ["No active G/L mapping", "No G/L mapping", SwitchedOffPrefix];
 
-    private const string SettingsHref = "/settings?section=payments";
+    private const string SwitchedOffPrefix = "Daily payments for ";
+
+    /// <summary>The API's <c>DesktopSalePosting:DailyPaymentLookbackDays</c> default: how far back switching on pays.</summary>
+    private const int LookbackDays = 7;
     private const int AttentionCards = 6;
 
     private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
@@ -51,10 +62,13 @@ public partial class DailyIncomingPayments
 
     [Inject] private IMediator Mediator { get; set; } = default!;
     [Inject] private IDbContextFactory<WebAppDbContext> DbContextFactory { get; set; } = default!;
-    [Inject] private IDailyIncomingPaymentSettingsService PaymentSettings { get; set; } = default!;
     [Inject] private ILogger<DailyIncomingPayments> Logger { get; set; } = default!;
 
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary><c>accounts</c> opens the G/L accounts tab, where partners are switched on and off.</summary>
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? TabQuery { get; set; }
 
     private Tab tab = Tab.Payments;
     private bool isAdmin;
@@ -72,8 +86,14 @@ public partial class DailyIncomingPayments
     private List<IncomingPaymentGlMapping> mappings = [];
     private Dictionary<string, IncomingPaymentGlMapping> mappingsByCode = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Null when the switch could not be read, which is not the same as off.</summary>
-    private DailyIncomingPaymentSettings? postingSwitch;
+    /// <summary>False until the partners have been read, so a failed read never shows as "off for everyone".</summary>
+    private bool mappingsLoaded;
+
+    /// <summary>The partner whose switch is waiting for "Turn on" to be confirmed.</summary>
+    private string? confirmingOn;
+
+    /// <summary>The partner whose switch is being saved.</summary>
+    private string? switching;
 
     private readonly HashSet<DateTime> openDays = [];
 
@@ -128,6 +148,11 @@ public partial class DailyIncomingPayments
             isAdmin = state.User.IsInRole("Admin");
         }
 
+        if (string.Equals(TabQuery, "accounts", StringComparison.OrdinalIgnoreCase))
+        {
+            tab = Tab.Accounts;
+        }
+
         await Task.WhenAll(LoadAccountsAsync(), ReloadAsync());
     }
 
@@ -135,7 +160,7 @@ public partial class DailyIncomingPayments
     {
         isLoading = true;
         error = null;
-        await Task.WhenAll(LoadPaymentsCoreAsync(), LoadMappingsAsync(), LoadSwitchAsync());
+        await Task.WhenAll(LoadPaymentsCoreAsync(), LoadMappingsAsync());
         isLoading = false;
     }
 
@@ -187,10 +212,61 @@ public partial class DailyIncomingPayments
 
         mappings = result.Value;
         mappingsByCode = mappings.ToDictionary(mapping => mapping.CardCode, StringComparer.OrdinalIgnoreCase);
+        mappingsLoaded = true;
     }
 
-    private async Task LoadSwitchAsync() =>
-        postingSwitch = await PaymentSettings.GetAsync();
+    // ---- Switching a partner on or off ----------------------------------------------------------------
+
+    private async Task OnSwitchToggled(IncomingPaymentGlMapping mapping, ChangeEventArgs e)
+    {
+        if (e.Value is true)
+        {
+            // Switching on settles up to a week of open invoices in SAP, so it takes a second click.
+            confirmingOn = mapping.CardCode;
+            return;
+        }
+
+        await SetActiveAsync(mapping, false);
+    }
+
+    private async Task SetActiveAsync(IncomingPaymentGlMapping mapping, bool isActive)
+    {
+        switching = mapping.CardCode;
+        error = null;
+
+        try
+        {
+            var result = await Mediator.Send(new SetIncomingPaymentGlMappingActiveCommand(mapping.CardCode, isActive));
+            if (result.IsError)
+            {
+                error = result.FirstError.Description;
+                return;
+            }
+
+            ReplaceMapping(result.Value);
+        }
+        finally
+        {
+            confirmingOn = null;
+            switching = null;
+        }
+    }
+
+    private void ReplaceMapping(IncomingPaymentGlMapping saved)
+    {
+        var index = mappings.FindIndex(mapping =>
+            string.Equals(mapping.CardCode, saved.CardCode, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0)
+        {
+            mappings[index] = saved;
+        }
+        else
+        {
+            mappings.Add(saved);
+        }
+
+        mappingsByCode[saved.CardCode] = saved;
+    }
 
     /// <summary>
     /// The G/L account list for the pickers, from the Web's SAP cache. Only for choosing and naming: the
@@ -288,7 +364,8 @@ public partial class DailyIncomingPayments
         error = null;
         isNew = true;
         codeLocked = false;
-        editing = new MappingForm { Run = ShopsRun, IsActive = true };
+        // Off until someone ticks it: switching a partner on pays a week of its invoices.
+        editing = new MappingForm { Run = ShopsRun, IsActive = false };
     }
 
     private void StartEdit(IncomingPaymentGlMapping mapping)
@@ -310,8 +387,8 @@ public partial class DailyIncomingPayments
     }
 
     /// <summary>
-    /// From a held payment: the partner's row if it has one (held because it is inactive), else a new row
-    /// with the code already filled in.
+    /// From a held payment: the partner's row if it has one (held because it is switched off), else a new
+    /// row with the code already filled in.
     /// </summary>
     private void StartMapping(string cardCode, string? cardName)
     {
@@ -498,7 +575,11 @@ public partial class DailyIncomingPayments
 
     private static bool IsHeldForMapping(DailyIncomingPaymentSummary payment) =>
         payment.Status == "Pending"
-        && payment.LastError?.StartsWith(HeldForMappingPrefix, StringComparison.Ordinal) == true;
+        && HeldPrefixes.Any(prefix => payment.LastError?.StartsWith(prefix, StringComparison.Ordinal) == true);
+
+    /// <summary>Held because its partner was switched off after the payment claimed its invoices.</summary>
+    private static bool IsHeldSwitchedOff(DailyIncomingPaymentSummary payment) =>
+        IsHeldForMapping(payment) && payment.LastError!.StartsWith(SwitchedOffPrefix, StringComparison.Ordinal);
 
     private List<DailyIncomingPaymentSummary> HeldFor(string? cardCode) =>
         string.IsNullOrWhiteSpace(cardCode)
@@ -510,7 +591,7 @@ public partial class DailyIncomingPayments
                 .ToList();
 
     /// <summary>
-    /// Partners whose payments are held for want of accounts and still have none. A partner mapped since
+    /// Partners whose payments are held and who are still not switched on. A partner switched on since
     /// drops out at once, though its payment keeps the held status until the next pass posts it.
     /// </summary>
     private List<HeldPartner> HeldPartners =>
@@ -558,33 +639,26 @@ public partial class DailyIncomingPayments
 
     // ---- Run status -----------------------------------------------------------------------------------
 
-    private string PostingLabel => postingSwitch switch
-    {
-        null => "Unknown",
-        { Enabled: true } => "On",
-        _ => "Paused"
-    };
+    private int ActiveCount => mappings.Count(mapping => mapping.IsActive);
 
-    private string PostingDot => postingSwitch switch
-    {
-        null => "is-neutral",
-        { Enabled: true } => "is-good",
-        _ => "is-warn"
-    };
+    /// <summary>Every partner is off: invoices post, nothing is paid.</summary>
+    private bool AllOff => mappingsLoaded && ActiveCount == 0;
 
-    private string PostingMeta => postingSwitch switch
-    {
-        null => "Couldn't read the switch.",
-        { UpdatedAtUtc: { } changed, Enabled: true } => $"Turned on {ToCat(changed, "dd MMM HH:mm")}.",
-        { UpdatedAtUtc: { } changed } => $"Paused since {ToCat(changed, "dd MMM HH:mm")}.",
-        _ => "Using the server default."
-    };
+    private string PostingLabel => !mappingsLoaded
+        ? "Unknown"
+        : ActiveCount == 0
+            ? "Off for every partner"
+            : $"On for {ActiveCount} of {Plural(mappings.Count, "partner")}";
+
+    private string PostingDot => !mappingsLoaded
+        ? "is-neutral"
+        : ActiveCount == 0 ? "is-warn" : "is-good";
 
     private string NextRun(string run)
     {
-        if (postingSwitch is { Enabled: false })
+        if (mappingsLoaded && !mappings.Any(mapping => mapping.IsActive && mapping.Run == run))
         {
-            return "Paused";
+            return "No partner on";
         }
 
         var time = run == VansRun ? VansRunTime : ShopsRunTime;
@@ -634,6 +708,7 @@ public partial class DailyIncomingPayments
 
     private static string StatusLabel(DailyIncomingPaymentSummary payment) => payment.Status switch
     {
+        "Pending" when IsHeldSwitchedOff(payment) => "Held: switched off",
         "Pending" when IsHeldForMapping(payment) => "Held: no G/L",
         "NothingToPay" => "Nothing to pay",
         _ => payment.Status
@@ -661,7 +736,8 @@ public partial class DailyIncomingPayments
     {
         "Posted" => $"posted as {payment.SapDocNum}, cash holders not told",
         "Unresolved" => "sent, and SAP's answer never arrived",
-        "Pending" when IsHeldForMapping(payment) => "no active G/L mapping",
+        "Pending" when IsHeldSwitchedOff(payment) => "partner switched off",
+        "Pending" when IsHeldForMapping(payment) => "no G/L mapping",
         "Pending" when payment.LastError is not null => "SAP refused the last attempt",
         _ => "waiting for the next pass"
     };
@@ -671,7 +747,10 @@ public partial class DailyIncomingPayments
     {
         "Unresolved" => new Problem("bad", "Sent, and SAP's answer never arrived",
             "Nothing is sent again until SAP has been asked whether it holds this payment. " + payment.LastError),
-        "Pending" when IsHeldForMapping(payment) => new Problem("warn", $"Held: {payment.CardCode} has no active G/L accounts",
+        "Pending" when IsHeldSwitchedOff(payment) => new Problem("warn", $"Held: {payment.CardCode} is switched off",
+            "Nothing was sent to SAP. Switch the partner back on and the next pass posts it; left off, its invoices "
+            + "are handed back the next day and stay open. " + payment.LastError),
+        "Pending" when IsHeldForMapping(payment) => new Problem("warn", $"Held: {payment.CardCode} has no G/L accounts",
             "Nothing was sent to SAP, so nothing landed in the default account. " + payment.LastError),
         "Pending" when payment.LastError is not null => new Problem("warn", "SAP refused the last attempt", payment.LastError),
         "Pending" => new Problem("warn", "Claimed, not sent yet", "Its invoices are held for this payment; the next pass sends it."),
@@ -749,6 +828,6 @@ public partial class DailyIncomingPayments
         public string Run { get; set; } = ShopsRun;
         public List<string> Emails { get; set; } = [];
         public string? EmailDraft { get; set; }
-        public bool IsActive { get; set; } = true;
+        public bool IsActive { get; set; }
     }
 }

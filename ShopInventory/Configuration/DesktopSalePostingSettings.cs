@@ -108,19 +108,6 @@ public class DesktopSalePostingSettings
     public int PostClaimLeaseSeconds { get; set; } = 120;
 
     /// <summary>
-    /// Whether the daily incoming payment runs, until an admin saves the switch from Web → Settings.
-    /// Off: desktop sales post their invoices only, and every invoice stays open in SAP.
-    /// </summary>
-    /// <remarks>
-    /// Only the fallback: once saved, the <c>SystemConfigs</c> row read by
-    /// <see cref="ShopInventory.Services.DailyIncomingPaymentSwitch"/> wins. Halted 2026-09-18 at the
-    /// business's request, and off by default so that a missing key cannot quietly restart payments.
-    /// Turning it back on settles the backlog, but only as far back as
-    /// <see cref="DailyPaymentLookbackDays"/> days.
-    /// </remarks>
-    public bool DailyPaymentEnabled { get; set; }
-
-    /// <summary>
     /// When (CAT) each business partner's daily incoming payment is posted.
     /// </summary>
     /// <remarks>

@@ -251,6 +251,119 @@ FOOTER = """
     --dpy-tone-rgb: var(--dpy-fam-neutral-rgb);
 }
 
+/* ── Per-partner switch: whether a partner gets its daily payment ───────
+   Built like Settings' switch, on this sheet's tokens: divider-bordered
+   track, accent when on. The checkbox stays in the DOM for keyboard and
+   screen readers; only its box is hidden. */
+
+.dpy .dpy-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--dpy-s2);
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--dpy-mute);
+    user-select: none;
+    white-space: nowrap;
+}
+
+.dpy .dpy-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.dpy .dpy-switch-track {
+    position: relative;
+    width: 34px;
+    height: 18px;
+    flex: none;
+    border-radius: 9px;
+    border: 1px solid var(--dpy-divider);
+    background: rgba(var(--dpy-fam-neutral-rgb), .12);
+    transition: background .18s, border-color .18s;
+}
+
+.dpy .dpy-switch-track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--dpy-mute-2);
+    transition: transform .18s, background .18s;
+}
+
+.dpy .dpy-switch:hover .dpy-switch-track {
+    border-color: var(--dpy-accent);
+}
+
+.dpy .dpy-switch input:checked + .dpy-switch-track {
+    background: rgba(var(--dpy-accent-rgb), .28);
+    border-color: var(--dpy-accent);
+}
+
+.dpy .dpy-switch input:checked + .dpy-switch-track::after {
+    transform: translateX(16px);
+    background: var(--dpy-accent);
+}
+
+.dpy .dpy-switch input:checked ~ .dpy-switch-text {
+    color: var(--dpy-ink);
+}
+
+.dpy .dpy-switch input:focus-visible + .dpy-switch-track {
+    outline: 2px solid var(--dpy-accent);
+    outline-offset: 2px;
+}
+
+.dpy .dpy-switch input:disabled + .dpy-switch-track {
+    opacity: .5;
+}
+
+.dpy .dpy-switch-text {
+    min-width: 22px;
+}
+
+/* Turning a partner on settles up to a week of invoices, so it asks first. */
+.dpy .dpy-switch-confirm {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--dpy-s1);
+    font-size: 12px;
+    color: var(--dpy-mute);
+}
+
+.dpy .dpy-switch-confirm-actions {
+    display: flex;
+    gap: var(--dpy-s1);
+}
+
+.dpy .dpy-switch-confirm .dpy-btn {
+    padding: 3px 10px;
+    font-size: 12px;
+}
+
+/* A link that switches tab rather than navigating: a button wearing the
+   look of the link beside it. */
+.dpy .dpy-link-btn {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+}
+
+.dpy .dpy-run-meta .dpy-link-btn {
+    color: var(--dpy-accent-text);
+    text-decoration: underline;
+}
+
 /* ── Notices: posting paused, partners held for accounts ──────────────── */
 
 .dpy .dpy-paused,

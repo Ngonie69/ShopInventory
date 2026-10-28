@@ -29,7 +29,7 @@
                 <p class="dpy-subtitle">
                     @(tab == Tab.Payments
                         ? "One SAP payment per business partner per day. Each settles that day's till, vending and van invoices and carries a DAYPAY reference."
-                        : "Where each partner's daily payment lands in the ledger, and who is told when it posts.")
+                        : "Which partners are paid each day, where each one's payment lands in the ledger, and who is told when it posts.")
                 </p>
             </div>
         </div>
@@ -46,20 +46,20 @@
         </div>
     </div>
 
-    @if (postingSwitch is { Enabled: false })
+    @if (AllOff)
     {
         <div class="dpy-paused" role="status">
             <i class="bi bi-pause-circle" aria-hidden="true"></i>
             <div class="dpy-paused-text">
-                <strong>Daily payments are paused</strong>
+                <strong>Daily payments are off for every partner</strong>
                 <span>
-                    Invoices still post to SAP, but no incoming payment is created. Turning it back on pays
-                    invoices from the last 7 days; anything older is left for finance.
+                    Invoices still post to SAP, but no incoming payment is created. Switch a partner on under
+                    G/L accounts and the next run pays its invoices from the last @LookbackDays days; anything older is left for finance.
                 </span>
             </div>
-            @if (isAdmin)
+            @if (tab != Tab.Accounts)
             {
-                <a class="dpy-paused-link" href="@SettingsHref">Settings › Payments</a>
+                <button type="button" class="dpy-paused-link dpy-link-btn" @onclick="() => SetTab(Tab.Accounts)">Choose partners</button>
             }
         </div>
     }
@@ -71,10 +71,14 @@
                 <span class="dpy-dot @PostingDot" aria-hidden="true"></span>@PostingLabel
             </span>
             <span class="dpy-run-meta">
-                @PostingMeta
-                @if (isAdmin)
+                @if (!mappingsLoaded)
                 {
-                    <a href="@SettingsHref">Settings › Payments</a>
+                    <text>Couldn't read the partners.</text>
+                }
+                else
+                {
+                    <text>Switched per partner on</text>
+                    <button type="button" class="dpy-link-btn" @onclick="() => SetTab(Tab.Accounts)">G/L accounts</button>
                 }
             </span>
         </div>
@@ -137,7 +141,7 @@
                             </div>
                             @if (held && isAdmin)
                             {
-                                <button type="button" class="dpy-btn dpy-btn-ghost" @onclick="() => StartMapping(payment.CardCode, payment.CardName)">Map accounts</button>
+                                <button type="button" class="dpy-btn dpy-btn-ghost" @onclick="() => StartMapping(payment.CardCode, payment.CardName)">@(MappingFor(payment.CardCode) is null ? "Map accounts" : "Open partner")</button>
                             }
                             else
                             {
@@ -343,10 +347,11 @@
             <div class="dpy-held" role="alert">
                 <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                 <div class="dpy-paused-text">
-                    <strong>@(heldPartners.Count == 1 ? "1 partner has" : $"{heldPartners.Count} partners have") invoices but no active accounts</strong>
+                    <strong>@(heldPartners.Count == 1 ? "1 partner has a held payment" : $"{heldPartners.Count} partners have held payments")</strong>
                     <span>
                         @string.Join(" · ", heldPartners.Select(h => $"{h.CardCode}: {Plural(h.Invoices, "invoice")}, {Money(h.Total)} held since {Day(h.Since)}")).
-                        A partner with no active row is held, never posted to SAP's default account.
+                        Claimed before the partner was switched off or lost its accounts. A held payment is never posted to SAP's
+                        default account; switch the partner on and the next pass posts it.
                     </span>
                 </div>
                 @if (isAdmin)
@@ -354,7 +359,7 @@
                     <div class="dpy-held-actions">
                         @foreach (var held in heldPartners)
                         {
-                            <button type="button" class="dpy-btn dpy-btn-ghost" @onclick="() => StartMapping(held.CardCode, held.CardName)">Map @held.CardCode</button>
+                            <button type="button" class="dpy-btn dpy-btn-ghost" @onclick="() => StartMapping(held.CardCode, held.CardName)">@(MappingFor(held.CardCode) is null ? "Map" : "Open") @held.CardCode</button>
                         }
                     </div>
                 }
@@ -412,7 +417,7 @@
                                 }
                                 @if (use.Account == SapDefaultCashAccount)
                                 {
-                                    <span class="dpy-land-note">Also SAP's default. Unmapped partners are held so nothing falls through to it.</span>
+                                    <span class="dpy-land-note">Also SAP's default. A partner with no accounts is never paid, so nothing falls through to it.</span>
                                 }
                             </div>
                         }
@@ -428,7 +433,7 @@
                             <th>Cash account</th>
                             <th>Electronic account</th>
                             <th>Emailed when posted</th>
-                            <th>Status</th>
+                            <th>Daily payment</th>
                             <th>Last changed</th>
                             <th><span class="visually-hidden">Actions</span></th>
                         </tr>
@@ -439,7 +444,7 @@
                             <tr class="dpy-run-row">
                                 <td colspan="7">
                                     <span class="dpy-run-row-label">@RunLabel(group.Run)</span>
-                                    <span>@Plural(group.Mappings.Count, "partner")@(group.Run == VansRun ? " · usually everything to one account" : null)</span>
+                                    <span>@Plural(group.Mappings.Count, "partner") · @group.Mappings.Count(m => m.IsActive) on@(group.Run == VansRun ? " · usually everything to one account" : null)</span>
                                 </td>
                             </tr>
                             @foreach (var mapping in group.Mappings)
@@ -477,9 +482,38 @@
                                         }
                                     </td>
                                     <td>
-                                        <span class="dpy-chip @(mapping.IsActive ? "dpy-chip-good" : "dpy-chip-neutral")">
-                                            @(mapping.IsActive ? "Active" : "Held")
-                                        </span>
+                                        @if (!isAdmin)
+                                        {
+                                            <span class="dpy-chip @(mapping.IsActive ? "dpy-chip-good" : "dpy-chip-neutral")">
+                                                @(mapping.IsActive ? "On" : "Off")
+                                            </span>
+                                        }
+                                        else if (confirmingOn == mapping.CardCode)
+                                        {
+                                            <div class="dpy-switch-confirm">
+                                                <span>Pay its invoices from the last @LookbackDays days?</span>
+                                                <div class="dpy-switch-confirm-actions">
+                                                    <button type="button" class="dpy-btn dpy-btn-primary" disabled="@(switching is not null)"
+                                                            @onclick="() => SetActiveAsync(mapping, true)">Turn on</button>
+                                                    <button type="button" class="dpy-btn dpy-btn-ghost" disabled="@(switching is not null)"
+                                                            @onclick="() => confirmingOn = null">Cancel</button>
+                                                </div>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            @* Keyed on the saved state: a refused or unconfirmed click re-renders the
+                                               checkbox from the mapping instead of leaving it where the click left it. *@
+                                            <label class="dpy-switch" @key="@($"{mapping.CardCode}:{mapping.IsActive}:{switching}")"
+                                                   title="@(mapping.IsActive ? "Paid daily. Switch off to post invoices only." : "Invoices only. Switch on to pay them daily.")">
+                                                <input type="checkbox" checked="@mapping.IsActive"
+                                                       disabled="@(switching is not null || isSaving)"
+                                                       aria-label="Daily payment for @mapping.CardCode"
+                                                       @onchange="e => OnSwitchToggled(mapping, e)" />
+                                                <span class="dpy-switch-track"></span>
+                                                <span class="dpy-switch-text">@(switching == mapping.CardCode ? "Saving…" : mapping.IsActive ? "On" : "Off")</span>
+                                            </label>
+                                        }
                                     </td>
                                     <td>
                                         <span class="dpy-sub">@ToCat(mapping.UpdatedAtUtc)</span>
@@ -697,7 +731,7 @@
                         <strong>@(held.Count == 1 ? "1 held payment waits" : $"{held.Count} held payments wait") on this</strong>
                         <span>
                             @string.Join(" · ", held.Select(p => $"{Day(p.PaymentDate)}: {Money(p.Total)}, {Plural(p.InvoiceCount, "invoice")}")).
-                            Once the accounts are saved and active, the next pass pays its invoices.
+                            Once the accounts are saved and the partner is switched on, the next pass pays its invoices.
                         </span>
                     </div>
                 }
@@ -772,8 +806,11 @@
                 <label class="dpy-check dpy-check-card">
                     <input type="checkbox" @bind="editing.IsActive" />
                     <span>
-                        <span class="dpy-primary">Post this partner's daily payment</span>
-                        <span class="dpy-sub">Untick to hold it. A held payment waits here until the partner is active again.</span>
+                        <span class="dpy-primary">Pay this partner's invoices daily</span>
+                        <span class="dpy-sub">
+                            Off: its invoices post to SAP and stay open. On: the next run pays its open invoices
+                            from the last @LookbackDays days, then one payment a day.
+                        </span>
                     </span>
                 </label>
             </div>

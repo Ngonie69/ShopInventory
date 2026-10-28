@@ -9,6 +9,11 @@ public static partial class Errors
         public static Error NotFound(int id) =>
             Error.NotFound("DailyIncomingPayment.NotFound", $"Daily incoming payment {id} was not found.");
 
+        public static Error MappingNotFound(string cardCode) =>
+            Error.NotFound(
+                "DailyIncomingPayment.MappingNotFound",
+                $"{cardCode} has no G/L accounts yet. Add them before switching its daily payment on.");
+
         public static Error UnknownAccount(string code) =>
             Error.Validation("DailyIncomingPayment.UnknownAccount", $"G/L account {code} does not exist in SAP.");
 
