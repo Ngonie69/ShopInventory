@@ -61,6 +61,12 @@ public class ReportGrossProfitWorkbookTests
         var monthly = workbook.Worksheet("Monthly Breakdown");
         Assert.Equal(450m, Under(monthly, "Cost of Sales", "Jan 2026").GetValue<decimal>());
         Assert.Equal(150m, Under(monthly, "Gross Profit", "Jan 2026").GetValue<decimal>());
+
+        // Net revenue carries VAT; the profit is measured on sales before VAT, which sit beside it so the
+        // row reads Sales excl. VAT − Cost of Sales = Gross Profit.
+        Assert.Equal(690m, Under(monthly, "Net Revenue (incl. VAT)", "Jan 2026").GetValue<decimal>());
+        Assert.Equal(600m, Under(monthly, "Sales excl. VAT", "Jan 2026").GetValue<decimal>());
+        Assert.Equal(0.25m, Under(monthly, "Margin %", "Jan 2026").GetValue<decimal>());
     }
 
     [Fact]

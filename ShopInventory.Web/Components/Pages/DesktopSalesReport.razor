@@ -634,7 +634,8 @@
                                                 @if (breakdownGp)
                                                 {
                                                     <GrossProfitCells GrossProfit="row.GrossProfit" MarginPercent="row.MarginPercent"
-                                                                      SalesCount="row.SalesCount" CostedSalesCount="row.CostedSalesCount" />
+                                                                      SalesCount="row.SalesCount" CostedSalesCount="row.CostedSalesCount"
+                                                                      MeasuredOn="row.CostedNetAmount" />
                                                 }
                                                 <td>
                                                     <div class="ops-sbd-split">
@@ -726,7 +727,7 @@
                             {
                                 <span>&middot; @GrossProfitFormat.Percent(channelMargin) margin</span>
                             }
-                            <span>on @Money(channelCosted) of sales SAP holds, at the stock cost SAP booked when the goods left.</span>
+                            <span>on @Money(channelCosted) excl. VAT of sales SAP holds, at the stock cost SAP booked when the goods left.</span>
                         </p>
                     }
 

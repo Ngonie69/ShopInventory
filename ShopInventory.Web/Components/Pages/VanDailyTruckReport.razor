@@ -105,7 +105,7 @@
                         {
                             <span class="vsk-of">sold · no targets set</span>
                         }
-                        @if (GpLine(total.GrossProfit, total.MarginPercent, total.CostedSalesCount, total.SalesCount) is { } fleetGp)
+                        @if (GpLine(total.GrossProfit, total.MarginPercent, total.CostedNetAmount, total.CostedSalesCount, total.SalesCount) is { } fleetGp)
                         {
                             <span class="vsk-of">@fleetGp</span>
                         }
@@ -275,7 +275,7 @@
                                     </span>
                                     <span class="vsc-num">@Percent(truck.TargetAchieved)</span>
                                 </span>
-                                @if (GpLine(truck.GrossProfit, truck.MarginPercent, truck.CostedSalesCount, truck.SalesCount) is { } truckGp)
+                                @if (GpLine(truck.GrossProfit, truck.MarginPercent, truck.CostedNetAmount, truck.CostedSalesCount, truck.SalesCount) is { } truckGp)
                                 {
                                     <span class="vsc-sub">@truckGp</span>
                                 }
@@ -400,7 +400,7 @@
                                         {
                                             <span class="vsc-sub @Ink(day.BelowTarget)">@versus</span>
                                         }
-                                        @if (GpLine(day.GrossProfit, day.MarginPercent, day.CostedSalesCount, day.SalesCount) is { } dayGp)
+                                        @if (GpLine(day.GrossProfit, day.MarginPercent, day.CostedNetAmount, day.CostedSalesCount, day.SalesCount) is { } dayGp)
                                         {
                                             <span class="vsc-sub">@dayGp</span>
                                         }

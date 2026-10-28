@@ -23,12 +23,25 @@ public static class GrossProfitFormat
         (value < 0 ? "−" : "") + Math.Abs(value).ToString("0.0", CultureInfo.InvariantCulture) + "%";
 
     /// <summary>
-    /// One line for a tooltip or readout, such as "GP 42.00 · 28.0% margin", or "GP not in SAP yet".
+    /// One line for a tooltip or readout, such as "GP 42.00 · 28.0% margin on 150.00 excl. VAT", or
+    /// "GP not in SAP yet". The base is left off when <paramref name="costedNet"/> is not given.
     /// </summary>
-    public static string Line(decimal? grossProfit, decimal? marginPercent) =>
+    public static string Line(decimal? grossProfit, decimal? marginPercent, decimal? costedNet = null) =>
         grossProfit is not { } gp
             ? "GP not in SAP yet"
-            : marginPercent is { } margin ? $"GP {Money(gp)} · {Percent(margin)} margin" : $"GP {Money(gp)}";
+            : (marginPercent is { } margin ? $"GP {Money(gp)} · {Percent(margin)} margin" : $"GP {Money(gp)}")
+              + (costedNet is { } net ? $" on {Money(net)} excl. VAT" : "");
+
+    /// <summary>
+    /// The sales value a profit was measured on, such as "on 1,234.00 excl. VAT". SAP books gross profit
+    /// on the value before VAT, so this is the figure the margin divides — never the takings, which carry
+    /// VAT. With <paramref name="part"/> (from <see cref="PartOf"/>) it reads "on 1,234.00 excl. VAT ·
+    /// 12 of 15 sales". Null when there is no base to state; then <paramref name="part"/> alone.
+    /// </summary>
+    public static string? Base(decimal? costedNet, string? part = null) =>
+        costedNet is not { } net
+            ? part
+            : $"on {Money(net)} excl. VAT" + (part is null ? "" : " · " + part["on ".Length..]);
 
     /// <summary>
     /// What the profit was measured on when only some of a row's sales are in SAP, such as "on 12 of 15
@@ -40,19 +53,22 @@ public static class GrossProfitFormat
     /// <summary>A van report's document money, one figure a currency.</summary>
     public static List<GrossProfitFigure> Of(IEnumerable<ShopInventory.Web.Models.VanSalesMoney> totals) =>
         totals.Select(total => new GrossProfitFigure(
-                total.Currency, total.GrossProfit, total.MarginPercent, total.CostedDocumentCount, total.DocumentCount, "sales"))
+                total.Currency, total.GrossProfit, total.MarginPercent, total.CostedDocumentCount, total.DocumentCount, "sales",
+                total.CostedNetAmount))
             .ToList();
 
     /// <summary>A route report's totals, one figure a currency; <paramref name="noun"/> is what they count.</summary>
     public static List<GrossProfitFigure> Of(IEnumerable<ShopInventory.Web.Models.RouteCustomerSalesTotalsModel> totals, string noun = "sales") =>
         totals.Select(total => new GrossProfitFigure(
-                total.Currency, total.GrossProfit, total.MarginPercent, total.CostedSaleCount, total.SaleCount, noun))
+                total.Currency, total.GrossProfit, total.MarginPercent, total.CostedSaleCount, total.SaleCount, noun,
+                total.CostedNetAmount))
             .ToList();
 
     /// <summary>A van report's line money, one figure a currency.</summary>
     public static List<GrossProfitFigure> Of(IEnumerable<ShopInventory.Web.Models.VanSalesLineMoney> totals) =>
         totals.Select(total => new GrossProfitFigure(
-                total.Currency, total.GrossProfit, total.MarginPercent, total.CostedLineCount, total.LineCount, "lines"))
+                total.Currency, total.GrossProfit, total.MarginPercent, total.CostedLineCount, total.LineCount, "lines",
+                total.CostedNetAmount))
             .ToList();
 }
 
@@ -63,5 +79,7 @@ public static class GrossProfitFormat
 /// <param name="Costed">How many of the row's sales (or lines) were costed.</param>
 /// <param name="Count">How many the row has.</param>
 /// <param name="Noun">What they are: "sales" or "lines".</param>
+/// <param name="CostedNet">The value before VAT the profit was measured on; null when not known.</param>
 public sealed record GrossProfitFigure(
-    string Currency, decimal? GrossProfit, decimal? MarginPercent, int Costed, int Count, string Noun);
+    string Currency, decimal? GrossProfit, decimal? MarginPercent, int Costed, int Count, string Noun,
+    decimal? CostedNet = null);

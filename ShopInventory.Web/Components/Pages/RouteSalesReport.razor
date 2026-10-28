@@ -205,7 +205,7 @@
                                                 <span class="ops-rsr-total-cur">@total.Currency</span>@total.Gross.ToString("N2")
                                                 @if (showGp && total.GrossProfit is { } routeGp)
                                                 {
-                                                    <span class="gpx-sub">GP <span class="gpx-value @GrossProfitFormat.Tone(routeGp)">@GrossProfitFormat.Money(routeGp)</span>@(total.MarginPercent is { } routeMargin ? $" · {GrossProfitFormat.Percent(routeMargin)}" : "")</span>
+                                                    <span class="gpx-sub">GP <span class="gpx-value @GrossProfitFormat.Tone(routeGp)">@GrossProfitFormat.Money(routeGp)</span>@(total.MarginPercent is { } routeMargin ? $" · {GrossProfitFormat.Percent(routeMargin)}" : "")@(GrossProfitFormat.Base(total.CostedNetAmount) is { } routeBase ? $" {routeBase}" : "")</span>
                                                 }
                                             </span>
                                         }

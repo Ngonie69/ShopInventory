@@ -155,7 +155,7 @@
                 <span class="vend-kpi-note">@Figure(() => window!.GrossProfit is null
                     ? (window.SaleCount > 0 ? "None in SAP yet" : "Nothing sold")
                     : $"{(window.MarginPercent is { } m ? GrossProfitFormat.Percent(m) + " margin" : "")}"
-                      + (GrossProfitFormat.PartOf(window.CostedSaleCount, window.SaleCount) is { } part ? $" · {part}" : ""))</span>
+                      + (GrossProfitFormat.Base(window.CostedNetAmount, GrossProfitFormat.PartOf(window.CostedSaleCount, window.SaleCount)) is { } part ? $" · {part}" : ""))</span>
             </div>
         }
         <div class="vend-kpi">

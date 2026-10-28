@@ -1,6 +1,7 @@
 @* One table cell of SAP's booked gross profit for a row whose money is kept per currency, as every van
    report's is: one line a currency, never added across them. Each line has the figure, the margin with
-   its verdict, and what it was measured on where only part of the row is in SAP. Styled by
+   its verdict, and the value before VAT it was measured on (with how much of the row that is, where only
+   part of it is in SAP). The row's takings beside it carry VAT; the profit never does. Styled by
    gross-profit.css. *@
 
 <td class="@CellClass gpx-list @(CellClass?.Contains("num") == true ? "gpx-num" : null)">
@@ -18,9 +19,9 @@
                 {
                     <span class="gpx-tag @GrossProfitFormat.Tone(margin)">@GrossProfitFormat.Verdict(margin) &middot; @GrossProfitFormat.Percent(margin)</span>
                 }
-                @if (GrossProfitFormat.PartOf(figure.Costed, figure.Count) is { } part)
+                @if (GrossProfitFormat.Base(figure.CostedNet, GrossProfitFormat.PartOf(figure.Costed, figure.Count)?.Replace("sales", figure.Noun)) is { } measuredOn)
                 {
-                    <span class="gpx-sub">@part.Replace("sales", figure.Noun)</span>
+                    <span class="gpx-sub">@measuredOn</span>
                 }
             }
             else

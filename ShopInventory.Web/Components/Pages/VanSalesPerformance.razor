@@ -135,7 +135,7 @@
                         @if (lead?.MarginPercent is { } leadMargin)
                         {
                             @($"{GrossProfitFormat.Percent(leadMargin)} margin")
-                            @if (GrossProfitFormat.PartOf(lead.CostedDocumentCount, lead.DocumentCount) is { } leadPart)
+                            @if (GrossProfitFormat.Base(lead.CostedNetAmount, GrossProfitFormat.PartOf(lead.CostedDocumentCount, lead.DocumentCount)) is { } leadPart)
                             {
                                 @($" · {leadPart}")
                             }

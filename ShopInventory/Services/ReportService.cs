@@ -852,6 +852,7 @@ ORDER BY T0."CardName"
                         TotalSalesUSD = day.Where(IsUsdRow).Sum(row => GetRowDecimal(row, "TotalSales")),
                         TotalSalesZIG = day.Where(IsZigRow).Sum(row => GetRowDecimal(row, "TotalSales")),
                         GrossProfitUSD = grossProfitByDay.TryGetValue(day.Key, out var profit) ? profit.GrossProfit : null,
+                        RevenueBeforeVatUSD = grossProfitByDay.TryGetValue(day.Key, out var beforeVat) ? beforeVat.Revenue : null,
                         GrossMarginPercent = grossProfitByDay.TryGetValue(day.Key, out var margin) ? MarginPercent(margin.GrossProfit, margin.Revenue) : null
                     })
                     .OrderBy(d => d.Date)
@@ -1433,6 +1434,7 @@ ORDER BY T0."CardName"
                     OutstandingBalanceUSD = c.TotalPurchasesUSD - (paymentData?.TotalPaymentsUSD ?? 0),
                     OutstandingBalanceZIG = c.TotalPurchasesZIG - (paymentData?.TotalPaymentsZIG ?? 0),
                     GrossProfitUSD = customerProfit.TryGetValue(c.CardCode, out var profit) ? profit.GrossProfit : null,
+                    RevenueBeforeVatUSD = customerProfit.TryGetValue(c.CardCode, out var beforeVat) ? beforeVat.Revenue : null,
                     GrossMarginPercent = customerProfit.TryGetValue(c.CardCode, out var margin) ? MarginPercent(margin.GrossProfit, margin.Revenue) : null
                 };
             })

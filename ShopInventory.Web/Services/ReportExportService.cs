@@ -2594,12 +2594,15 @@ public partial class ReportExportService : IReportExportService
         FinalizeSheet(dash, 4, fitFromRow: statementHeader);
 
         var mws = AddSheet(workbook, "Monthly Breakdown");
-        int mRow = WriteReportHeader(mws, "Monthly Profit & Loss Breakdown", 8, report.FromDate, report.ToDate);
+        int mRow = WriteReportHeader(mws, "Monthly Profit & Loss Breakdown", 9, report.FromDate, report.ToDate);
 
+        // Net revenue carries VAT; gross profit never does. Sales excl. VAT sits between them so that
+        // Sales excl. VAT − Cost of Sales = Gross Profit reads straight across the row.
         mws.Cell(mRow, 1).Value = "Month"; mws.Cell(mRow, 2).Value = "Sales (USD)"; mws.Cell(mRow, 3).Value = "Credit Notes";
-        mws.Cell(mRow, 4).Value = "Net Revenue"; mws.Cell(mRow, 5).Value = "Cost of Sales"; mws.Cell(mRow, 6).Value = "Gross Profit";
-        mws.Cell(mRow, 7).Value = "Margin %"; mws.Cell(mRow, 8).Value = "Invoices";
-        StyleTableHeader(mws, mRow, 8);
+        mws.Cell(mRow, 4).Value = "Net Revenue (incl. VAT)"; mws.Cell(mRow, 5).Value = "Sales excl. VAT";
+        mws.Cell(mRow, 6).Value = "Cost of Sales"; mws.Cell(mRow, 7).Value = "Gross Profit";
+        mws.Cell(mRow, 8).Value = "Margin %"; mws.Cell(mRow, 9).Value = "Invoices";
+        StyleTableHeader(mws, mRow, 9);
         int mFreeze = mRow;
         mRow++;
         int mStart = mRow;
@@ -2616,38 +2619,39 @@ public partial class ReportExportService : IReportExportService
             mws.Cell(mRow, 3).Value = m.CreditNotesUSD; mws.Cell(mRow, 3).Style.NumberFormat.Format = FormatUsd;
             if (m.CreditNotesUSD > 0) mws.Cell(mRow, 3).Style.Font.FontColor = DangerRed;
             mws.Cell(mRow, 4).Value = net; mws.Cell(mRow, 4).Style.NumberFormat.Format = FormatUsd;
-            mws.Cell(mRow, 5).Value = costOfSales; mws.Cell(mRow, 5).Style.NumberFormat.Format = FormatUsd;
-            mws.Cell(mRow, 6).Value = gp; mws.Cell(mRow, 6).Style.NumberFormat.Format = FormatSignedMoney;
-            mws.Cell(mRow, 6).Style.Font.FontColor = gp >= 0 ? SuccessGreen : DangerRed;
-            mws.Cell(mRow, 6).Style.Font.Bold = true;
-            mws.Cell(mRow, 7).Value = margin / 100; mws.Cell(mRow, 7).Style.NumberFormat.Format = FormatPercent;
-            mws.Cell(mRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            mws.Cell(mRow, 8).Value = m.InvoiceCount; mws.Cell(mRow, 8).Style.NumberFormat.Format = FormatCount;
+            mws.Cell(mRow, 5).Value = m.NetSalesBeforeVatUSD; mws.Cell(mRow, 5).Style.NumberFormat.Format = FormatUsd;
+            mws.Cell(mRow, 6).Value = costOfSales; mws.Cell(mRow, 6).Style.NumberFormat.Format = FormatUsd;
+            mws.Cell(mRow, 7).Value = gp; mws.Cell(mRow, 7).Style.NumberFormat.Format = FormatSignedMoney;
+            mws.Cell(mRow, 7).Style.Font.FontColor = gp >= 0 ? SuccessGreen : DangerRed;
+            mws.Cell(mRow, 7).Style.Font.Bold = true;
+            mws.Cell(mRow, 8).Value = margin / 100; mws.Cell(mRow, 8).Style.NumberFormat.Format = FormatPercent;
             mws.Cell(mRow, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            mws.Cell(mRow, 9).Value = m.InvoiceCount; mws.Cell(mRow, 9).Style.NumberFormat.Format = FormatCount;
+            mws.Cell(mRow, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             mRow++;
         }
         int lastMonth = mRow - 1;
-        mRow = FinishTable(mws, mFreeze, mStart, mRow, 8, "No trading months fell in this period.");
+        mRow = FinishTable(mws, mFreeze, mStart, mRow, 9, "No trading months fell in this period.");
 
         mws.Cell(mRow, 1).Value = "TOTAL";
-        for (int col = 2; col <= 6; col++)
+        for (int col = 2; col <= 7; col++)
         {
             WriteSubtotal(mws, mRow, col, mStart, lastMonth, FormatUsd);
         }
         // Margin is a ratio of the subtotals above it, not a sum of the monthly margins, so it is
         // derived rather than SUBTOTALled — and it still follows the filter, because the cells it
-        // divides do. It is of sales before VAT, which is cost of sales plus gross profit.
-        var costCell = $"E{mRow}";
-        var profitCell = $"F{mRow}";
-        mws.Cell(mRow, 7).FormulaA1 = $"IF(({costCell}+{profitCell})=0,0,{profitCell}/({costCell}+{profitCell}))";
-        mws.Cell(mRow, 7).Style.NumberFormat.Format = FormatPercent;
-        mws.Cell(mRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-        WriteSubtotal(mws, mRow, 8, mStart, lastMonth, FormatCount);
+        // divides do. It is gross profit over sales before VAT.
+        var beforeVatCell = $"E{mRow}";
+        var profitCell = $"G{mRow}";
+        mws.Cell(mRow, 8).FormulaA1 = $"IF({beforeVatCell}=0,0,{profitCell}/{beforeVatCell})";
+        mws.Cell(mRow, 8).Style.NumberFormat.Format = FormatPercent;
         mws.Cell(mRow, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-        StyleTotalsRow(mws, mRow, 8);
+        WriteSubtotal(mws, mRow, 9, mStart, lastMonth, FormatCount);
+        mws.Cell(mRow, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        StyleTotalsRow(mws, mRow, 9);
 
-        WriteFooter(mws, mRow, 8);
-        FinalizeSheet(mws, 8, mFreeze, landscape: true);
+        WriteFooter(mws, mRow, 9);
+        FinalizeSheet(mws, 9, mFreeze, landscape: true);
 
         return WorkbookToBytes(workbook);
     }

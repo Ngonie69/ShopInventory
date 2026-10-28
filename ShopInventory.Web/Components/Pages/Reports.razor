@@ -311,7 +311,7 @@
                                                                         @day.TotalSalesZIG.ToString("N2")</td>
                                                                     @if (salesReport.GrossProfitUSD is not null)
                                                                     {
-                                                                        <GrossProfitCells GrossProfit="day.GrossProfitUSD" MarginPercent="day.GrossMarginPercent" NumClass="text-end" />
+                                                                        <GrossProfitCells GrossProfit="day.GrossProfitUSD" MarginPercent="day.GrossMarginPercent" MeasuredOn="day.RevenueBeforeVatUSD" NumClass="text-end" />
                                                                     }
                                                                     </tr>
                                                                 }
@@ -325,7 +325,7 @@
                                                                     </td>
                                                                     @if (salesReport.GrossProfitUSD is not null)
                                                                     {
-                                                                        <GrossProfitCells GrossProfit="salesReport.GrossProfitUSD" MarginPercent="salesReport.GrossMarginPercent" NumClass="text-end" />
+                                                                        <GrossProfitCells GrossProfit="salesReport.GrossProfitUSD" MarginPercent="salesReport.GrossMarginPercent" MeasuredOn="salesReport.RevenueBeforeVatUSD" NumClass="text-end" />
                                                                     }
                                                                 </tr>
                                                             </tfoot>
@@ -661,7 +661,7 @@
                                                                                                                 $@c.OutstandingBalanceUSD.ToString("N2")</td>
                                                                                                             @if (topCustomersReport.TopCustomers.Any(customer => customer.GrossProfitUSD is not null))
                                                                                                             {
-                                                                                                                <GrossProfitCells GrossProfit="c.GrossProfitUSD" MarginPercent="c.GrossMarginPercent" NumClass="text-end" />
+                                                                                                                <GrossProfitCells GrossProfit="c.GrossProfitUSD" MarginPercent="c.GrossMarginPercent" MeasuredOn="c.RevenueBeforeVatUSD" NumClass="text-end" />
                                                                                                             }
                                                                                                             </tr>
                                                                                                         }
@@ -1045,7 +1045,8 @@ else if (activeTab == "profit")
                             <th class="border-0 fw-semibold">Month</th>
                             <th class="border-0 fw-semibold text-end">Sales (USD)</th>
                             <th class="border-0 fw-semibold text-end">Credit Notes</th>
-                            <th class="border-0 fw-semibold text-end">Net Revenue</th>
+                            <th class="border-0 fw-semibold text-end">Net Revenue (incl. VAT)</th>
+                            <th class="border-0 fw-semibold text-end">Sales excl. VAT</th>
                             <th class="border-0 fw-semibold text-end">Cost of Sales</th>
                             <th class="border-0 fw-semibold text-end">Gross Profit</th>
                             <th class="border-0 fw-semibold text-end">Margin %</th>
@@ -1063,7 +1064,8 @@ else if (activeTab == "profit")
                                 <td data-label="Month" class="fw-medium">@(m.Month)</td>
                                 <td data-label="Sales (USD)" class="text-end">$@m.RevenueUSD.ToString("N2")</td>
                                 <td data-label="Credit Notes" class="text-end" style="color: #c62828;">$@m.CreditNotesUSD.ToString("N2")</td>
-                                <td data-label="Net Revenue" class="text-end fw-semibold">$@netRev.ToString("N2")</td>
+                                <td data-label="Net Revenue (incl. VAT)" class="text-end fw-semibold">$@netRev.ToString("N2")</td>
+                                <td data-label="Sales excl. VAT" class="text-end">$@m.NetSalesBeforeVatUSD.ToString("N2")</td>
                                 <td data-label="Cost of Sales" class="text-end">$@costOfSales.ToString("N2")</td>
                                 <td data-label="Gross Profit" class="text-end fw-bold" style="color: @(gp >= 0 ? "#2e7d32" : "#c62828");">$@gp.ToString("N2")</td>
                                 <td data-label="Margin %" class="text-end"><span class="badge rounded-pill @(margin >= 20 ? "bg-success" : margin >= 10 ? "bg-warning text-dark" : "bg-danger")">@margin.ToString("N1")%</span></td>
@@ -2032,12 +2034,12 @@ new("fulfillment", "Fulfillment", "bi-truck")
         if (profitReport.MonthlyBreakdown.Any())
         {
             sb.Append("<h3 style='font-size:14px;margin-top:20px;'>Monthly Breakdown</h3>");
-            sb.Append("<table><thead><tr><th>Month</th><th>Sales</th><th>Credit Notes</th><th>Net Revenue</th><th>Cost of Sales</th><th>Gross Profit</th><th>Margin</th></tr></thead><tbody>");
+            sb.Append("<table><thead><tr><th>Month</th><th>Sales</th><th>Credit Notes</th><th>Net Revenue (incl. VAT)</th><th>Sales excl. VAT</th><th>Cost of Sales</th><th>Gross Profit</th><th>Margin</th></tr></thead><tbody>");
             foreach (var m in profitReport.MonthlyBreakdown.OrderByDescending(x => x.Month))
             {
                 var netRev = m.RevenueUSD - m.CreditNotesUSD;
                 var costOfSales = m.NetSalesBeforeVatUSD - m.GrossProfitUSD;
-                sb.Append($"<tr><td>{m.Month}</td><td class='text-end'>${m.RevenueUSD:N2}</td><td class='text-end'>${m.CreditNotesUSD:N2}</td><td class='text-end'>${netRev:N2}</td><td class='text-end'>${costOfSales:N2}</td>" + PrintableGrossProfitCells(m.GrossProfitUSD, m.GrossMarginPercent) + "</tr>");
+                sb.Append($"<tr><td>{m.Month}</td><td class='text-end'>${m.RevenueUSD:N2}</td><td class='text-end'>${m.CreditNotesUSD:N2}</td><td class='text-end'>${netRev:N2}</td><td class='text-end'>${m.NetSalesBeforeVatUSD:N2}</td><td class='text-end'>${costOfSales:N2}</td>" + PrintableGrossProfitCells(m.GrossProfitUSD, m.GrossMarginPercent) + "</tr>");
             }
             sb.Append("</tbody></table>");
         }

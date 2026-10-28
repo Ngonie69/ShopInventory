@@ -178,7 +178,7 @@
                                             {
                                                 <text> · @GrossProfitFormat.Percent(depotMargin) margin</text>
                                             }
-                                            @if (GrossProfitFormat.PartOf(row.CostedSaleCount, row.SaleCount) is { } part)
+                                            @if (GrossProfitFormat.Base(row.CostedNetAmount, GrossProfitFormat.PartOf(row.CostedSaleCount, row.SaleCount)) is { } part)
                                             {
                                                 <text> · @part</text>
                                             }
@@ -596,7 +596,7 @@
         return day.SaleCount == 0
             ? $"{date}: no sales"
             : $"{date}: {VendorSalesDigest.Money(Currency, day.Gross)} across {Plural(day.SaleCount, "invoice")}"
-              + (fortnight?.Margin is { Available: true } ? " · " + GrossProfitFormat.Line(day.GrossProfit, day.MarginPercent) : "");
+              + (fortnight?.Margin is { Available: true } ? " · " + GrossProfitFormat.Line(day.GrossProfit, day.MarginPercent, day.CostedNetAmount) : "");
     }
 
     /// <summary>The month's gross profit: its depots' rows split the sales, so they add up to it.</summary>
@@ -619,7 +619,7 @@
             }
 
             var note = $"{GrossProfitFormat.Percent(Math.Round(gp / value * 100m, 1, MidpointRounding.AwayFromZero))} margin";
-            return GrossProfitFormat.PartOf(costedSales, MonthSection?.SalesCount ?? 0) is { } part ? $"{note} · {part}" : note;
+            return GrossProfitFormat.Base(value, GrossProfitFormat.PartOf(costedSales, MonthSection?.SalesCount ?? 0)) is { } part ? $"{note} · {part}" : note;
         }
     }
 

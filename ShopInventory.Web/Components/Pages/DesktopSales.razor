@@ -244,7 +244,7 @@
                             <span>
                                 Gross profit <b class="gpx-value @GrossProfitFormat.Tone(dayGp)">@GrossProfitFormat.Money(dayGp)</b>
                                 @(report.MarginPercent is { } dayMargin ? $" · {GrossProfitFormat.Percent(dayMargin)} margin" : "")
-                                @(GrossProfitFormat.PartOf(report.CostedSalesCount, report.TotalSalesCount) is { } dayPart ? $" · {dayPart}" : "")
+                                @(GrossProfitFormat.Base(report.CostedNetAmount, GrossProfitFormat.PartOf(report.CostedSalesCount, report.TotalSalesCount)) is { } dayPart ? $" · {dayPart}" : "")
                             </span>
                         }
                         else

@@ -1,7 +1,8 @@
 @* The two table cells every sales report shows SAP's booked gross profit in: the profit, and the margin
-   with its verdict. A row none of whose sales is in SAP yet says so rather than showing a zero. Where
-   only part of a row is costed, what it was measured on is written under the figure — by sales when the
-   row counts them, else by value. Styled by gross-profit.css. *@
+   with its verdict. A row none of whose sales is in SAP yet says so rather than showing a zero. Under the
+   figure: the value before VAT it was measured on, where the page gives MeasuredOn (SAP books profit
+   before VAT, so it is never a share of the takings), and where only part of a row is costed, how much —
+   by sales when the row counts them, else by value. Styled by gross-profit.css. *@
 
 <td class="@NumClass gpx-num">
     @if (GrossProfit is { } gp)
@@ -47,12 +48,19 @@
 
     [Parameter] public decimal? CostedNetAmount { get; set; }
 
+    /// <summary>
+    /// The value before VAT the profit was measured on, written under it as "on 1,234.00 excl. VAT". Set it
+    /// where the row's own money column includes VAT, so the reader is not left dividing profit by takings.
+    /// </summary>
+    [Parameter] public decimal? MeasuredOn { get; set; }
+
     /// <summary>The page's own numeric-cell class, so the cells line up with the rest of its table.</summary>
     [Parameter] public string NumClass { get; set; } = "ops-num";
 
-    private string? PartNote =>
+    private string? PartNote => GrossProfitFormat.Base(
+        MeasuredOn,
         GrossProfitFormat.PartOf(CostedSalesCount, SalesCount)
         ?? (CostedNetAmount is { } costed && NetAmount is { } net && costed < net - 0.005m
             ? $"on {costed.ToString("N2", System.Globalization.CultureInfo.InvariantCulture)} posted"
-            : null);
+            : null));
 }

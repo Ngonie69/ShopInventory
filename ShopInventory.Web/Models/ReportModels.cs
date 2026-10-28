@@ -40,6 +40,9 @@ public class DailySales
     /// <summary>SAP's booked gross profit, in USD (the company currency); null from an older API or when SAP returned none.</summary>
     public decimal? GrossProfitUSD { get; set; }
 
+    /// <summary>The invoice lines' value before VAT, in USD, that the profit was measured on; null from an older API.</summary>
+    public decimal? RevenueBeforeVatUSD { get; set; }
+
     /// <summary>The profit over the value before VAT it was measured on, as the API states it.</summary>
     public decimal? GrossMarginPercent { get; set; }
 }
@@ -186,6 +189,9 @@ public class TopCustomer
 
     /// <summary>SAP's booked gross profit, in USD (the company currency); null from an older API or when SAP returned none.</summary>
     public decimal? GrossProfitUSD { get; set; }
+
+    /// <summary>The invoice lines' value before VAT, in USD, that the profit was measured on; null from an older API.</summary>
+    public decimal? RevenueBeforeVatUSD { get; set; }
 
     /// <summary>The profit over the value before VAT it was measured on, as the API states it.</summary>
     public decimal? GrossMarginPercent { get; set; }

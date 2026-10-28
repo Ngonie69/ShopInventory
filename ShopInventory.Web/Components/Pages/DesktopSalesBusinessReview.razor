@@ -222,7 +222,7 @@
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Gross margin</div>
                             <div class="ops-sbd-fig-num">@(h.MarginPercent is { } margin ? Pct(margin) : "—")</div>
-                            <div class="ops-sbd-fig-sub">@(h.GrossProfit is { } profit ? $"{Money(profit)} on {Money(h.CostedNetAmount)} SAP has costed" : Business!.Margin.Available ? "not posted to SAP yet" : "SAP could not be read")</div>
+                            <div class="ops-sbd-fig-sub">@(h.GrossProfit is { } profit ? $"{Money(profit)} on {Money(h.CostedNetAmount)} excl. VAT SAP has costed" : Business!.Margin.Available ? "not posted to SAP yet" : "SAP could not be read")</div>
                         </div>
                         <div class="ops-sbd-kpi">
                             <div class="ops-sbd-kpi-head"><span class="ops-sbd-kpi-rule"></span>Average sale</div>
