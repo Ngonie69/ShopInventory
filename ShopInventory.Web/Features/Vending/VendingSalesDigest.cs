@@ -30,6 +30,9 @@ public static class VendingSalesDigest
 
         public decimal? MarginPercent { get; init; }
 
+        /// <summary>The value before VAT <see cref="GrossProfit"/> was measured on.</summary>
+        public decimal? CostedNetAmount { get; init; }
+
         public int CostedSaleCount { get; init; }
     }
 
@@ -109,6 +112,7 @@ public static class VendingSalesDigest
             {
                 GrossProfit = row?.GrossProfit,
                 MarginPercent = row?.MarginPercent,
+                CostedNetAmount = row?.CostedNetAmount,
                 CostedSaleCount = row?.CostedSalesCount ?? 0
             });
         }

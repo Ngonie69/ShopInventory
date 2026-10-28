@@ -46,6 +46,9 @@ public class DailySalesDto
     /// <summary>SAP's booked gross profit on the day's invoices, in USD; null on a day SAP returned none.</summary>
     public decimal? GrossProfitUSD { get; set; }
 
+    /// <summary>The invoice lines' value before VAT, in USD, that the profit was measured on; null when SAP returned none.</summary>
+    public decimal? RevenueBeforeVatUSD { get; set; }
+
     public decimal? GrossMarginPercent { get; set; }
 }
 
@@ -305,6 +308,9 @@ public class TopCustomerDto
 
     /// <summary>SAP's booked gross profit on the customer's invoices, in USD; null when SAP returned none.</summary>
     public decimal? GrossProfitUSD { get; set; }
+
+    /// <summary>The invoice lines' value before VAT, in USD, that the profit was measured on; null when SAP returned none.</summary>
+    public decimal? RevenueBeforeVatUSD { get; set; }
 
     /// <summary>The profit over the invoice lines' value before VAT, both in USD.</summary>
     public decimal? GrossMarginPercent { get; set; }

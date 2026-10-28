@@ -617,7 +617,7 @@ public partial class DesktopSalesReport : IDisposable
     /// <summary>" · GP …" for a day that sold, when its profit was read; empty otherwise.</summary>
     private static string DayProfit(DayColumn column) =>
         column.Costed is { } row && column.SalesCount > 0
-            ? " · " + GrossProfitFormat.Line(row.GrossProfit, row.MarginPercent)
+            ? " · " + GrossProfitFormat.Line(row.GrossProfit, row.MarginPercent, row.CostedNetAmount)
               + (GrossProfitFormat.PartOf(row.CostedSalesCount, row.SalesCount) is { } part ? $" ({part})" : "")
             : "";
 
@@ -627,7 +627,7 @@ public partial class DesktopSalesReport : IDisposable
     /// </summary>
     private string HourProfit(DesktopSalesHourRow slot) =>
         shown?.Focus.Margin is { Available: true } && slot.SalesCount > 0
-            ? " · " + GrossProfitFormat.Line(slot.GrossProfit, slot.MarginPercent)
+            ? " · " + GrossProfitFormat.Line(slot.GrossProfit, slot.MarginPercent, slot.CostedNetAmount)
               + (GrossProfitFormat.PartOf(slot.CostedSalesCount, slot.SalesCount) is { } part ? $" ({part})" : "")
             : "";
 

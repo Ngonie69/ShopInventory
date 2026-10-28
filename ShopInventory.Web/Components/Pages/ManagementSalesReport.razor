@@ -208,7 +208,7 @@
                 {
                     <div class="ops-figure-num">@Pct(summary.MarginPercent)</div>
                     <div class="ops-figure-sub">
-                        @Money(profit) profit on @Money(summary.CostedNetAmount) SAP costed
+                        @Money(profit) profit on @Money(summary.CostedNetAmount) excl. VAT SAP costed
                         · @summary.CostedSalesCount.ToString("N0") of @summary.SalesCount.ToString("N0") sales
                     </div>
                 }
@@ -439,6 +439,11 @@
                                     <td class="ops-num">@row.SalesCount.ToString("N0")</td>
                                     <td class="ops-num ops-dsa-strong">
                                         @Amount(row.TotalAmount)
+                                        @if (BreakdownCarriesMargin)
+                                        {
+                                            @* The profit beside it is SAP's, booked before VAT; the takings carry VAT. *@
+                                            <div class="ops-sub">@Amount(row.NetAmount) excl. VAT</div>
+                                        }
                                         @if (row.CreditedAmount > 0)
                                         {
                                             <div class="ops-sub ops-msr-credited">&minus; @Amount(row.CreditedAmount) credited</div>

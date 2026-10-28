@@ -158,7 +158,7 @@
                                     {
                                         <text>GP </text><span class="gpx-value @GrossProfitFormat.Tone(tileGp)">@GrossProfitFormat.Money(tileGp)</span>
                                         @(total.MarginPercent is { } tileMargin ? $" · {GrossProfitFormat.Percent(tileMargin)} margin" : "")
-                                        @(GrossProfitFormat.PartOf(total.CostedSaleCount, total.SaleCount) is { } tilePart ? $" · {tilePart}" : "")
+                                        @(GrossProfitFormat.Base(total.CostedNetAmount, GrossProfitFormat.PartOf(total.CostedSaleCount, total.SaleCount)) is { } tilePart ? $" · {tilePart}" : "")
                                     }
                                     else
                                     {
@@ -263,7 +263,7 @@
                                     </td>
                                     @if (showGp)
                                     {
-                                        <GrossProfitCells GrossProfit="sale.GrossProfit" MarginPercent="sale.MarginPercent" />
+                                        <GrossProfitCells GrossProfit="sale.GrossProfit" MarginPercent="sale.MarginPercent" MeasuredOn="sale.CostedNetAmount" />
                                     }
                                     <td>
                                         <div>@sale.Status</div>
