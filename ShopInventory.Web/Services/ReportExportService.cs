@@ -97,6 +97,8 @@ public interface IReportExportService
         string title,
         Func<SalesOrderDto, int?>? invoiceDocNum = null,
         Func<SalesOrderDto, string>? statusName = null);
+    /// <summary>The Retail Sales Orders route checklist: each shop on the chosen routes, ordered or not, with its lines.</summary>
+    byte[] ExportRouteChecklistToExcel(RouteChecklistExport export);
 
     /// <summary>
     /// The retail shop master: what each shop's tills sell on, and how many operators are on it.

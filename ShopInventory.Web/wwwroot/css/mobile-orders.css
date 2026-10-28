@@ -1557,3 +1557,336 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* ── Route checklist ──────────────────────────────────────────────────────
+   RetailRouteChecklist.razor: each delivery route as a card of its shops,
+   ticked where a retail order came in. Built from this sheet's tokens, tabs,
+   tiles and status pills, so it follows the theme with the rest of the page.
+   A tick is the accent filled; a shop still waiting is an empty box. */
+
+.mox-viewtabs {
+    margin-right: var(--mox-s3);
+}
+
+.mox-rcl {
+    display: flex;
+    flex-direction: column;
+    gap: var(--mox-s6);
+}
+
+.mox-rcl-controls {
+    overflow: visible;
+}
+
+.mox-rcl-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--mox-s6);
+    flex-wrap: wrap;
+    padding: var(--mox-s6) var(--mox-s8);
+}
+
+.mox-rcl-date {
+    width: 150px;
+}
+
+.mox-rcl-search {
+    width: 220px;
+    margin-left: auto;
+}
+
+.mox-rcl-export {
+    display: flex;
+    align-items: flex-end;
+}
+
+.mox-rcl-label {
+    display: block;
+    font-size: 11.5px;
+    margin-bottom: 4px;
+    color: var(--mox-mute);
+}
+
+.mox-rcl-days {
+    flex-wrap: wrap;
+}
+
+.mox-rcl-of {
+    font-size: 18px;
+    color: var(--mox-mute-3);
+}
+
+.mox-rcl-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: var(--mox-s6);
+    align-items: start;
+    transition: opacity .14s;
+}
+
+.mox-rcl-grid.is-busy {
+    opacity: .55;
+}
+
+.mox-rcl-route {
+    gap: var(--mox-s3);
+    padding-bottom: var(--mox-s3);
+}
+
+.mox-rcl-grid > .mox-rcl-route > .mox-skel {
+    margin: var(--mox-s6) var(--mox-s8) 0;
+}
+
+.mox-rcl-route-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--mox-s4);
+    padding: var(--mox-s6) var(--mox-s8) 0;
+}
+
+.mox-rcl-route-titles {
+    min-width: 0;
+    margin-right: auto;
+}
+
+.mox .mox-rcl-route-name {
+    margin: 0;
+    font-size: 14.5px;
+    font-weight: 500;
+    letter-spacing: -.005em;
+    color: var(--mox-ink);
+}
+
+.mox-rcl-route-meta {
+    display: block;
+    font-size: 12px;
+    color: var(--mox-mute-3);
+}
+
+.mox-rcl-count {
+    flex: none;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--mox-mute);
+    background: var(--mox-hover);
+    box-shadow: inset 0 0 0 1px var(--mox-divider);
+}
+
+.mox-rcl-count.is-full {
+    color: var(--mox-accent-text);
+    background: rgba(var(--mox-accent-rgb), .14);
+    box-shadow: inset 0 0 0 1px rgba(var(--mox-accent-rgb), .45);
+}
+
+.mox-rcl-meter {
+    height: 3px;
+    margin: 0 var(--mox-s8);
+    border-radius: 999px;
+    background: var(--mox-rowline);
+    overflow: hidden;
+}
+
+.mox-rcl-meter > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--mox-accent);
+}
+
+.mox .mox-rcl-shops {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.mox-rcl-shop {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--mox-s4);
+    padding: 9px var(--mox-s8);
+    border-top: 1px solid var(--mox-rowline);
+}
+
+.mox-rcl-shop:first-child {
+    border-top: 0;
+}
+
+.mox-rcl-tick {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    border-radius: 5px;
+    box-shadow: inset 0 0 0 1.5px var(--mox-field-edge-hi);
+}
+
+.mox-rcl-shop.is-done .mox-rcl-tick {
+    background: var(--mox-accent-solid);
+    box-shadow: none;
+}
+
+.mox-rcl-tick svg {
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: var(--mox-accent-solid-ink);
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.mox-rcl-shop-body {
+    min-width: 0;
+    flex: 1;
+}
+
+.mox-rcl-shop-line {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s3);
+    min-width: 0;
+}
+
+.mox-rcl-shop-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--mox-mute);
+}
+
+.mox-rcl-shop.is-done .mox-rcl-shop-name {
+    color: var(--mox-ink);
+}
+
+.mox-rcl-hold {
+    flex: none;
+    padding: 0 7px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    line-height: 1.7;
+    color: var(--mox-bad);
+    background: var(--mox-bad-bg);
+}
+
+.mox-rcl-codes {
+    display: block;
+    font-size: 11.5px;
+    color: var(--mox-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.mox-rcl-order-shop .mox-rcl-codes {
+    display: inline;
+    margin-left: 4px;
+}
+
+.mox-rcl-orders {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.mox .mox-rcl-order {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px var(--mox-s4);
+    width: 100%;
+    padding: 5px 8px;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    color: var(--mox-ink-2);
+    background: var(--mox-hover);
+    border: 0;
+    border-radius: var(--mox-r-md);
+    cursor: pointer;
+    transition: background-color .14s;
+}
+
+.mox .mox-rcl-order:hover {
+    background: var(--mox-press);
+}
+
+.mox-rcl-order-no {
+    font-weight: 500;
+    color: var(--mox-accent-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.mox-rcl-order-shop {
+    min-width: 0;
+    flex: 1 1 200px;
+    color: var(--mox-ink);
+}
+
+.mox-rcl-order-amt {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+}
+
+.mox-rcl-order-by {
+    color: var(--mox-mute-3);
+}
+
+.mox-rcl-off {
+    gap: var(--mox-s3);
+}
+
+.mox-rcl-off-list {
+    padding: 0 var(--mox-s8) var(--mox-s6);
+}
+
+.mox .mox-rcl-link {
+    margin-left: 4px;
+    color: var(--mox-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.mox .mox-rcl-note {
+    margin: 0;
+    font-size: 12px;
+    color: var(--mox-mute-3);
+}
+
+@media (max-width: 860px) {
+    .mox-rcl-bar,
+    .mox-rcl-route-head,
+    .mox-rcl-shop,
+    .mox-rcl-off-list {
+        padding-left: var(--mox-s6);
+        padding-right: var(--mox-s6);
+    }
+
+    .mox-rcl-meter {
+        margin: 0 var(--mox-s6);
+    }
+
+    .mox-rcl-search {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .mox-rcl-export,
+    .mox-rcl-export .mox-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .mox-head-actions {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 420px) {
+    .mox-rcl-grid {
+        grid-template-columns: 1fr;
+    }
+}

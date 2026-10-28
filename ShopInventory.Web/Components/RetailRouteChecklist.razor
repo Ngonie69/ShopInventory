@@ -1,0 +1,576 @@
+@using System.Globalization
+@inject ISalesOrderService SalesOrderService
+@inject IDeliveryRouteDirectory RouteDirectory
+@inject IReportExportService ExportService
+@inject IJSRuntime JS
+@inject ILogger<RetailRouteChecklist> Logger
+
+@* The route checklist on Retail Sales Orders: for one day, every delivery route with its shops,
+   ticked where a retail sales order came in from that shop.
+
+   The routes and their shops are the Delivery Routes page's (/route-assignments), so moving a shop
+   there moves it here. RouteOrderChecklist does the matching and says why a shop's currency codes
+   are one row and why Zimbabwe-dollar codes are left out.
+
+   It renders inside the page's .mox root and borrows its tokens, tabs, tiles and status pills, so
+   it follows the theme toggle with the rest of the page. *@
+
+<section class="mox-rcl" aria-label="Route checklist">
+
+    <div class="mox-card mox-rcl-controls">
+        <div class="mox-rcl-bar">
+            <div class="mox-field mox-rcl-date">
+                <label for="mox-rcl-day">Day</label>
+                <NocturneDateField Id="mox-rcl-day" @bind-Date="day" @bind-Date:after="LoadAsync"
+                                   AriaLabel="Checklist day" />
+            </div>
+            <div class="mox-field">
+                <span class="mox-rcl-label">Match orders on</span>
+                <div class="mox-tabs" role="group" aria-label="Match orders on">
+                    <button type="button" class="mox-tab @(matchOnDelivery ? null : "is-on")"
+                            aria-pressed="@(!matchOnDelivery)" @onclick="() => SetMatchAsync(false)">Order date</button>
+                    <button type="button" class="mox-tab @(matchOnDelivery ? "is-on" : null)"
+                            aria-pressed="@matchOnDelivery" @onclick="() => SetMatchAsync(true)">Delivery date</button>
+                </div>
+            </div>
+            <div class="mox-field">
+                <span class="mox-rcl-label">Routes</span>
+                <div class="mox-tabs mox-rcl-days" role="group" aria-label="Routes by the day they run">
+                    @foreach (var chip in DayChips)
+                    {
+                        <button type="button" class="mox-tab @(dayFilter == chip.Value ? "is-on" : null)"
+                                aria-pressed="@(dayFilter == chip.Value)"
+                                @onclick="() => dayFilter = chip.Value">@chip.Label</button>
+                    }
+                </div>
+            </div>
+            <div class="mox-field">
+                <span class="mox-rcl-label">Shops</span>
+                <div class="mox-tabs" role="group" aria-label="Which shops to show">
+                    <button type="button" class="mox-tab @(show == ShowShops.All ? "is-on" : null)"
+                            aria-pressed="@(show == ShowShops.All)" @onclick="() => show = ShowShops.All">All</button>
+                    <button type="button" class="mox-tab @(show == ShowShops.Ordered ? "is-on" : null)"
+                            aria-pressed="@(show == ShowShops.Ordered)" @onclick="() => show = ShowShops.Ordered">Ordered</button>
+                    <button type="button" class="mox-tab @(show == ShowShops.Missing ? "is-on" : null)"
+                            aria-pressed="@(show == ShowShops.Missing)" @onclick="() => show = ShowShops.Missing">No order</button>
+                </div>
+            </div>
+            <div class="mox-field mox-rcl-search">
+                <label for="mox-rcl-q">Find</label>
+                <input id="mox-rcl-q" class="mox-input" type="search" autocomplete="off"
+                       placeholder="Route, shop or code" @bind="query" @bind:event="oninput" />
+            </div>
+            <div class="mox-rcl-export">
+                <button type="button" class="mox-btn mox-btn-secondary"
+                        title="Download the routes on screen, every shop and what it ordered, as a workbook"
+                        disabled="@(isExporting || checklist is null || isLoading)" @onclick="ExportAsync">
+                    @if (isExporting)
+                    {
+                        <span class="mox-spin" aria-hidden="true"></span>
+                        <span>Exporting…</span>
+                    }
+                    else
+                    {
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M6 3h8l5 5v13H6z"></path>
+                            <path d="M14 3v5h5"></path>
+                            <path d="M9.5 12.5l5 5M14.5 12.5l-5 5"></path>
+                        </svg>
+                        <span>Export to Excel</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="mox-alert" role="alert">
+            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+            <div class="mox-alert-body">@error</div>
+        </div>
+    }
+
+    @{
+        var routes = RoutesForDay();
+        var stops = routes.Sum(route => route.Shops.Count);
+        var ordered = routes.Sum(route => route.OrderedCount);
+        var visible = VisibleRoutes(routes);
+    }
+
+    <section class="mox-stats">
+        <div class="mox-stat is-lead">
+            <div class="mox-stat-label"><span class="mox-stat-mark"></span>Shops ordered</div>
+            <div class="mox-stat-value">@Figure(ordered)<span class="mox-rcl-of"> / @Figure(stops)</span></div>
+            <div class="mox-stat-foot">@CoverageLabel(ordered, stops)</div>
+        </div>
+        <div class="mox-stat is-live">
+            <div class="mox-stat-label"><span class="mox-stat-pip"></span>No order yet</div>
+            <div class="mox-stat-value">@Figure(stops - ordered)</div>
+            <div class="mox-stat-foot">Shop stops on @Figure(routes.Count(route => route.Shops.Count > 0)) routes</div>
+        </div>
+        <div class="mox-stat">
+            <div class="mox-stat-label"><span class="mox-stat-mark"></span>Orders</div>
+            <div class="mox-stat-value is-quiet">@Figure(orderCount)</div>
+            <div class="mox-stat-foot">@(matchOnDelivery ? "For delivery" : "Placed") @DayLabel</div>
+        </div>
+        <div class="mox-stat">
+            <div class="mox-stat-label"><span class="mox-stat-mark"></span>Orders off route</div>
+            <div class="mox-stat-value is-quiet">@Figure(checklist?.OffRouteOrders.Count)</div>
+            <div class="mox-stat-foot">From shops on no route, listed below</div>
+        </div>
+    </section>
+
+    @if (truncatedFrom is int total)
+    {
+        <div class="mox-alert" role="status">
+            <i class="ph ph-warning" aria-hidden="true"></i>
+            <div class="mox-alert-body">Only the first @OrderLimit.ToString("N0") of @total.ToString("N0") orders are checked.</div>
+        </div>
+    }
+
+    @if (isLoading && checklist is null)
+    {
+        <div class="mox-rcl-grid">
+            @for (var i = 0; i < 6; i++)
+            {
+                <div class="mox-card mox-rcl-route"><div class="mox-skel"></div><div class="mox-skel"></div><div class="mox-skel"></div></div>
+            }
+        </div>
+    }
+    else if (checklist is not null)
+    {
+        @if (visible.Count == 0)
+        {
+            <div class="mox-card">
+                <div class="mox-empty">
+                    <i class="ph ph-path" aria-hidden="true"></i>
+                    <strong>No route matches</strong>
+                    <span>Pick another day, clear the search, or show all shops.</span>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="mox-rcl-grid @(isLoading ? "is-busy" : null)">
+                @foreach (var (route, shops) in visible)
+                {
+                    var pct = route.Shops.Count == 0 ? 0 : route.OrderedCount * 100 / route.Shops.Count;
+                    <article class="mox-card mox-rcl-route" @key="route.Route.Name">
+                        <header class="mox-rcl-route-head">
+                            <div class="mox-rcl-route-titles">
+                                <h3 class="mox-rcl-route-name">@route.Route.Name</h3>
+                                <span class="mox-rcl-route-meta">@RouteMeta(route.Route)</span>
+                            </div>
+                            <span class="mox-rcl-count @(route.OrderedCount == route.Shops.Count ? "is-full" : null)"
+                                  title="Shops that have ordered, of the shops on the route">
+                                @route.OrderedCount / @route.Shops.Count
+                            </span>
+                        </header>
+                        <div class="mox-rcl-meter" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+                             aria-valuenow="@pct" aria-label="@($"{route.Route.Name}: {pct}% of shops ordered")">
+                            <span style="width:@(pct.ToString(CultureInfo.InvariantCulture))%"></span>
+                        </div>
+                        <ul class="mox-rcl-shops">
+                            @foreach (var shop in shops)
+                            {
+                                <li class="mox-rcl-shop @(shop.HasOrdered ? "is-done" : null)">
+                                    <span class="mox-rcl-tick" role="img"
+                                          aria-label="@(shop.HasOrdered ? "Ordered" : "No order")">
+                                        @if (shop.HasOrdered)
+                                        {
+                                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+                                        }
+                                    </span>
+                                    <div class="mox-rcl-shop-body">
+                                        <div class="mox-rcl-shop-line">
+                                            <span class="mox-rcl-shop-name" title="@shop.Name">@shop.Name</span>
+                                            @if (shop.IsOnHold)
+                                            {
+                                                <span class="mox-rcl-hold" title="Frozen in SAP — a credit hold">On hold</span>
+                                            }
+                                        </div>
+                                        <span class="mox-rcl-codes">@string.Join(" · ", shop.CardCodes)</span>
+                                        @if (shop.HasOrdered)
+                                        {
+                                            <div class="mox-rcl-orders">
+                                                @foreach (var order in shop.Orders)
+                                                {
+                                                    <button type="button" class="mox-rcl-order" title="View this order"
+                                                            @onclick="() => OnOpenOrder.InvokeAsync(order)">
+                                                        <span class="mox-rcl-order-no">@order.OrderNumber</span>
+                                                        <span class="mox-status @StatusTone(order)"><span class="mox-dot"></span>@StatusName(order)</span>
+                                                        <span class="mox-rcl-order-amt">@order.Currency @order.DocTotal.ToString("N2")</span>
+                                                        @if (!string.IsNullOrWhiteSpace(order.CreatedByUserName))
+                                                        {
+                                                            <span class="mox-rcl-order-by">@order.CreatedByUserName</span>
+                                                        }
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    </article>
+                }
+            </div>
+        }
+
+        @if (OffRouteVisible.Count > 0)
+        {
+            <section class="mox-card mox-rcl-off">
+                <header class="mox-rcl-route-head">
+                    <div class="mox-rcl-route-titles">
+                        <h3 class="mox-rcl-route-name">Orders from shops on no route</h3>
+                        <span class="mox-rcl-route-meta">
+                            These shops are not on any delivery route yet.
+                            @if (CanEditRoutes)
+                            {
+                                <a class="mox-rcl-link" href="/route-assignments">Put them on a route</a>
+                            }
+                        </span>
+                    </div>
+                    <span class="mox-rcl-count">@OffRouteVisible.Count</span>
+                </header>
+                <div class="mox-rcl-orders mox-rcl-off-list">
+                    @foreach (var order in OffRouteVisible)
+                    {
+                        <button type="button" class="mox-rcl-order" title="View this order"
+                                @onclick="() => OnOpenOrder.InvokeAsync(order)">
+                            <span class="mox-rcl-order-no">@order.OrderNumber</span>
+                            <span class="mox-rcl-order-shop">@(order.CardName ?? order.CardCode) <span class="mox-rcl-codes">@order.CardCode</span></span>
+                            <span class="mox-status @StatusTone(order)"><span class="mox-dot"></span>@StatusName(order)</span>
+                            <span class="mox-rcl-order-amt">@order.Currency @order.DocTotal.ToString("N2")</span>
+                            @if (!string.IsNullOrWhiteSpace(order.CreatedByUserName))
+                            {
+                                <span class="mox-rcl-order-by">@order.CreatedByUserName</span>
+                            }
+                        </button>
+                    }
+                </div>
+            </section>
+        }
+
+        <p class="mox-rcl-note">
+            Routes and their shops come from Delivery Routes. A shop's currency codes count as one shop;
+            Zimbabwe-dollar codes are left out.
+            @if (checklist.SkippedOrderCount > 0)
+            {
+                <span>@checklist.SkippedOrderCount cancelled or rejected @(checklist.SkippedOrderCount == 1 ? "order is" : "orders are") not counted.</span>
+            }
+        </p>
+    }
+</section>
+
+@code {
+    /// <summary>How the page names an order's status, so the checklist reads the same as the list.</summary>
+    [Parameter, EditorRequired] public Func<SalesOrderDto, string> StatusName { get; set; } = order => order.Status.ToString();
+
+    /// <summary>The page's status tone class for the pill.</summary>
+    [Parameter, EditorRequired] public Func<SalesOrderDto, string> StatusTone { get; set; } = _ => string.Empty;
+
+    /// <summary>Opens the page's order drawer.</summary>
+    [Parameter] public EventCallback<SalesOrderDto> OnOpenOrder { get; set; }
+
+    /// <summary>Whether to offer the link to Delivery Routes, which only Admin and SalesRep can open.</summary>
+    [Parameter] public bool CanEditRoutes { get; set; }
+
+    /// <summary>More orders than any day has seen; the alert says so if a day ever passes it.</summary>
+    private const int OrderLimit = 5000;
+
+    private enum ShowShops { All, Ordered, Missing }
+
+    private static readonly string[] WeekDays =
+        ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+    private DateTime? day = DateTime.Today;
+    private bool matchOnDelivery;
+    private string dayFilter = "all";
+    private ShowShops show = ShowShops.All;
+    private string? query;
+
+    private RouteMap? map;
+    private IReadOnlyDictionary<string, ShopStanding>? standings;
+    private RouteChecklist? checklist;
+    private int? orderCount;
+    private int? truncatedFrom;
+    private bool isLoading = true;
+    private bool isExporting;
+    private string? error;
+    private int loadVersion;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task SetMatchAsync(bool onDelivery)
+    {
+        if (matchOnDelivery == onDelivery)
+            return;
+
+        matchOnDelivery = onDelivery;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var version = ++loadVersion;
+        isLoading = true;
+        error = null;
+
+        try
+        {
+            // The routes and SAP standings change by the hour at most; the orders are what moves.
+            map ??= await RouteDirectory.GetMapAsync();
+            standings ??= await RouteDirectory.GetShopStandingsAsync();
+
+            var date = (day ?? DateTime.Today).Date;
+            var response = await SalesOrderService.GetSalesOrderPageAsync(new SalesOrderPageRequest
+            {
+                Page = 1,
+                PageSize = OrderLimit,
+                Source = SalesOrderSource.Mobile,
+                VanSalesUsersOnly = false,
+                OrderDate = matchOnDelivery ? null : date,
+                DeliveryDate = matchOnDelivery ? date : null,
+                SortBy = SalesOrderListSort.Ordered,
+                SortDescending = false
+            });
+
+            if (version != loadVersion)
+                return;
+
+            if (response is null)
+            {
+                error = "Could not read the orders for this day.";
+                return;
+            }
+
+            checklist = RouteOrderChecklist.Build(map, response.Orders, standings);
+            orderCount = response.Orders.Count - checklist.SkippedOrderCount;
+            truncatedFrom = response.TotalCount > response.Orders.Count ? response.TotalCount : null;
+        }
+        catch (Exception ex)
+        {
+            if (version != loadVersion)
+                return;
+
+            Logger.LogWarning(ex, "Could not build the retail route checklist");
+            error = "Could not build the route checklist. Try again in a moment.";
+        }
+        finally
+        {
+            if (version == loadVersion)
+                isLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// The routes on screen — the day filter and the search — each with every one of its shops,
+    /// ordered or not. The Ordered / No order switch narrows the page, not the report: the workbook
+    /// is the whole picture for those routes.
+    /// </summary>
+    private List<RouteChecklistRoute> ExportRoutes()
+    {
+        var term = query?.Trim();
+        return RoutesForDay()
+            .Where(route => route.Shops.Count > 0)
+            .Where(route => string.IsNullOrEmpty(term)
+                || route.Route.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || route.Shops.Any(shop => ShopMatches(shop, term)))
+            .ToList();
+    }
+
+    private async Task ExportAsync()
+    {
+        if (checklist is null || isExporting)
+            return;
+
+        isExporting = true;
+        error = null;
+        try
+        {
+            var routes = ExportRoutes();
+            var offRoute = OffRouteForExport();
+            await FillMissingLinesAsync(routes.SelectMany(route => route.Shops).SelectMany(shop => shop.Orders).Concat(offRoute));
+
+            var date = (day ?? DateTime.Today).Date;
+            var routesLabel = dayFilter switch
+            {
+                "all" => "All routes",
+                "none" => "Routes with no day set",
+                _ => $"{dayFilter} routes"
+            };
+
+            var bytes = ExportService.ExportRouteChecklistToExcel(new RouteChecklistExport(
+                date, matchOnDelivery, routesLabel, query?.Trim(), routes, offRoute,
+                checklist.SkippedOrderCount, StatusName));
+
+            await JS.InvokeVoidAsync(
+                "downloadFile",
+                $"Route_Checklist_{date:yyyyMMdd}_{DateTime.Now:HHmm}.xlsx",
+                Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Could not export the retail route checklist");
+            error = "Could not export the route checklist. Try again in a moment.";
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
+
+    private List<SalesOrderDto> OffRouteForExport()
+    {
+        if (checklist is null)
+            return [];
+
+        var term = query?.Trim();
+        return string.IsNullOrEmpty(term)
+            ? checklist.OffRouteOrders.ToList()
+            : checklist.OffRouteOrders
+                .Where(order => order.OrderNumber.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || order.CardCode.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || (order.CardName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false))
+                .ToList();
+    }
+
+    /// <summary>
+    /// The list read can come back without an order's lines, and the workbook is about what was
+    /// ordered, so any order that arrived without them is read in full first — a few at a time.
+    /// </summary>
+    private async Task FillMissingLinesAsync(IEnumerable<SalesOrderDto> orders)
+    {
+        var missing = orders.Where(order => order.Lines is not { Count: > 0 })
+            .DistinctBy(order => order.Id)
+            .ToList();
+        if (missing.Count == 0)
+            return;
+
+        using var gate = new SemaphoreSlim(4);
+        await Task.WhenAll(missing.Select(async order =>
+        {
+            await gate.WaitAsync();
+            try
+            {
+                var detail = await SalesOrderService.GetSalesOrderDetailsAsync(order);
+                if (detail?.Lines is { Count: > 0 } lines)
+                    order.Lines = lines;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Could not read the lines of order {OrderId} for the route checklist export", order.Id);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+    }
+
+    private string DayLabel => (day ?? DateTime.Today).Date == DateTime.Today
+        ? "today"
+        : "on " + (day ?? DateTime.Today).ToString("ddd d MMM", CultureInfo.InvariantCulture);
+
+    /// <summary>Routes that run on the chosen weekday, or every route.</summary>
+    private List<RouteChecklistRoute> RoutesForDay()
+    {
+        if (checklist is null)
+            return [];
+
+        return checklist.Routes
+            .Where(route => dayFilter == "all"
+                || (dayFilter == "none"
+                    ? route.Route.Days.Count == 0
+                    : route.Route.Days.Any(d => d.StartsWith(dayFilter, StringComparison.OrdinalIgnoreCase))))
+            .ToList();
+    }
+
+    /// <summary>The routes left after the shop filter and the search, each with the shops it still shows.</summary>
+    private List<(RouteChecklistRoute Route, List<RouteChecklistShop> Shops)> VisibleRoutes(List<RouteChecklistRoute> routes)
+    {
+        var term = query?.Trim();
+        var result = new List<(RouteChecklistRoute, List<RouteChecklistShop>)>();
+
+        foreach (var route in routes)
+        {
+            var routeMatches = string.IsNullOrEmpty(term)
+                || route.Route.Name.Contains(term, StringComparison.OrdinalIgnoreCase);
+
+            var shops = route.Shops
+                .Where(shop => show switch
+                {
+                    ShowShops.Ordered => shop.HasOrdered,
+                    ShowShops.Missing => !shop.HasOrdered,
+                    _ => true
+                })
+                .Where(shop => routeMatches || ShopMatches(shop, term!))
+                .ToList();
+
+            if (shops.Count > 0)
+                result.Add((route, shops));
+        }
+
+        return result;
+    }
+
+    private static bool ShopMatches(RouteChecklistShop shop, string term) =>
+        shop.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+        || shop.CardCodes.Any(code => code.Contains(term, StringComparison.OrdinalIgnoreCase))
+        || shop.Orders.Any(order => order.OrderNumber.Contains(term, StringComparison.OrdinalIgnoreCase));
+
+    private List<SalesOrderDto> OffRouteVisible
+    {
+        get
+        {
+            if (checklist is null || show == ShowShops.Missing)
+                return [];
+
+            var term = query?.Trim();
+            return string.IsNullOrEmpty(term)
+                ? checklist.OffRouteOrders.ToList()
+                : checklist.OffRouteOrders
+                    .Where(order => order.OrderNumber.Contains(term, StringComparison.OrdinalIgnoreCase)
+                        || order.CardCode.Contains(term, StringComparison.OrdinalIgnoreCase)
+                        || (order.CardName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false))
+                    .ToList();
+        }
+    }
+
+    private List<(string Value, string Label)> DayChips
+    {
+        get
+        {
+            var chips = new List<(string, string)> { ("all", "All") };
+            var routes = map?.AllRoutes ?? [];
+            foreach (var weekDay in WeekDays)
+            {
+                if (routes.Any(route => route.Days.Any(d => d.StartsWith(weekDay, StringComparison.OrdinalIgnoreCase))))
+                    chips.Add((weekDay, weekDay[..3]));
+            }
+
+            if (routes.Any(route => route.Days.Count == 0))
+                chips.Add(("none", "No day"));
+
+            return chips;
+        }
+    }
+
+    private static string RouteMeta(RouteSummary route)
+    {
+        var days = route.Days.Count == 0
+            ? "No day set"
+            : string.Join(" / ", route.Days.Select(d => d.Length > 3 ? d[..3] : d));
+        return string.IsNullOrWhiteSpace(route.Truck) ? days : $"{days} · {route.Truck}";
+    }
+
+    private string Figure(int? value) => checklist is null || value is null ? "—" : value.Value.ToString("N0");
+
+    private string CoverageLabel(int ordered, int stops) =>
+        checklist is null ? "Loading…"
+        : stops == 0 ? "No shops on these routes"
+        : $"{ordered * 100 / stops}% of route shops {DayLabel}";
+}
