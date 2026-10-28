@@ -28,7 +28,7 @@ Account
 
 ## Merchandiser
 Sales
-    Mobile Orders  /mobile-drafts
+    Retail orders  /mobile-drafts
 Deliveries
     Crate PODs  /crates/pods
     Crate Opening Balances  /crates/opening-balances
@@ -45,7 +45,7 @@ Overview
 Sales
     Sales Orders  /sales-orders
     Create Sale Order  /sales-orders/create
-    Mobile Orders  /mobile-drafts
+    Retail orders  /mobile-drafts
     Quotations  /quotations
     Create Quotation  /quotations/create
 Deliveries
@@ -170,7 +170,7 @@ Sales
     Create Invoice  /invoices/create
     Sales Orders  /sales-orders
     Create Sale Order  /sales-orders/create
-    Mobile Orders  /mobile-drafts
+    Retail orders  /mobile-drafts
     Quotations  /quotations
     Create Quotation  /quotations/create
     Credit Notes  /credit-notes
@@ -306,7 +306,7 @@ Sales
     Create Invoice  /invoices/create
     Sales Orders  /sales-orders
     Create Sale Order  /sales-orders/create
-    Mobile Orders  /mobile-drafts
+    Retail orders  /mobile-drafts
     Quotations  /quotations
     Create Quotation  /quotations/create
     Credit Notes  /credit-notes
