@@ -16,6 +16,7 @@ namespace ShopInventory.Features.InventoryTransfers.Commands.EditPendingTransfer
 public sealed class EditPendingTransferLinesHandler(
     ApplicationDbContext context,
     ITransferWarehouseAuthorizer warehouseAuthorizer,
+    IInventoryTransferApprovalService approvalService,
     IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
     ILogger<EditPendingTransferLinesHandler> logger)
@@ -67,7 +68,7 @@ public sealed class EditPendingTransferLinesHandler(
         if (edited.IsError)
             return edited.Errors;
 
-        var (lines, changes) = edited.Value;
+        var (lines, changes, needsApproval) = edited.Value;
 
         // A post in flight leaves the record reading Approved or PostFailed until SAP answers, and
         // reads this payload when it starts. Taking the poster's own claim stops the lines changing
@@ -96,9 +97,25 @@ public sealed class EditPendingTransferLinesHandler(
             // The failure was against the lines as they were. Left in place it would go on saying the
             // transfer is short after the short line was fixed, so it reads as approved and unposted —
             // which is what it is — until the next post says otherwise.
-            pending.Status = PendingInventoryTransferStatuses.Approved;
             pending.LastError = null;
-            await context.SaveChangesAsync(cancellationToken);
+
+            // Lowering a line or taking one out keeps within what was approved, which is how a
+            // transfer short at the depot gets posted. Asking for more of an item, or for an item
+            // nobody approved, is a different transfer, and goes back to the approvers; the person
+            // who made the change cannot be the one to approve it.
+            if (needsApproval)
+            {
+                pending.Status = PendingInventoryTransferStatuses.AwaitingApproval;
+                pending.DecidedAtUtc = null;
+                await context.SaveChangesAsync(cancellationToken);
+                await approvalService.ReopenAsync(
+                    ApprovalDocumentContext.ForPendingTransfer(pending), command.UserId, cancellationToken);
+            }
+            else
+            {
+                pending.Status = PendingInventoryTransferStatuses.Approved;
+                await context.SaveChangesAsync(cancellationToken);
+            }
         }
         finally
         {
@@ -125,7 +142,8 @@ public sealed class EditPendingTransferLinesHandler(
             await auditService.LogAsync(
                 AuditActions.EditPendingTransferLines, "PendingInventoryTransfer", pending.Id.ToString(),
                 $"Changed approved transfer {pending.DraftNumber ?? pending.Id.ToString()} from {pending.FromWarehouse} " +
-                $"to {pending.ToWarehouse} before posting: {summary}" + (reason is null ? "" : $". Reason: {reason}"),
+                $"to {pending.ToWarehouse} before posting: {summary}" + (reason is null ? "" : $". Reason: {reason}") +
+                (needsApproval ? ". Sent back for approval." : ""),
                 true);
         }
         catch { }
@@ -134,16 +152,20 @@ public sealed class EditPendingTransferLinesHandler(
         {
             PendingTransferId = pending.Id,
             Status = pending.Status,
-            ApprovalProcessComplete = true,
-            Message = $"Saved {summary}. Post it to SAP when ready."
+            ApprovalProcessComplete = !needsApproval,
+            Message = needsApproval
+                ? $"Saved {summary}. More stock than was approved needs approving again, so the transfer is back " +
+                  "awaiting approval, and someone other than you has to approve it."
+                : $"Saved {summary}. Post it to SAP when ready."
         };
     }
 
     /// <summary>
     /// The transfer's lines with <paramref name="edits"/> applied and <paramref name="added"/> put on
-    /// the end, and a line of text per change.
+    /// the end, a line of text per change, and whether the change asks for more than was approved: a
+    /// line raised or an item added.
     /// </summary>
-    internal static ErrorOr<(List<CreateInventoryTransferLineRequest> Lines, List<string> Changes)> ApplyEdits(
+    internal static ErrorOr<(List<CreateInventoryTransferLineRequest> Lines, List<string> Changes, bool NeedsApproval)> ApplyEdits(
         CreateInventoryTransferRequest payload,
         IReadOnlyList<EditPendingTransferLineDto> edits,
         IReadOnlyList<AddPendingTransferLineDto>? added = null,
@@ -163,6 +185,7 @@ public sealed class EditPendingTransferLinesHandler(
 
         var kept = new List<CreateInventoryTransferLineRequest>();
         var changes = new List<string>();
+        var needsApproval = false;
         for (var index = 0; index < current.Count; index++)
         {
             var line = current[index];
@@ -202,6 +225,7 @@ public sealed class EditPendingTransferLinesHandler(
             }
 
             kept.Add(WithQuantity(line, quantity));
+            needsApproval |= quantity > line.Quantity;
             changes.Add(quantity > line.Quantity && line.BatchNumbers is { Count: > 0 }
                 ? $"{line.ItemCode} {Format(line.Quantity)} → {Format(quantity)} (batches picked again at post)"
                 : $"{line.ItemCode} {Format(line.Quantity)} → {Format(quantity)}");
@@ -260,6 +284,8 @@ public sealed class EditPendingTransferLinesHandler(
                 UoMCode = uomCode
             });
             changes.Add($"{itemCode} added at {Format(addition.Quantity)}");
+            // An item taken off a line and put back at no more than was approved is still approved.
+            needsApproval |= addition.Quantity > ApprovedQuantity(current, itemCode);
         }
 
         if (problems.Count > 0)
@@ -272,7 +298,7 @@ public sealed class EditPendingTransferLinesHandler(
             return Errors.InventoryTransfer.ValidationFailed(
                 "That takes out every line. Withdraw the transfer instead.");
 
-        return (kept, changes);
+        return (kept, changes, needsApproval);
     }
 
     /// <summary>
@@ -310,6 +336,11 @@ public sealed class EditPendingTransferLinesHandler(
             SerialNumbers = line.SerialNumbers
         };
     }
+
+    private static decimal ApprovedQuantity(IEnumerable<CreateInventoryTransferLineRequest> approved, string itemCode)
+        => approved
+            .Where(line => string.Equals(line.ItemCode?.Trim(), itemCode, StringComparison.OrdinalIgnoreCase))
+            .Sum(line => line.Quantity);
 
     private static string Format(decimal quantity) => quantity.ToString("0.####", CultureInfo.InvariantCulture);
 }

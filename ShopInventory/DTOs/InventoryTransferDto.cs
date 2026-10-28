@@ -112,6 +112,9 @@ public class InventoryTransferRequestDto
     public string? DecisionByRole { get; set; }
     public DateTime? DecisionAtUtc { get; set; }
     public Guid? ApprovalRequestId { get; set; }
+
+    /// <summary>Who raised the request in this app; they may not approve it. Null when raised in SAP.</summary>
+    public Guid? OriginatorUserId { get; set; }
     public string? ApprovalTemplateName { get; set; }
     public List<ApprovalStageProgressDto> ApprovalStages { get; set; } = [];
     public List<InventoryTransferRequestLineDto>? Lines { get; set; }

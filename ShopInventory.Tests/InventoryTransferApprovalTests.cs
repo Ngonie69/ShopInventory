@@ -653,6 +653,104 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         Assert.Equal(7, reloaded.Priority);
     }
 
+    // ── Nobody approves their own document ──────────────
+
+    [Fact]
+    public async Task An_administrator_cannot_approve_a_transfer_they_raised()
+    {
+        // Admin holds every stage and an administrator's transfer routes to Administrator Review, so
+        // this is the case where raising, approving and posting would otherwise be one person.
+        var raiser = await AddUserAsync(ApplicationRoles.Admin);
+        var other = await AddUserAsync(ApplicationRoles.Admin);
+        var context = ApprovalDocumentContext.ForPendingTransfer(await AddPendingTransferAsync(raiser));
+
+        var own = await ApprovalService().SubmitDecisionAsync(
+            context, raiser.Id, ApprovalDecisionValues.Approved, null, null, default);
+        var theirs = await ApprovalService().SubmitDecisionAsync(
+            context, other.Id, ApprovalDecisionValues.Approved, null, null, default);
+
+        Assert.True(own.IsError);
+        Assert.Equal("InventoryTransfer.SelfApprovalNotAllowed", own.FirstError.Code);
+        Assert.Contains("You raised this inventory transfer", own.FirstError.Description);
+        Assert.False(theirs.IsError);
+        Assert.True(theirs.Value.ApprovalProcessComplete);
+    }
+
+    [Fact]
+    public async Task The_person_who_raised_a_transfer_may_still_turn_it_down()
+    {
+        // Rejecting only stops it, which withdrawing would do anyway.
+        var raiser = await AddUserAsync(ApplicationRoles.Admin);
+        var context = ApprovalDocumentContext.ForPendingTransfer(await AddPendingTransferAsync(raiser));
+
+        var result = await ApprovalService().SubmitDecisionAsync(
+            context, raiser.Id, ApprovalDecisionValues.NotApproved, null, null, default);
+
+        Assert.False(result.IsError);
+        Assert.True(result.Value.Rejected);
+    }
+
+    [Fact]
+    public async Task Reopening_an_approved_transfer_clears_its_approvals_and_bars_whoever_changed_it()
+    {
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var firstOfficer = await AddUserAsync(ApplicationRoles.StockController);
+        var editor = await AddUserAsync(ApplicationRoles.StockController);
+        var context = ApprovalDocumentContext.ForPendingTransfer(await AddPendingTransferAsync(submitter));
+        var approved = await ApprovalService().SubmitDecisionAsync(
+            context, firstOfficer.Id, ApprovalDecisionValues.Approved, null, null, default);
+        Assert.True(approved.Value.ApprovalProcessComplete);
+
+        StartNewRequestScope();
+        var reopened = await ApprovalService().ReopenAsync(context, editor.Id, default);
+
+        Assert.Equal(ApprovalRequestStatuses.Pending, reopened.Status);
+        Assert.Null(reopened.CompletedAtUtc);
+        Assert.Equal(editor.Id, reopened.ReopenedByUserId);
+        StartNewRequestScope();
+        Assert.Empty(await _context.ApprovalDecisions.ToListAsync());
+
+        var byEditor = await ApprovalService().SubmitDecisionAsync(
+            context, editor.Id, ApprovalDecisionValues.Approved, null, null, default);
+        Assert.True(byEditor.IsError);
+        Assert.Contains("You changed this inventory transfer after it was approved", byEditor.FirstError.Description);
+
+        var again = await ApprovalService().SubmitDecisionAsync(
+            context, firstOfficer.Id, ApprovalDecisionValues.Approved, null, null, default);
+        Assert.False(again.IsError);
+        Assert.True(again.Value.ApprovalProcessComplete);
+    }
+
+    [Fact]
+    public async Task A_transfer_already_posted_cannot_be_reopened()
+    {
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var pending = await AddPendingTransferAsync(submitter);
+        var context = ApprovalDocumentContext.ForPendingTransfer(pending);
+        await ApprovalService().EnsureRequestAsync(context, null, default);
+        await ApprovalService().MarkGeneratedAsync(
+            ApprovalDocumentTypes.InventoryTransfer, pending.Id.ToString(), 7001, 7001, submitter.Id, false, default);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => ApprovalService().ReopenAsync(context, submitter.Id, default));
+    }
+
+    [Fact]
+    public async Task Approvers_are_only_asked_for_decisions_they_may_give()
+    {
+        var raiser = await AddUserAsync(ApplicationRoles.Admin);
+        var other = await AddUserAsync(ApplicationRoles.Admin);
+        var notifications = new NoOpNotificationService();
+        var service = new InventoryTransferApprovalService(
+            _context, notifications, NullLogger<InventoryTransferApprovalService>.Instance);
+
+        await service.EnsureRequestAsync(
+            ApprovalDocumentContext.ForPendingTransfer(await AddPendingTransferAsync(raiser)), null, default);
+
+        var asked = Assert.Single(notifications.Sent);
+        Assert.Equal(other.Id, asked.TargetUserId);
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     private ITransferWarehouseAuthorizer Authorizer() => new TransferWarehouseAuthorizer(_context);

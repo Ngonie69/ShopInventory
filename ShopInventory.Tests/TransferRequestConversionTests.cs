@@ -17,9 +17,9 @@ namespace ShopInventory.Tests;
 /// Covers who may turn a transfer request into an SAP inventory transfer.
 /// </summary>
 /// <remarks>
-/// Administrators and stock controllers may convert regardless of whether the request originated
-/// in this app or directly in SAP. Depot controllers may act only when stock leaves one of their
-/// assigned warehouses, and their action must complete approval before anything posts to SAP.
+/// Administrators, stock controllers and the wash bay may convert from any warehouse; depot
+/// controllers only when stock leaves one of theirs. Whoever it is, nothing posts until the
+/// request's approval is complete, and nobody approves a request they raised.
 /// </remarks>
 public sealed class TransferRequestConversionTests : IDisposable
 {
@@ -64,48 +64,52 @@ public sealed class TransferRequestConversionTests : IDisposable
     }
 
     [Fact]
-    public async Task A_stock_officer_converts_a_request_raised_in_SAP()
+    public async Task A_stock_officer_cannot_convert_a_request_raised_in_SAP_before_it_is_approved()
     {
-        // Reported from the field: the drawer offered "Convert to Transfer" and the call came back
-        // "You are not an authorizer for the selected approval stage". A SAP-raised request routes
-        // to the administrator stage, which is not a stage a stock officer authorizes — and the
-        // request has no approval process here to authorize in the first place.
+        // Stock officers used to convert straight past the approval. A request raised in SAP has
+        // nobody on file who raised it, so it routes to Administrator Review, which they do not hold.
         var officer = await AddUserAsync(ApplicationRoles.StockController);
         var sap = new RecordingSapClient();
 
         var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
 
-        Assert.False(result.IsError);
-        Assert.Equal(1, sap.Conversions);
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Null(result.Value.Transfer);
+        Assert.Contains("awaiting Administrator Review", result.Value.Message);
+        Assert.Equal(0, sap.Conversions);
+        Assert.Empty(sap.LookedUp);
     }
 
     [Fact]
-    public async Task The_wash_bay_converts_a_request_raised_in_SAP_as_a_stock_officer_does()
+    public async Task The_wash_bay_waits_for_approval_as_a_stock_officer_does()
     {
         // No warehouses assigned: the wash bay is unscoped, so an empty assignment must not read as
-        // "no warehouse you may act on".
+        // "no warehouse you may act on" — it reaches the approval like anyone else, and stops there.
         var washBay = await AddUserAsync(ApplicationRoles.WashBay);
         var sap = new RecordingSapClient();
 
         var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, washBay.Id), default);
 
         Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
-        Assert.Equal(1, sap.Conversions);
+        Assert.Null(result.Value.Transfer);
+        Assert.Equal(0, sap.Conversions);
     }
 
     [Fact]
-    public async Task Converting_a_request_raised_in_SAP_opens_no_approval_against_it()
+    public async Task Converting_a_request_raised_in_SAP_opens_its_approval_routed_by_nobody_converting_it()
     {
-        // Listing stopped opening approvals on SAP-raised requests; converting one must not put
-        // the stub rows back, nor notify administrators about a review nobody asked for.
+        // The approval is opened by the first conversion, not by listing. The person converting is
+        // never stamped as the one who raised it: that would route the request by their role and
+        // then bar them, of all people, from approving it.
         var officer = await AddUserAsync(ApplicationRoles.StockController);
 
-        var result = await Handler(new RecordingSapClient()).Handle(
+        await Handler(new RecordingSapClient()).Handle(
             new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
 
-        Assert.False(result.IsError);
-        Assert.Empty(await _context.ApprovalRequests.ToListAsync());
-        Assert.Empty(await _context.Notifications.ToListAsync());
+        var approval = Assert.Single(await _context.ApprovalRequests.ToListAsync());
+        Assert.Equal("General Transfer Review", approval.TemplateName);
+        Assert.Null(approval.OriginatorUserId);
+        Assert.Equal(ApprovalRequestStatuses.Pending, approval.Status);
     }
 
     [Fact]
@@ -120,33 +124,25 @@ public sealed class TransferRequestConversionTests : IDisposable
         Assert.Null(result.Value.Transfer);
         Assert.Equal(0, sap.Conversions);
         var approval = Assert.Single(_context.ApprovalRequests);
-        Assert.Equal("Depot Controller Transfers", approval.TemplateName);
+        Assert.Equal("General Transfer Review", approval.TemplateName);
         Assert.Equal(ApprovalRequestStatuses.Pending, approval.Status);
     }
 
     [Fact]
-    public async Task A_stock_officer_approval_posts_a_SAP_request_submitted_by_a_depot_controller()
+    public async Task An_administrator_approval_posts_a_SAP_request_a_depot_controller_submitted()
     {
         var controller = await AddUserAsync(ApplicationRoles.DepotController, Source);
-        var officer = await AddUserAsync(ApplicationRoles.StockController);
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
         var sap = new RecordingSapClient();
         var handler = Handler(sap);
 
         var submitted = await handler.Handle(
             new ConvertTransferRequestCommand(RequestDocEntry, controller.Id), default);
-        var (_, stages) = await ApprovalService().GetProgressAsync(
-            new ApprovalDocumentContext(
-                ApprovalDocumentTypes.InventoryTransferRequest,
-                RequestDocEntry.ToString(),
-                RequestDocEntry.ToString(),
-                Source,
-                Destination),
-            default);
-        var stockStage = Assert.Single(stages);
+        var stage = Assert.Single((await ApprovalService().GetProgressAsync(RequestContext(), default)).Stages);
 
         var approved = await handler.Handle(
             new ConvertTransferRequestCommand(
-                RequestDocEntry, officer.Id, stockStage.StageId, "Approved for posting", true),
+                RequestDocEntry, admin.Id, stage.StageId, "Approved for posting", true),
             default);
 
         Assert.False(submitted.IsError);
@@ -156,7 +152,7 @@ public sealed class TransferRequestConversionTests : IDisposable
         var approval = Assert.Single(_context.ApprovalRequests);
         Assert.Equal(ApprovalRequestStatuses.GeneratedByAuthorizer, approval.Status);
         var decision = Assert.Single(approval.Decisions);
-        Assert.Equal(officer.Id, decision.AuthorizerUserId);
+        Assert.Equal(admin.Id, decision.AuthorizerUserId);
         Assert.Equal(ApprovalDecisionValues.Approved, decision.Decision);
     }
 
@@ -192,10 +188,10 @@ public sealed class TransferRequestConversionTests : IDisposable
     {
         var requester = await AddUserAsync(ApplicationRoles.StockController);
         await OpenApprovalAsync(requester);
-        var officer = await AddUserAsync(ApplicationRoles.StockController);
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
 
         var result = await Handler(new RecordingSapClient())
-            .Handle(new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
+            .Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
 
         Assert.False(result.IsError);
         var published = Assert.Single(_published.Sent);
@@ -234,10 +230,10 @@ public sealed class TransferRequestConversionTests : IDisposable
     // ── A request this app raised ───────────────────────
 
     [Fact]
-    public async Task A_stock_controller_converts_a_request_the_app_raised()
+    public async Task A_stock_controller_cannot_convert_an_app_request_still_awaiting_depot_acceptance()
     {
-        // An app approval record must not turn conversion into an approval-stage authorization
-        // check for a stock controller.
+        // The bypass this replaces: a stock controller's Convert posted the transfer while its
+        // approval still sat waiting on the depot.
         var requester = await AddUserAsync(ApplicationRoles.StockController);
         await OpenApprovalAsync(requester);
         var officer = await AddUserAsync(ApplicationRoles.StockController);
@@ -246,9 +242,53 @@ public sealed class TransferRequestConversionTests : IDisposable
         var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
 
         Assert.False(result.IsError);
+        Assert.Null(result.Value.Transfer);
+        Assert.Contains("awaiting Depot Acceptance", result.Value.Message);
+        Assert.Equal(0, sap.Conversions);
+        Assert.Equal(ApprovalRequestStatuses.Pending, Assert.Single(_context.ApprovalRequests).Status);
+    }
+
+    [Fact]
+    public async Task Once_approved_a_request_is_converted_without_a_new_decision()
+    {
+        // The depot accepts it from the approvals list without generating; the stock controller who
+        // raised it then converts it. Generating carries out someone else's approval, so it is
+        // theirs to do, and no decision of theirs is recorded.
+        var requester = await AddUserAsync(ApplicationRoles.StockController);
+        await OpenApprovalAsync(requester);
+        var controller = await AddUserAsync(ApplicationRoles.DepotController, Source);
+        var sap = new RecordingSapClient();
+        var stage = Assert.Single((await ApprovalService().GetProgressAsync(RequestContext(), default)).Stages);
+
+        var accepted = await Handler(sap).Handle(
+            new ConvertTransferRequestCommand(RequestDocEntry, controller.Id, stage.StageId, null, false), default);
+        var converted = await Handler(sap).Handle(
+            new ConvertTransferRequestCommand(RequestDocEntry, requester.Id), default);
+
+        Assert.False(accepted.IsError);
+        Assert.False(converted.IsError, string.Join("; ", converted.Errors.Select(error => error.Description)));
+        Assert.NotNull(converted.Value.Transfer);
         Assert.Equal(1, sap.Conversions);
-        var approval = Assert.Single(_context.ApprovalRequests);
-        Assert.Equal(ApprovalRequestStatuses.GeneratedByAuthorizer, approval.Status);
+        var approval = Assert.Single(_context.ApprovalRequests.Include(item => item.Decisions));
+        Assert.Equal(ApprovalRequestStatuses.Generated, approval.Status);
+        Assert.Equal(controller.Id, Assert.Single(approval.Decisions).AuthorizerUserId);
+    }
+
+    [Fact]
+    public async Task The_person_who_raised_a_request_cannot_approve_it_by_converting()
+    {
+        // Admin holds every stage, so without this an administrator could raise a request and post
+        // it with nobody else looking.
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        await OpenApprovalAsync(admin);
+        var sap = new RecordingSapClient();
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.SelfApprovalNotAllowed", result.FirstError.Code);
+        Assert.Equal(0, sap.Conversions);
+        Assert.Empty(Assert.Single(_context.ApprovalRequests.Include(item => item.Decisions)).Decisions);
     }
 
     [Fact]
@@ -334,7 +374,11 @@ public sealed class TransferRequestConversionTests : IDisposable
     [Fact]
     public async Task A_request_whose_transfer_SAP_already_has_is_closed_and_not_converted_again()
     {
-        // The first conversion posted and then failed to close the request, so it was still open.
+        // The first conversion posted and then failed to close the request, so it was still open
+        // in SAP with its approval already marked generated.
+        var requester = await AddUserAsync(ApplicationRoles.StockController);
+        await OpenApprovalAsync(requester);
+        await ApprovalService().MarkGeneratedAsync(RequestDocEntry, 6900, 6900, requester.Id, true, default);
         var officer = await AddUserAsync(ApplicationRoles.StockController);
         var sap = new RecordingSapClient
         {
@@ -380,13 +424,22 @@ public sealed class TransferRequestConversionTests : IDisposable
     public async Task Two_people_converting_one_request_contend_for_one_lock()
     {
         // The older guards were keyed on the person, so a stock officer and an administrator
-        // converting the same request each held their own lock and could both post.
+        // converting the same request each held their own lock and could both post. Both reach the
+        // lock only once the request is approved, and SAP cannot be searched here, so neither posts
+        // and the approval stays open for the second.
+        var requester = await AddUserAsync(ApplicationRoles.StockController);
+        await OpenApprovalAsync(requester);
+        var controller = await AddUserAsync(ApplicationRoles.DepotController, Source);
+        var stage = Assert.Single((await ApprovalService().GetProgressAsync(RequestContext(), default)).Stages);
+        await Handler(new RecordingSapClient()).Handle(
+            new ConvertTransferRequestCommand(RequestDocEntry, controller.Id, stage.StageId, null, false), default);
         var officer = await AddUserAsync(ApplicationRoles.StockController);
         var admin = await AddUserAsync(ApplicationRoles.Admin);
         var store = new AlwaysAcquiresStore();
+        var unreachable = new HttpRequestException("SAP is down");
 
-        await Handler(new RecordingSapClient(), store).Handle(new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
-        await Handler(new RecordingSapClient(), store).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+        await Handler(new RecordingSapClient { LookupFailure = unreachable }, store).Handle(new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
+        await Handler(new RecordingSapClient { LookupFailure = unreachable }, store).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
 
         Assert.Equal(
             [RequestDocEntry.ToString(), RequestDocEntry.ToString()],
@@ -411,15 +464,14 @@ public sealed class TransferRequestConversionTests : IDisposable
     // ── Helpers ─────────────────────────────────────────
 
     private Task<ApprovalRequestEntity> OpenApprovalAsync(User originator)
-        => ApprovalService().EnsureRequestAsync(
-            new ApprovalDocumentContext(
-                ApprovalDocumentTypes.InventoryTransferRequest,
-                RequestDocEntry.ToString(),
-                RequestDocEntry.ToString(),
-                Source,
-                Destination),
-            originator.Id,
-            default);
+        => ApprovalService().EnsureRequestAsync(RequestContext(), originator.Id, default);
+
+    private static ApprovalDocumentContext RequestContext() => new(
+        ApprovalDocumentTypes.InventoryTransferRequest,
+        RequestDocEntry.ToString(),
+        RequestDocEntry.ToString(),
+        Source,
+        Destination);
 
     private async Task<User> AddUserAsync(string role, params string[] warehouseCodes)
     {

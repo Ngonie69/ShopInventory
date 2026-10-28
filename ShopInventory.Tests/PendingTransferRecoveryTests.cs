@@ -242,6 +242,7 @@ public sealed class PendingTransferRecoveryTests : IDisposable
         Assert.Equal(3, stored.LineCount);
         Assert.Equal(10 + 715 + 4275, stored.TotalQuantity);
         Assert.Equal(pending.DecidedAtUtc, stored.DecidedAtUtc);
+        Assert.Empty(_reopened);
 
         var posted = await Retry(stock, sap).Handle(new RetryPendingTransferPostCommand(pending.Id, Controller), default);
 
@@ -252,7 +253,7 @@ public sealed class PendingTransferRecoveryTests : IDisposable
     }
 
     [Fact]
-    public async Task A_raised_line_and_an_added_item_post_with_the_rest()
+    public async Task A_raised_line_and_an_added_item_go_back_for_approval_before_they_post()
     {
         var pending = await GivenFailedTransferAsync(("YOG144", 720), ("RMA001", 4275));
         var sap = new RecordingSap();
@@ -267,18 +268,39 @@ public sealed class PendingTransferRecoveryTests : IDisposable
         Assert.Contains("RMA001 4275 → 5000", edited.Value.Message);
         Assert.Contains("LAC005 added at 12", edited.Value.Message);
 
+        Assert.False(edited.Value.ApprovalProcessComplete);
+        Assert.Contains("back awaiting approval", edited.Value.Message);
+
+        // More than was approved is a new decision, and not the editor's to make.
         var stored = await ReadAsync(pending.Id);
-        Assert.Equal(PendingInventoryTransferStatuses.Approved, stored.Status);
+        Assert.Equal(PendingInventoryTransferStatuses.AwaitingApproval, stored.Status);
+        Assert.Null(stored.DecidedAtUtc);
         Assert.Equal(3, stored.LineCount);
         Assert.Equal(720 + 5000 + 12, stored.TotalQuantity);
+        Assert.Equal([(pending.Id.ToString(), Controller)], _reopened);
 
+        var lines = PendingInventoryTransferMapper.DeserializePayload(stored).Lines!;
+        Assert.Equal(["YOG144", "RMA001", "LAC005"], lines.Select(line => line.ItemCode));
+        Assert.Equal("EA", lines[2].UoMCode);
+
+        // Nothing posts until it is approved again.
         var posted = await Retry(new DepotStock(), sap).Handle(new RetryPendingTransferPostCommand(pending.Id, Controller), default);
+        Assert.True(posted.IsError);
+        Assert.Empty(sap.Created);
+    }
 
-        Assert.False(posted.IsError);
-        var sent = Assert.Single(sap.Created);
-        Assert.Equal(["YOG144", "RMA001", "LAC005"], sent.Lines!.Select(line => line.ItemCode));
-        Assert.Equal([720m, 5000m, 12m], sent.Lines!.Select(line => line.Quantity));
-        Assert.Equal("EA", sent.Lines![2].UoMCode);
+    [Fact]
+    public async Task Raising_one_line_alone_sends_the_transfer_back_for_approval()
+    {
+        var pending = await GivenFailedTransferAsync(("YOG144", 720), ("RMA001", 4275));
+
+        var edited = await EditLines(BuildStore()).Handle(
+            new EditPendingTransferLinesCommand(pending.Id, Controller, [new() { LineNum = 0, Quantity = 721 }], null),
+            default);
+
+        Assert.False(edited.IsError);
+        Assert.Equal(PendingInventoryTransferStatuses.AwaitingApproval, (await ReadAsync(pending.Id)).Status);
+        Assert.Equal([(pending.Id.ToString(), Controller)], _reopened);
     }
 
     [Fact]
@@ -292,7 +314,10 @@ public sealed class PendingTransferRecoveryTests : IDisposable
             default);
 
         Assert.False(result.IsError);
-        var lines = PendingInventoryTransferMapper.DeserializePayload(await ReadAsync(pending.Id)).Lines!;
+        var stored = await ReadAsync(pending.Id);
+        Assert.Equal(PendingInventoryTransferStatuses.AwaitingApproval, stored.Status);
+        Assert.Single(_reopened);
+        var lines = PendingInventoryTransferMapper.DeserializePayload(stored).Lines!;
         Assert.Equal(["YOG144", "YOG020"], lines.Select(line => line.ItemCode));
     }
 
@@ -328,8 +353,13 @@ public sealed class PendingTransferRecoveryTests : IDisposable
             default);
 
         Assert.False(result.IsError);
-        var lines = PendingInventoryTransferMapper.DeserializePayload(await ReadAsync(pending.Id)).Lines!;
+        var stored = await ReadAsync(pending.Id);
+        var lines = PendingInventoryTransferMapper.DeserializePayload(stored).Lines!;
         Assert.Equal(["RMA001", "YOG144"], lines.Select(line => line.ItemCode));
+
+        // Put back at 10 of the 720 that were approved: still within the approval.
+        Assert.Equal(PendingInventoryTransferStatuses.Approved, stored.Status);
+        Assert.Empty(_reopened);
     }
 
     [Fact]
@@ -756,7 +786,19 @@ public sealed class PendingTransferRecoveryTests : IDisposable
     }
 
     private EditPendingTransferLinesHandler EditLines(IIdempotencyRequestStore store)
-        => new(NewContext(), Authorizer(), store, Audit(), NullLogger<EditPendingTransferLinesHandler>.Instance);
+        => new(NewContext(), Authorizer(), Reopens(), store, Audit(), NullLogger<EditPendingTransferLinesHandler>.Instance);
+
+    /// <summary>Each transfer sent back for approval by a line edit, and who sent it.</summary>
+    private readonly List<(string DocumentKey, Guid By)> _reopened = [];
+
+    private IInventoryTransferApprovalService Reopens()
+        => StubProxy.For<IInventoryTransferApprovalService>((method, args) =>
+        {
+            if (method.Name != nameof(IInventoryTransferApprovalService.ReopenAsync))
+                throw new InvalidOperationException($"Unexpected approval call: {method.Name}");
+            _reopened.Add((((ApprovalDocumentContext)args![0]!).DocumentKey, (Guid)args[1]!));
+            return Task.FromResult(new ApprovalRequestEntity());
+        });
 
     private WithdrawPendingTransferHandler Withdraw(IIdempotencyRequestStore store)
         => new(NewContext(), Authorizer(), store, Audit(), NullLogger<WithdrawPendingTransferHandler>.Instance);

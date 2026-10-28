@@ -160,7 +160,7 @@ public sealed class TransfersLeaveUnpostedTillStockTests : IDisposable
         await SeedTillSaleAsync(Item, 8, DesktopSaleConsolidationStatus.Pending);
         var sap = new DepotSap();
 
-        var result = await ConvertHandler(sap).Handle(new ConvertTransferRequestCommand(7001, Guid.NewGuid()), default);
+        var result = await ConvertHandler(sap).Handle(new ConvertTransferRequestCommand(7001, await AdministratorAsync()), default);
 
         Assert.True(result.IsError);
         Assert.Equal("InventoryTransfer.InsufficientStock", result.FirstError.Code);
@@ -174,7 +174,7 @@ public sealed class TransfersLeaveUnpostedTillStockTests : IDisposable
         await SeedTillSaleAsync(Item, 8, DesktopSaleConsolidationStatus.Pending);
         var sap = new DepotSap { RequestedQuantity = 677 };
 
-        var result = await ConvertHandler(sap).Handle(new ConvertTransferRequestCommand(7001, Guid.NewGuid()), default);
+        var result = await ConvertHandler(sap).Handle(new ConvertTransferRequestCommand(7001, await AdministratorAsync()), default);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         Assert.Equal(1, sap.Conversions);
@@ -186,7 +186,7 @@ public sealed class TransfersLeaveUnpostedTillStockTests : IDisposable
         // Most conversions: a depot no till sells from. It must cost exactly what it did before.
         var sap = new DepotSap();
 
-        var result = await ConvertHandler(sap).Handle(new ConvertTransferRequestCommand(7001, Guid.NewGuid()), default);
+        var result = await ConvertHandler(sap).Handle(new ConvertTransferRequestCommand(7001, await AdministratorAsync()), default);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         Assert.Equal(1, sap.Conversions);
@@ -199,7 +199,7 @@ public sealed class TransfersLeaveUnpostedTillStockTests : IDisposable
         await SeedTillSaleAsync(Item, 8, DesktopSaleConsolidationStatus.Pending);
         var sap = new DepotSap { StockReadThrows = true };
 
-        var result = await ConvertHandler(sap).Handle(new ConvertTransferRequestCommand(7001, Guid.NewGuid()), default);
+        var result = await ConvertHandler(sap).Handle(new ConvertTransferRequestCommand(7001, await AdministratorAsync()), default);
 
         Assert.True(result.IsError);
         Assert.Contains("try again in a minute", result.FirstError.Description);
@@ -244,9 +244,6 @@ public sealed class TransfersLeaveUnpostedTillStockTests : IDisposable
             {
                 nameof(ITransferWarehouseAuthorizer.EnsureCanConvertRequestAsync) =>
                     Task.FromResult<ErrorOr<Success>>(Result.Success),
-                // Null scope: an admin or stock controller, who converts directly.
-                nameof(ITransferWarehouseAuthorizer.GetSourceScopeAsync) =>
-                    Task.FromResult<IReadOnlyList<string>?>(null),
                 _ => throw new InvalidOperationException($"Unexpected authorizer call: {method.Name}")
             }),
             new IdempotencyRequestStore(new SingleDbContextScopeFactory(_options), Options.Create(new SecuritySettings())),
@@ -256,6 +253,26 @@ public sealed class TransfersLeaveUnpostedTillStockTests : IDisposable
             TillClaims(),
             Options.Create(new SAPSettings { Enabled = true }),
             NullLogger<ConvertTransferRequestHandler>.Instance);
+
+    /// <summary>
+    /// An administrator, who holds the review stage a request raised in SAP routes to, so converting
+    /// approves it and posts in one call — leaving the till check as the only thing under test.
+    /// </summary>
+    private async Task<Guid> AdministratorAsync()
+    {
+        var admin = new User
+        {
+            Username = $"admin-{Guid.NewGuid():N}",
+            Email = $"{Guid.NewGuid():N}@example.com",
+            PasswordHash = "hash",
+            Role = ApplicationRoles.Admin,
+            IsActive = true
+        };
+        _context.Users.Add(admin);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return admin.Id;
+    }
 
     private async Task SeedTillSaleAsync(
         string itemCode,
