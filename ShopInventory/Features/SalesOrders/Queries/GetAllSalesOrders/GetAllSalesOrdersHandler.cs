@@ -286,7 +286,10 @@ public sealed class GetAllSalesOrdersHandler(
 
         if (columns.OrderDate is { } orderDate)
         {
-            var day = DateTime.SpecifyKind(orderDate.Date, DateTimeKind.Utc);
+            // OrderDate is the UTC instant the order was taken, and the day asked for is a Harare day,
+            // which starts at 22:00 UTC the day before. Matching on the UTC day put every order taken
+            // between midnight and 02:00 under the previous day.
+            var day = AuditService.FromCAT(orderDate.Date);
             var nextDay = day.AddDays(1);
             query = query.Where(o => o.OrderDate >= day && o.OrderDate < nextDay);
         }

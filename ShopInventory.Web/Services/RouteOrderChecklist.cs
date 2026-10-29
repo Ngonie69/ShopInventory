@@ -19,7 +19,15 @@ public sealed record RouteChecklistShop(
 }
 
 /// <summary>One delivery route and its shops, in the order the routes page lists them.</summary>
-public sealed record RouteChecklistRoute(RouteSummary Route, IReadOnlyList<RouteChecklistShop> Shops)
+/// <param name="Route">The route as the Delivery Routes page has it.</param>
+/// <param name="Shops">Every shop on the route, ordered or not, by name.</param>
+/// <param name="RunDate">
+/// The run of the route the checklist shows, when orders are matched to runs and the route has a day.
+/// </param>
+public sealed record RouteChecklistRoute(
+    RouteSummary Route,
+    IReadOnlyList<RouteChecklistShop> Shops,
+    DateTime? RunDate = null)
 {
     public int OrderedCount => Shops.Count(shop => shop.HasOrdered);
     public int OrderCount => Shops.Sum(shop => shop.Orders.Count);
@@ -32,7 +40,29 @@ public sealed record RouteChecklistRoute(RouteSummary Route, IReadOnlyList<Route
 public sealed record RouteChecklist(
     IReadOnlyList<RouteChecklistRoute> Routes,
     IReadOnlyList<SalesOrderDto> OffRouteOrders,
-    int SkippedOrderCount);
+    int SkippedOrderCount)
+{
+    /// <summary>The orders on the checklist, each counted once however many routes its shop is on.</summary>
+    public int OrderCount => Routes
+        .SelectMany(route => route.Shops)
+        .SelectMany(shop => shop.Orders)
+        .Concat(OffRouteOrders)
+        .Distinct(ReferenceEqualityComparer.Instance)
+        .Count();
+}
+
+/// <summary>Which orders tick a shop on the checklist for a day.</summary>
+public enum RouteChecklistMatch
+{
+    /// <summary>The orders for each route's run on or after the day. See <see cref="RouteOrderChecklist.BuildForRuns"/>.</summary>
+    Run,
+
+    /// <summary>The orders placed that day, in Harare time.</summary>
+    OrderDate,
+
+    /// <summary>The orders whose delivery date is that day.</summary>
+    DeliveryDate
+}
 
 /// <summary>
 /// Matches retail sales orders to the shops on each delivery route, so a reader can see which shops
@@ -64,23 +94,131 @@ public static partial class RouteOrderChecklist
         SalesOrderStatus.Rejected
     ];
 
+    /// <summary>Every order given ticks its shop: the caller has already chosen the day's orders.</summary>
     public static RouteChecklist Build(
         RouteMap map,
         IEnumerable<SalesOrderDto> orders,
+        IReadOnlyDictionary<string, ShopStanding>? standings = null) =>
+        Build(map, orders, standings, _ => new RouteWindow(null, _ => true), _ => true);
+
+    /// <summary>
+    /// The checklist for each route's run on or after <paramref name="day"/>: a shop is ticked by an
+    /// order meant for that run, whichever day before it the order was placed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Reps order for a route's run in the days before it. Borrowdale runs on Tuesdays and its shops
+    /// order on the Monday, so matching on the day an order was placed showed the route as unordered
+    /// on the day its truck went out full. Each order instead belongs to one run of each route its
+    /// shop is on: the first run on or after the Harare day it was placed (see <see cref="RunOf"/>).
+    /// </para>
+    /// <para>
+    /// A route with no day set has no runs, so its shops are ticked by orders placed on
+    /// <paramref name="day"/>, as are the orders from shops on no route.
+    /// </para>
+    /// <para>
+    /// <paramref name="orders"/> must hold every order placed from a week before <paramref name="day"/>
+    /// to a week after it: a run can be six days off, and its orders placed up to six days before it.
+    /// </para>
+    /// </remarks>
+    public static RouteChecklist BuildForRuns(
+        RouteMap map,
+        IEnumerable<SalesOrderDto> orders,
+        DateTime day,
         IReadOnlyDictionary<string, ShopStanding>? standings = null)
+    {
+        day = day.Date;
+        return Build(map, orders, standings, WindowFor, PlacedOnDay);
+
+        RouteWindow WindowFor(RouteSummary route)
+        {
+            var runDays = RunDays(route);
+            if (runDays.Count == 0)
+            {
+                return new RouteWindow(null, PlacedOnDay);
+            }
+
+            var run = NextRun(day, runDays);
+            return new RouteWindow(run, order => RunOf(order, runDays) == run);
+        }
+
+        bool PlacedOnDay(SalesOrderDto order) => HarareDay(order.OrderDate) == day;
+    }
+
+    /// <summary>The weekdays a route runs on, read from the routes page's day names.</summary>
+    internal static IReadOnlySet<DayOfWeek> RunDays(RouteSummary route)
+    {
+        var days = new HashSet<DayOfWeek>();
+        foreach (var name in route.Days)
+        {
+            var trimmed = name.Trim();
+            if (trimmed.Length < 3)
+            {
+                continue;
+            }
+
+            foreach (var weekDay in Enum.GetValues<DayOfWeek>())
+            {
+                if (weekDay.ToString().StartsWith(trimmed[..3], StringComparison.OrdinalIgnoreCase))
+                {
+                    days.Add(weekDay);
+                }
+            }
+        }
+
+        return days;
+    }
+
+    /// <summary>
+    /// The run of a route an order is for: the first run on or after the Harare day it was placed.
+    /// </summary>
+    /// <remarks>
+    /// An order placed on a run day counts for that day's run. On Tuesday 27 Oct 2026 the Tuesday
+    /// routes' same-day orders were invoiced that day, Marondera's among them, although the handset
+    /// had given every one a delivery date of the next Tuesday — so the delivery date cannot be used
+    /// to move them to the following run. The cost is that an order taken after the truck has left
+    /// counts for the run it missed.
+    /// </remarks>
+    internal static DateTime RunOf(SalesOrderDto order, IReadOnlySet<DayOfWeek> runDays) =>
+        NextRun(HarareDay(order.OrderDate), runDays);
+
+    /// <summary>The first day on or after <paramref name="from"/> that the route runs.</summary>
+    internal static DateTime NextRun(DateTime from, IReadOnlySet<DayOfWeek> runDays)
+    {
+        var date = from.Date;
+        for (var i = 0; i < 7 && !runDays.Contains(date.DayOfWeek); i++)
+        {
+            date = date.AddDays(1);
+        }
+
+        return date;
+    }
+
+    /// <summary>
+    /// The Harare day (UTC+2, no daylight saving) of an instant the API sends in UTC. An order placed
+    /// at 00:30 in Harare is 22:30 UTC the day before.
+    /// </summary>
+    internal static DateTime HarareDay(DateTime instant)
+    {
+        var utc = instant.Kind == DateTimeKind.Local ? instant.ToUniversalTime() : instant;
+        return IAuditService.ToCAT(utc).Date;
+    }
+
+    /// <summary>The run a route shows and which orders belong to it.</summary>
+    private readonly record struct RouteWindow(DateTime? RunDate, Func<SalesOrderDto, bool> Includes);
+
+    private static RouteChecklist Build(
+        RouteMap map,
+        IEnumerable<SalesOrderDto> orders,
+        IReadOnlyDictionary<string, ShopStanding>? standings,
+        Func<RouteSummary, RouteWindow> windowFor,
+        Func<SalesOrderDto, bool> offRouteIncludes)
     {
         standings ??= new Dictionary<string, ShopStanding>();
 
         var ordersByCode = new Dictionary<string, List<SalesOrderDto>>(StringComparer.OrdinalIgnoreCase);
-        var skipped = 0;
         foreach (var order in orders)
         {
-            if (NotPlaced.Contains(order.Status))
-            {
-                skipped++;
-                continue;
-            }
-
             var code = DeliveryRoutes.NormalizeCardCode(order.CardCode);
             if (!ordersByCode.TryGetValue(code, out var list))
             {
@@ -90,22 +228,65 @@ public static partial class RouteOrderChecklist
             list.Add(order);
         }
 
+        // A cancelled order is counted once, however many of its shop's routes it falls in.
+        var skipped = new HashSet<SalesOrderDto>(ReferenceEqualityComparer.Instance);
         var routedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var routes = new List<RouteChecklistRoute>(map.AllRoutes.Count);
         foreach (var route in map.AllRoutes)
         {
-            var shops = BuildShops(map.GetStops(route.Name), ordersByCode, standings, routedCodes);
-            routes.Add(new RouteChecklistRoute(route, shops));
+            var window = windowFor(route);
+            var placedByCode = PlacedOrders(ordersByCode, window.Includes, skipped);
+            var shops = BuildShops(map.GetStops(route.Name), placedByCode, standings, routedCodes);
+            routes.Add(new RouteChecklistRoute(route, shops, window.RunDate));
         }
 
-        var offRoute = ordersByCode
+        var offRouteCodes = ordersByCode
             .Where(entry => !routedCodes.Contains(entry.Key))
+            .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+        var offRoute = PlacedOrders(offRouteCodes, offRouteIncludes, skipped)
             .SelectMany(entry => entry.Value)
             .OrderBy(order => order.CardName ?? order.CardCode, StringComparer.OrdinalIgnoreCase)
             .ThenBy(order => order.OrderDate)
             .ToList();
 
-        return new RouteChecklist(routes, offRoute, skipped);
+        return new RouteChecklist(routes, offRoute, skipped.Count);
+    }
+
+    /// <summary>
+    /// The placed orders in a window, by code. The cancelled and rejected ones in it go to
+    /// <paramref name="skipped"/> instead.
+    /// </summary>
+    private static Dictionary<string, List<SalesOrderDto>> PlacedOrders(
+        Dictionary<string, List<SalesOrderDto>> ordersByCode,
+        Func<SalesOrderDto, bool> includes,
+        HashSet<SalesOrderDto> skipped)
+    {
+        var placed = new Dictionary<string, List<SalesOrderDto>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (code, codeOrders) in ordersByCode)
+        {
+            foreach (var order in codeOrders)
+            {
+                if (!includes(order))
+                {
+                    continue;
+                }
+
+                if (NotPlaced.Contains(order.Status))
+                {
+                    skipped.Add(order);
+                    continue;
+                }
+
+                if (!placed.TryGetValue(code, out var list))
+                {
+                    placed[code] = list = [];
+                }
+
+                list.Add(order);
+            }
+        }
+
+        return placed;
     }
 
     private static List<RouteChecklistShop> BuildShops(

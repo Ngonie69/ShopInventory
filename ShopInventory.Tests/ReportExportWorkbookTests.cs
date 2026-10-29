@@ -42,7 +42,7 @@ public class ReportExportWorkbookTests
         { "Van Sales Credit Notes", s => s.ExportVanSalesCreditNotesToExcel([], From, To) },
         { "Local Stock", s => s.ExportLocalStockToExcel(new LocalStockResultDto { WarehouseCode = "01", SnapshotDate = To }) },
         { "Mobile Orders", s => s.ExportMobileOrdersToExcel([], "Mobile Orders") },
-        { "Route Checklist", s => s.ExportRouteChecklistToExcel(new RouteChecklistExport(To, false, "All routes", null, [], [], 0, order => order.Status.ToString())) },
+        { "Route Checklist", s => s.ExportRouteChecklistToExcel(new RouteChecklistExport(To, RouteChecklistMatch.OrderDate, "All routes", null, [], [], 0, order => order.Status.ToString())) },
         { "Shops", s => s.ExportShopsToExcel([]) },
         { "Market Breakages", s => s.ExportMarketBreakagesToExcel(new MarketBreakageExportDto { Status = "open", GeneratedAtUtc = To }) },
         { "G/L Ledger", s => s.ExportGLAccountLedgerToExcel(new GLAccountLedgerResponse { AccountCode = "701421", FromDate = From, ToDate = To, IsReconciled = true }) },

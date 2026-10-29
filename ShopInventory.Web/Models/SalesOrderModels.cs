@@ -346,6 +346,9 @@ public sealed record SalesOrderPageRequest
     /// <summary>Earliest order date. Null for every order ever made.</summary>
     public DateTime? FromDate { get; init; }
 
+    /// <summary>Latest order date, inclusive. Like <see cref="FromDate"/>, the API reads it as a UTC day.</summary>
+    public DateTime? ToDate { get; init; }
+
     /// <summary>With <see cref="FromDate"/>, still return an order waiting on someone that is older.</summary>
     public bool KeepOpenOrders { get; init; }
 

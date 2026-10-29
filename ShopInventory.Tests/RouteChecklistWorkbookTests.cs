@@ -46,7 +46,7 @@ public sealed class RouteChecklistWorkbookTests
         var checklist = RouteOrderChecklist.Build(DeliveryRouteDirectory.Build([]), orders);
         var chosen = checklist.Routes.Where(route => routes.Contains(route.Route.Name)).ToList();
         return _service.ExportRouteChecklistToExcel(new RouteChecklistExport(
-            Day, false, "All routes", null, chosen, checklist.OffRouteOrders, checklist.SkippedOrderCount,
+            Day, RouteChecklistMatch.OrderDate, "All routes", null, chosen, checklist.OffRouteOrders, checklist.SkippedOrderCount,
             order => order.Status.ToString(), invoiceDocNum));
     }
 
