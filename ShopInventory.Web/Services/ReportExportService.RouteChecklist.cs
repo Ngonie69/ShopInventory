@@ -1,6 +1,8 @@
 using System.Globalization;
 using ClosedXML.Excel;
+using DocumentFormat.OpenXml.Packaging;
 using ShopInventory.Web.Models;
+using S = DocumentFormat.OpenXml.Spreadsheet;
 
 namespace ShopInventory.Web.Services;
 
@@ -13,6 +15,11 @@ namespace ShopInventory.Web.Services;
 /// <param name="OffRouteOrders">Orders from shops on no route.</param>
 /// <param name="SkippedOrderCount">Cancelled or rejected orders, which tick nothing.</param>
 /// <param name="StatusName">The page's name for an order's status.</param>
+/// <param name="InvoiceDocNum">
+/// The SAP invoice an order became, when it has. Most orders are invoiced in SAP rather than here, so
+/// the page asks SAP; without it only an order converted here has one.
+/// </param>
+/// <param name="InvoiceCheckIncomplete">SAP could not say for every order whether it was invoiced.</param>
 public sealed record RouteChecklistExport(
     DateTime Day,
     bool MatchedOnDelivery,
@@ -21,17 +28,28 @@ public sealed record RouteChecklistExport(
     IReadOnlyList<RouteChecklistRoute> Routes,
     IReadOnlyList<SalesOrderDto> OffRouteOrders,
     int SkippedOrderCount,
-    Func<SalesOrderDto, string> StatusName);
+    Func<SalesOrderDto, string> StatusName,
+    Func<SalesOrderDto, int?>? InvoiceDocNum = null,
+    bool InvoiceCheckIncomplete = false)
+{
+    /// <summary>The invoice number to print for an order, or null when it has none.</summary>
+    public int? InvoiceOf(SalesOrderDto order) =>
+        (InvoiceDocNum ?? (o => o.InvoiceSapDocNum))(order) is > 0 and var docNum ? docNum : null;
+}
 
 /// <summary>
 /// The route checklist workbook: for each route on screen, every shop marked ordered or not, with
-/// the lines it ordered beneath it.
+/// each order's invoice and, folded beneath it, the lines it ordered.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The first sheet is written by hand rather than as a filtered table: it is grouped — a banner
 /// per route, a block per shop — and that grouping is the point of it, so it is read top to bottom
 /// like the page. The flat Order Lines sheet is the one to filter and pivot.
+/// </para>
+/// <para>
+/// Each order is one row there, with its lines in a collapsed Excel row group beneath it, so the
+/// sheet reads as a checklist and a shop's items are one click on its + away.
 /// </para>
 /// <para>
 /// A shop on two of the chosen routes appears under both on the Checklist, since each route is
@@ -58,7 +76,8 @@ public partial class ReportExportService
             export.RoutesLabel,
             export.Search is { Length: > 0 } search ? $"matching \"{search}\"" : null,
             $"{ordered:N0} of {shops:N0} shop stops ordered",
-            export.SkippedOrderCount > 0 ? $"{export.SkippedOrderCount:N0} cancelled or rejected not counted" : null
+            export.SkippedOrderCount > 0 ? $"{export.SkippedOrderCount:N0} cancelled or rejected not counted" : null,
+            export.InvoiceCheckIncomplete ? "SAP did not answer for every order, so some invoice numbers may be missing" : null
         }.Where(part => part is not null));
 
         using var workbook = NewWorkbook(title);
@@ -66,28 +85,102 @@ public partial class ReportExportService
         WriteChecklistSummarySheet(workbook, export, subtitle);
         WriteChecklistLinesSheet(workbook, export, subtitle);
         WriteChecklistMissingSheet(workbook, export, subtitle);
-        return WorkbookToBytes(workbook);
+        return MarkRowGroupsCollapsed(WorkbookToBytes(workbook), "Checklist");
+    }
+
+    /// <summary>
+    /// Finishes ClosedXML's collapsed row groups the way Excel reads them: the collapsed flag on the
+    /// row that holds the + button rather than on the hidden rows, and the depth of the outline in
+    /// <c>outlineLevelRow</c>.
+    /// </summary>
+    /// <remarks>
+    /// ClosedXML 0.105 sets <c>collapsed</c> on every hidden row and writes the row outline's depth to
+    /// <c>outlineLevelCol</c>. Excel draws its button from the summary row's flag, so without this the
+    /// button reads "−" over rows that are already shut. Only groups whose summary row is above them
+    /// are handled, which is how the Checklist sheet is laid out.
+    /// </remarks>
+    private static byte[] MarkRowGroupsCollapsed(byte[] workbookBytes, string sheetName)
+    {
+        using var stream = new MemoryStream();
+        stream.Write(workbookBytes, 0, workbookBytes.Length);
+        stream.Position = 0;
+
+        using (var document = SpreadsheetDocument.Open(stream, true))
+        {
+            var workbookPart = document.WorkbookPart!;
+            var sheet = workbookPart.Workbook.Descendants<S.Sheet>().Single(sheet => sheet.Name == sheetName);
+            var worksheet = ((WorksheetPart)workbookPart.GetPartById(sheet.Id!)).Worksheet;
+
+            S.Row? previous = null;
+            var deepest = 0;
+            foreach (var row in worksheet.Descendants<S.Row>())
+            {
+                var level = row.OutlineLevel?.Value ?? 0;
+                if (level > 0)
+                {
+                    row.Collapsed = null;
+                    deepest = Math.Max(deepest, level);
+
+                    if (previous is not null
+                        && (previous.OutlineLevel?.Value ?? 0) < level
+                        && previous.RowIndex?.Value + 1 == row.RowIndex?.Value
+                        && row.Hidden?.Value == true)
+                    {
+                        previous.Collapsed = true;
+                    }
+                }
+
+                previous = row;
+            }
+
+            var format = worksheet.GetFirstChild<S.SheetFormatProperties>();
+            if (format is not null && deepest > 0)
+            {
+                format.OutlineLevelRow = (byte)deepest;
+                if (!worksheet.Descendants<S.Column>().Any(column => (column.OutlineLevel?.Value ?? 0) > 0))
+                {
+                    format.OutlineLevelColumn = null;
+                }
+            }
+        }
+
+        return stream.ToArray();
     }
 
     private static void WriteChecklistSheet(
         XLWorkbook workbook, RouteChecklistExport export, string title, string subtitle, int shops, int ordered)
     {
-        const int columns = 13;
+        const int columns = 14;
         var ws = AddSheet(workbook, "Checklist", NavyBlue);
+        // The + sits on the order's row, above the lines it opens.
+        ws.Outline.SummaryVLocation = XLOutlineSummaryVLocation.Top;
         var row = WriteReportHeader(ws, title, columns, subtitle: subtitle);
 
-        var orderCount = export.Routes.SelectMany(route => route.Shops).SelectMany(shop => shop.Orders)
-            .Select(order => order.Id).Distinct().Count();
+        var routeOrders = export.Routes.SelectMany(route => route.Shops).SelectMany(shop => shop.Orders)
+            .DistinctBy(order => order.Id)
+            .ToList();
+        var invoiced = routeOrders.Concat(export.OffRouteOrders).DistinctBy(order => order.Id)
+            .Count(order => export.InvoiceOf(order) is not null);
         WriteKpiCard(ws, row, 1, "Shops ordered", ordered, FormatCount, SuccessGreen);
         WriteKpiCard(ws, row, 3, "No order", shops - ordered, FormatCount, shops - ordered > 0 ? DangerRed : null);
-        WriteKpiCard(ws, row, 5, "Orders", orderCount, FormatCount);
+        WriteKpiCard(ws, row, 5, "Orders", routeOrders.Count, FormatCount);
         WriteKpiCard(ws, row, 7, "Orders off route", export.OffRouteOrders.Count, FormatCount,
             export.OffRouteOrders.Count > 0 ? WarningOrange : null);
+        WriteKpiCard(ws, row, 9, "Invoiced", invoiced, FormatCount, invoiced > 0 ? SuccessGreen : null);
         row += 3;
+
+        if (routeOrders.Count + export.OffRouteOrders.Count > 0)
+        {
+            var hint = ws.Cell(row - 1, 1);
+            hint.Value = "Click + beside an order to see its items, or 2 at the top left of the sheet to open them all.";
+            hint.Style.Font.Italic = true;
+            hint.Style.Font.FontSize = 9;
+            hint.Style.Font.FontColor = MutedText;
+        }
 
         string[] headers =
         [
-            "Shop", "Codes", "Ordered?", "Order #", "Status", "Placed by", "Item", "Description",
+            "Shop", "Codes", "Ordered?", "Order #", "Status", "Invoice #", "Placed by", "Item", "Description",
             "Qty", "UoM", "Line total", "Ccy", "Order total"
         ];
         for (var col = 0; col < headers.Length; col++)
@@ -119,7 +212,7 @@ public partial class ReportExportService
             foreach (var shop in route.Shops)
             {
                 row = WriteChecklistShop(ws, row, columns, shop.Name, string.Join(", ", shop.CardCodes),
-                    shop.IsOnHold, shop.Orders, export.StatusName);
+                    shop.IsOnHold, shop.Orders, export);
             }
         }
 
@@ -133,14 +226,14 @@ public partial class ReportExportService
             {
                 var first = group.First();
                 row = WriteChecklistShop(ws, row, columns, first.CardName ?? first.CardCode, first.CardCode,
-                    isOnHold: false, group.ToList(), export.StatusName);
+                    isOnHold: false, group.ToList(), export);
             }
         }
 
         WriteFooter(ws, row - 1, columns);
         FinalizeSheet(ws, columns, headerRow, landscape: true);
         ws.Column(1).Width = Math.Min(Math.Max(ws.Column(1).Width, 28), 46);
-        ws.Column(8).Width = Math.Min(Math.Max(ws.Column(8).Width, 24), 42);
+        ws.Column(9).Width = Math.Min(Math.Max(ws.Column(9).Width, 24), 42);
     }
 
     private static int WriteChecklistBanner(IXLWorksheet ws, int row, int columns, string text, XLColor fill)
@@ -159,12 +252,12 @@ public partial class ReportExportService
     }
 
     /// <summary>
-    /// One shop's block: a single NO ORDER row, or a row per line of each order it placed, with
-    /// the shop, its ORDERED badge and each order's header written on the block's first row only.
+    /// One shop's block: a single NO ORDER row, or a row per order it placed — the shop and its
+    /// ORDERED badge on the first — each with its lines grouped and collapsed beneath it.
     /// </summary>
     private static int WriteChecklistShop(
         IXLWorksheet ws, int row, int columns, string name, string codes, bool isOnHold,
-        IReadOnlyList<SalesOrderDto> orders, Func<SalesOrderDto, string> statusName)
+        IReadOnlyList<SalesOrderDto> orders, RouteChecklistExport export)
     {
         var start = row;
         var hasOrdered = orders.Count > 0;
@@ -179,45 +272,57 @@ public partial class ReportExportService
             row++;
         }
 
+        var lineGroups = new List<(int First, int Last)>();
         foreach (var order in orders)
         {
-            var lines = order.Lines ?? [];
-            var orderStart = row;
+            var lines = (order.Lines ?? []).OrderBy(line => line.LineNum).ToList();
+            var orderRow = row;
             ws.Cell(row, 4).Value = order.OrderNumber;
             ws.Cell(row, 4).Style.Font.Bold = true;
-            ws.Cell(row, 5).Value = statusName(order);
-            ws.Cell(row, 6).Value = order.CreatedByUserName ?? string.Empty;
-            ws.Cell(row, 13).Value = order.DocTotal;
-            ws.Cell(row, 13).Style.NumberFormat.Format = FormatMoney;
-            ws.Cell(row, 13).Style.Font.Bold = true;
-
-            if (lines.Count == 0)
+            ws.Cell(row, 5).Value = export.StatusName(order);
+            if (export.InvoiceOf(order) is { } invoice)
             {
-                ws.Cell(row, 8).Value = "No lines on this order";
-                ws.Cell(row, 8).Style.Font.Italic = true;
-                ws.Cell(row, 8).Style.Font.FontColor = MutedText;
-                ws.Cell(row, 12).Value = order.Currency ?? string.Empty;
+                ws.Cell(row, 6).Value = invoice;
+                ws.Cell(row, 6).Style.NumberFormat.Format = "0";
+                ws.Cell(row, 6).Style.Font.Bold = true;
+                ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+            }
+
+            ws.Cell(row, 7).Value = order.CreatedByUserName ?? string.Empty;
+            ws.Cell(row, 8).Value = lines.Count == 0
+                ? "No lines on this order"
+                : $"{lines.Count} {(lines.Count == 1 ? "item" : "items")}";
+            ws.Cell(row, 8).Style.Font.Italic = true;
+            ws.Cell(row, 8).Style.Font.FontColor = MutedText;
+            ws.Cell(row, 13).Value = order.Currency ?? string.Empty;
+            ws.Cell(row, 14).Value = order.DocTotal;
+            ws.Cell(row, 14).Style.NumberFormat.Format = FormatMoney;
+            ws.Cell(row, 14).Style.Font.Bold = true;
+            row++;
+
+            foreach (var line in lines)
+            {
+                ws.Cell(row, 8).Value = line.ItemCode;
+                ws.Cell(row, 9).Value = line.ItemDescription ?? string.Empty;
+                ws.Cell(row, 10).Value = line.Quantity;
+                ws.Cell(row, 10).Style.NumberFormat.Format = FormatQuantity;
+                ws.Cell(row, 11).Value = line.UoMCode ?? string.Empty;
+                ws.Cell(row, 12).Value = line.LineTotal;
+                ws.Cell(row, 12).Style.NumberFormat.Format = FormatMoney;
+                ws.Cell(row, 13).Value = order.Currency ?? string.Empty;
                 row++;
             }
 
-            foreach (var line in lines.OrderBy(line => line.LineNum))
+            if (lines.Count > 0)
             {
-                ws.Cell(row, 7).Value = line.ItemCode;
-                ws.Cell(row, 8).Value = line.ItemDescription ?? string.Empty;
-                ws.Cell(row, 9).Value = line.Quantity;
-                ws.Cell(row, 9).Style.NumberFormat.Format = FormatQuantity;
-                ws.Cell(row, 10).Value = line.UoMCode ?? string.Empty;
-                ws.Cell(row, 11).Value = line.LineTotal;
-                ws.Cell(row, 11).Style.NumberFormat.Format = FormatMoney;
-                ws.Cell(row, 12).Value = order.Currency ?? string.Empty;
-                row++;
+                lineGroups.Add((orderRow + 1, row - 1));
             }
 
             // A thin rule between two orders from one shop, so their lines are not read as one.
-            if (orderStart > start)
+            if (orderRow > start)
             {
-                ws.Range(orderStart, 4, orderStart, columns).Style.Border.TopBorder = XLBorderStyleValues.Thin;
-                ws.Range(orderStart, 4, orderStart, columns).Style.Border.TopBorderColor = BorderGray;
+                ws.Range(orderRow, 4, orderRow, columns).Style.Border.TopBorder = XLBorderStyleValues.Thin;
+                ws.Range(orderRow, 4, orderRow, columns).Style.Border.TopBorderColor = BorderGray;
             }
         }
 
@@ -237,6 +342,13 @@ public partial class ReportExportService
         if (isOnHold)
         {
             ws.Cell(start, 2).Style.Font.FontColor = DangerRed;
+        }
+
+        foreach (var (first, last) in lineGroups)
+        {
+            var lineRows = ws.Rows(first, last);
+            lineRows.Group();
+            lineRows.Collapse();
         }
 
         return row;
@@ -336,13 +448,13 @@ public partial class ReportExportService
 
     private static void WriteChecklistLinesSheet(XLWorkbook workbook, RouteChecklistExport export, string subtitle)
     {
-        const int columns = 15;
+        const int columns = 16;
         var ws = AddSheet(workbook, "Order Lines", NavyBlue);
         var row = WriteReportHeader(ws, "Route Checklist — Order Lines", columns, subtitle: subtitle);
 
         string[] headers =
         [
-            "Route", "Shop", "Code", "Order #", "Ordered", "Delivery", "Status", "Placed by",
+            "Route", "Shop", "Code", "Order #", "Ordered", "Delivery", "Status", "Invoice #", "Placed by",
             "Item", "Description", "Qty", "UoM", "Unit price", "Line total", "Ccy"
         ];
         for (var col = 0; col < headers.Length; col++)
@@ -398,43 +510,49 @@ public partial class ReportExportService
                 }
 
                 ws.Cell(row, 7).Value = export.StatusName(order);
-                ws.Cell(row, 8).Value = order.CreatedByUserName ?? string.Empty;
-                ws.Cell(row, 15).Value = order.Currency ?? string.Empty;
+                if (export.InvoiceOf(order) is { } invoice)
+                {
+                    ws.Cell(row, 8).Value = invoice;
+                    ws.Cell(row, 8).Style.NumberFormat.Format = "0";
+                }
+
+                ws.Cell(row, 9).Value = order.CreatedByUserName ?? string.Empty;
+                ws.Cell(row, 16).Value = order.Currency ?? string.Empty;
 
                 if (line is null)
                 {
-                    ws.Cell(row, 10).Value = "No lines on this order";
-                    ws.Cell(row, 14).Value = order.DocTotal;
+                    ws.Cell(row, 11).Value = "No lines on this order";
+                    ws.Cell(row, 15).Value = order.DocTotal;
                     written.Add((order, order.DocTotal));
                 }
                 else
                 {
-                    ws.Cell(row, 9).Value = line.ItemCode;
-                    ws.Cell(row, 10).Value = line.ItemDescription ?? string.Empty;
-                    ws.Cell(row, 11).Value = line.Quantity;
-                    ws.Cell(row, 11).Style.NumberFormat.Format = FormatQuantity;
-                    ws.Cell(row, 12).Value = line.UoMCode ?? string.Empty;
-                    ws.Cell(row, 13).Value = line.UnitPrice;
-                    ws.Cell(row, 13).Style.NumberFormat.Format = FormatMoney;
-                    ws.Cell(row, 14).Value = line.LineTotal;
+                    ws.Cell(row, 10).Value = line.ItemCode;
+                    ws.Cell(row, 11).Value = line.ItemDescription ?? string.Empty;
+                    ws.Cell(row, 12).Value = line.Quantity;
+                    ws.Cell(row, 12).Style.NumberFormat.Format = FormatQuantity;
+                    ws.Cell(row, 13).Value = line.UoMCode ?? string.Empty;
+                    ws.Cell(row, 14).Value = line.UnitPrice;
+                    ws.Cell(row, 14).Style.NumberFormat.Format = FormatMoney;
+                    ws.Cell(row, 15).Value = line.LineTotal;
                     written.Add((order, line.LineTotal));
                 }
 
-                ws.Cell(row, 14).Style.NumberFormat.Format = FormatMoney;
+                ws.Cell(row, 15).Style.NumberFormat.Format = FormatMoney;
                 row++;
             }
         }
 
         row = FinishTable(ws, headerRow, dataStart, row, columns, "No orders on these routes for this day.");
         row = WriteCurrencyTotals(
-            ws, row, columns, currencyColumn: 15, labelColumn: 13,
+            ws, row, columns, currencyColumn: 16, labelColumn: 14,
             written.GroupBy(entry => CurrencyOf(entry.Order)),
             (sheet, totalRow, group) =>
             {
                 var count = group.Select(entry => entry.Order.Id).Distinct().Count();
-                sheet.Cell(totalRow, 13).Value = $"Total ({count:N0} {(count == 1 ? "order" : "orders")})";
-                sheet.Cell(totalRow, 14).Value = group.Sum(entry => entry.Amount);
-                sheet.Cell(totalRow, 14).Style.NumberFormat.Format = FormatMoney;
+                sheet.Cell(totalRow, 14).Value = $"Total ({count:N0} {(count == 1 ? "order" : "orders")})";
+                sheet.Cell(totalRow, 15).Value = group.Sum(entry => entry.Amount);
+                sheet.Cell(totalRow, 15).Style.NumberFormat.Format = FormatMoney;
             });
 
         WriteFooter(ws, row - 1, columns);
