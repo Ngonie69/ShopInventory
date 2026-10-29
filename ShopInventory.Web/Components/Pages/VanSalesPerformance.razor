@@ -115,6 +115,7 @@
                 <div class="vsp-kpi-value">@Money(lead)</div>
                 <div class="vsp-kpi-label">Gross takings</div>
                 <div class="vsp-kpi-sub">@CurrencyNote(summary.TotalsByCurrency)</div>
+                <VspSparkline Values="sparkTakings" Label="Takings by day" />
             </div>
 
             @if (showGp)
@@ -145,6 +146,7 @@
                             <span class="vs-metric-none">none of these sales is in SAP yet</span>
                         }
                     </div>
+                    <VspSparkline Values="sparkProfit" Label="Gross profit by day" />
                 </div>
             }
             else if (report.Margin is { Available: false } unavailable)
@@ -169,12 +171,14 @@
                         <span class="vs-metric-none">no calls recorded</span>
                     }
                 </div>
+                <VspSparkline Values="sparkCalls" Label="Productive calls by day" Second="true" />
             </div>
 
             <div class="vsp-kpi">
                 <div class="vsp-kpi-value">@DropSize(lead)</div>
                 <div class="vsp-kpi-label">Average drop</div>
                 <div class="vsp-kpi-sub">@(lead?.DropCount.ToString("N0") ?? "—") drops</div>
+                <VspSparkline Values="sparkDrop" Label="Average drop by day" />
             </div>
 
             <div class="vsp-kpi">
@@ -212,25 +216,61 @@
             </div>
         }
 
-        <div class="vsp-sections">
-            @foreach (var option in Sections)
+        <div class="vsp-toolbar">
+            <div class="vsp-sections" role="tablist" aria-label="Report sections">
+                @foreach (var option in Sections)
+                {
+                    <button type="button" role="tab" aria-selected="@(activeSection == option.Key ? "true" : "false")"
+                            class="vs-chip @(activeSection == option.Key ? "vs-chip-info" : "vs-chip-quiet")"
+                            @onclick="() => ShowSection(option.Key)">
+                        @option.Label
+                        <span class="vsp-section-count">@option.Count(report)</span>
+                    </button>
+                }
+            </div>
+
+            @* Charts plot one currency at a time; the tables keep every currency. Shown only when
+               there is a choice to make, and not on the drop-size view, which is per currency
+               already. *@
+            @if (currencies.Count > 1 && activeSection != SectionDrops)
             {
-                <button type="button"
-                        class="vs-chip @(activeSection == option.Key ? "vs-chip-info" : "vs-chip-quiet")"
-                        @onclick="() => ShowSection(option.Key)">
-                    @option.Label
-                    <span class="vsp-section-count">@option.Count(report)</span>
-                </button>
+                <div class="vsp-currency" role="group" aria-label="Currency the charts plot">
+                    <span class="vsp-currency-label">Charts in</span>
+                    <div class="vsp-currency-switch">
+                        @foreach (var option in currencies)
+                        {
+                            <button type="button" class="vsp-currency-btn @(option == chartCurrency ? "is-on" : null)"
+                                    aria-pressed="@(option == chartCurrency ? "true" : "false")"
+                                    @onclick="() => ShowCurrency(option)">@option</button>
+                        }
+                    </div>
+                </div>
             }
         </div>
 
-        @* The six cuts are inline rather than six components. They share this page's formatting
+        @* The six tables are inline rather than six components. They share this page's formatting
            helpers and nothing else will ever render them; extracting them would mean passing every
            formatter down or duplicating it, which is how two tables on one page start rounding
-           differently. *@
+           differently. The charts are the exception: each is drawn once, as a fragment at the foot of
+           this file, and placed both on the overview and at the head of its own section, so the two
+           cannot drift. *@
 
-        @if (activeSection == SectionRoutes)
+        @if (activeSection == SectionOverview)
         {
+            <div class="vsp-chart-grid">
+                @DailyCard
+                @WeekdayCard
+                @RoutesCard
+                @RepsCard
+                @ItemsCard
+                @DropCard
+                @PricesCard
+            </div>
+        }
+        else if (activeSection == SectionRoutes)
+        {
+            <div class="vsp-chart-grid">@RoutesCard</div>
+
             @if (report.Territories.Count > 0)
             {
                 <h3 class="vsp-heading">Territories</h3>
@@ -338,6 +378,8 @@
         }
         else if (activeSection == SectionReps)
         {
+            <div class="vsp-chart-grid">@RepsCard</div>
+
             <h3 class="vsp-heading">Rep league table</h3>
             <div class="vs-table-wrap">
                 <table class="vs-table">
@@ -409,6 +451,8 @@
         }
         else if (activeSection == SectionItems)
         {
+            <div class="vsp-chart-grid">@ItemsCard</div>
+
             <h3 class="vsp-heading">What moved</h3>
             <p class="vsp-note">
                 Ranked on reach — lines written and outlets reached — rather than on value or
@@ -517,6 +561,10 @@
                 which cannot be built at all: neither van path records a discount, so every van line
                 reads 0%. Under-pricing still shows here, because it shows in the price achieved.
             </p>
+            @if (report.ItemPrices.Count > 0)
+            {
+                <div class="vsp-chart-grid">@PricesCard</div>
+            }
             @if (report.ItemPrices.Count == 0)
             {
                 <div class="vs-empty">
@@ -582,6 +630,11 @@
         }
         else if (activeSection == SectionTrend)
         {
+            <div class="vsp-chart-grid">
+                @DailyCard
+                @WeekdayCard
+            </div>
+
             <h3 class="vsp-heading">By day of week</h3>
             <p class="vsp-note">
                 Averages divide by the days the period contained, not by the days that traded — so a
@@ -749,6 +802,13 @@
                     </div>
                 </div>
 
+                <div class="vsp-chart-grid">
+                    <VspChartCard Title="@($"Drops by band, {distribution.Currency}")"
+                                  Caption="The darker bands hold the middle half of the drops" Class="is-full">
+                        <VspColumnChart Columns="VanPerformanceCharts.Drops(distribution)" ShowValues="true" Emphasise="true" />
+                    </VspChartCard>
+                </div>
+
                 <div class="vs-table-wrap">
                     <table class="vs-table">
                         <thead>
@@ -787,6 +847,7 @@
 </div>
 
 @code {
+    private const string SectionOverview = "overview";
     private const string SectionRoutes = "routes";
     private const string SectionReps = "reps";
     private const string SectionItems = "items";
@@ -798,6 +859,7 @@
 
     private static readonly Section[] Sections =
     [
+        new(SectionOverview, "Overview", _ => string.Empty),
         new(SectionRoutes, "Territory & route", r => r.Routes.Count.ToString("N0")),
         new(SectionReps, "Reps", r => r.Reps.Count.ToString("N0")),
         new(SectionItems, "Items", r => r.Items.Count.ToString("N0")),
@@ -813,7 +875,29 @@
     private DateTime? toDate;
     private string? selectedRouteCode;
     private string? selectedRepId;
-    private string activeSection = SectionRoutes;
+    private string activeSection = SectionOverview;
+
+    // ── Charts ──────────────────────────────────────────────────────────────────
+    //
+    // Built once per load and once per currency switch rather than on every render: a 90-day period
+    // draws ninety columns and the tables below re-render on every chip click.
+
+    private IReadOnlyList<string> currencies = [];
+    private string chartCurrency = string.Empty;
+
+    private IReadOnlyList<VspColumn> chartDaily = [];
+    private IReadOnlyList<VspColumn> chartWeekdays = [];
+    private IReadOnlyList<VspBarRow> chartRoutes = [];
+    private IReadOnlyList<VspBarRow> chartReps = [];
+    private IReadOnlyList<VspBarRow> chartItems = [];
+    private string? chartItemsRemainder;
+    private IReadOnlyList<VspPriceRange> chartPrices = [];
+    private VanSalesDropSize? chartDrops;
+
+    private IReadOnlyList<double?> sparkTakings = [];
+    private IReadOnlyList<double?> sparkProfit = [];
+    private IReadOnlyList<double?> sparkCalls = [];
+    private IReadOnlyList<double?> sparkDrop = [];
 
     private bool isLoading;
     private string? loadError;
@@ -904,6 +988,7 @@
             }
 
             readAtUtc = DateTime.UtcNow;
+            BuildCharts();
 
             foreach (var row in report.Reps)
             {
@@ -944,6 +1029,48 @@
         WriteQuery();
     }
 
+    private void ShowCurrency(string code)
+    {
+        chartCurrency = code;
+        BuildCharts();
+    }
+
+    /// <summary>
+    /// The chart rows for the chosen currency. The KPI sparklines follow the lead currency, as the
+    /// tiles they sit in do, and do not move with the switch.
+    /// </summary>
+    private void BuildCharts()
+    {
+        if (report is null)
+        {
+            return;
+        }
+
+        currencies = VanPerformanceCharts.Currencies(report);
+        if (!currencies.Contains(chartCurrency))
+        {
+            chartCurrency = currencies.Count > 0 ? currencies[0] : string.Empty;
+        }
+
+        var currency = chartCurrency;
+        chartDaily = VanPerformanceCharts.Daily(report, currency);
+        chartWeekdays = VanPerformanceCharts.Weekdays(report, currency);
+        chartRoutes = VanPerformanceCharts.Routes(report, currency);
+        chartReps = VanPerformanceCharts.Reps(report, currency);
+        (chartItems, chartItemsRemainder) = VanPerformanceCharts.Items(report, currency);
+        chartPrices = VanPerformanceCharts.Prices(report, currency);
+        chartDrops = report.DropSizes.FirstOrDefault(drops => drops.Currency == currency);
+
+        var lead = currencies.Count > 0 ? currencies[0] : string.Empty;
+        var days = report.Trend.Daily;
+        VanSalesMoney? LeadOn(VanSalesTrendPoint day) => day.TotalsByCurrency.FirstOrDefault(total => total.Currency == lead);
+
+        sparkTakings = days.Select(day => day.DocumentCount > 0 && LeadOn(day) is { } money ? (double?)money.Gross : null).ToList();
+        sparkProfit = days.Select(day => LeadOn(day)?.GrossProfit is { } gp ? (double?)gp : null).ToList();
+        sparkCalls = days.Select(day => day.DocumentCount > 0 ? (double?)day.ProductiveCalls : null).ToList();
+        sparkDrop = days.Select(day => LeadOn(day)?.AverageDropSize is { } drop ? (double?)drop : null).ToList();
+    }
+
     /// <summary>The filters and the open section, in the page's own URL.</summary>
     private void WriteQuery()
     {
@@ -952,7 +1079,7 @@
             toDate,
             selectedRouteCode,
             VanReportLinks.ParseRep(selectedRepId));
-        query[ViewQueryName] = activeSection == SectionRoutes ? null : activeSection;
+        query[ViewQueryName] = activeSection == SectionOverview ? null : activeSection;
         VanReportLinks.WriteQuery(Navigation, query);
     }
 
@@ -1046,4 +1173,124 @@
         rate is { } value
             ? Math.Clamp(value * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture)
             : "0";
+
+    // ── Chart cards ─────────────────────────────────────────────────────────────
+    //
+    // Each drawn once and placed twice: on the overview and at the head of its own section. On the
+    // overview a card links to its section's table; in its own section the link would point at the
+    // page the reader is already on, so it is left off.
+
+    private bool OnOverview => activeSection == SectionOverview;
+
+    private RenderFragment SectionLink(string key, string label) =>
+        @<button type="button" class="vsp-card-link" @onclick="() => ShowSection(key)">@label</button>;
+
+    private RenderFragment DailyCard => @<VspChartCard Title="Takings by day" Class="is-wide"
+                                                      Caption="@($"Gross {chartCurrency}, with productive calls on their own scale")">
+        <Aside>
+            <div class="vsp-legend" aria-hidden="true">
+                <span><i class="vsp-key"></i>Takings</span>
+                <span><i class="vsp-key is-line"></i>Productive calls</span>
+                <span><i class="vsp-key is-silent"></i>Nothing sold</span>
+            </div>
+        </Aside>
+        <ChildContent>
+            @{
+                var traded = chartDaily.Where(day => day.Value is > 0).ToList();
+                var best = traded.OrderByDescending(day => day.Value).FirstOrDefault();
+                var daysWithSales = report?.Trend.Daily.Count(day => day.DocumentCount > 0) ?? 0;
+            }
+            <div class="vsp-headline">
+                <div>
+                    <span class="vsp-headline-value">@(best?.ValueText ?? "—")</span>
+                    <span class="vsp-headline-label">Best day@(best is null ? null : $" · {best.Tip.Split(" · ")[0]}")</span>
+                </div>
+                <div>
+                    <span class="vsp-headline-value">
+                        @(traded.Count == 0 ? "—" : VanPerformanceCharts.Money(chartCurrency, traded.Average(day => day.Value!.Value)))
+                    </span>
+                    <span class="vsp-headline-label">Average trading day</span>
+                </div>
+                <div>
+                    <span class="vsp-headline-value">@daysWithSales.ToString("N0") of @chartDaily.Count.ToString("N0")</span>
+                    <span class="vsp-headline-label">Days with sales</span>
+                </div>
+            </div>
+            <VspColumnChart Columns="chartDaily" Axis="true" MinWidth="560px" />
+        </ChildContent>
+    </VspChartCard>;
+
+    private RenderFragment WeekdayCard => @<VspChartCard Title="By day of week" Class="is-narrow"
+                                                        Caption="@($"{chartCurrency} per calendar day — days nobody worked count too")">
+        <VspColumnChart Columns="chartWeekdays" ShowValues="true" Emphasise="true" />
+    </VspChartCard>;
+
+    private RenderFragment RoutesCard => @<VspChartCard Title="Takings by route" Class="@(OnOverview ? "is-half" : "is-full")"
+                                                       Caption="@($"Gross {chartCurrency} · call compliance (CCR) and productive call rate (PCR)")">
+        <Aside>@if (OnOverview) { @SectionLink(SectionRoutes, "Territory & route table") }</Aside>
+        <ChildContent>
+            <VspBarList Rows="chartRoutes" LabelHead="Route" ExtraHeads="RouteHeads" />
+        </ChildContent>
+    </VspChartCard>;
+
+    private RenderFragment RepsCard => @<VspChartCard Title="Rep league" Class="@(OnOverview ? "is-half" : "is-full")"
+                                                     Caption="@($"Gross {chartCurrency}, ranked · strike rate is the truck's: calls that bought")">
+        <Aside>@if (OnOverview) { @SectionLink(SectionReps, "Full league table") }</Aside>
+        <ChildContent>
+            <VspBarList Rows="chartReps" LabelHead="Rep" ExtraHeads="RepHeads" Ranked="true" ShowMeter="true" />
+        </ChildContent>
+    </VspChartCard>;
+
+    private RenderFragment ItemsCard => @<VspChartCard Title="Top items by takings" Class="@(OnOverview ? "is-half" : "is-full")"
+                                                      Caption="@($"Line takings in {chartCurrency}, and each item's share of them")">
+        <Aside>@if (OnOverview) { @SectionLink(SectionItems, "Items table") }</Aside>
+        <ChildContent>
+            <VspBarList Rows="chartItems" LabelHead="Item" ExtraHeads="ItemHeads" />
+            @if (chartItemsRemainder is not null)
+            {
+                <div class="vsp-chart-note">@chartItemsRemainder</div>
+            }
+        </ChildContent>
+    </VspChartCard>;
+
+    private RenderFragment DropCard => @<VspChartCard Title="Drop size" Class="is-half"
+                                                     Caption="@($"Drops in each band, {chartCurrency} · the darker bands hold the middle half")">
+        <Aside>@if (OnOverview) { @SectionLink(SectionDrops, "Distribution") }</Aside>
+        <ChildContent>
+            @if (chartDrops is null)
+            {
+                <div class="vsp-chart-empty">No drops in this currency.</div>
+            }
+            else
+            {
+                <div class="vsp-headline">
+                    <div>
+                        <span class="vsp-headline-value">@VanPerformanceCharts.Money2(chartDrops.Currency, chartDrops.Median)</span>
+                        <span class="vsp-headline-label">Median</span>
+                    </div>
+                    <div>
+                        <span class="vsp-headline-value">@VanPerformanceCharts.Money2(chartDrops.Currency, chartDrops.Mean)</span>
+                        <span class="vsp-headline-label">Mean</span>
+                    </div>
+                    <div>
+                        <span class="vsp-headline-value">@(chartDrops.MedianToMean?.ToString("N2") ?? "—")</span>
+                        <span class="vsp-headline-label">Median ÷ mean</span>
+                    </div>
+                </div>
+                <VspColumnChart Columns="VanPerformanceCharts.Drops(chartDrops)" ShowValues="true" Emphasise="true" />
+            }
+        </ChildContent>
+    </VspChartCard>;
+
+    private RenderFragment PricesCard => @<VspChartCard Title="Price realisation" Class="is-full"
+                                                       Caption="Each item's unit-price range against the reps' own average — not a list price">
+        <Aside>@if (OnOverview) { @SectionLink(SectionPrices, "Price table") }</Aside>
+        <ChildContent>
+            <VspPriceRanges Ranges="chartPrices" />
+        </ChildContent>
+    </VspChartCard>;
+
+    private static readonly string[] RouteHeads = ["CCR", "PCR"];
+    private static readonly string[] RepHeads = ["Strike rate"];
+    private static readonly string[] ItemHeads = ["Share"];
 }

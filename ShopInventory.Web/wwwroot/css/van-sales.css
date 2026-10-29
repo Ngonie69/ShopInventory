@@ -2221,6 +2221,660 @@
     min-width: 90px;
 }
 
+/* — Charts ——————————————————————————————————————————————————————
+   Components/VanPerformance/Vsp*.razor. Two series colours and no more: the
+   accent for money, the warn amber for calls and rates. They differ in
+   lightness as well as hue in both schemes, so the pair survives a reader who
+   cannot tell purple from orange. Everything that is "not measured" — a silent
+   day, an unattributed route — is the faint tone, never a colour of its own. */
+
+.vs .vsp-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin: 1.25rem 0 1rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid var(--vs-divider);
+}
+
+.vs .vsp-toolbar .vsp-sections {
+    margin: 0;
+}
+
+.vs .vsp-currency {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.vs .vsp-currency-label {
+    font-size: 0.76rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsp-currency-switch {
+    display: flex;
+    padding: 2px;
+    border: 1px solid var(--vs-field-edge);
+    border-radius: var(--vs-r-md);
+    background: var(--vs-field-bg);
+}
+
+.vs .vsp-currency-btn {
+    min-width: 3.4rem;
+    height: 30px;
+    padding: 0 0.7rem;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--vs-mute);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.vs .vsp-currency-btn:hover {
+    color: var(--vs-ink);
+}
+
+.vs .vsp-currency-btn.is-on {
+    background: var(--vs-accent);
+    color: var(--vs-on-accent);
+}
+
+.vs .vsp-currency-btn:focus-visible {
+    outline: 2px solid var(--vs-accent);
+    outline-offset: 1px;
+}
+
+/* The card grid: six tracks, so a row holds a wide and a narrow card, two
+   halves or three thirds. Below 1100px every card takes the full row. */
+.vs .vsp-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 0 0 1.25rem;
+}
+
+.vs .vsp-card {
+    grid-column: span 6;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    padding: 1rem 1.15rem 1.1rem;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    border-radius: 10px;
+}
+
+.vs .vsp-card.is-wide { grid-column: span 4; }
+.vs .vsp-card.is-narrow { grid-column: span 2; }
+.vs .vsp-card.is-half { grid-column: span 3; }
+.vs .vsp-card.is-third { grid-column: span 2; }
+
+.vs .vsp-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+}
+
+.vs .vsp-card-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+}
+
+.vs .vsp-card-caption {
+    margin-top: 0.15rem;
+    font-size: 0.76rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsp-card-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: 0.8rem;
+    color: var(--vs-accent-text);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.vs .vsp-card-link:hover {
+    text-decoration: underline;
+}
+
+.vs .vsp-card-link:focus-visible {
+    outline: 2px solid var(--vs-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+.vs .vsp-chart-empty,
+.vs .vsp-chart-note {
+    font-size: 0.8rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsp-headline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.75rem;
+}
+
+.vs .vsp-headline > div {
+    display: flex;
+    flex-direction: column;
+}
+
+.vs .vsp-headline-value {
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsp-headline-label {
+    font-size: 0.74rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsp-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1rem;
+    font-size: 0.74rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsp-legend > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.vs .vsp-key {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--vs-accent);
+}
+
+.vs .vsp-key.is-line {
+    height: 2px;
+    width: 14px;
+    border-radius: 1px;
+    background: var(--vs-warn);
+}
+
+.vs .vsp-key.is-silent {
+    height: 2px;
+    background: var(--vs-faint);
+}
+
+/* — Column chart — */
+
+/* overflow-x: auto computes overflow-y to auto as well, so the top scale label,
+   which sits half above the plot, needs room inside the box or it is clipped. */
+.vs .vsp-cols-wrap {
+    overflow-x: auto;
+    padding-top: 0.6rem;
+}
+
+.vs .vsp-cols {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.vs .vsp-plot {
+    position: relative;
+    height: 200px;
+}
+
+.vs .vsp-cols.has-axis .vsp-plot,
+.vs .vsp-cols.has-axis .vsp-col-labels {
+    margin-left: 3.2rem;
+}
+
+.vs .vsp-cols.has-line .vsp-plot,
+.vs .vsp-cols.has-line .vsp-col-labels {
+    margin-right: 2.4rem;
+}
+
+.vs .vsp-cols.has-values .vsp-plot {
+    height: 170px;
+    padding-top: 1.1rem;
+    border-bottom: 1px solid var(--vs-divider);
+}
+
+.vs .vsp-tick {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 1px solid var(--vs-rule);
+}
+
+.vs .vsp-tick-left,
+.vs .vsp-tick-right {
+    position: absolute;
+    top: -0.5rem;
+    font-size: 0.68rem;
+    line-height: 1;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vs .vsp-tick-left {
+    right: calc(100% + 0.5rem);
+}
+
+.vs .vsp-tick-right {
+    left: calc(100% + 0.5rem);
+    color: var(--vs-warn);
+}
+
+.vs .vsp-col-row {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    gap: clamp(1px, 0.35vw, 4px);
+}
+
+.vs .vsp-cols.has-values .vsp-col-row {
+    top: 1.1rem;
+    gap: 0.6rem;
+}
+
+.vs .vsp-col {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+.vs .vsp-col-bar {
+    position: relative;
+    width: 100%;
+    max-width: 44px;
+    min-height: 2px;
+    border-radius: 3px 3px 0 0;
+    background: rgba(var(--vs-accent-rgb), 0.3);
+}
+
+.vs .vsp-col-bar.is-strong {
+    background: var(--vs-accent);
+}
+
+.vs .vsp-col-bar.is-silent {
+    height: 2px;
+    border-radius: 1px;
+    background: var(--vs-faint);
+}
+
+.vs .vsp-col-value {
+    position: absolute;
+    bottom: calc(100% + 0.25rem);
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.7rem;
+    color: var(--vs-ink-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vs .vsp-col-bar.is-silent .vsp-col-value {
+    color: var(--vs-mute-3);
+}
+
+.vs .vsp-line {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.vs .vsp-line polyline {
+    fill: none;
+    stroke: var(--vs-warn);
+    stroke-width: 2;
+    stroke-linejoin: round;
+}
+
+.vs .vsp-dot {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    margin: 0 0 -4px -4px;
+    border-radius: 50%;
+    background: var(--vs-warn);
+    box-shadow: 0 0 0 2px var(--vs-surface);
+    pointer-events: none;
+}
+
+.vs .vsp-col-labels {
+    display: flex;
+    gap: clamp(1px, 0.35vw, 4px);
+    font-size: 0.68rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsp-cols.has-values .vsp-col-labels {
+    gap: 0.6rem;
+    font-size: 0.74rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsp-col-labels > span {
+    flex: 1 1 0;
+    min-width: 0;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.vs .vsp-col-labels > span.is-strong {
+    color: var(--vs-ink-2);
+    font-weight: 600;
+}
+
+/* — Bar list — */
+
+.vs .vsp-bars-wrap {
+    overflow-x: auto;
+}
+
+.vs .vsp-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-width: 460px;
+}
+
+.vs .vsp-bar-row {
+    display: grid;
+    grid-template-columns: var(--vsp-cols);
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.vs .vsp-bar-heads {
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsp-bar-rank {
+    font-size: 0.75rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsp-bar-name {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.vs .vsp-bar-label,
+.vs .vsp-bar-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vs .vsp-bar-label {
+    font-size: 0.84rem;
+    color: var(--vs-ink);
+}
+
+.vs .vsp-bar-sub {
+    font-size: 0.72rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsp-bar-row.is-muted .vsp-bar-label {
+    color: var(--vs-mute-2);
+    font-style: italic;
+}
+
+.vs .vsp-bar-measure {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.vs .vsp-bar-track {
+    flex: 1 1 auto;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--vs-rule);
+    overflow: hidden;
+}
+
+.vs .vsp-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--vs-accent);
+}
+
+.vs .vsp-bar-row.is-muted .vsp-bar-fill {
+    background: var(--vs-faint);
+}
+
+.vs .vsp-bar-value {
+    flex: none;
+    min-width: 6.2rem;
+    text-align: right;
+    font-size: 0.78rem;
+    color: var(--vs-ink-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vs .vsp-bar-extra {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    font-size: 0.78rem;
+    color: var(--vs-ink-2);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.vs .vsp-bar-extra.is-low {
+    color: var(--vs-warn);
+}
+
+.vs .vsp-bar-meter {
+    flex: 1 1 auto;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--vs-rule);
+    overflow: hidden;
+}
+
+.vs .vsp-bar-meter-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--vs-warn);
+}
+
+/* — Price ranges — */
+
+.vs .vsp-prices {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+    gap: 1rem 1.75rem;
+}
+
+.vs .vsp-price {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.vs .vsp-price-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.84rem;
+}
+
+.vs .vsp-price-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--vs-ink);
+}
+
+.vs .vsp-price-spread {
+    flex: none;
+    font-size: 0.76rem;
+    color: var(--vs-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsp-price-spread.is-wide {
+    color: var(--vs-warn);
+}
+
+.vs .vsp-price-track {
+    position: relative;
+    height: 16px;
+}
+
+.vs .vsp-price-track::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 7px;
+    height: 2px;
+    background: var(--vs-rule);
+}
+
+.vs .vsp-price-band {
+    position: absolute;
+    top: 4px;
+    height: 8px;
+    border: 1px solid var(--vs-accent);
+    border-radius: 4px;
+    background: rgba(var(--vs-accent-rgb), 0.22);
+}
+
+.vs .vsp-price-mid {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 2px;
+    height: 16px;
+    margin-left: -1px;
+    background: var(--vs-ink);
+}
+
+.vs .vsp-price-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsp-price-sub {
+    font-size: 0.72rem;
+    color: var(--vs-mute-2);
+}
+
+/* — KPI sparklines — */
+
+.vs .vsp-spark {
+    display: block;
+    width: 100%;
+    height: 28px;
+    margin-top: 0.35rem;
+}
+
+.vs .vsp-spark-area {
+    fill: rgba(var(--vs-accent-rgb), 0.16);
+}
+
+.vs .vsp-spark-line {
+    fill: none;
+    stroke: var(--vs-accent);
+    stroke-width: 1.6;
+    stroke-linejoin: round;
+}
+
+.vs .vsp-spark.is-second .vsp-spark-area {
+    fill: rgba(var(--vs-warn-rgb), 0.16);
+}
+
+.vs .vsp-spark.is-second .vsp-spark-line {
+    stroke: var(--vs-warn);
+}
+
+@media (max-width: 1100px) {
+    .vs .vsp-card.is-wide,
+    .vs .vsp-card.is-narrow,
+    .vs .vsp-card.is-half,
+    .vs .vsp-card.is-third {
+        grid-column: span 6;
+    }
+}
+
+/* On a phone the bar lists shrink rather than scroll sideways, which hid the
+   rate columns behind a scroll nobody finds. The meter goes; its figure stays. */
+@media (max-width: 560px) {
+    .vs .vsp-bars {
+        min-width: 0;
+        gap: 0.5rem;
+        --vsp-name-min: 5.5rem;
+        --vsp-bar-min: 4rem;
+        --vsp-meter-w: 2.8rem;
+    }
+
+    .vs .vsp-bar-row {
+        gap: 0.5rem;
+    }
+
+    .vs .vsp-bar-measure {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.2rem;
+    }
+
+    .vs .vsp-bar-value {
+        min-width: 0;
+        text-align: left;
+        font-size: 0.72rem;
+    }
+
+    .vs .vsp-bar-meter {
+        display: none;
+    }
+}
+
 /* — Narrow screens ————————————————————————————————————————————— */
 
 @media (max-width: 1240px) {

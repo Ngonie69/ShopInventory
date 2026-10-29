@@ -1,0 +1,44 @@
+@using System.Globalization
+@* Each item's unit-price range drawn against its own weighted average, which sits at the centre of
+   the track. Peer-relative, as the price table is: there is no list price to measure against. *@
+
+@if (Ranges.Count == 0)
+{
+    <div class="vsp-chart-empty">No priced lines in this currency.</div>
+}
+else
+{
+    <div class="vsp-prices">
+        @foreach (var range in Ranges)
+        {
+            <div class="vsp-price">
+                <div class="vsp-price-head">
+                    <span class="vsp-price-name" title="@range.Label">@range.Label</span>
+                    <span class="vsp-price-spread @(range.WideSpread ? "is-wide" : null)">@range.Spread</span>
+                </div>
+                <div class="vsp-price-track" title="@($"{range.Low} – {range.High}, average {range.Average}")">
+                    <span class="vsp-price-band" style="left:@Pct(range.LowPercent)%; width:@Pct(Math.Max(range.HighPercent - range.LowPercent, 1))%"></span>
+                    <span class="vsp-price-mid"></span>
+                </div>
+                <div class="vsp-price-scale">
+                    <span>@range.Low</span>
+                    <span>avg @range.Average</span>
+                    <span>@range.High</span>
+                </div>
+                <div class="vsp-price-sub">
+                    @range.Sub
+                    @if (range.Cheapest is not null)
+                    {
+                        <text> · @range.Cheapest</text>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<VspPriceRange> Ranges { get; set; } = [];
+
+    private static string Pct(double value) => value.ToString("F1", CultureInfo.InvariantCulture);
+}

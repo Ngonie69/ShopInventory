@@ -1,0 +1,108 @@
+@using System.Globalization
+@* A ranked list drawn as horizontal bars: routes, reps, items. Every row shares one grid, so the bars
+   start at the same x and can be compared by length. Extra figures sit in their own narrow columns;
+   a rate with no denominator is an em dash in the muted tone, never 0%.
+
+   With ShowMeter the first extra figure also gets a meter: a rate over 100% is drawn full and printed
+   as it is, because a strike rate over 100% means sales without recorded visits, and that is the
+   finding. *@
+
+@if (Rows.Count == 0)
+{
+    <div class="vsp-chart-empty">@Empty</div>
+}
+else
+{
+    var max = Rows.Max(row => row.Value);
+    <div class="vsp-bars-wrap">
+        <div class="vsp-bars" style="--vsp-cols: @Columns">
+            <div class="vsp-bar-row vsp-bar-heads" aria-hidden="true">
+                @if (Ranked)
+                {
+                    <span>#</span>
+                }
+                <span>@LabelHead</span>
+                <span>@ValueHead</span>
+                @foreach (var head in ExtraHeads)
+                {
+                    <span class="vsp-bar-extra">@head</span>
+                }
+            </div>
+            @for (var index = 0; index < Rows.Count; index++)
+            {
+                var row = Rows[index];
+                <div class="vsp-bar-row @(row.Muted ? "is-muted" : null)">
+                    @if (Ranked)
+                    {
+                        <span class="vsp-bar-rank">@(index + 1)</span>
+                    }
+                    <div class="vsp-bar-name">
+                        <span class="vsp-bar-label" title="@row.Label">@row.Label</span>
+                        @if (!string.IsNullOrWhiteSpace(row.Sub))
+                        {
+                            <span class="vsp-bar-sub" title="@row.Sub">@row.Sub</span>
+                        }
+                    </div>
+                    <div class="vsp-bar-measure">
+                        <span class="vsp-bar-track">
+                            <span class="vsp-bar-fill" style="width:@Width(row.Value, max)%"></span>
+                        </span>
+                        <span class="vsp-bar-value">@row.ValueText</span>
+                    </div>
+                    @for (var e = 0; e < row.Extras.Count; e++)
+                    {
+                        var figure = row.Extras[e];
+                        <span class="vsp-bar-extra @(figure.None ? "vs-metric-none" : figure.Low ? "is-low" : null)">
+                            @if (ShowMeter && e == 0)
+                            {
+                                <span class="vsp-bar-meter" aria-hidden="true">
+                                    @if (row.Meter is { } meter)
+                                    {
+                                        <span class="vsp-bar-meter-fill"
+                                              style="width:@(Math.Clamp(meter * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture))%"></span>
+                                    }
+                                </span>
+                            }
+                            @figure.Text
+                        </span>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<VspBarRow> Rows { get; set; } = [];
+    [Parameter] public string LabelHead { get; set; } = string.Empty;
+    [Parameter] public string ValueHead { get; set; } = "Takings";
+    [Parameter] public IReadOnlyList<string> ExtraHeads { get; set; } = [];
+    [Parameter] public bool Ranked { get; set; }
+    [Parameter] public bool ShowMeter { get; set; }
+    [Parameter] public string Empty { get; set; } = "Nothing to draw in this currency.";
+
+    private string Columns
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (Ranked)
+            {
+                parts.Add("1.4rem");
+            }
+
+            parts.Add("minmax(var(--vsp-name-min, 7rem), 1.1fr)");
+            parts.Add("minmax(var(--vsp-bar-min, 9rem), 2fr)");
+
+            for (var e = 0; e < ExtraHeads.Count; e++)
+            {
+                parts.Add(ShowMeter && e == 0 ? "var(--vsp-meter-w, 7.5rem)" : "3.6rem");
+            }
+
+            return string.Join(" ", parts);
+        }
+    }
+
+    private static string Width(decimal value, decimal max) =>
+        max <= 0 ? "0" : Math.Clamp((double)(value / max) * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture);
+}
