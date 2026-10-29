@@ -1,0 +1,423 @@
+@using ShopInventory.Web.Features.Reports.Queries.GetReportsOverview
+@using static ShopInventory.Web.Features.Reports.Queries.GetReportsOverview.ReportsHubFormat
+
+@* The hub's styles are wwwroot/css/reports-hub.css, under `rhb-`. *@
+<div class="rhb">
+<div class="rhb-wrap">
+
+    <header class="rhb-head">
+        <div class="rhb-head-text">
+            <p class="rhb-kicker">Reports hub</p>
+            <h1 class="rhb-title">How the business is doing</h1>
+            <p class="rhb-sub">From SAP Business One · @Freshness</p>
+        </div>
+        <div class="rhb-head-actions">
+            <a class="rhb-btn" href="#rhb-all">
+                <i class="ph ph-list-bullets" aria-hidden="true"></i>All reports
+            </a>
+            <button type="button" class="rhb-btn rhb-btn-primary" @onclick="ExportAsync" disabled="@(!CanExport)">
+                <i class="ph @(exporting ? "ph-spinner rhb-spin" : "ph-download-simple")" aria-hidden="true"></i>Export to Excel
+            </button>
+        </div>
+    </header>
+
+    @if (exportError is not null)
+    {
+        <p class="rhb-notice rhb-notice-bad" role="alert">@exportError</p>
+    }
+
+    <section class="rhb-period" aria-label="Period">
+        <div class="rhb-presets">
+            @foreach (var (preset, label) in Presets)
+            {
+                var on = IsPresetOn(preset);
+                <button type="button" class="rhb-chip @(on ? "is-on" : null)" aria-pressed="@(on ? "true" : "false")"
+                        @onclick="() => ChoosePreset(preset)">@label</button>
+            }
+        </div>
+        <div class="rhb-period-range">
+            <span class="rhb-range">@Period.RangeLabel</span>
+            <span class="rhb-range-note">Changes compared with @Period.PreviousLabel</span>
+        </div>
+        @if (customOpen)
+        {
+            <div class="rhb-custom">
+                <div class="rhb-custom-field">
+                    <label class="rhb-custom-label" for="rhb-from">From</label>
+                    <NocturneDateField Id="rhb-from" @bind-Date="customFrom" />
+                </div>
+                <div class="rhb-custom-field">
+                    <label class="rhb-custom-label" for="rhb-to">To</label>
+                    <NocturneDateField Id="rhb-to" @bind-Date="customTo" />
+                </div>
+                <button type="button" class="rhb-btn rhb-btn-primary" @onclick="ApplyCustom">Show these dates</button>
+            </div>
+        }
+    </section>
+
+    @if (headlineError is not null || activityError is not null)
+    {
+        <div class="rhb-notice rhb-notice-bad" role="alert">
+            <span>@(headlineError ?? activityError)</span>
+            <button type="button" class="rhb-link-btn" @onclick="Retry">Try again</button>
+        </div>
+    }
+
+    @* ── Headline figures ───────────────────────────────────────── *@
+    <section class="rhb-kpis" aria-label="Headline figures" aria-busy="@(headlineLoading ? "true" : "false")">
+        @if (headline is null && headlineLoading)
+        {
+            @for (var i = 0; i < 4; i++)
+            {
+                <div class="rhb-card rhb-kpi rhb-kpi-skel" aria-hidden="true">
+                    <span class="rhb-skel" style="width: 40%"></span>
+                    <span class="rhb-skel rhb-skel-lg" style="width: 70%"></span>
+                    <span class="rhb-skel" style="width: 55%"></span>
+                </div>
+            }
+        }
+        else
+        {
+            @foreach (var kpi in Kpis)
+            {
+                <a class="rhb-card rhb-kpi" href="@kpi.Href">
+                    <span class="rhb-kpi-label">@kpi.Label<i class="ph ph-arrow-right" aria-hidden="true"></i></span>
+                    <span class="rhb-kpi-value">@kpi.Value</span>
+                    @if (kpi.Secondary is not null)
+                    {
+                        <span class="rhb-kpi-secondary">@kpi.Secondary</span>
+                    }
+                    <span class="rhb-kpi-change">
+                        @if (kpi.Delta is not null)
+                        {
+                            <span class="rhb-delta" data-tone="@kpi.DeltaTone">@kpi.Delta<span class="rhb-sr"> @DeltaWords(kpi.DeltaTone)</span></span>
+                        }
+                        @if (kpi.DeltaNote is not null)
+                        {
+                            <span class="rhb-kpi-note">@kpi.DeltaNote</span>
+                        }
+                    </span>
+                    <span class="rhb-kpi-foot" data-tone="@kpi.FootTone">@kpi.Foot</span>
+                </a>
+            }
+            @if (headline is not null && headline.Current is null)
+            {
+                <div class="rhb-card rhb-kpi rhb-kpi-missing">SAP did not answer for this period's sales, profit and collections.</div>
+            }
+            @if (headline is not null && headline.Aging is null)
+            {
+                <div class="rhb-card rhb-kpi rhb-kpi-missing">SAP did not answer for what customers owe.</div>
+            }
+        }
+    </section>
+
+    <div class="rhb-row">
+        @* ── Daily sales ───────────────────────────────────────────── *@
+        <section class="rhb-card rhb-trend" aria-labelledby="rhb-trend-h">
+            @{ var chart = SalesChart; }
+            <div class="rhb-card-head">
+                <div>
+                    <h2 id="rhb-trend-h" class="rhb-card-title">@(chart?.Title ?? "Daily sales")</h2>
+                    <p class="rhb-card-sub">@(chart?.Range ?? ReportsPeriod.FormatRange(Period.ChartFrom, Period.To, false)) · invoiced, USD@(Period.EndsToday ? " · today is still running" : "")</p>
+                </div>
+                <a class="rhb-card-link" href="@ReportsHubLinks.Tab(ReportsHubLinks.Sales, Period)">Sales report<i class="ph ph-arrow-right" aria-hidden="true"></i></a>
+            </div>
+            @if (chart is not null)
+            {
+                <div class="rhb-chart">
+                    <div class="rhb-axis" aria-hidden="true">
+                        <span>@chart.AxisTop</span>
+                        <span>@chart.AxisMid</span>
+                        <span>$0</span>
+                    </div>
+                    <div class="rhb-plot-wrap">
+                        <div class="rhb-plot" role="img" aria-label="@chart.Summary">
+                            @foreach (var bar in chart.Bars)
+                            {
+                                <div class="rhb-bar-slot" title="@bar.Tip">
+                                    <span class="rhb-bar @(bar.Partial ? "is-partial" : null)" style="@Height(bar.Height)"></span>
+                                </div>
+                            }
+                        </div>
+                        <div class="rhb-ticks" aria-hidden="true">
+                            @foreach (var bar in chart.Bars)
+                            {
+                                <span class="rhb-tick">@bar.Tick</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <dl class="rhb-stats">
+                    <div><dt>Best @(chart.Title.StartsWith("Weekly") ? "week" : "day")</dt><dd>@chart.Best</dd></div>
+                    <div><dt>@chart.AverageLabel</dt><dd>@chart.Average</dd></div>
+                    <div><dt>Invoices in the chart</dt><dd>@chart.Invoices</dd></div>
+                    <div><dt>Customers who bought</dt><dd>@(headline?.Current is { } cur ? Count(cur.UniqueCustomers) : "—")</dd></div>
+                </dl>
+            }
+            else if (activityLoading)
+            {
+                <div class="rhb-skel rhb-skel-chart" aria-hidden="true"></div>
+            }
+            else
+            {
+                <p class="rhb-empty">Daily sales could not be loaded from SAP.</p>
+            }
+        </section>
+
+        @* ── Needs attention ───────────────────────────────────────── *@
+        <section class="rhb-card rhb-attn" aria-labelledby="rhb-attn-h" aria-busy="@(AttentionPending ? "true" : "false")">
+            @{ var attention = Attention; }
+            <div class="rhb-card-head rhb-card-head-tight">
+                <h2 id="rhb-attn-h" class="rhb-card-title">Needs attention</h2>
+                @if (attention.Count > 0)
+                {
+                    <span class="rhb-count" data-tone="@SeverityTone(attention[0].Severity)">@attention.Count</span>
+                }
+            </div>
+            <ul class="rhb-attn-list">
+                @foreach (var item in attention)
+                {
+                    var tone = SeverityTone(item.Severity);
+                    <li>
+                        <a class="rhb-attn-item" href="@item.Href">
+                            <span class="rhb-dot" data-tone="@tone" aria-hidden="true"></span>
+                            <span class="rhb-attn-body">
+                                <span class="rhb-attn-sev" data-tone="@tone">@SeverityLabel(item.Severity)</span>
+                                <span class="rhb-attn-title">@item.Title</span>
+                                <span class="rhb-attn-detail">@item.Detail</span>
+                            </span>
+                            <span class="rhb-attn-link">@item.LinkText<i class="ph ph-arrow-right" aria-hidden="true"></i></span>
+                        </a>
+                    </li>
+                }
+                @if (stockLoading)
+                {
+                    <li class="rhb-attn-pending"><i class="ph ph-spinner rhb-spin" aria-hidden="true"></i>Checking stock levels…</li>
+                }
+                @if (headlineLoading || activityLoading)
+                {
+                    <li class="rhb-attn-pending"><i class="ph ph-spinner rhb-spin" aria-hidden="true"></i>Checking this period's sales and money…</li>
+                }
+                @if (stockError is not null)
+                {
+                    <li class="rhb-attn-pending">@stockError</li>
+                }
+            </ul>
+            @if (attention.Count == 0 && !AttentionPending)
+            {
+                <p class="rhb-empty rhb-empty-good"><i class="ph ph-check-circle" aria-hidden="true"></i>Nothing needs attention for this period.</p>
+            }
+        </section>
+    </div>
+
+    <div class="rhb-grid">
+        @* ── Top customers ─────────────────────────────────────────── *@
+        <section class="rhb-card" aria-labelledby="rhb-cust-h">
+            <div class="rhb-card-head">
+                <h2 id="rhb-cust-h" class="rhb-card-title">Top customers</h2>
+                <a class="rhb-card-link" href="@ReportsHubLinks.Tab(ReportsHubLinks.Customers, Period)">All customers<i class="ph ph-arrow-right" aria-hidden="true"></i></a>
+            </div>
+            @if (activity?.TopCustomers is { } customers)
+            {
+                @if (customers.TopCustomers.Count == 0)
+                {
+                    <p class="rhb-empty">No customer bought in this period.</p>
+                }
+                else
+                {
+                    <div class="rhb-table-wrap">
+                        <table class="rhb-table">
+                            <thead>
+                                <tr><th scope="col">Customer</th><th scope="col" class="num">Sales</th><th scope="col" class="num">Margin</th><th scope="col" class="num">Balance</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var c in customers.TopCustomers.OrderBy(c => c.Rank).Take(5))
+                                {
+                                    <tr>
+                                        <td><span class="rhb-cell-main">@c.CardName</span><span class="rhb-cell-sub">@c.CardCode · @Count(c.InvoiceCount) @Plural(c.InvoiceCount, "invoice", "invoices")</span></td>
+                                        <td class="num rhb-strong">@Usd(c.TotalPurchasesUSD)</td>
+                                        <td class="num">@Margin(c.GrossMarginPercent)</td>
+                                        <td class="num @(c.OutstandingBalanceUSD > 0 ? null : "rhb-muted")">@(c.OutstandingBalanceUSD > 0 ? Usd(c.OutstandingBalanceUSD) : "Nothing")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+            else
+            {
+                <ReportsHubPlaceholder Loading="activityLoading" Rows="5" What="top customers" />
+            }
+        </section>
+
+        @* ── Top products ──────────────────────────────────────────── *@
+        <section class="rhb-card" aria-labelledby="rhb-prod-h">
+            <div class="rhb-card-head">
+                <h2 id="rhb-prod-h" class="rhb-card-title">Top products</h2>
+                <a class="rhb-card-link" href="@ReportsHubLinks.Tab(ReportsHubLinks.Products, Period)">All products<i class="ph ph-arrow-right" aria-hidden="true"></i></a>
+            </div>
+            @if (activity?.TopProducts is { } products)
+            {
+                @if (products.TopProducts.Count == 0)
+                {
+                    <p class="rhb-empty">Nothing was sold in this period.</p>
+                }
+                else
+                {
+                    var topMargin = products.TopProducts.Max(p => p.GrossMarginPercent ?? 0m);
+                    <div class="rhb-table-wrap">
+                        <table class="rhb-table">
+                            <thead>
+                                <tr><th scope="col">Product</th><th scope="col" class="num">Units</th><th scope="col" class="num">Sales</th><th scope="col" class="num rhb-col-margin">Margin</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in products.TopProducts.OrderBy(p => p.Rank).Take(5))
+                                {
+                                    <tr>
+                                        <td><span class="rhb-cell-main">@p.ItemName</span><span class="rhb-cell-sub">@p.ItemCode</span></td>
+                                        <td class="num">@Count(p.TotalQuantitySold)</td>
+                                        <td class="num rhb-strong">@Usd(p.TotalRevenueUSD)</td>
+                                        <td class="num">
+                                            <span class="rhb-margin">
+                                                @if (p.GrossMarginPercent is { } m && topMargin > 0)
+                                                {
+                                                    <span class="rhb-meter" aria-hidden="true"><span style="@Width((double)(m / topMargin * 100m))"></span></span>
+                                                }
+                                                <span>@Margin(p.GrossMarginPercent)</span>
+                                            </span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+            else
+            {
+                <ReportsHubPlaceholder Loading="activityLoading" Rows="5" What="top products" />
+            }
+        </section>
+
+        @* ── Owed to us, by age ────────────────────────────────────── *@
+        <section class="rhb-card" aria-labelledby="rhb-aging-h">
+            <div class="rhb-card-head">
+                <div>
+                    <h2 id="rhb-aging-h" class="rhb-card-title">Owed to us, by age</h2>
+                    @if (headline?.Aging is { } aging)
+                    {
+                        <p class="rhb-card-sub">@Usd(aging.TotalOutstandingUSD) across @Count(aging.TotalCustomers) @Plural(aging.TotalCustomers, "customer", "customers") · as of today</p>
+                    }
+                </div>
+                <a class="rhb-card-link" href="@ReportsHubLinks.Tab(ReportsHubLinks.Aging, Period)">Receivables<i class="ph ph-arrow-right" aria-hidden="true"></i></a>
+            </div>
+            @if (headline?.Aging is not null)
+            {
+                var rows = AgingRows;
+                <div class="rhb-stack" role="img" aria-label="@string.Join(", ", rows.Select(r => $"{r.Label} {r.Share}"))">
+                    @foreach (var r in rows.Where(r => r.Width > 0))
+                    {
+                        <span data-tone="@r.Tone" style="@Width(r.Width)"></span>
+                    }
+                </div>
+                <ul class="rhb-legend">
+                    @foreach (var r in rows)
+                    {
+                        <li>
+                            <span class="rhb-swatch" data-tone="@r.Tone" aria-hidden="true"></span>
+                            <span class="rhb-legend-label">@r.Label</span>
+                            <span class="rhb-legend-share">@r.Share</span>
+                            <span class="rhb-legend-amount" data-tone="@(r.Tone == "bad" ? "bad" : null)">@r.Amount</span>
+                        </li>
+                    }
+                </ul>
+            }
+            else
+            {
+                <ReportsHubPlaceholder Loading="headlineLoading" Rows="4" What="what customers owe" />
+            }
+        </section>
+
+        @* ── How customers paid ────────────────────────────────────── *@
+        <section class="rhb-card" aria-labelledby="rhb-pay-h">
+            <div class="rhb-card-head">
+                <div>
+                    <h2 id="rhb-pay-h" class="rhb-card-title">How customers paid</h2>
+                    @if (activity?.Payments is { } paid)
+                    {
+                        <p class="rhb-card-sub">@Usd(paid.TotalAmountUSD) from @Count(paid.TotalPayments) @Plural(paid.TotalPayments, "payment", "payments")@(paid.TotalAmountZIG != 0 ? $" · and {Zig(paid.TotalAmountZIG)}" : "")</p>
+                    }
+                </div>
+                <a class="rhb-card-link" href="@ReportsHubLinks.Tab(ReportsHubLinks.Payments, Period)">Payments<i class="ph ph-arrow-right" aria-hidden="true"></i></a>
+            </div>
+            @if (activity?.Payments is { } payments)
+            {
+                @if (payments.PaymentsByMethod.Count == 0)
+                {
+                    <p class="rhb-empty">No payments were received in this period.</p>
+                }
+                else
+                {
+                    <ul class="rhb-methods">
+                        @foreach (var m in payments.PaymentsByMethod.OrderByDescending(m => m.TotalAmountUSD))
+                        {
+                            <li>
+                                <span class="rhb-method-row">
+                                    <span class="rhb-method-name">@m.PaymentMethod</span>
+                                    <span><span class="rhb-strong">@Usd(m.TotalAmountUSD)</span><span class="rhb-muted"> · @Percent(m.PercentageOfTotal)</span></span>
+                                </span>
+                                <span class="rhb-meter rhb-meter-wide" aria-hidden="true"><span style="@Width((double)m.PercentageOfTotal)"></span></span>
+                            </li>
+                        }
+                    </ul>
+                }
+            }
+            else
+            {
+                <ReportsHubPlaceholder Loading="activityLoading" Rows="4" What="payments" />
+            }
+        </section>
+    </div>
+
+    @* ── Every report ───────────────────────────────────────────────── *@
+    <section id="rhb-all" class="rhb-card rhb-dir" aria-labelledby="rhb-dir-h">
+        <div class="rhb-card-head rhb-dir-head">
+            <div>
+                <h2 id="rhb-dir-h" class="rhb-card-title rhb-dir-title">All reports</h2>
+                <p class="rhb-card-sub">Every report you can open, in one place</p>
+            </div>
+            <label class="rhb-search">
+                <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                <span class="rhb-sr">Find a report</span>
+                <input type="search" class="rhb-search-input" placeholder="Find a report — e.g. aging, vans, stock"
+                       @bind="search" @bind:event="oninput" />
+            </label>
+        </div>
+        @{ var groups = Directory; }
+        @if (groups.Count == 0)
+        {
+            <p class="rhb-empty">No report matches “@search”.</p>
+        }
+        else
+        {
+            <div class="rhb-dir-grid">
+                @foreach (var group in groups)
+                {
+                    <div class="rhb-dir-group">
+                        <h3 class="rhb-dir-group-title">@group.Name</h3>
+                        @foreach (var entry in group.Entries)
+                        {
+                            <a class="rhb-dir-link" href="@entry.Href">
+                                <span class="rhb-dir-name">@entry.Name</span>
+                                <span class="rhb-dir-desc">@entry.Description</span>
+                            </a>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </section>
+
+</div>
+</div>

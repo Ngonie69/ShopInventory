@@ -78,6 +78,9 @@
     <!-- The van sales pages — the round as it happened, the departure compliance sheet and the
          routes. Aliases nocturne-tokens.css rather than restating it. -->
     <StaffStylesheetLate Include="wwwroot/css/van-sales.css" />
+    <!-- /reports with no tab: the Reports Hub, under `rhb-`. Aliases nocturne-tokens.css, so both
+         schemes come from the root and it needs no .dark-theme block. -->
+    <StaffStylesheetLate Include="wwwroot/css/reports-hub.css" />
     <!-- /van-sales/attendance-report. Its own sheet rather than more of van-sales.css: the
          attendance report draws the day as a strip per rep and shares almost none of that page's
          card vocabulary. `vna-`, not `vat-` — see its header. -->

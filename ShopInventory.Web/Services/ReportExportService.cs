@@ -21,6 +21,7 @@ namespace ShopInventory.Web.Services;
 public interface IReportExportService
 {
     byte[] ExportSalesSummaryToExcel(SalesSummaryReport report);
+    byte[] ExportReportsHubToExcel(ShopInventory.Web.Features.Reports.Queries.GetReportsOverview.ReportsHubExport export);
     byte[] ExportTopProductsToExcel(TopProductsReport report);
     byte[] ExportStockSummaryToExcel(StockSummaryReport report);
     byte[] ExportPaymentSummaryToExcel(PaymentSummaryReport report);
