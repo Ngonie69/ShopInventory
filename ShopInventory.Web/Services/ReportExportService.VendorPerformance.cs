@@ -406,7 +406,8 @@ public partial class ReportExportService
         IReadOnlyCollection<T> rows,
         string emptyMessage,
         bool totals,
-        bool filter = true)
+        bool filter = true,
+        bool stripeByRule = false)
     {
         var lastCol = columns.Count;
         for (var index = 0; index < columns.Count; index++)
@@ -429,7 +430,7 @@ public partial class ReportExportService
 
         var firstRow = headerRow + 1;
         var lastRow = row - 1;
-        var next = FinishTable(ws, headerRow, firstRow, row, lastCol, emptyMessage, filter);
+        var next = FinishTable(ws, headerRow, firstRow, row, lastCol, emptyMessage, filter, stripeByRule);
 
         if (lastRow < firstRow)
         {
@@ -758,9 +759,13 @@ public partial class ReportExportService
         return stream.ToArray();
     }
 
-    private static void UppercaseDataBarIds(SpreadsheetDocument document)
+    private static void UppercaseDataBarIds(SpreadsheetDocument document, IReadOnlyCollection<string>? sheetNames = null)
     {
-        foreach (var part in document.WorkbookPart?.WorksheetParts ?? [])
+        var parts = sheetNames is null || document.WorkbookPart is not { } workbookPart
+            ? document.WorkbookPart?.WorksheetParts ?? []
+            : sheetNames.Select(name => GetWorksheetPartByName(workbookPart, name)).OfType<WorksheetPart>();
+
+        foreach (var part in parts)
         {
             var changed = false;
 
