@@ -130,6 +130,8 @@ public class SalesOrderService : ISalesOrderService
                 queryParams.Add($"status={(int)request.Status.Value}");
             if (request.FromDate.HasValue)
                 queryParams.Add($"fromDate={request.FromDate.Value:yyyy-MM-dd}");
+            if (request.ToDate.HasValue)
+                queryParams.Add($"toDate={request.ToDate.Value:yyyy-MM-dd}");
             if (request.KeepOpenOrders)
                 queryParams.Add("keepOpenOrders=true");
             if (request.IncludeSummary)

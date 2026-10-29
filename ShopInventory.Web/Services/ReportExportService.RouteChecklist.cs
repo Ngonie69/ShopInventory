@@ -8,7 +8,7 @@ namespace ShopInventory.Web.Services;
 
 /// <summary>What the route checklist on Retail Sales Orders hands the workbook.</summary>
 /// <param name="Day">The day the checklist is for.</param>
-/// <param name="MatchedOnDelivery">Orders were matched on delivery date rather than order date.</param>
+/// <param name="Match">How orders were matched to the day: to each route's run, or by order or delivery date.</param>
 /// <param name="RoutesLabel">Which routes are in it, as the page's filter reads: "All routes", "Tuesday routes".</param>
 /// <param name="Search">The search on screen, when there is one.</param>
 /// <param name="Routes">The routes on screen, each with every one of its shops.</param>
@@ -22,7 +22,7 @@ namespace ShopInventory.Web.Services;
 /// <param name="InvoiceCheckIncomplete">SAP could not say for every order whether it was invoiced.</param>
 public sealed record RouteChecklistExport(
     DateTime Day,
-    bool MatchedOnDelivery,
+    RouteChecklistMatch Match,
     string RoutesLabel,
     string? Search,
     IReadOnlyList<RouteChecklistRoute> Routes,
@@ -72,7 +72,12 @@ public partial class ReportExportService
         var ordered = export.Routes.Sum(route => route.OrderedCount);
         var subtitle = string.Join(" · ", new[]
         {
-            export.MatchedOnDelivery ? "Orders for delivery this day" : "Orders placed this day",
+            export.Match switch
+            {
+                RouteChecklistMatch.Run => "Orders for each route's run on or after this day",
+                RouteChecklistMatch.DeliveryDate => "Orders for delivery this day",
+                _ => "Orders placed this day"
+            },
             export.RoutesLabel,
             export.Search is { Length: > 0 } search ? $"matching \"{search}\"" : null,
             $"{ordered:N0} of {shops:N0} shop stops ordered",
@@ -203,6 +208,11 @@ public partial class ReportExportService
             if (!string.IsNullOrWhiteSpace(route.Route.Truck))
             {
                 meta += $" · {route.Route.Truck}";
+            }
+
+            if (route.RunDate is { } run)
+            {
+                meta += $" · Run {run.ToString("ddd d MMM", CultureInfo.InvariantCulture)}";
             }
 
             row = WriteChecklistBanner(ws, row, columns,
@@ -501,7 +511,8 @@ public partial class ReportExportService
                 ws.Cell(row, 2).Value = order.CardName ?? string.Empty;
                 ws.Cell(row, 3).Value = order.CardCode;
                 ws.Cell(row, 4).Value = order.OrderNumber;
-                ws.Cell(row, 5).Value = order.OrderDate;
+                // The Harare day: an order placed just after midnight is still the day before in UTC.
+                ws.Cell(row, 5).Value = RouteOrderChecklist.HarareDay(order.OrderDate);
                 ws.Cell(row, 5).Style.DateFormat.Format = "dd MMM yyyy";
                 if (order.DeliveryDate is { } delivery)
                 {

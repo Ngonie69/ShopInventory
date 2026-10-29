@@ -88,6 +88,20 @@ public sealed class MobileOrderServerPagingTests : IDisposable
         Assert.Empty(await OrderNumbersAsync(Query() with { Columns = new(OrderNumber: "MOB-1001", Currency: "ZIG") }));
     }
 
+    [Fact]
+    public async Task The_order_date_filter_reads_a_Harare_day()
+    {
+        // 23:30 UTC is 01:30 the next morning in Harare, and 21:30 UTC is still the same evening.
+        var day = new DateTime(2026, 10, 27, 0, 0, 0, DateTimeKind.Utc);
+        await GivenOrder("MOB-AFTER-MIDNIGHT", SalesOrderStatus.Pending, orderDate: day.AddHours(-0.5));
+        await GivenOrder("MOB-LATE-EVENING", SalesOrderStatus.Pending, orderDate: day.AddDays(1).AddHours(-2.5));
+        await GivenOrder("MOB-NEXT-DAY", SalesOrderStatus.Pending, orderDate: day.AddDays(1).AddHours(-1.5));
+
+        var placed = await OrderNumbersAsync(Query() with { Columns = new(OrderDate: day) });
+
+        Assert.Equal(["MOB-AFTER-MIDNIGHT", "MOB-LATE-EVENING"], placed.Order());
+    }
+
     [Theory]
     [InlineData(SalesOrderListSort.Number, false, new[] { "A-1", "B-2", "C-3" })]
     [InlineData(SalesOrderListSort.Number, true, new[] { "C-3", "B-2", "A-1" })]

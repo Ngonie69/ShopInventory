@@ -29,10 +29,11 @@
             <div class="mox-field">
                 <span class="mox-rcl-label">Match orders on</span>
                 <div class="mox-tabs" role="group" aria-label="Match orders on">
-                    <button type="button" class="mox-tab @(matchOnDelivery ? null : "is-on")"
-                            aria-pressed="@(!matchOnDelivery)" @onclick="() => SetMatchAsync(false)">Order date</button>
-                    <button type="button" class="mox-tab @(matchOnDelivery ? "is-on" : null)"
-                            aria-pressed="@matchOnDelivery" @onclick="() => SetMatchAsync(true)">Delivery date</button>
+                    @foreach (var (value, label, hint) in MatchTabs)
+                    {
+                        <button type="button" class="mox-tab @(match == value ? "is-on" : null)" title="@hint"
+                                aria-pressed="@(match == value)" @onclick="() => SetMatchAsync(value)">@label</button>
+                    }
                 </div>
             </div>
             <div class="mox-field">
@@ -115,7 +116,7 @@
         <div class="mox-stat">
             <div class="mox-stat-label"><span class="mox-stat-mark"></span>Orders</div>
             <div class="mox-stat-value is-quiet">@Figure(orderCount)</div>
-            <div class="mox-stat-foot">@(matchOnDelivery ? "For delivery" : "Placed") @DayLabel</div>
+            <div class="mox-stat-foot">@OrdersFoot</div>
         </div>
         <div class="mox-stat">
             <div class="mox-stat-label"><span class="mox-stat-mark"></span>Orders off route</div>
@@ -163,7 +164,7 @@
                         <header class="mox-rcl-route-head">
                             <div class="mox-rcl-route-titles">
                                 <h3 class="mox-rcl-route-name">@route.Route.Name</h3>
-                                <span class="mox-rcl-route-meta">@RouteMeta(route.Route)</span>
+                                <span class="mox-rcl-route-meta">@RouteMeta(route)</span>
                             </div>
                             <span class="mox-rcl-count @(route.OrderedCount == route.Shops.Count ? "is-full" : null)"
                                   title="Shops that have ordered, of the shops on the route">
@@ -259,6 +260,10 @@
         <p class="mox-rcl-note">
             Routes and their shops come from Delivery Routes. A shop's currency codes count as one shop;
             Zimbabwe-dollar codes are left out.
+            @if (match == RouteChecklistMatch.Run)
+            {
+                <span>Each route shows its run on or after the chosen day, ticked by any order placed after the run before it, up to and including the run day. Routes with no day set, and shops on no route, show the orders placed that day.</span>
+            }
             @if (checklist.SkippedOrderCount > 0)
             {
                 <span>@checklist.SkippedOrderCount cancelled or rejected @(checklist.SkippedOrderCount == 1 ? "order is" : "orders are") not counted.</span>
@@ -295,7 +300,15 @@
         ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
     private DateTime? day = DateTime.Today;
-    private bool matchOnDelivery;
+    private RouteChecklistMatch match = RouteChecklistMatch.Run;
+
+    private static readonly (RouteChecklistMatch Value, string Label, string Hint)[] MatchTabs =
+    [
+        (RouteChecklistMatch.Run, "Route run",
+            "Each route's run on or after this day, with every order placed after the run before it"),
+        (RouteChecklistMatch.OrderDate, "Order date", "Orders placed on this day"),
+        (RouteChecklistMatch.DeliveryDate, "Delivery date", "Orders whose delivery date is this day")
+    ];
     private string dayFilter = "all";
     private ShowShops show = ShowShops.All;
     private string? query;
@@ -312,12 +325,12 @@
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
-    private async Task SetMatchAsync(bool onDelivery)
+    private async Task SetMatchAsync(RouteChecklistMatch value)
     {
-        if (matchOnDelivery == onDelivery)
+        if (match == value)
             return;
 
-        matchOnDelivery = onDelivery;
+        match = value;
         await LoadAsync();
     }
 
@@ -334,14 +347,21 @@
             standings ??= await RouteDirectory.GetShopStandingsAsync();
 
             var date = (day ?? DateTime.Today).Date;
+            // A route's run can be six days after the chosen day and its orders placed up to a week
+            // before the run, so the run view reads a week either side. The API reads these bounds as
+            // UTC days, one more on each side covers the two hours Harare is ahead, and
+            // RouteOrderChecklist sorts each order into its run by its Harare day.
+            var onRuns = match == RouteChecklistMatch.Run;
             var response = await SalesOrderService.GetSalesOrderPageAsync(new SalesOrderPageRequest
             {
                 Page = 1,
                 PageSize = OrderLimit,
                 Source = SalesOrderSource.Mobile,
                 VanSalesUsersOnly = false,
-                OrderDate = matchOnDelivery ? null : date,
-                DeliveryDate = matchOnDelivery ? date : null,
+                FromDate = onRuns ? date.AddDays(-8) : null,
+                ToDate = onRuns ? date.AddDays(7) : null,
+                OrderDate = match == RouteChecklistMatch.OrderDate ? date : null,
+                DeliveryDate = match == RouteChecklistMatch.DeliveryDate ? date : null,
                 SortBy = SalesOrderListSort.Ordered,
                 SortDescending = false
             });
@@ -355,8 +375,10 @@
                 return;
             }
 
-            checklist = RouteOrderChecklist.Build(map, response.Orders, standings);
-            orderCount = response.Orders.Count - checklist.SkippedOrderCount;
+            checklist = onRuns
+                ? RouteOrderChecklist.BuildForRuns(map, response.Orders, date, standings)
+                : RouteOrderChecklist.Build(map, response.Orders, standings);
+            orderCount = checklist.OrderCount;
             truncatedFrom = response.TotalCount > response.Orders.Count ? response.TotalCount : null;
         }
         catch (Exception ex)
@@ -414,7 +436,7 @@
             };
 
             var bytes = ExportService.ExportRouteChecklistToExcel(new RouteChecklistExport(
-                date, matchOnDelivery, routesLabel, query?.Trim(), routes, offRoute,
+                date, match, routesLabel, query?.Trim(), routes, offRoute,
                 checklist.SkippedOrderCount,
                 order => ExportStatusName(order, sapAnswers),
                 order => InvoiceDocNum?.Invoke(order) ?? InvoiceFromSap(order, sapAnswers),
@@ -669,13 +691,27 @@
         }
     }
 
-    private static string RouteMeta(RouteSummary route)
+    private static string RouteMeta(RouteChecklistRoute checklistRoute)
     {
-        var days = route.Days.Count == 0
+        var route = checklistRoute.Route;
+        var meta = route.Days.Count == 0
             ? "No day set"
             : string.Join(" / ", route.Days.Select(d => d.Length > 3 ? d[..3] : d));
-        return string.IsNullOrWhiteSpace(route.Truck) ? days : $"{days} · {route.Truck}";
+        if (!string.IsNullOrWhiteSpace(route.Truck))
+            meta += $" · {route.Truck}";
+        if (checklistRoute.RunDate is { } run)
+            meta += $" · Run {run.ToString("ddd d MMM", CultureInfo.InvariantCulture)}";
+        return meta;
     }
+
+    private string OrdersFoot => match switch
+    {
+        RouteChecklistMatch.Run => (day ?? DateTime.Today).Date == DateTime.Today
+            ? "For each route's next run"
+            : "For each route's run from " + (day ?? DateTime.Today).ToString("ddd d MMM", CultureInfo.InvariantCulture),
+        RouteChecklistMatch.DeliveryDate => $"For delivery {DayLabel}",
+        _ => $"Placed {DayLabel}"
+    };
 
     private string Figure(int? value) => checklist is null || value is null ? "—" : value.Value.ToString("N0");
 
