@@ -1,0 +1,49 @@
+@using System.Globalization
+@* A KPI tile's trend over the period, drawn over the days that traded. Silent days are skipped rather
+   than drawn at zero, so a Sunday does not read as a collapse. Draws nothing under two points. *@
+
+@if (_line is not null)
+{
+    <svg class="vsp-spark @(Second ? "is-second" : null)" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="@Label">
+        <polygon class="vsp-spark-area" points="@_area"></polygon>
+        <polyline class="vsp-spark-line" points="@_line" vector-effect="non-scaling-stroke"></polyline>
+    </svg>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<double?> Values { get; set; } = [];
+    [Parameter] public string Label { get; set; } = "Trend over the period";
+
+    /// <summary>The second series colour, matching the calls line on the daily chart.</summary>
+    [Parameter] public bool Second { get; set; }
+
+    private string? _line;
+    private string? _area;
+
+    protected override void OnParametersSet()
+    {
+        _line = null;
+        _area = null;
+
+        var points = Values
+            .Select((value, index) => (Value: value, Index: index))
+            .Where(p => p.Value is not null)
+            .Select(p => (X: Values.Count == 1 ? 50 : p.Index * 100.0 / (Values.Count - 1), Y: p.Value!.Value))
+            .ToList();
+
+        if (points.Count < 2)
+        {
+            return;
+        }
+
+        var low = points.Min(p => p.Y);
+        var high = points.Max(p => p.Y);
+        var span = high - low == 0 ? 1 : high - low;
+
+        string F(double v) => v.ToString("F1", CultureInfo.InvariantCulture);
+        var plotted = points.Select(p => (p.X, Y: 28 - (p.Y - low) / span * 24)).ToList();
+
+        _line = string.Join(" ", plotted.Select(p => $"{F(p.X)},{F(p.Y)}"));
+        _area = $"{_line} {F(plotted[^1].X)},30 {F(plotted[0].X)},30";
+    }
+}

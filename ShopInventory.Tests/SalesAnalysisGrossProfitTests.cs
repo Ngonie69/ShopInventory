@@ -270,19 +270,23 @@ public sealed class SalesAnalysisGrossProfitTests : IDisposable
         Assert.Equal(2, read.Items.Single(item => item.ItemCode == "CHE011").TotalsByCurrency.Single().CostedLineCount);
 
         using var workbook = new XLWorkbook(new MemoryStream(new ReportExportService().ExportVanSalesPerformanceToExcel(read)));
-        // Under a Gross Profit heading on each sheet that carries money; a weekday with no sales reads "—".
-        List<string> UnderGrossProfit(string sheet)
+        // A Gross Profit and a Margin column per currency on each sheet that carries money, as real
+        // numbers: 10.00 and 20.0% (held as the fraction 0.2, so it sorts as a percentage).
+        List<IXLCell> Under(string sheet, string heading)
         {
             var ws = workbook.Worksheet(sheet);
-            return ws.CellsUsed().Where(c => c.GetString() == "Gross Profit")
+            return ws.CellsUsed().Where(c => c.GetString() == heading)
                 .SelectMany(head => ws.Column(head.Address.ColumnNumber).CellsUsed()
-                    .Where(c => c.Address.RowNumber > head.Address.RowNumber).Select(c => c.GetString()))
+                    .Where(c => c.Address.RowNumber > head.Address.RowNumber))
                 .ToList();
         }
 
-        Assert.Contains("USD 10.00 (20.0%)", UnderGrossProfit("Reps"));
-        Assert.Contains("USD 10.00 (20.0%)", UnderGrossProfit("Trend"));
-        Assert.Contains("USD 10.00 (20.0%)", UnderGrossProfit("Overview"));
+        foreach (var sheet in new[] { "Reps", "Trend", "Routes" })
+        {
+            Assert.Contains(Under(sheet, "Gross Profit USD"), c => c.DataType == XLDataType.Number && c.GetValue<decimal>() == 10m);
+            Assert.Contains(Under(sheet, "Margin USD"), c => c.DataType == XLDataType.Number && c.GetValue<decimal>() == 0.2m && c.GetFormattedString() == "20.0%");
+        }
+
         Assert.Contains("not in SAP yet", workbook.Worksheet("Items").CellsUsed().Select(c => c.GetString()).Single(text => text.Contains("not in SAP")));
     }
 
