@@ -12,15 +12,18 @@
 
 <PageTitle>ADR Performance - Shop Inventory</PageTitle>
 
-@* Each ADR's sales orders and van sales, and what the ADRs together brought in against every van.
+@* What the ADRs ordered, and how much of it became actual sales on the van.
 
-   Carried by wwwroot/css/van-sales.css in both schemes: the shared `vs-` chrome, the
-   performance page's `vsp-` tiles and headings (both scoped under `.vs`), and `vsadr-` for
-   the little only this page draws.
+   Every ADR order is followed through the invoice queue to the van sale it became (the API's
+   AdrConversion), so the page leads on what was sold, not on what was written down. The gap
+   between the two is split into reasons that add back up to it.
 
-   Orders and sales sit side by side and are never added: a van turns an order into an
-   invoice, so their sum would count the same goods twice. Money is per currency, as on
-   every van report, and a share is measured within one currency. *@
+   Carried by wwwroot/css/van-sales.css in both schemes: the shared `vs-` chrome, the performance
+   page's `vsp-` tiles and headings, and `vsadr-` for what only this page draws. Drawn from the
+   "ADR Performance Redesign" design canvas (2026-10-29).
+
+   Money is per currency, as on every van report; the tiles, charts and rankings lead on the
+   currency most was ordered in, and the other currencies are named under them. *@
 
 <div class="vs vsadr">
 
@@ -28,13 +31,13 @@
         <div>
             <h2 class="vs-title">ADR performance</h2>
             <p class="vs-subtitle">
-                What each ADR ordered and sold over the period, and the ADRs' share of every van's
-                orders and sales.
+                What the ADRs ordered, and how much of it became actual sales on the van — order by
+                order, matched to the invoice it turned into.
             </p>
         </div>
         <div class="vs-actions">
             <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || report is null)">
-                Export
+                Export to Excel
             </button>
         </div>
     </div>
@@ -78,66 +81,134 @@
             <div>No active ADR account, and none with orders or sales in this period.</div>
         </div>
     }
+    else if (report.Conversion is not { } conversion)
+    {
+        <div class="vs-notice">
+            The API answering this page is older than the page and does not follow orders to their
+            invoices. Deploy the API to see the order-to-sale figures.
+        </div>
+    }
     else
     {
-        var overall = report.Overall;
-        var leadOrders = overall.Orders.FirstOrDefault();
-        var leadSales = overall.Sales.FirstOrDefault();
+        var lead = AdrConversionReading.LeadCurrency(conversion);
+        var focus = FocusSummary(conversion);
+        var focusPrevious = FocusPrevious(conversion);
+        var money = focus.In(lead);
+        var previousMoney = focusPrevious?.In(lead);
+        var allMoney = conversion.Overall.In(lead);
 
-        @* The group's tiles stay on screen with one ADR chosen: the ADR's own figures are the
-           panel below, and the comparison is the point of choosing one. *@
+        @if (SelectedAdr is { } adr)
+        {
+            var route = conversion.Adrs.FirstOrDefault(row => row.UserId == adr.UserId);
+            <div class="vsadr-who">
+                <span class="vsadr-avatar" aria-hidden="true">@Initials(adr.DisplayName)</span>
+                <div>
+                    <h3 class="vsadr-who-name">
+                        @adr.DisplayName
+                        <span class="vs-chip @(adr.IsActive ? "vs-chip-good" : "vs-chip-quiet")">@(adr.IsActive ? "Active" : "Inactive")</span>
+                    </h3>
+                    <div class="vsp-sub">
+                        ADR · @(route?.RouteName is { } routeName ? $"Route {route.RouteCode} {routeName}" : "no route assigned")
+                        · van account @(adr.VanAccountCode ?? "—")
+                        · @adr.ActiveDays.ToString("N0") days active
+                    </div>
+                </div>
+                <button type="button" class="vs-btn vsadr-back" @onclick="ClearAdrAsync">All ADRs</button>
+            </div>
+        }
+
+        @* ── From order to actual sale ───────────────────────────────────── *@
+        <section class="vsadr-card vsadr-funnel" aria-labelledby="vsadr-funnel-h">
+            <div class="vsadr-card-head">
+                <div>
+                    <h3 id="vsadr-funnel-h" class="vsadr-card-title">From order to actual sale</h3>
+                    <p class="vsp-note">
+                        Every order in the period, followed to the van invoice it became@(lead is null ? "." : $", in {lead}.")
+                        @OtherCurrencies(focus.Money, lead)
+                    </p>
+                </div>
+                <div class="vsadr-headline">
+                    <span class="vsadr-headline-value @Tone(money?.Conversion)">@Rate(money?.Conversion, 1)</span>
+                    <span class="vsadr-headline-text">
+                        of ordered value became actual sales
+                        @if (SelectedAdr is not null)
+                        {
+                            <span class="vsp-sub">all ADRs @Rate(allMoney?.Conversion, 1)</span>
+                        }
+                        @Delta(Points(money?.Conversion, previousMoney?.Conversion), "pts")
+                    </span>
+                </div>
+            </div>
+
+            <div class="vsadr-stages">
+                @foreach (var stage in Stages(focus, money))
+                {
+                    <div class="vsadr-stage">
+                        <div class="vsp-kpi-label">@stage.Label</div>
+                        <div class="vsadr-stage-figure">
+                            <span class="vsadr-stage-value vsadr-ink-@stage.Tone">@Money(lead, stage.Value)</span>
+                            <span class="vsp-sub">@stage.Orders</span>
+                        </div>
+                        <div class="vsadr-bar"><span class="vsadr-bar-fill vsadr-fill-@stage.Tone" style="width:@Width(stage.Share)"></span></div>
+                        <div class="vsp-sub">@stage.Note</div>
+                    </div>
+                }
+            </div>
+        </section>
+
+        @* ── The six figures, each against the period before ──────────────── *@
         <div class="vsp-kpis">
             <div class="vsp-kpi">
-                <div class="vsp-kpi-value">@overall.ActiveAdrCount.ToString("N0")</div>
-                <div class="vsp-kpi-label">ADRs active</div>
+                <div class="vsp-kpi-label">Actual sales from orders</div>
+                <div class="vsp-kpi-value">@Money(lead, money?.Invoiced)</div>
                 <div class="vsp-kpi-sub">
-                    of @overall.AdrCount.ToString("N0") ADR accounts ·
-                    @if (overall.StrikeRate is { } strike)
-                    {
-                        @($"{strike:P0} strike rate")
-                    }
-                    else
-                    {
-                        <span class="vs-metric-none">no visits recorded</span>
-                    }
+                    @(money?.MarginPercent is { } margin ? $"GP {margin:N1}% on SAP cost" : showGp ? "GP not costed yet" : "GP not read")
                 </div>
+                @Delta(Change(money?.Invoiced, previousMoney?.Invoiced), "%")
             </div>
-
             <div class="vsp-kpi">
-                <div class="vsp-kpi-value">@overall.OrderCounts.Total.ToString("N0")</div>
-                <div class="vsp-kpi-label">Orders captured</div>
+                <div class="vsp-kpi-label">Order-to-sale conversion</div>
+                <div class="vsp-kpi-value">@Rate(money?.Conversion, 1)</div>
+                <div class="vsp-kpi-sub">of @Money(lead, money?.Ordered) ordered</div>
+                @Delta(Points(money?.Conversion, previousMoney?.Conversion), "pts")
+            </div>
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-label">Fill rate</div>
+                <div class="vsp-kpi-value">@Rate(money?.FillRate, 1)</div>
                 <div class="vsp-kpi-sub">
-                    @overall.OrderCounts.InSap.ToString("N0") in SAP,
-                    @overall.OrderCounts.Pending.ToString("N0") not yet
+                    of invoiced orders' value delivered · @focus.Counts.InvoicedInFull.ToString("N0") of @focus.Counts.Invoiced.ToString("N0") in full
                 </div>
+                @Delta(Points(money?.FillRate, previousMoney?.FillRate), "pts")
             </div>
-
             <div class="vsp-kpi">
-                <div class="vsp-kpi-value">@AdrMoney(leadOrders)</div>
-                <div class="vsp-kpi-label">Order value</div>
-                <div class="vsp-kpi-sub">@ContributionNote(overall.Orders)</div>
+                <div class="vsp-kpi-label">Order to invoice</div>
+                <div class="vsp-kpi-value">@Days(focus.MedianDaysToInvoice)</div>
+                <div class="vsp-kpi-sub">median · @Rate(focus.InvoicedByNextDay) invoiced by the next day</div>
+                @Delta(DaysFaster(focus.MedianDaysToInvoice, focusPrevious?.MedianDaysToInvoice), "days")
             </div>
-
             <div class="vsp-kpi">
-                <div class="vsp-kpi-value">@Rate(leadOrders?.Share)</div>
-                <div class="vsp-kpi-label">Share of van orders</div>
-                <div class="vsp-kpi-sub">@(leadOrders is null ? "no van orders" : $"of {leadOrders.Currency} {leadOrders.VanGross:N2}")</div>
+                <div class="vsp-kpi-label">Strike rate</div>
+                <div class="vsp-kpi-value">@Rate(focus.StrikeRate)</div>
+                <div class="vsp-kpi-sub">
+                    @(focus.Calls is { } calls ? $"{focus.ProductiveCalls:N0} productive of {calls:N0} calls" : "no visits recorded")
+                </div>
+                @Delta(Points(focus.StrikeRate, focusPrevious?.StrikeRate), "pts")
             </div>
-
             <div class="vsp-kpi">
-                <div class="vsp-kpi-value">@AdrMoney(leadSales)</div>
-                <div class="vsp-kpi-label">Van sales</div>
-                <div class="vsp-kpi-sub">@ContributionNote(overall.Sales)</div>
-            </div>
-
-            <div class="vsp-kpi">
-                <div class="vsp-kpi-value">@Rate(leadSales?.Share)</div>
                 <div class="vsp-kpi-label">Share of van sales</div>
-                <div class="vsp-kpi-sub">@(leadSales is null ? "no van sales" : $"of {leadSales.Currency} {leadSales.VanGross:N2}")</div>
+                <div class="vsp-kpi-value">@Rate(money?.VanShare, 1)</div>
+                <div class="vsp-kpi-sub">of @Money(lead, money?.VanSales) the serving vans took</div>
+                @Delta(Points(money?.VanShare, previousMoney?.VanShare), "pts")
             </div>
         </div>
 
-        @* Hidden when there is nothing to say, so its presence is itself the signal. *@
+        @if (conversion.Previous is { } previous)
+        {
+            <p class="vsp-note vsadr-compare-note">
+                Arrows compare with @VanReportPeriod.Describe(previous.FromDate, previous.ToDate).
+            </p>
+        }
+
         @if (report.Caveats.Count > 0)
         {
             <div class="vsp-caveats">
@@ -151,210 +222,275 @@
             </div>
         }
 
-        @if (SelectedAdr is { } adr)
-        {
-            <h3 class="vsp-heading">@adr.DisplayName</h3>
-            <div class="vsadr-detail">
-                <dl class="vsadr-facts">
-                    <div><dt>Van account</dt><dd>@(adr.VanAccountCode ?? "—")</dd></div>
-                    <div><dt>Account</dt><dd>@(adr.IsActive ? "Active" : "Inactive")</dd></div>
-                    <div><dt>Days active</dt><dd>@adr.ActiveDays.ToString("N0")</dd></div>
-                    <div><dt>Orders</dt><dd>@adr.OrderCounts.Total.ToString("N0")</dd></div>
-                    <div><dt>In SAP</dt><dd>@adr.OrderCounts.InSap.ToString("N0")</dd></div>
-                    <div><dt>Fulfilled</dt><dd>@adr.OrderCounts.Fulfilled.ToString("N0")</dd></div>
-                    <div><dt>Not yet in SAP</dt><dd>@adr.OrderCounts.Pending.ToString("N0")</dd></div>
-                    <div><dt>Cancelled</dt><dd>@adr.OrderCounts.Cancelled.ToString("N0")</dd></div>
-                    <div><dt>Shops ordered for</dt><dd>@adr.OrderCustomerCount.ToString("N0")</dd></div>
-                    <div><dt>Shops sold to</dt><dd>@adr.SaleCustomerCount.ToString("N0")</dd></div>
-                    <div><dt>Calls</dt><dd>@(adr.Calls?.ToString("N0") ?? "—")</dd></div>
-                    <div><dt>Strike rate</dt><dd>@Rate(adr.StrikeRate)</dd></div>
-                </dl>
+        @* ── Day by day, and where the gap went ─────────────────────────────── *@
+        <div class="vsadr-pair">
+            <section class="vsadr-card vsadr-wide" aria-labelledby="vsadr-days-h">
+                <div class="vsadr-card-head">
+                    <div>
+                        <h3 id="vsadr-days-h" class="vsadr-card-title">Ordered against invoiced, day by day</h3>
+                        <p class="vsp-note">
+                            The pale bar is what was ordered that day; the solid bar inside it is what the van
+                            invoiced from those orders@(lead is null ? "" : $", in {lead}").
+                        </p>
+                    </div>
+                    <div class="vsadr-legend">
+                        <span><i class="vsadr-key vsadr-key-ordered"></i>Ordered</span>
+                        <span><i class="vsadr-key vsadr-key-invoiced"></i>Invoiced</span>
+                    </div>
+                </div>
+                @{
+                    var chart = ChartDays(conversion, lead);
+                    var peak = chart.Count == 0 ? 0m : chart.Max(day => day.Ordered);
+                }
+                @if (chart.Count == 0 || peak <= 0)
+                {
+                    <div class="vs-metric-none">No priced orders in this period.</div>
+                }
+                else
+                {
+                    <div class="vsadr-chart-wrap">
+                        <div class="vsadr-chart" role="img"
+                             aria-label="@($"Ordered against invoiced over {chart.Count} trading days")"
+                             style="--vsadr-cols:@chart.Count">
+                            @foreach (var day in chart)
+                            {
+                                var conversionRate = day.Ordered > 0 ? (double)(day.Invoiced / day.Ordered) : 0;
+                                <div class="vsadr-col"
+                                     title="@($"{day.Date:ddd dd MMM} — ordered {lead} {day.Ordered:N2}, invoiced {lead} {day.Invoiced:N2} ({conversionRate:P0})")">
+                                    <div class="vsadr-col-ordered" style="height:@Width((double)(day.Ordered / peak))">
+                                        <div class="vsadr-col-invoiced" style="height:@Width(Math.Min(conversionRate, 1))"></div>
+                                    </div>
+                                    <span class="vsadr-col-label @(day.Date.DayOfWeek == DayOfWeek.Saturday ? "vsadr-col-sat" : null)">
+                                        @(day.Date.DayOfWeek == DayOfWeek.Saturday ? "S" : day.Date.Day.ToString(CultureInfo.InvariantCulture))
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                    <p class="vsp-note">
+                        Peak day @Money(lead, peak). The most recent days settle as the vans invoice them.
+                    </p>
+                }
+            </section>
 
+            <section class="vsadr-card vsadr-narrow" aria-labelledby="vsadr-gap-h">
+                <h3 id="vsadr-gap-h" class="vsadr-card-title">Where the other @Money(lead, money?.Gap) went</h3>
+                <p class="vsp-note">
+                    The @Rate(money is { Ordered: > 0 } ? (double)(money.Gap / money.Ordered) : null, 1) of ordered
+                    value that did not become a sale, by reason.
+                </p>
+                @{
+                    var reasons = AdrConversionReading.GapReasons(focus, money);
+                    var positive = reasons.Where(reason => reason.Value > 0).Sum(reason => reason.Value);
+                }
+                @if (positive > 0)
+                {
+                    <div class="vsadr-gapbar" role="img" aria-label="@GapLabel(reasons, positive)">
+                        @for (var i = 0; i < reasons.Count; i++)
+                        {
+                            if (reasons[i].Value > 0)
+                            {
+                                <span class="vsadr-gap-@i" style="width:@Width((double)(reasons[i].Value / positive))"></span>
+                            }
+                        }
+                    </div>
+                }
+                <ul class="vsadr-reasons">
+                    @for (var i = 0; i < reasons.Count; i++)
+                    {
+                        var reason = reasons[i];
+                        <li>
+                            <i class="vsadr-key vsadr-gap-@i" aria-hidden="true"></i>
+                            <div>
+                                <div class="vsadr-reason-line">
+                                    <span class="vsadr-reason-name">@reason.Reason</span>
+                                    <span class="vsadr-reason-value">@Money(lead, reason.Value)</span>
+                                </div>
+                                <div class="vsp-sub">
+                                    @reason.Explanation · @reason.Orders.ToString("N0") order@(reason.Orders == 1 ? "" : "s")
+                                </div>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            </section>
+        </div>
+
+        @* ── The league ─────────────────────────────────────────────────────── *@
+        @if (SelectedAdr is null)
+        {
+            <section class="vsadr-card vsadr-flush" aria-labelledby="vsadr-league-h">
+                <div class="vsadr-card-head vsadr-pad">
+                    <div>
+                        <h3 id="vsadr-league-h" class="vsadr-card-title">ADR league — ranked on actual sales</h3>
+                        <p class="vsp-note">
+                            An ADR whose orders never arrive ranks below one whose orders land. Choose a name to see
+                            that ADR on their own.
+                        </p>
+                    </div>
+                </div>
                 <div class="vs-table-wrap">
-                    <table class="vs-table">
+                    <table class="vs-table vsadr-league">
                         <thead>
                             <tr>
-                                <th>Currency</th>
+                                <th class="vs-num">#</th>
+                                <th>ADR · route</th>
+                                <th class="vs-num">Days</th>
+                                <th class="vs-num">Calls</th>
+                                <th class="vs-num">Strike</th>
                                 <th class="vs-num">Orders</th>
-                                <th class="vs-num">Order value</th>
-                                <th class="vs-num">Share of van orders</th>
-                                <th class="vs-num">Sales</th>
-                                <th class="vs-num">Sales value</th>
-                                <th class="vs-num">Share of van sales</th>
+                                <th class="vs-num">Ordered</th>
+                                <th class="vs-num">Invoiced</th>
+                                <th>Conversion</th>
+                                <th class="vs-num">Fill</th>
+                                <th class="vs-num">Days to inv.</th>
+                                <th>Share of van sales</th>
+                                @if (showGp)
+                                {
+                                    <th class="vs-num">GP %</th>
+                                }
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var currency in CurrenciesOf(adr))
+                            @{ var rank = 0; }
+                            @foreach (var (row, person) in League(conversion, lead))
                             {
-                                var orders = Find(adr.OrderTotalsByCurrency, currency);
-                                var sales = Find(adr.SalesTotalsByCurrency, currency);
-                                var share = adr.Shares.FirstOrDefault(s => SameCurrency(s.Currency, currency));
+                                var rowMoney = row.Summary.In(lead);
+                                rank++;
                                 <tr>
-                                    <td>@currency</td>
-                                    <td class="vs-num">@(orders?.DocumentCount.ToString("N0") ?? "—")</td>
-                                    <td class="vs-num">@(orders is null ? "—" : orders.Gross.ToString("N2"))</td>
-                                    <td class="vs-num">@ShareCell(share?.OrderShare)</td>
-                                    <td class="vs-num">@(sales?.DocumentCount.ToString("N0") ?? "—")</td>
-                                    <td class="vs-num">@(sales is null ? "—" : sales.Gross.ToString("N2"))</td>
-                                    <td class="vs-num">@ShareCell(share?.SalesShare)</td>
+                                    <td class="vs-num"><span class="vsadr-rank">@rank</span></td>
+                                    <td>
+                                        <button type="button" class="vsadr-name" @onclick="() => SelectAdrAsync(row.UserId)">
+                                            @(person?.DisplayName ?? "Unknown ADR")
+                                        </button>
+                                        @if (person is { IsActive: false })
+                                        {
+                                            <span class="vsp-sub">inactive</span>
+                                        }
+                                        <div class="vsp-sub">@(row.RouteName is null ? person?.VanAccountCode ?? "no route" : $"{row.RouteCode} {row.RouteName}")</div>
+                                    </td>
+                                    <td class="vs-num">@(person?.ActiveDays.ToString("N0") ?? "—")</td>
+                                    <td class="vs-num">@(row.Summary.Calls?.ToString("N0") ?? "—")</td>
+                                    <td class="vs-num">@Rate(row.Summary.StrikeRate)</td>
+                                    <td class="vs-num">@row.Summary.Counts.Ordered.ToString("N0")</td>
+                                    <td class="vs-num">@Amount(rowMoney?.Ordered)</td>
+                                    <td class="vs-num vsadr-strong">@Amount(rowMoney?.Invoiced)</td>
+                                    <td>@Meter(rowMoney?.Conversion)</td>
+                                    <td class="vs-num @(rowMoney?.FillRate is < 0.85 ? "vsadr-warn" : null)">@Rate(rowMoney?.FillRate)</td>
+                                    <td class="vs-num">@Days(row.Summary.MedianDaysToInvoice, shortForm: true)</td>
+                                    <td>@Meter(rowMoney?.VanShare, neutral: true)</td>
+                                    @if (showGp)
+                                    {
+                                        <td class="vs-num">@(rowMoney?.MarginPercent is { } rowMargin ? $"{rowMargin:N1}%" : "—")</td>
+                                    }
                                 </tr>
                             }
                         </tbody>
+                        <tfoot>
+                            <tr>
+                                <td></td>
+                                <td>All ADRs · @report.Overall.ActiveAdrCount.ToString("N0") active of @report.Overall.AdrCount.ToString("N0")</td>
+                                <td class="vs-num">—</td>
+                                <td class="vs-num">@(conversion.Overall.Calls?.ToString("N0") ?? "—")</td>
+                                <td class="vs-num">@Rate(conversion.Overall.StrikeRate)</td>
+                                <td class="vs-num">@conversion.Overall.Counts.Ordered.ToString("N0")</td>
+                                <td class="vs-num">@Amount(allMoney?.Ordered)</td>
+                                <td class="vs-num">@Amount(allMoney?.Invoiced)</td>
+                                <td>@Rate(allMoney?.Conversion, 1)</td>
+                                <td class="vs-num">@Rate(allMoney?.FillRate, 1)</td>
+                                <td class="vs-num">@Days(conversion.Overall.MedianDaysToInvoice, shortForm: true)</td>
+                                <td>@Rate(allMoney?.VanShare, 1)</td>
+                                @if (showGp)
+                                {
+                                    <td class="vs-num">@(allMoney?.MarginPercent is { } allMargin ? $"{allMargin:N1}%" : "—")</td>
+                                }
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
-
-                @if (report.Detail is { } detail)
-                {
-                    @DetailTabs(detail)
-                }
-            </div>
+            </section>
         }
 
-        <h3 class="vsp-heading">ADR contribution to all vans</h3>
-        <p class="vsp-note">
-            Every van rep — ADR and Sales accounts — makes up the whole. Cancelled and rejected
-            orders are counted but carry no value.
-        </p>
-        <div class="vs-table-wrap">
-            <table class="vs-table">
-                <thead>
-                    <tr>
-                        <th>Measure</th>
-                        <th>Currency</th>
-                        <th class="vs-num">ADRs</th>
-                        <th class="vs-num">ADR value</th>
-                        <th class="vs-num">All vans</th>
-                        <th class="vs-num">All van value</th>
-                        <th class="vs-num">ADR share</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var (measure, contribution) in Contributions(overall))
-                    {
-                        <tr>
-                            <td>@measure</td>
-                            <td>@contribution.Currency</td>
-                            <td class="vs-num">@contribution.AdrDocumentCount.ToString("N0")</td>
-                            <td class="vs-num">@contribution.AdrGross.ToString("N2")</td>
-                            <td class="vs-num">@contribution.VanDocumentCount.ToString("N0")</td>
-                            <td class="vs-num">@contribution.VanGross.ToString("N2")</td>
-                            <td class="vs-num">@ShareCell(contribution.Share)</td>
-                        </tr>
-                    }
-                    @if (overall.Orders.Count == 0 && overall.Sales.Count == 0)
-                    {
-                        <tr><td colspan="7" class="vs-metric-none">No van orders or sales in this period.</td></tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-
-        <h3 class="vsp-heading">Who raised the order book</h3>
-        <p class="vsp-note">
-            Every sales order raised in the period, from every source, split by who raised it — so the
-            ADRs can be read against everyone who takes orders, not only the vans. Cancelled and
-            rejected orders are out of both the part and the whole. Grouped on each person's role today.
-        </p>
-        <div class="vs-table-wrap">
-            <table class="vs-table">
-                <thead>
-                    <tr>
-                        <th>Raised by</th>
-                        <th class="vs-num">Orders</th>
-                        <th class="vs-num">People</th>
-                        <th>Value</th>
-                        <th>Share</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var channel in report.OrdersByChannel)
-                    {
-                        <tr class="@(channel.IsAdr ? "vsadr-self" : null)">
-                            <td>@channel.Channel</td>
-                            <td class="vs-num">@channel.OrderCount.ToString("N0")</td>
-                            <td class="vs-num">@(channel.PeopleCount == 0 ? "—" : channel.PeopleCount.ToString("N0"))</td>
-                            <td>@ChannelValues(channel.Shares)</td>
-                            <td class="vsadr-share-cell">
-                                @foreach (var share in channel.Shares)
-                                {
-                                    <div class="vsadr-share">
-                                        @ShareCell(share.Share)
-                                        <span class="vsp-sub">of @share.Currency</span>
-                                    </div>
-                                }
-                                @if (channel.Shares.Count == 0)
-                                {
-                                    <span class="vs-metric-none">nothing raised</span>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-
-        <h3 class="vsp-heading">ADR league table</h3>
-        <p class="vsp-note">
-            Ranked on sales in the vans' main currency, then orders. Choose an ADR's name to see them
-            on their own. Each share is of every van, in the currency named under it.
-        </p>
-        <div class="vs-table-wrap">
-            <table class="vs-table">
-                <thead>
-                    <tr>
-                        <th>ADR</th>
-                        <th>Van</th>
-                        <th class="vs-num">Days</th>
-                        <th class="vs-num">Orders</th>
-                        <th class="vs-num">In SAP</th>
-                        <th class="vs-num">Fulfilled</th>
-                        <th class="vs-num">Not in SAP</th>
-                        <th class="vs-num">Shops ordered</th>
-                        <th class="vs-num">Strike rate</th>
-                        <th>Order value</th>
-                        <th class="vs-num">Share</th>
-                        <th>Sales value</th>
-                        @if (showGp)
+        @* ── Rhythm and the order book ─────────────────────────────────────── *@
+        <div class="vsadr-pair">
+            <section class="vsadr-card vsadr-narrow" aria-labelledby="vsadr-week-h">
+                <h3 id="vsadr-week-h" class="vsadr-card-title">Weekday rhythm</h3>
+                <p class="vsp-note">Calls made, how many ordered, and how much of the ordered value was invoiced.</p>
+                <table class="vs-table">
+                    <thead>
+                        <tr><th>Day</th><th class="vs-num">Calls</th><th class="vs-num">Strike</th><th>Conversion</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var weekday in Weekdays(conversion, lead))
                         {
-                            <th>Gross profit</th>
+                            <tr>
+                                <td>@weekday.Day</td>
+                                <td class="vs-num">@(weekday.Calls?.ToString("N0") ?? "—")</td>
+                                <td class="vs-num">@Rate(weekday.Strike)</td>
+                                <td>@Meter(weekday.Conversion)</td>
+                            </tr>
                         }
-                        <th class="vs-num">Share</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var row in report.Adrs)
-                    {
-                        <tr>
-                            <td>
-                                <button type="button" class="vsadr-name" @onclick="() => SelectAdrAsync(row.UserId)">
-                                    @row.DisplayName
-                                </button>
-                                @if (!row.IsActive)
-                                {
-                                    <span class="vsp-sub">inactive</span>
-                                }
-                            </td>
-                            <td>@(row.VanAccountCode ?? "—")</td>
-                            <td class="vs-num">@row.ActiveDays.ToString("N0")</td>
-                            <td class="vs-num">@row.OrderCounts.Total.ToString("N0")</td>
-                            <td class="vs-num">@row.OrderCounts.InSap.ToString("N0")</td>
-                            <td class="vs-num">@row.OrderCounts.Fulfilled.ToString("N0")</td>
-                            <td class="vs-num @(row.OrderCounts.Pending > 0 ? "vsadr-warn" : null)">@row.OrderCounts.Pending.ToString("N0")</td>
-                            <td class="vs-num">@row.OrderCustomerCount.ToString("N0")</td>
-                            <td class="vs-num @(row.StrikeRate is null ? "vs-metric-none" : null)">@Rate(row.StrikeRate)</td>
-                            <td>@MoneyList(row.OrderTotalsByCurrency)</td>
-                            <td class="vs-num">@LeadShareCell(row, row.OrderTotalsByCurrency, share => share.OrderShare)</td>
-                            <td>@MoneyList(row.SalesTotalsByCurrency)</td>
-                            @if (showGp)
-                            {
-                                <GrossProfitByCurrencyCell Figures="GrossProfitFormat.Of(row.SalesTotalsByCurrency)" />
-                            }
-                            <td class="vs-num">@LeadShareCell(row, row.SalesTotalsByCurrency, share => share.SalesShare)</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                    </tbody>
+                </table>
+            </section>
+
+            <section class="vsadr-card vsadr-narrow" aria-labelledby="vsadr-book-h">
+                <h3 id="vsadr-book-h" class="vsadr-card-title">Who raised the order book</h3>
+                <p class="vsp-note">
+                    Every live sales order in the period, from every source, by who raised it — so the ADRs
+                    read against everyone who takes orders. Grouped on each person's role today.
+                </p>
+                <table class="vs-table">
+                    <thead>
+                        <tr><th>Raised by</th><th class="vs-num">Orders</th><th>Value</th><th>Share</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var channel in report.OrdersByChannel)
+                        {
+                            var share = channel.Shares.FirstOrDefault(part => SameCurrency(part.Currency, lead ?? string.Empty))
+                                        ?? channel.Shares.FirstOrDefault();
+                            <tr class="@(channel.IsAdr ? "vsadr-self" : null)">
+                                <td>@channel.Channel</td>
+                                <td class="vs-num">@channel.OrderCount.ToString("N0")</td>
+                                <td>@ChannelValues(channel.Shares)</td>
+                                <td>@Meter(share?.Share, neutral: true)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </section>
         </div>
+
+        @* ── Shops, items and orders ───────────────────────────────────────── *@
+        <div class="vsp-sections">
+            @foreach (var (key, label, count) in new[]
+            {
+                (TabShops, "Shops", conversion.Shops.Count),
+                (TabItems, "Items short", conversion.Items.Count(item => item.ShortQuantity > 0)),
+                (TabOrders, "Order ledger", conversion.Orders.Count)
+            })
+            {
+                <button type="button"
+                        class="vs-chip @(activeTab == key ? "vs-chip-info" : "vs-chip-quiet")"
+                        @onclick="() => ShowTab(key)">
+                    @label
+                    <span class="vsp-section-count">@count.ToString("N0")</span>
+                </button>
+            }
+        </div>
+
+        @if (activeTab == TabShops)
+        {
+            @ShopsTable(conversion, lead)
+        }
+        else if (activeTab == TabItems)
+        {
+            @ItemsTable(conversion, lead)
+        }
+        else
+        {
+            @LedgerTable(conversion)
+        }
     }
 </div>
 
@@ -382,12 +518,17 @@
     /// <summary>The page's own default, shown as a preset beside the standard ones.</summary>
     private static readonly int[] RecentDays = [30];
 
+    /// <summary>The most rows a table draws; the export carries every one.</summary>
+    private const int RowsShown = 200;
+
     private const string TabQueryName = "tab";
+    private const string OutcomeQueryName = "outcome";
 
     [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
     [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
     [SupplyParameterFromQuery(Name = VanReportLinks.Rep)] private string? RepQuery { get; set; }
     [SupplyParameterFromQuery(Name = TabQueryName)] private string? TabQuery { get; set; }
+    [SupplyParameterFromQuery(Name = OutcomeQueryName)] private string? OutcomeQuery { get; set; }
 
     private readonly LatestLoad loads = new();
 
@@ -396,159 +537,17 @@
     private const string TabOrders = "orders";
     private string activeTab = TabShops;
 
-    /// <summary>
-    /// One ADR's shops, items and orders. Inline rather than three components: they share this
-    /// page's formatters, and two tables formatting money two ways is how a page starts to disagree
-    /// with itself.
-    /// </summary>
-    private RenderFragment DetailTabs(AdrPerformanceDetail detail) => __builder =>
-    {
-        <div class="vsp-sections">
-            @foreach (var (key, label, count) in new[]
-            {
-                (TabShops, "Shops", detail.Shops.Count),
-                (TabItems, "Items", detail.Items.Count),
-                (TabOrders, "Orders", detail.Orders.Count + detail.OrdersNotListed)
-            })
-            {
-                <button type="button"
-                        class="vs-chip @(activeTab == key ? "vs-chip-info" : "vs-chip-quiet")"
-                        @onclick="() => ShowTab(key)">
-                    @label
-                    <span class="vsp-section-count">@count.ToString("N0")</span>
-                </button>
-            }
-        </div>
+    /// <summary>The ledger's outcome filter: null for every order.</summary>
+    private string? outcomeFilter;
 
-        @if (activeTab == TabShops)
-        {
-            <p class="vsp-note">
-                Orders and van sales sit in separate columns: an order the van then invoiced would
-                otherwise count twice. Cancelled orders are left out.
-            </p>
-            <div class="vs-table-wrap">
-                <table class="vs-table">
-                    <thead>
-                        <tr>
-                            <th>Shop</th>
-                            <th class="vs-num">Orders</th>
-                            <th>Order value</th>
-                            <th class="vs-num">Sales</th>
-                            <th>Sales value</th>
-                            @if (showGp)
-                            {
-                                <th>Gross profit</th>
-                            }
-                            <th>Last active</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var shop in detail.Shops)
-                        {
-                            <tr>
-                                <td>@shop.DisplayName <span class="vsp-sub">@shop.CustomerCode</span></td>
-                                <td class="vs-num">@shop.OrderCount.ToString("N0")</td>
-                                <td>@MoneyList(shop.OrderTotalsByCurrency)</td>
-                                <td class="vs-num">@shop.SaleCount.ToString("N0")</td>
-                                <td>@MoneyList(shop.SalesTotalsByCurrency)</td>
-                                @if (showGp)
-                                {
-                                    <GrossProfitByCurrencyCell Figures="GrossProfitFormat.Of(shop.SalesTotalsByCurrency)" />
-                                }
-                                <td>@shop.LastActiveOn.ToString("ddd dd MMM")</td>
-                            </tr>
-                        }
-                        @if (detail.Shops.Count == 0)
-                        {
-                            <tr><td colspan="6" class="vs-metric-none">No shop recorded on any order or sale.</td></tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-        else if (activeTab == TabItems)
-        {
-            <p class="vsp-note">
-                What they ordered, ranked on reach — lines written and shops reached — because value
-                cannot be compared across currencies nor quantity across units. Value is line totals,
-                a different measure from order totals.
-            </p>
-            <div class="vs-table-wrap">
-                <table class="vs-table">
-                    <thead>
-                        <tr>
-                            <th class="vs-num">#</th>
-                            <th>Item</th>
-                            <th class="vs-num">Lines</th>
-                            <th class="vs-num">Shops</th>
-                            <th>Quantity</th>
-                            <th>Line value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in detail.Items)
-                        {
-                            <tr>
-                                <td class="vs-num">@item.Rank</td>
-                                <td>@item.DisplayName <span class="vsp-sub">@item.ItemCode</span></td>
-                                <td class="vs-num">@item.LineCount.ToString("N0")</td>
-                                <td class="vs-num">@item.ShopCount.ToString("N0")</td>
-                                <td>@Quantity(item.QuantitiesByUoM)</td>
-                                <td>@LineMoney(item.TotalsByCurrency)</td>
-                            </tr>
-                        }
-                        @if (detail.Items.Count == 0)
-                        {
-                            <tr><td colspan="6" class="vs-metric-none">No order lines in this period.</td></tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-        else
-        {
-            @if (detail.OrdersNotListed > 0)
-            {
-                <p class="vsp-note">
-                    The newest @detail.Orders.Count.ToString("N0") orders. @detail.OrdersNotListed.ToString("N0")
-                    older ones are counted above but not listed — narrow the period to see them.
-                </p>
-            }
-            <div class="vs-table-wrap">
-                <table class="vs-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Order</th>
-                            <th>SAP no.</th>
-                            <th>Shop</th>
-                            <th>Stage</th>
-                            <th class="vs-num">Lines</th>
-                            <th class="vs-num">Value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var order in detail.Orders)
-                        {
-                            <tr class="@(order.Stage == "Cancelled" ? "vsadr-cancelled" : null)">
-                                <td>@order.TradingDate.ToString("ddd dd MMM")</td>
-                                <td>@order.OrderNumber</td>
-                                <td>@(order.SapDocNum?.ToString(CultureInfo.InvariantCulture) ?? "—")</td>
-                                <td>@order.DisplayCustomer</td>
-                                <td><span class="vs-chip @StageChip(order.Stage)">@order.Stage</span></td>
-                                <td class="vs-num">@order.LineCount.ToString("N0")</td>
-                                <td class="vs-num">@($"{order.Currency} {order.DocTotal:N2}")</td>
-                            </tr>
-                        }
-                        @if (detail.Orders.Count == 0)
-                        {
-                            <tr><td colspan="7" class="vs-metric-none">No orders in this period.</td></tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-    };
+    private static readonly (string? Key, string Label)[] OutcomeFilters =
+    [
+        (null, "All"),
+        (AdrOutcome.ShortSupplied, "Short-supplied"),
+        (AdrOutcome.NoLinkedInvoice, "No linked invoice"),
+        (AdrOutcome.NotYetInSap, "Not yet in SAP"),
+        (AdrOutcome.Cancelled, "Cancelled")
+    ];
 
     private IEnumerable<INocturneSelectOption<string>> AdrFilterOptions =>
         new[] { NocturneSelectOption.All("All ADRs") }
@@ -561,6 +560,9 @@
 
     private AdrPerformanceRow? SelectedAdr =>
         Guid.TryParse(selectedAdrId, out var id) ? report?.Adrs.FirstOrDefault(adr => adr.UserId == id) : null;
+
+    private AdrPerformanceRow? Person(Guid userId) =>
+        report?.Adrs.FirstOrDefault(adr => adr.UserId == userId) ?? adrs.FirstOrDefault(adr => adr.UserId == userId);
 
     protected override async Task OnInitializedAsync()
     {
@@ -575,12 +577,20 @@
             activeTab = TabQuery;
         }
 
+        outcomeFilter = OutcomeFilters.FirstOrDefault(filter => filter.Key == OutcomeQuery).Key;
+
         await LoadAsync();
     }
 
     private async Task SelectAdrAsync(Guid userId)
     {
         selectedAdrId = userId.ToString("N");
+        await LoadAsync();
+    }
+
+    private async Task ClearAdrAsync()
+    {
+        selectedAdrId = null;
         await LoadAsync();
     }
 
@@ -611,6 +621,12 @@
             if (adrId is null)
             {
                 adrs = report.Adrs;
+            }
+            else if (report.Adrs.Count > 0 && adrs.All(adr => adr.UserId != adrId))
+            {
+                // Opened from a link to one ADR: the picker has no list yet, and saying "All ADRs" over one
+                // ADR's figures would be wrong. It names them until "All ADRs" loads the rest.
+                adrs = [.. adrs, .. report.Adrs];
             }
             else if (report.Adrs.Count == 0)
             {
@@ -643,7 +659,13 @@
         WriteQuery();
     }
 
-    /// <summary>The period, the ADR and the open tab, in the page's own URL.</summary>
+    private void ShowOutcome(string? outcome)
+    {
+        outcomeFilter = outcome;
+        WriteQuery();
+    }
+
+    /// <summary>The period, the ADR, the open tab and the ledger filter, in the page's own URL.</summary>
     private void WriteQuery()
     {
         var values = VanReportLinks.Query(
@@ -651,6 +673,7 @@
             report?.ToDate ?? toDate,
             rep: VanReportLinks.ParseRep(selectedAdrId));
         values[TabQueryName] = activeTab == TabShops ? null : activeTab;
+        values[OutcomeQueryName] = activeTab == TabOrders ? outcomeFilter : null;
         VanReportLinks.WriteQuery(Navigation, values);
     }
 
@@ -666,7 +689,8 @@
         try
         {
             var bytes = ExportService.ExportAdrPerformanceToExcel(report);
-            var fileName = $"AdrPerformance_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.xlsx";
+            var who = SelectedAdr is { } adr ? $"_{adr.Username}" : string.Empty;
+            var fileName = $"AdrPerformance_{report.FromDate:yyyyMMdd}-{report.ToDate:yyyyMMdd}{who}.xlsx";
 
             await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
         }
@@ -676,104 +700,384 @@
         }
     }
 
+    // ── What the page shows ─────────────────────────────────────────────────────
+
+    /// <summary>The chosen ADR's figures, or every ADR's when none is chosen.</summary>
+    private AdrConversionSummary FocusSummary(AdrConversionReport conversion) =>
+        SelectedAdr is { } adr
+            ? conversion.Adrs.FirstOrDefault(row => row.UserId == adr.UserId)?.Summary ?? new AdrConversionSummary()
+            : conversion.Overall;
+
+    private AdrConversionSummary? FocusPrevious(AdrConversionReport conversion) =>
+        conversion.Previous is not { } previous ? null
+        : SelectedAdr is { } adr ? previous.Adrs.FirstOrDefault(row => row.UserId == adr.UserId)?.Summary
+        : previous.Overall;
+
+    private sealed record Stage(string Label, decimal? Value, string Orders, double? Share, string Tone, string Note);
+
+    private static IEnumerable<Stage> Stages(AdrConversionSummary summary, AdrConversionMoney? money)
+    {
+        var counts = summary.Counts;
+        var ordered = money?.Ordered ?? 0m;
+        double? Of(decimal? value) => ordered > 0 && value is { } part ? (double)(part / ordered) : null;
+
+        yield return new Stage("Ordered", money?.Ordered, $"{counts.Ordered:N0} orders", ordered > 0 ? 1 : null, "accent",
+            $"{counts.Cancelled:N0} cancelled since");
+        yield return new Stage("Reached SAP", money?.ReachedSap, $"{counts.ReachedSap:N0} orders", Of(money?.ReachedSap), "accent",
+            $"{Rate(Of(money?.ReachedSap), 1)} · {counts.NotYetInSap:N0} still waiting");
+        yield return new Stage("Invoiced — actual sales", money?.Invoiced, $"{counts.Invoiced:N0} orders", Of(money?.Invoiced), "info",
+            $"{Rate(Of(money?.Invoiced), 1)} of ordered value");
+        yield return new Stage("Never became a sale", money?.Gap, Rate(Of(money?.Gap), 1), Of(money?.Gap), "warn",
+            "Split by reason below");
+    }
+
+    private sealed record ChartDay(DateTime Date, decimal Ordered, decimal Invoiced);
+
+    /// <summary>Each trading day's orders in the lead currency, across whichever ADRs the page shows.</summary>
+    private static List<ChartDay> ChartDays(AdrConversionReport conversion, string? lead) =>
+        conversion.Days
+            .GroupBy(day => day.TradingDate.Date)
+            .Select(group =>
+            {
+                var money = group.SelectMany(day => day.Money).Where(part => SameCurrency(part.Currency, lead ?? string.Empty)).ToList();
+                return new ChartDay(group.Key, money.Sum(part => part.Ordered), money.Sum(part => part.Invoiced));
+            })
+            .Where(day => day.Ordered > 0 || day.Invoiced > 0)
+            .OrderBy(day => day.Date)
+            .ToList();
+
+    private sealed record Weekday(string Day, int? Calls, double? Strike, double? Conversion);
+
+    private static IEnumerable<Weekday> Weekdays(AdrConversionReport conversion, string? lead) =>
+        conversion.Days
+            .GroupBy(day => day.TradingDate.DayOfWeek)
+            .OrderBy(group => ((int)group.Key + 6) % 7)
+            .Select(group =>
+            {
+                var called = group.Where(day => day.Calls is not null).ToList();
+                int? calls = called.Count == 0 ? null : called.Sum(day => day.Calls!.Value);
+                var money = group.SelectMany(day => day.Money).Where(part => SameCurrency(part.Currency, lead ?? string.Empty)).ToList();
+                var ordered = money.Sum(part => part.Ordered);
+                return new Weekday(
+                    CultureInfo.InvariantCulture.DateTimeFormat.GetDayName(group.Key),
+                    calls,
+                    calls is > 0 ? (double)called.Sum(day => day.ProductiveCalls) / calls.Value : null,
+                    ordered > 0 ? (double)(money.Sum(part => part.Invoiced) / ordered) : null);
+            });
+
+    /// <summary>The ADRs ranked on what their orders actually sold, in the lead currency.</summary>
+    private IEnumerable<(AdrConversionRow Row, AdrPerformanceRow? Person)> League(AdrConversionReport conversion, string? lead) =>
+        conversion.Adrs
+            .Select(row => (Row: row, Person: Person(row.UserId)))
+            .OrderByDescending(pair => pair.Row.Summary.In(lead)?.Invoiced ?? 0m)
+            .ThenByDescending(pair => pair.Row.Summary.In(lead)?.Ordered ?? 0m)
+            .ThenBy(pair => pair.Person?.DisplayName, StringComparer.OrdinalIgnoreCase);
+
+    private RenderFragment ShopsTable(AdrConversionReport conversion, string? lead) => __builder =>
+    {
+        var many = SelectedAdr is null;
+        <p class="vsp-note">
+            Did each shop's orders arrive? A shop visited and never ordered for is listed too. Flags mark
+            shops that order but are not receiving.
+        </p>
+        <div class="vs-table-wrap">
+            <table class="vs-table">
+                <thead>
+                    <tr>
+                        @if (many)
+                        {
+                            <th>ADR</th>
+                        }
+                        <th>Shop</th>
+                        <th class="vs-num">Visits</th>
+                        <th class="vs-num">Orders</th>
+                        <th class="vs-num">Ordered</th>
+                        <th class="vs-num">Invoiced</th>
+                        <th>Conversion</th>
+                        <th class="vs-num">Short</th>
+                        <th>Last order</th>
+                        <th>Flag</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var shop in conversion.Shops.Take(RowsShown))
+                    {
+                        var shopMoney = shop.Money.FirstOrDefault(part => SameCurrency(part.Currency, lead ?? string.Empty));
+                        var flag = AdrConversionReading.ShopFlag(shop, lead);
+                        <tr>
+                            @if (many)
+                            {
+                                <td>@(Person(shop.UserId)?.DisplayName ?? "—")</td>
+                            }
+                            <td>@shop.DisplayName <span class="vsp-sub">@shop.CustomerCode</span></td>
+                            <td class="vs-num">@shop.Visits.ToString("N0")</td>
+                            <td class="vs-num">@shop.Orders.ToString("N0")</td>
+                            <td class="vs-num">@Amount(shopMoney?.Ordered)</td>
+                            <td class="vs-num vsadr-strong">@Amount(shopMoney?.Invoiced)</td>
+                            <td>@Meter(shopMoney?.Conversion)</td>
+                            <td class="vs-num @(shopMoney is { ShortSupplied: > 0 } ? "vsadr-warn" : null)">@Amount(shopMoney?.ShortSupplied)</td>
+                            <td>@(shop.LastOrderOn?.ToString("ddd dd MMM") ?? "—")</td>
+                            <td>
+                                @if (flag is not null)
+                                {
+                                    <span class="vs-chip vs-chip-warn">@flag</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (conversion.Shops.Count == 0)
+                    {
+                        <tr><td colspan="10" class="vs-metric-none">No shop recorded on any order or visit.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @RowsNote(conversion.Shops.Count, "shops")
+    };
+
+    private RenderFragment ItemsTable(AdrConversionReport conversion, string? lead) => __builder =>
+    {
+        var many = SelectedAdr is null;
+        var items = conversion.Items.Where(item => item.ShortQuantity > 0).ToList();
+        <p class="vsp-note">
+            Ordered units against units the van invoiced, on orders it has invoiced. Short value is what the
+            shortfall would have sold for at the order's own prices.
+        </p>
+        <div class="vs-table-wrap">
+            <table class="vs-table">
+                <thead>
+                    <tr>
+                        @if (many)
+                        {
+                            <th>ADR</th>
+                        }
+                        <th>Item</th>
+                        <th class="vs-num">Ordered</th>
+                        <th class="vs-num">Supplied</th>
+                        <th>Fill rate</th>
+                        <th class="vs-num">Short value</th>
+                        <th class="vs-num">Shops let down</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in items.Take(RowsShown))
+                    {
+                        var shortMoney = item.Money.FirstOrDefault(part => SameCurrency(part.Currency, lead ?? string.Empty));
+                        <tr>
+                            @if (many)
+                            {
+                                <td>@(Person(item.UserId)?.DisplayName ?? "—")</td>
+                            }
+                            <td>@item.DisplayName <span class="vsp-sub">@item.ItemCode</span></td>
+                            <td class="vs-num">@Quantity(item.OrderedQuantity, item.UoMCode)</td>
+                            <td class="vs-num">@Quantity(item.SuppliedQuantity, item.UoMCode)</td>
+                            <td>@Meter(item.FillRate)</td>
+                            <td class="vs-num vsadr-warn">@Amount(shortMoney?.ShortSupplied)</td>
+                            <td class="vs-num">@item.ShortShopCount.ToString("N0")</td>
+                        </tr>
+                    }
+                    @if (items.Count == 0)
+                    {
+                        <tr><td colspan="7" class="vs-metric-none">The van delivered every invoiced order in full.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @RowsNote(items.Count, "items")
+    };
+
+    private RenderFragment LedgerTable(AdrConversionReport conversion) => __builder =>
+    {
+        var many = SelectedAdr is null;
+        var orders = conversion.Orders.Where(order => outcomeFilter is null || order.Outcome == outcomeFilter).ToList();
+        <div class="vsadr-filters" role="group" aria-label="Filter the ledger by outcome">
+            @foreach (var (key, label) in OutcomeFilters)
+            {
+                var count = key is null ? conversion.Orders.Count : conversion.Orders.Count(order => order.Outcome == key);
+                <button type="button" aria-pressed="@(outcomeFilter == key ? "true" : "false")"
+                        class="vs-chip @(outcomeFilter == key ? "vs-chip-info" : "vs-chip-quiet")"
+                        @onclick="() => ShowOutcome(key)">
+                    @label <span class="vsp-section-count">@count.ToString("N0")</span>
+                </button>
+            }
+        </div>
+        <p class="vsp-note">Newest first. Variance is invoiced minus ordered; the outcome says why they differ.</p>
+        <div class="vs-table-wrap">
+            <table class="vs-table">
+                <thead>
+                    <tr>
+                        <th>Captured</th>
+                        <th>Order</th>
+                        @if (many)
+                        {
+                            <th>ADR</th>
+                        }
+                        <th>Shop</th>
+                        <th class="vs-num">Ordered</th>
+                        <th>SAP order</th>
+                        <th>Invoice</th>
+                        <th class="vs-num">Invoiced</th>
+                        <th class="vs-num">Days</th>
+                        <th class="vs-num">Variance</th>
+                        <th>Outcome</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var order in orders.Take(RowsShown))
+                    {
+                        <tr class="@(order.Outcome == AdrOutcome.Cancelled ? "vsadr-cancelled" : null)">
+                            <td>@order.CapturedAtCat.ToString("ddd dd MMM HH:mm")</td>
+                            <td>@order.OrderNumber</td>
+                            @if (many)
+                            {
+                                <td>@(Person(order.UserId)?.DisplayName ?? "—")</td>
+                            }
+                            <td>@order.DisplayCustomer</td>
+                            <td class="vs-num">@($"{order.Currency} {order.Ordered:N2}")</td>
+                            <td>@(order.SapOrderDocNum?.ToString(CultureInfo.InvariantCulture) ?? "—")</td>
+                            <td>
+                                @if (order.InvoiceReference is null)
+                                {
+                                    <span>—</span>
+                                }
+                                else
+                                {
+                                    @(order.InvoiceDocNum?.ToString(CultureInfo.InvariantCulture) ?? "not posted yet")
+                                    <span class="vsp-sub">@order.InvoiceReference</span>
+                                }
+                            </td>
+                            <td class="vs-num">@(order.Invoiced is { } invoiced ? invoiced.ToString("N2") : "—")</td>
+                            <td class="vs-num">@(order.DaysToInvoice is { } days ? days.ToString("N1") : "—")</td>
+                            <td class="vs-num @(order.Variance is < 0 ? "vsadr-warn" : null)">@(order.Variance is { } variance ? variance.ToString("N2") : "—")</td>
+                            <td><span class="vs-chip @OutcomeChip(order.Outcome)">@order.Outcome</span></td>
+                        </tr>
+                    }
+                    @if (orders.Count == 0)
+                    {
+                        <tr><td colspan="11" class="vs-metric-none">No orders with this outcome in the period.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @RowsNote(orders.Count, "orders")
+    };
+
     // ── Formatting ──────────────────────────────────────────────────────────────
     //
     // An em dash for every unavailable value, never a zero standing in for one.
 
-    private static IEnumerable<(string Measure, AdrContribution Contribution)> Contributions(AdrPerformanceOverall overall) =>
-        overall.Orders.Select(contribution => ("Sales orders", contribution))
-            .Concat(overall.Sales.Select(contribution => ("Van sales", contribution)));
-
-    private static string AdrMoney(AdrContribution? contribution) =>
-        contribution is null ? "—" : $"{contribution.Currency} {contribution.AdrGross:N2}";
-
-    /// <summary>Names the other currencies behind a tile that can only show one.</summary>
-    private static string ContributionNote(List<AdrContribution> totals) =>
-        totals.Count switch
+    private static RenderFragment RowsNote(int count, string noun) => __builder =>
+    {
+        if (count > RowsShown)
         {
-            0 => "none in this period",
-            1 => $"{totals[0].AdrDocumentCount:N0} documents",
-            _ => $"plus {string.Join(", ", totals.Skip(1).Select(total => $"{total.Currency} {total.AdrGross:N0}"))}"
+            <p class="vsp-note">
+                Showing the first @RowsShown.ToString("N0") of @count.ToString("N0") @noun. The Excel export carries every one.
+            </p>
+        }
+    };
+
+    private static string Money(string? currency, decimal? value) =>
+        value is { } amount && currency is not null ? $"{currency} {amount:N2}" : "—";
+
+    private static string Amount(decimal? value) => value is { } amount ? amount.ToString("N2") : "—";
+
+    private static string Rate(double? rate, int decimals = 0) =>
+        rate is { } value ? value.ToString(decimals == 0 ? "P0" : "P1") : "—";
+
+    private static string Days(double? days, bool shortForm = false) =>
+        days is not { } value ? "—" : shortForm ? value.ToString("N1") : $"{value:N1} days";
+
+    private static string Quantity(decimal quantity, string? unit) =>
+        unit is null ? quantity.ToString("N0") : $"{quantity:N0} {unit}";
+
+    private static string Width(double? share) =>
+        $"{Math.Clamp((share ?? 0) * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture)}%";
+
+    private static string Tone(double? conversion) => conversion switch
+    {
+        null => "vsadr-ink-mute",
+        >= 0.85 => "vsadr-ink-info",
+        >= 0.75 => "vsadr-ink-mute",
+        _ => "vsadr-ink-warn"
+    };
+
+    private static string Initials(string name) =>
+        string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(part => char.ToUpperInvariant(part[0])));
+
+    private static string OtherCurrencies(List<AdrConversionMoney> money, string? lead)
+    {
+        var others = money.Where(part => !SameCurrency(part.Currency, lead ?? string.Empty)).ToList();
+        return others.Count == 0
+            ? string.Empty
+            : $"Also {string.Join(", ", others.Select(part => $"{part.Currency} {part.Invoiced:N0} sold of {part.Ordered:N0} ({Rate(part.Conversion)})"))}.";
+    }
+
+    private static string GapLabel(IReadOnlyList<(string Reason, string Explanation, int Orders, decimal Value)> reasons, decimal positive) =>
+        string.Join(", ", reasons.Where(reason => reason.Value > 0)
+            .Select(reason => $"{reason.Reason} {(double)(reason.Value / positive):P0}"));
+
+    /// <summary>A rate as a bar with its figure, toned by how well it reads.</summary>
+    private static RenderFragment Meter(double? rate, bool neutral = false) => __builder =>
+    {
+        if (rate is not { } value)
+        {
+            <span class="vs-metric-none">—</span>
+            return;
+        }
+
+        var tone = neutral ? "accent" : value >= 0.85 ? "info" : value >= 0.75 ? "mute" : "warn";
+        <span class="vsadr-meter">
+            <span class="vsadr-meter-track"><span class="vsadr-meter-fill vsadr-fill-@tone" style="width:@Width(value)"></span></span>
+            <span class="vsadr-meter-value vsadr-ink-@tone">@value.ToString("P0")</span>
+        </span>
+    };
+
+    /// <summary>A change against the period before. Days count as better when they fall.</summary>
+    private static RenderFragment Delta(double? change, string unit) => __builder =>
+    {
+        if (change is not { } value)
+        {
+            return;
+        }
+
+        var better = value >= 0;
+        var magnitude = Math.Abs(value);
+        var text = unit switch
+        {
+            "pts" => $"{magnitude:N1} pts",
+            "%" => $"{magnitude:N0}%",
+            "days" => $"{magnitude:N1} days {(better ? "faster" : "slower")}",
+            _ => magnitude.ToString("N1")
         };
+        <span class="vsadr-delta @(better ? "vsadr-delta-up" : "vsadr-delta-down")">
+            <span aria-hidden="true">@(better ? "▲" : "▼")</span>
+            <span class="vsadr-sr">@(better ? "up" : "down")</span>
+            @text
+        </span>
+    };
 
-    private static string MoneyList(List<VanSalesMoney> totals) =>
-        totals.Count == 0
-            ? "—"
-            : string.Join(", ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+    private static double? Points(double? now, double? before) =>
+        now is { } current && before is { } previous ? (current - previous) * 100 : null;
 
-    private static string Rate(double? rate) => rate is { } value ? value.ToString("P0") : "—";
+    private static double? Change(decimal? now, decimal? before) =>
+        now is { } current && before is { } previous && previous > 0 ? (double)((current - previous) / previous) * 100 : null;
+
+    private static double? DaysFaster(double? now, double? before) =>
+        now is { } current && before is { } previous ? previous - current : null;
 
     private static string ChannelValues(List<AdrChannelShare> shares) =>
         shares.Count == 0
             ? "—"
             : string.Join(", ", shares.Select(share => $"{share.Currency} {share.Gross:N2}"));
 
-    private static string LineMoney(List<VanSalesLineMoney> totals) =>
-        totals.Count == 0
-            ? "—"
-            : string.Join(", ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
-
-    private static string Quantity(List<VanSalesQuantity> quantities) =>
-        quantities.Count == 0
-            ? "—"
-            : string.Join(", ", quantities.Select(q => $"{q.Quantity:N0} {q.DisplayUoM}"));
-
-    private static string StageChip(string stage) => stage switch
+    private static string OutcomeChip(string outcome) => outcome switch
     {
-        "Cancelled" => "vs-chip-bad",
-        "Fulfilled" => "vs-chip-good",
-        "In SAP" => "vs-chip-info",
+        AdrOutcome.InvoicedInFull => "vs-chip-good",
+        AdrOutcome.ShortSupplied => "vs-chip-warn",
+        AdrOutcome.Cancelled => "vs-chip-bad",
+        AdrOutcome.NoLinkedInvoice => "vs-chip-info",
         _ => "vs-chip-quiet"
     };
-
-    private static RenderFragment ShareCell(double? share) => builder =>
-    {
-        builder.AddContent(0, Rate(share));
-
-        if (share is { } value)
-        {
-            builder.OpenElement(1, "span");
-            builder.AddAttribute(2, "class", "vs-meter");
-            builder.OpenElement(3, "span");
-            builder.AddAttribute(4, "class", "vs-meter-fill");
-            builder.AddAttribute(5, "style",
-                $"width:{Math.Clamp(value * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture)}%");
-            builder.CloseElement();
-            builder.CloseElement();
-        }
-    };
-
-    /// <summary>
-    /// A league-table share: in the currency the ADR took most in on that measure, and named, because
-    /// an ADR's orders and sales can lead in different currencies. The detail panel shows them all.
-    /// </summary>
-    private static RenderFragment LeadShareCell(
-        AdrPerformanceRow row,
-        List<VanSalesMoney> totals,
-        Func<AdrShare, double?> pick) => builder =>
-    {
-        var lead = totals.FirstOrDefault()?.Currency;
-        var share = lead is null ? null : row.Shares.FirstOrDefault(s => SameCurrency(s.Currency, lead));
-
-        builder.AddContent(0, ShareCell(share is null ? null : pick(share)));
-
-        if (share is not null && pick(share) is not null)
-        {
-            builder.OpenElement(1, "span");
-            builder.AddAttribute(2, "class", "vsp-sub");
-            builder.AddContent(3, lead);
-            builder.CloseElement();
-        }
-    };
-
-    private static IEnumerable<string> CurrenciesOf(AdrPerformanceRow row) =>
-        row.SalesTotalsByCurrency.Select(total => total.Currency)
-            .Concat(row.OrderTotalsByCurrency.Select(total => total.Currency))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .DefaultIfEmpty("USD");
-
-    private static VanSalesMoney? Find(List<VanSalesMoney> totals, string currency) =>
-        totals.FirstOrDefault(total => SameCurrency(total.Currency, currency));
 
     private static bool SameCurrency(string left, string right) =>
         string.Equals(left, right, StringComparison.OrdinalIgnoreCase);

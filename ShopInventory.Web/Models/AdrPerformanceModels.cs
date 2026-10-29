@@ -20,6 +20,9 @@ public class AdrPerformanceReportResponse
 
     /// <summary>Whether SAP's booked gross profit could be read for the sales figures; null from an older API.</summary>
     public ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
+
+    /// <summary>The ADRs' orders followed to the van sales they became; null from an older API.</summary>
+    public AdrConversionReport? Conversion { get; set; }
 }
 
 public class AdrPerformanceOverall

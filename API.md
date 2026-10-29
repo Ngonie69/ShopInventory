@@ -3664,7 +3664,7 @@ handlers and are not recorded twice.
 |--------|----------|------------|-------------|
 | GET | `/api/van-sales/compliance-report` | `vansales.attendance.view` | Departure compliance: a row per rep per trading day |
 | GET | `/api/van-sales/performance-report` | `vansales.attendance.view` | What sold, by territory and route, by rep, by item, over time |
-| GET | `/api/van-sales/adr-performance-report` | `vansales.attendance.view` | Each ADR's sales orders and van sales, and the ADRs' share of every van's |
+| GET | `/api/van-sales/adr-performance-report` | `vansales.attendance.view` | What each ADR ordered, followed to the van sales it became, and the ADRs' share of every van's |
 | GET | `/api/van-sales/sales-analysis` | `vansales.attendance.view` | The sales breakdown for the vans: takings by tender, day, hour, van, customer, channel, rep and item |
 | GET | `/api/van-sales/coverage-report` | `vansales.attendance.view` | Who the vans are reaching and who they are losing |
 | GET | `/api/van-sales/replenishment-report` | `vansales.attendance.view` | How well the depots are keeping the vans stocked |
@@ -3946,6 +3946,7 @@ item and over time, with the price actually achieved per item and the shape of t
 | `toDate` | today | Inclusive CAT trading day |
 | `userId` | — | One ADR by id. Narrows the rows and adds `detail`; every share is still measured against every van |
 | `topItems` | `25` | How many of the one ADR's ordered items `detail` ranks. **Zero or less returns all of them** |
+| `compare` | `true` | Also measure the period before for `conversion.previous`: the same days of the month before when the period starts on the 1st, otherwise the same number of days just before it |
 
 **Response:** `AdrPerformanceReportResult` — `overall` (ADR accounts, how many were active, the ADRs'
 order counts, and per currency the ADRs' order and sales value against every van rep's) and `adrs`, one
@@ -3967,7 +3968,21 @@ rejected orders are out of both. `detail`, with `userId` only, holds that ADR's 
 sales per shop, side by side), `items` (ordered, ranked on lines then shops) and `orders` (the newest 500;
 `ordersNotListed` counts the rest). `caveats` says what the figures cannot see — orders in SAP but not
 marked fulfilled (an order invoiced straight in SAP B1 never updates the local row), unpriced orders, and
-ADRs with no visits — and is empty when there is nothing to say.
+ADRs with no visits, orders with no linked invoice, orders from the last two days still waiting for one —
+and is empty when there is nothing to say.
+
+`conversion` follows every ADR order to the van sale it became. The link is the invoice queue entry a van
+conversion writes (`InvoiceQueue.SalesOrderId`, with the sale's reference); the sale is read through
+`VanSalesFactReader` by that reference, so an order invoiced after the period still counts. Each order ends
+in one outcome — `Invoiced in full`, `Short-supplied` (fewer units invoiced than ordered, compared by item
+code and valued at the order's own prices), `Repriced`, `No linked invoice` (in SAP or marked fulfilled
+with no van invoice traced — an order invoiced directly in SAP B1 lands here), `Not yet in SAP` or
+`Cancelled`. Per currency, `ordered − invoiced` equals `shortSupplied + repriced + noLinkedInvoice +
+notYetInSap + cancelled`. Both sides include VAT. `overall` covers every ADR; `adrs` (with route),
+`days`, `shops` (including shops visited and never ordered for), `items` (ordered against supplied) and
+`orders` (the ledger, every order) follow `userId`. `vanSales` / `adrLedVanSales` are the serving vans'
+takings in the period and the part from ADR orders, for the share. `previous` holds the comparison
+period's `overall` and `adrs`, without gross profit.
 
 ##### GET `/api/van-sales/sales-analysis`
 

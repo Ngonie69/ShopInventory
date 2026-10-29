@@ -5,8 +5,10 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.RouteCustomers.Queries;
+using ShopInventory.Features.VanSalesAttendance;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.VanSalesReports.Queries.GetAdrPerformanceReport;
 
@@ -88,11 +90,16 @@ public sealed class GetAdrPerformanceReportHandler(
 
         var adrOrders = orders.Where(order => adrIds.Contains(order.UserId)).ToList();
         var adrSales = sales.Where(sale => adrIds.Contains(sale.UserId)).ToList();
-        var visits = await LoadVisitsAsync(adrIds, from, to, cancellationToken);
+        var (visits, visitNames) = await LoadVisitsAsync(adrIds, from, to, cancellationToken);
 
-        // SAP's booked gross profit on what the ADRs invoiced. Orders have none: an order is not a sale
-        // until SAP invoices it, and that invoice is not tied back to the order here.
-        var margin = await VanSalesMargin.LoadAsync(adrSales, costReader, logger, cancellationToken);
+        // Every ADR order followed to the van sale it became, wherever and whenever that was made.
+        var evidence = await AdrConversion.LoadAsync(db, tax.Value, adrOrders, cancellationToken);
+
+        // SAP's booked gross profit on what the ADRs sold themselves and on the van invoices their orders
+        // became, read in one pass. An order has none of its own until it is invoiced.
+        var margin = await VanSalesMargin.LoadAsync(
+            adrSales.Concat(evidence.Sales).DistinctBy(sale => (sale.Source, sale.ExternalReferenceId)).ToList(),
+            costReader, logger, cancellationToken);
 
         var visitsByAdr = visits
             .GroupBy(visit => visit.Key.UserId)
@@ -148,6 +155,28 @@ public sealed class GetAdrPerformanceReportHandler(
 
         var scoped = query.UserId is { } one ? adrOrders.Where(order => order.UserId == one).ToList() : adrOrders;
 
+        var adrReps = vanReps.Where(rep => adrIds.Contains(rep.Id)).ToList();
+        var accounts = adrReps.ToDictionary(
+            rep => rep.Id,
+            rep => string.IsNullOrWhiteSpace(rep.AccountCode) ? null : rep.AccountCode.Trim());
+        var routes = await AdrAssignedRoutes.ForAsync(db, adrIds, cancellationToken);
+        var rowIds = rows.Select(row => row.UserId).ToList();
+        var todayCat = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var analysis = AdrConversion.Build(
+            new AdrConversion.Input(
+                adrOrders, sales, adrSales, visits, visitNames, accounts, routes, rowIds,
+                rowIds.ToHashSet(), todayCat),
+            evidence,
+            margin);
+
+        var previous = query.ComparePrevious
+            ? await ComparePreviousAsync(from, to, adrIds, accounts, routes, rowIds, todayCat, cancellationToken)
+            : null;
+
+        var caveats = BuildCaveats(scoped, rows, query.UserId);
+        caveats.AddRange(ConversionCaveats(analysis, to, todayCat));
+
         return new AdrPerformanceReportResult(
             from,
             to,
@@ -155,10 +184,82 @@ public sealed class GetAdrPerformanceReportHandler(
             rows,
             channels,
             detail,
-            BuildCaveats(scoped, rows, query.UserId))
+            caveats)
         {
-            Margin = margin.Status
+            Margin = margin.Status,
+            Conversion = new AdrConversionReportResult(
+                analysis.Overall,
+                analysis.Rows,
+                analysis.Days,
+                analysis.Shops,
+                analysis.Items,
+                analysis.Orders,
+                previous)
         };
+    }
+
+    /// <summary>
+    /// The period before, measured the same way, so each figure on the page carries its delta. Gross
+    /// profit is left out: it is a SAP read, and a delta does not need it.
+    /// </summary>
+    private async Task<AdrConversionComparisonResult> ComparePreviousAsync(
+        DateTime from,
+        DateTime to,
+        HashSet<Guid> adrIds,
+        Dictionary<Guid, string?> accounts,
+        Dictionary<Guid, AdrAssignedRoutes.AssignedRoute> routes,
+        List<Guid> rowIds,
+        DateTime todayCat,
+        CancellationToken cancellationToken)
+    {
+        var (previousFrom, previousTo) = AdrConversion.PreviousPeriod(from, to);
+        var orders = await LoadOrdersAsync(previousFrom, previousTo, adrIds.ToList(), cancellationToken);
+        var sales = await VanSalesFactReader.LoadSalesAsync(
+            db, tax.Value, new VanSalesFactFilter(previousFrom, previousTo), cancellationToken);
+        var (visits, visitNames) = await LoadVisitsAsync(adrIds, previousFrom, previousTo, cancellationToken);
+        var evidence = await AdrConversion.LoadAsync(db, tax.Value, orders, cancellationToken);
+
+        var analysis = AdrConversion.Build(
+            new AdrConversion.Input(
+                orders,
+                sales,
+                sales.Where(sale => adrIds.Contains(sale.UserId)).ToList(),
+                visits,
+                visitNames,
+                accounts,
+                routes,
+                rowIds,
+                new HashSet<Guid>(),
+                todayCat),
+            evidence,
+            null);
+
+        return new AdrConversionComparisonResult(previousFrom, previousTo, analysis.Overall, analysis.Rows);
+    }
+
+    /// <summary>What the order-to-sale figures cannot see, in the same plain words as the rest.</summary>
+    private static IEnumerable<string> ConversionCaveats(AdrConversion.Analysis analysis, DateTime to, DateTime todayCat)
+    {
+        if (analysis.StaleWithoutInvoice > 0)
+        {
+            var count = analysis.StaleWithoutInvoice;
+            yield return $"{count:N0} order{Plural(count)} older than two days {(count == 1 ? "has" : "have")} no invoice linked here. "
+                         + "An order invoiced directly in SAP B1 cannot be matched back to the order, so it counts as not sold.";
+        }
+
+        if (analysis.RecentAwaitingInvoice > 0 && to >= todayCat.AddDays(-1))
+        {
+            var count = analysis.RecentAwaitingInvoice;
+            yield return $"{count:N0} order{Plural(count)} from the last two days {(count == 1 ? "is" : "are")} not invoiced yet. "
+                         + "Most vans invoice within a day, so the latest conversion figures will rise.";
+        }
+
+        if (analysis.UnpricedInvoiced > 0)
+        {
+            var count = analysis.UnpricedInvoiced;
+            yield return $"{count:N0} order{Plural(count)} {(count == 1 ? "was" : "were")} captured without prices and priced when invoiced. "
+                         + "Their ordered value is taken from the invoice, so any short supply on them is not valued.";
+        }
     }
 
     // ── Reads ───────────────────────────────────────────────────────────────────
@@ -220,7 +321,8 @@ public sealed class GetAdrPerformanceReportHandler(
                 OrderNumber = row.OrderNumber,
                 SapDocNum = row.SAPDocNum is > 0 ? row.SAPDocNum : null,
                 CustomerName = string.IsNullOrWhiteSpace(row.RouteCustomerName) ? null : row.RouteCustomerName.Trim(),
-                LineCount = row.LineCount
+                LineCount = row.LineCount,
+                OrderedAtUtc = row.OrderDate
             })
             .ToList();
     }
@@ -229,7 +331,7 @@ public sealed class GetAdrPerformanceReportHandler(
     /// The shops each ADR checked in at, per trading day. ADRs work the van app, so their calls are on
     /// the van sales channel; a shop checked in at twice in a day is one call.
     /// </summary>
-    private async Task<Dictionary<VanSalesDayKey, HashSet<string>>> LoadVisitsAsync(
+    private async Task<(Dictionary<VanSalesDayKey, HashSet<string>> Days, Dictionary<string, string> Names)> LoadVisitsAsync(
         HashSet<Guid> adrIds,
         DateTime from,
         DateTime to,
@@ -237,7 +339,7 @@ public sealed class GetAdrPerformanceReportHandler(
     {
         if (adrIds.Count == 0)
         {
-            return [];
+            return ([], new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
         }
 
         var ids = adrIds.ToList();
@@ -249,16 +351,24 @@ public sealed class GetAdrPerformanceReportHandler(
                             && ids.Contains(entry.UserId)
                             && entry.CheckInTime >= fromUtc
                             && entry.CheckInTime < toUtcExclusive)
-            .Select(entry => new { entry.UserId, entry.CheckInTime, entry.CustomerCode })
+            .Select(entry => new { entry.UserId, entry.CheckInTime, entry.CustomerCode, entry.CustomerName })
             .ToListAsync(cancellationToken);
 
-        return entries
+        var days = entries
             .GroupBy(entry => new VanSalesDayKey(entry.UserId, VanSalesFacts.TradingDayOf(entry.CheckInTime)))
             .ToDictionary(
                 group => group.Key,
                 group => group
                     .Select(entry => entry.CustomerCode.Trim())
                     .ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+        // A shop visited and never ordered for has no order to read its name from.
+        var names = entries
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.CustomerName))
+            .GroupBy(entry => entry.CustomerCode.Trim().ToUpperInvariant())
+            .ToDictionary(group => group.Key, group => group.First().CustomerName!.Trim(), StringComparer.OrdinalIgnoreCase);
+
+        return (days, names);
     }
 
     /// <summary>
@@ -523,8 +633,8 @@ public sealed class GetAdrPerformanceReportHandler(
         {
             caveats.Add(
                 $"{inSapNotFulfilled:N0} order{Plural(inSapNotFulfilled)} reached SAP but {(inSapNotFulfilled == 1 ? "is" : "are")} not marked fulfilled here. "
-                + "Fulfilled counts only orders turned into an invoice through this system; an order invoiced "
-                + "directly in SAP B1 still reads as in SAP.");
+                + "Fulfilled counts only orders a van turned into an invoice through this system; an order "
+                + "invoiced directly in SAP B1 still reads as in SAP, and counts as not sold below.");
         }
 
         var unpriced = orders.Count(order => !order.IsWithdrawn && order.DocTotal == 0m);
@@ -711,7 +821,7 @@ public sealed class GetAdrPerformanceReportHandler(
         string? AccountCode,
         bool IsActive);
 
-    private sealed record VanOrderFact(
+    internal sealed record VanOrderFact(
         Guid UserId,
         DateTime TradingDate,
         SalesOrderStatus Status,
@@ -733,5 +843,8 @@ public sealed class GetAdrPerformanceReportHandler(
         public string? CustomerName { get; init; }
 
         public int LineCount { get; init; }
+
+        /// <summary>The instant the order was captured; its trading day is the CAT date of this.</summary>
+        public DateTime OrderedAtUtc { get; init; }
     }
 }

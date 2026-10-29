@@ -5215,11 +5215,18 @@ public partial class ReportExportService : IReportExportService
     // call with no duration, and the sheet has to name that rather than average it away.
 
     /// <summary>
-    /// The ADR report: the group's contribution first, then the league table. Money stays text per
-    /// currency, for the reason given above MoneyText.
+    /// The ADR report. With the order-to-sale figures (every API since they were added) it is the
+    /// eight-sheet workbook in <c>ReportExportService.AdrConversion.cs</c>; from an older API that does not
+    /// send them, the group's contribution and the league table as before, where money stays text per
+    /// currency for the reason given above MoneyText.
     /// </summary>
     public byte[] ExportAdrPerformanceToExcel(AdrPerformanceReportResponse report)
     {
+        if (report.Conversion is { } conversion)
+        {
+            return ExportAdrConversionWorkbook(report, conversion);
+        }
+
         using var workbook = NewWorkbook("ADR Performance");
         var now = DateTime.UtcNow.AddHours(2); // CAT
 

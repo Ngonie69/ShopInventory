@@ -138,6 +138,9 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// against every van.
     /// </param>
     /// <param name="topItems">How many of the one ADR's items to rank. Zero or less returns all of them.</param>
+    /// <param name="compare">
+    /// Also measure the period before, for the deltas beside each figure. On by default.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("adr-performance-report")]
     [RequirePermission(Permission.ViewVanSalesAttendance)]
@@ -148,6 +151,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? toDate = null,
         [FromQuery] Guid? userId = null,
         [FromQuery] int topItems = 25,
+        [FromQuery] bool compare = true,
         CancellationToken cancellationToken = default)
     {
         var today = AuditService.ToCAT(DateTime.UtcNow).Date;
@@ -157,7 +161,8 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 fromDate?.Date ?? today.AddDays(-30),
                 toDate?.Date ?? today,
                 userId,
-                topItems),
+                topItems,
+                compare),
             cancellationToken);
 
         return result.Match(
