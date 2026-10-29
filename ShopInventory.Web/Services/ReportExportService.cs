@@ -109,6 +109,12 @@ public interface IReportExportService
     byte[] ExportRouteSalesSummaryToExcel(
         RouteCustomerSalesSummaryModel summary,
         IReadOnlyDictionary<string, string> routeLabels);
+    byte[] ExportRouteSalesDetailToExcel(
+        RouteCustomerSalesSummaryModel summary,
+        RouteCustomerProductMixModel? productMix,
+        RouteCustomerProductSalesModel? productSales,
+        IReadOnlyDictionary<string, string> routeLabels,
+        string? currency = null);
     byte[] ExportGLAccountLedgerToExcel(GLAccountLedgerResponse ledger);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
@@ -417,7 +423,12 @@ public partial class ReportExportService : IReportExportService
     /// <summary>
     /// Styles data rows with alternating colors and borders.
     /// </summary>
-    private static void StyleDataRows(IXLWorksheet ws, int firstDataRow, int lastRow, int lastCol)
+    /// <param name="stripeByRule">
+    /// Stripes with one conditional-format rule instead of a fill per row. It looks the same, keeps its
+    /// stripes when the table is sorted, and is far quicker on a table of thousands of rows — but a rule's
+    /// fill paints over a cell's own, so it is only for tables that colour no row of their own.
+    /// </param>
+    private static void StyleDataRows(IXLWorksheet ws, int firstDataRow, int lastRow, int lastCol, bool stripeByRule = false)
     {
         if (lastRow < firstDataRow) return;
         var dataRange = ws.Range(firstDataRow, 1, lastRow, lastCol);
@@ -427,6 +438,15 @@ public partial class ReportExportService : IReportExportService
         dataRange.Style.Border.OutsideBorderColor = BorderGray;
         dataRange.Style.Font.FontSize = 10;
         dataRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+        if (stripeByRule)
+        {
+            dataRange.Style.Fill.BackgroundColor = ReportSurface;
+            dataRange.AddConditionalFormat()
+                .WhenIsTrue($"MOD(ROW()-{firstDataRow},2)=1")
+                .Fill.SetBackgroundColor(LightGray);
+            return;
+        }
 
         for (int r = firstDataRow; r <= lastRow; r++)
         {
@@ -452,7 +472,8 @@ public partial class ReportExportService : IReportExportService
         int nextRow,
         int lastCol,
         string emptyMessage = "No records matched this report's filters.",
-        bool filter = true)
+        bool filter = true,
+        bool stripeByRule = false)
     {
         var lastDataRow = nextRow - 1;
 
@@ -470,7 +491,7 @@ public partial class ReportExportService : IReportExportService
             return firstDataRow + 1;
         }
 
-        StyleDataRows(ws, firstDataRow, lastDataRow, lastCol);
+        StyleDataRows(ws, firstDataRow, lastDataRow, lastCol, stripeByRule);
 
         // Excel allows one filter per sheet, so a second table on the same sheet keeps
         // the first one's dropdowns rather than throwing.
@@ -682,9 +703,14 @@ public partial class ReportExportService : IReportExportService
     /// Overrides where width measurement starts, for the sheets whose table should set
     /// the column widths but whose header is not worth freezing.
     /// </param>
-    private static void FinalizeSheet(IXLWorksheet ws, int lastCol, int freezeRow = 0, bool landscape = false, int fitFromRow = 0)
+    /// <param name="fitRows">
+    /// How many rows below the measuring row set the widths; 0 measures them all. A sheet of thousands of
+    /// rows spends most of its export time measuring text, and its first few hundred rows already show
+    /// how wide each column runs.
+    /// </param>
+    private static void FinalizeSheet(IXLWorksheet ws, int lastCol, int freezeRow = 0, bool landscape = false, int fitFromRow = 0, int fitRows = 0)
     {
-        FitColumns(ws, lastCol, fitFromRow > 0 ? fitFromRow : freezeRow);
+        FitColumns(ws, lastCol, fitFromRow > 0 ? fitFromRow : freezeRow, fitRows);
 
         if (freezeRow > 0)
         {
@@ -708,18 +734,35 @@ public partial class ReportExportService : IReportExportService
     /// a heading is legible, narrow enough that one long product description does not
     /// push the money columns off the page.
     /// </summary>
-    private static void FitColumns(IXLWorksheet ws, int lastCol, int fromRow)
+    private static void FitColumns(IXLWorksheet ws, int lastCol, int fromRow, int fitRows = 0)
     {
         var lastUsedRow = ws.LastRowUsed()?.RowNumber() ?? 0;
+
+        // With a limit, the first rows and the last few — the totals, usually the widest figures — are
+        // measured, and the rows between are taken to run no wider.
+        var tailFrom = 0;
+        if (fitRows > 0 && fromRow > 0 && lastUsedRow > fromRow + fitRows)
+        {
+            tailFrom = Math.Max(fromRow + fitRows + 1, lastUsedRow - 4);
+        }
+
+        var measuredTo = tailFrom > 0 ? fromRow + fitRows : lastUsedRow;
 
         for (int c = 1; c <= lastCol; c++)
         {
             var column = ws.Column(c);
 
-            if (fromRow > 0 && lastUsedRow >= fromRow)
-                column.AdjustToContents(fromRow, lastUsedRow);
+            if (fromRow > 0 && measuredTo >= fromRow)
+                column.AdjustToContents(fromRow, measuredTo);
             else
                 column.AdjustToContents();
+
+            if (tailFrom > 0)
+            {
+                var head = column.Width;
+                column.AdjustToContents(tailFrom, lastUsedRow);
+                column.Width = Math.Max(head, column.Width);
+            }
 
             if (column.Width > MaxColumnWidth) column.Width = MaxColumnWidth;
             if (column.Width < MinColumnWidth) column.Width = MinColumnWidth;
@@ -10298,7 +10341,19 @@ public partial class ReportExportService : IReportExportService
     {
         const string title = "Route customer sales summary";
         using var workbook = NewWorkbook(title);
-        var ws = AddSheet(workbook, "Summary");
+        WriteRouteCustomersSheet(AddSheet(workbook, "Summary"), title, summary, routeLabels);
+        return WorkbookToBytes(workbook);
+    }
+
+    /// <summary>
+    /// One row per route customer — the customer list export, and the Customers sheet of the detail workbook.
+    /// </summary>
+    private static void WriteRouteCustomersSheet(
+        IXLWorksheet ws,
+        string title,
+        RouteCustomerSalesSummaryModel summary,
+        IReadOnlyDictionary<string, string> routeLabels)
+    {
         const int cols = 12;
 
         var rows = summary.Routes.SelectMany(route => route.Customers).ToList();
@@ -10345,12 +10400,10 @@ public partial class ReportExportService : IReportExportService
                 ? label
                 : customer.AssignedBusinessPartnerCode;
             ws.Cell(row, 2).Value = customer.Code;
-            ws.Cell(row, 2).Style.Font.Bold = true;
             ws.Cell(row, 3).Value = customer.Name;
             ws.Cell(row, 4).Value = customer.Phone ?? "-";
 
             ws.Cell(row, 5).Value = DescribeCustomerStanding(customer, summary.DormantDays);
-            ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 5).Style.Font.FontColor = customer.LastSaleAt is null
                 ? DangerRed
                 : customer.DaysSinceLastSale > summary.DormantDays
@@ -10358,11 +10411,7 @@ public partial class ReportExportService : IReportExportService
                     : SuccessGreen;
 
             ws.Cell(row, 6).Value = customer.SaleCount;
-            ws.Cell(row, 6).Style.NumberFormat.Format = FormatCount;
-            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 7).Value = customer.LineCount;
-            ws.Cell(row, 7).Style.NumberFormat.Format = FormatCount;
-            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 8).Value = DescribeCurrencyTotals(customer.TotalsByCurrency);
             ws.Cell(row, 12).Value = customer.SaleCount == 0
                 ? "—"
@@ -10373,29 +10422,37 @@ public partial class ReportExportService : IReportExportService
             if (customer.FirstSaleAt.HasValue)
             {
                 ws.Cell(row, 9).Value = customer.FirstSaleAt.Value;
-                ws.Cell(row, 9).Style.NumberFormat.Format = FormatDate;
             }
 
             if (customer.LastSaleAt.HasValue)
             {
                 ws.Cell(row, 10).Value = customer.LastSaleAt.Value;
-                ws.Cell(row, 10).Style.NumberFormat.Format = FormatDate;
             }
 
             if (customer.DaysSinceLastSale.HasValue)
             {
                 ws.Cell(row, 11).Value = customer.DaysSinceLastSale.Value;
-                ws.Cell(row, 11).Style.NumberFormat.Format = FormatCount;
-                ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             }
 
             row++;
         }
 
-        row = FinishTable(ws, headerRow, dataStart, row, cols, "No route customers matched this report's filters.");
+        // Styled a column at a time rather than a cell at a time: thousands of customers made the
+        // per-cell version the slowest part of the export.
+        if (row > dataStart)
+        {
+            var last = row - 1;
+            ws.Range(dataStart, 2, last, 2).Style.Font.Bold = true;
+            ws.Range(dataStart, 5, last, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Range(dataStart, 6, last, 7).Style.NumberFormat.Format = FormatCount;
+            ws.Range(dataStart, 9, last, 10).Style.NumberFormat.Format = FormatDate;
+            ws.Range(dataStart, 11, last, 11).Style.NumberFormat.Format = FormatCount;
+            ws.Range(dataStart, 11, last, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "No route customers matched this report's filters.", stripeByRule: true);
         WriteFooter(ws, row - 1, cols);
-        FinalizeSheet(ws, cols, headerRow, landscape: true);
-        return WorkbookToBytes(workbook);
+        FinalizeSheet(ws, cols, headerRow, landscape: true, fitRows: RouteSheetFitRows);
     }
 
     private static string DescribeSaleSource(RouteCustomerSaleSource source) => source switch
