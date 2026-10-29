@@ -1,0 +1,20 @@
+@* A Reports Hub card's body while its read is running, or after SAP did not answer for it. *@
+@if (Loading)
+{
+    <div class="rhb-skel-rows" aria-hidden="true">
+        @for (var i = 0; i < Rows; i++)
+        {
+            <span class="rhb-skel" style="width: @(92 - i * 9)%"></span>
+        }
+    </div>
+}
+else
+{
+    <p class="rhb-empty">SAP did not answer for @What. The full report may still open.</p>
+}
+
+@code {
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public int Rows { get; set; } = 4;
+    [Parameter, EditorRequired] public string What { get; set; } = string.Empty;
+}

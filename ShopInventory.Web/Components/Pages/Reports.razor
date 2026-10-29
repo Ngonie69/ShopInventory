@@ -6,6 +6,7 @@
 @using ShopInventory.Web.Services
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.JSInterop
+@using ShopInventory.Web.Features.Reports.Queries.GetReportsOverview
 @attribute [Authorize(Roles = UserRoles.InsightsRoles)]
 @inject IReportService ReportService
 @inject IReportExportService ExportService
@@ -15,11 +16,23 @@
 @inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
-<PageTitle>Reports - Shop Inventory</PageTitle>
+@* /reports opens on the hub. A `tab` in the address opens one full report instead, already
+   loaded for the hub's period; the hub's cards and directory link here that way. *@
+@if (!IsTabView)
+{
+<PageTitle>Reports Hub - Shop Inventory</PageTitle>
+<ReportsHubOverview Period="hubPeriod" Today="today" />
+}
+else
+{
+<PageTitle>@GetTabLabel(activeTab) - Reports - Shop Inventory</PageTitle>
 
 <div class="container-fluid fade-in">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
+            <a href="@ReportsHubLinks.Hub(hubPeriod)" class="rpt-back-link">
+                <i class="bi bi-arrow-left" aria-hidden="true"></i>Reports hub
+            </a>
             <h2 class="mb-1 fw-bold" style="color: #1a237e;">
                 <i class="bi bi-bar-chart-line me-2"></i>Reports &amp; Analytics
             </h2>
@@ -1584,8 +1597,57 @@ else if (activeTab == "slowmoving")
                                     </div>
                                 </div>
 </div>
+}
 
 @code {
+    [SupplyParameterFromQuery(Name = "tab")] public string? TabQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "period")] public string? PeriodQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "from")] public string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "to")] public string? ToQuery { get; set; }
+
+    private DateOnly today;
+    private ReportsPeriod hubPeriod = default!;
+
+    private bool IsTabView => TabQuery is not null && ReportsHubLinks.Tabs.Contains(TabQuery);
+
+    // Read before OnInitializedAsync's first await: Blazor renders the page while that await is
+    // pending, before OnParametersSetAsync runs, and the hub cannot render without its period.
+    protected override void OnInitialized() => ReadAddress();
+
+    private void ReadAddress()
+    {
+        today = DateOnly.FromDateTime(IAuditService.ToCAT(DateTime.UtcNow));
+        hubPeriod = ReportsPeriod.FromQuery(PeriodQuery, FromQuery, ToQuery, today);
+        if (IsTabView)
+        {
+            activeTab = TabQuery!.ToLowerInvariant();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        ReadAddress();
+        if (!IsTabView)
+        {
+            return;
+        }
+
+        // Arriving from the hub: show the report it linked to, for the hub's dates, without
+        // making anyone press Load.
+        var from = hubPeriod.From.ToDateTime(TimeOnly.MinValue);
+        var to = hubPeriod.To.ToDateTime(TimeOnly.MinValue);
+        if (from != fromDate || to != toDate)
+        {
+            fromDate = from;
+            toDate = to;
+            // The dates came from the hub, not a quick-select range, so none is shown as chosen.
+            quickSelectDays = 0;
+            loadedTabs.Clear();
+        }
+
+        await LoadTab(activeTab);
+    }
+
     private record TabInfo(string Key, string Label, string Icon);
     private readonly TabInfo[] tabs =
     [
