@@ -3,8 +3,11 @@
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
+@using ShopInventory.Web.Features.RouteCustomers
+@using ShopInventory.Web.Features.RouteCustomers.Queries.ExportRouteSalesDetail
 @attribute [Authorize(Roles = "Admin,Manager,Cashier")]
 @inject IRouteCustomerService RouteCustomerService
+@inject MediatR.IMediator Mediator
 @inject IMasterDataCacheService MasterDataCache
 @inject IReportExportService ExportService
 @inject IAuditService AuditService
@@ -20,11 +23,19 @@
    with the other operational pages — see that file's header. `ops` is the
    scope; `ops-rsr` is this page's own half of it.
 
-   **Three views, one page.** Who is trading, who has stopped, and what they
-   buy are three readings of the same rows over the same window. Three separate
-   pages would each carry their own filters, and two of them would eventually
-   be set differently and disagree about the same route — so the filter row is
-   stated once and the tab strip chooses what to do with it.
+   **Four views, one page.** Who is trading, who has stopped, and what they
+   buy are readings of the same rows over the same window. Separate pages would
+   each carry their own filters, and two of them would eventually be set
+   differently and disagree about the same route — so the filter row is stated
+   once and the tab strip chooses what to do with it.
+
+   **The overview comes first.** Every customer on every route, one table per
+   route, ran to thousands of rows before anything could be compared. The
+   overview opens on the five best customers and products and one line per
+   route; a route opens in place to its own top five, and the full lists are a
+   tab away. The rankings come from RouteSalesOverview, which the detail
+   workbook reads too, so the page and the file cannot disagree about who is
+   first.
 
    **Dormant and never-bought are different findings.** A shop that has not
    bought for 90 days has lapsed and can be won back; one that has never bought
@@ -53,19 +64,47 @@
             </p>
         </div>
         <div class="ops-hero-actions">
-            <button type="button" class="ops-btn ops-btn-ghost" @onclick="ExportToExcel"
-                    disabled="@(isExporting || summary is null)">
-                @if (isExporting)
+            @* Two files, one button: the customer list that has always been here, and the detail workbook
+               with the overview, the charts and every customer's items. A menu rather than two buttons so
+               the hero keeps one export, the way every other report's does. *@
+            <div class="ops-rsr-export" @onkeydown="OnExportMenuKeyDown">
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="ToggleExportMenu"
+                        aria-haspopup="menu" aria-expanded="@(isExportMenuOpen ? "true" : "false")"
+                        aria-controls="rsr-export-menu"
+                        disabled="@(isExporting || summary is null)">
+                    @if (isExporting)
+                    {
+                        <span class="ops-spin"></span>
+                        <span>Exporting&hellip;</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-file-xls" aria-hidden="true"></i>
+                        <span>Export</span>
+                        <i class="ph ph-caret-down" aria-hidden="true"></i>
+                    }
+                </button>
+                @if (isExportMenuOpen)
                 {
-                    <span class="ops-spin"></span>
-                    <span>Exporting&hellip;</span>
+                    <div class="ops-rsr-menu-scrim" @onclick="CloseExportMenu"></div>
+                    <div class="ops-rsr-menu" id="rsr-export-menu" role="menu" aria-label="Export">
+                        <button type="button" class="ops-rsr-menu-item" role="menuitem" @onclick="ExportToExcel">
+                            <i class="ph ph-table" aria-hidden="true"></i>
+                            <span>
+                                <span class="ops-rsr-menu-name">Customer list</span>
+                                <span class="ops-rsr-menu-sub">One sheet, one row per customer.</span>
+                            </span>
+                        </button>
+                        <button type="button" class="ops-rsr-menu-item is-featured" role="menuitem" @onclick="ExportDetailAsync">
+                            <i class="ph ph-stack" aria-hidden="true"></i>
+                            <span>
+                                <span class="ops-rsr-menu-name">Detail workbook</span>
+                                <span class="ops-rsr-menu-sub">Summary and top fives, charts, routes, customers, every customer's items, products and the dormant list.</span>
+                            </span>
+                        </button>
+                    </div>
                 }
-                else
-                {
-                    <i class="ph ph-file-xls" aria-hidden="true"></i>
-                    <span>Export</span>
-                }
-            </button>
+            </div>
             <button type="button" class="ops-icon-btn" title="Refresh" aria-label="Refresh"
                     @onclick="LoadAsync" disabled="@isLoading">
                 @if (isLoading)
@@ -145,11 +184,16 @@
         </div>
 
         <div class="ops-tabs">
-            <button type="button" class="ops-tab @(activeView == View.Summary ? "is-on" : "")"
-                    @onclick="() => ShowView(View.Summary)">
+            <button type="button" class="ops-tab @(activeView == View.Overview ? "is-on" : "")"
+                    @onclick="() => ShowView(View.Overview)">
+                <i class="ph ph-squares-four" aria-hidden="true"></i>
+                <span>Overview</span>
+            </button>
+            <button type="button" class="ops-tab @(activeView == View.Routes ? "is-on" : "")"
+                    @onclick="() => ShowView(View.Routes)">
                 <i class="ph ph-list-checks" aria-hidden="true"></i>
-                <span>Route summary</span>
-                <span class="ops-tab-count">@AllCustomers.Count</span>
+                <span>Routes</span>
+                <span class="ops-tab-count">@summary.Routes.Count</span>
             </button>
             <button type="button" class="ops-tab @(activeView == View.Dormant ? "is-on" : "")"
                     @onclick="() => ShowView(View.Dormant)">
@@ -168,7 +212,329 @@
             </button>
         </div>
 
-        @if (activeView == View.Summary)
+        @if (activeView == View.Overview)
+        {
+            @if (summary.Routes.Count == 0)
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-signpost" aria-hidden="true"></i>
+                    <h3>No route customers</h3>
+                    <p>Nothing has been captured against a route yet.</p>
+                </div>
+            }
+            else
+            {
+                <div class="ops-rsr-top">
+                    <section class="ops-panel ops-rsr-card" aria-labelledby="rsr-top-customers">
+                        <div class="ops-rsr-card-head">
+                            <div class="ops-rsr-card-title">
+                                <h2 id="rsr-top-customers">Top @RouteSalesOverview.TopCount customers</h2>
+                                <p>By value in the period, one currency at a time</p>
+                            </div>
+                            @if (Currencies.Count > 1)
+                            {
+                                <div class="ops-rsr-seg" role="group" aria-label="Currency">
+                                    @foreach (var currency in Currencies)
+                                    {
+                                        <button type="button" class="ops-rsr-seg-btn @(currency == ActiveCurrency ? "is-on" : "")"
+                                                aria-pressed="@(currency == ActiveCurrency ? "true" : "false")"
+                                                @onclick="() => PickCurrency(currency)">@currency</button>
+                                    }
+                                </div>
+                            }
+                            else if (ActiveCurrency is not null)
+                            {
+                                <span class="ops-count">@ActiveCurrency</span>
+                            }
+                        </div>
+
+                        @if (TopCustomers.Count == 0)
+                        {
+                            <p class="ops-rsr-none">No customer on this filter bought anything in this period.</p>
+                        }
+                        else
+                        {
+                            <ol class="ops-rsr-rank">
+                                @foreach (var entry in TopCustomers)
+                                {
+                                    <li class="ops-rsr-rank-row">
+                                        <span class="ops-rsr-rank-no">@entry.Rank</span>
+                                        <div class="ops-rsr-rank-body">
+                                            <div class="ops-rsr-rank-name">
+                                                @RenderCustomerLink(entry.Customer)
+                                                <span class="ops-rsr-rank-meta">@entry.Customer.AssignedBusinessPartnerCode · @entry.Totals.SaleCount.ToString("N0") sale(s)</span>
+                                            </div>
+                                            <div class="ops-rsr-bar" aria-hidden="true"><span style="width: @Pct(entry.Share)"></span></div>
+                                        </div>
+                                        <div class="ops-rsr-rank-fig">
+                                            <div class="ops-rsr-rank-value"><span class="ops-rsr-total-cur">@entry.Totals.Currency</span>@entry.Totals.Gross.ToString("N2")</div>
+                                            @if (showGp)
+                                            {
+                                                @RenderGpLine(entry.Totals)
+                                            }
+                                        </div>
+                                    </li>
+                                }
+                            </ol>
+                            <div class="ops-rsr-card-foot">
+                                <span>@TopCustomersShareLine</span>
+                                <button type="button" class="ops-rsr-more" @onclick="() => ShowView(View.Routes)">
+                                    All @AllCustomers.Count.ToString("N0") customers <i class="ph ph-arrow-right" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        }
+                    </section>
+
+                    <section class="ops-panel ops-rsr-card" aria-labelledby="rsr-top-products">
+                        <div class="ops-rsr-card-head">
+                            <div class="ops-rsr-card-title">
+                                <h2 id="rsr-top-products">Top @RouteSalesOverview.TopCount products</h2>
+                                <p>By times bought, the product mix's own order</p>
+                            </div>
+                            @if (productMix is not null)
+                            {
+                                <span class="ops-count">@productMix.Items.Count.ToString("N0") item(s) sold</span>
+                            }
+                        </div>
+
+                        @if (isLoadingProductMix)
+                        {
+                            <div class="ops-rsr-none"><span class="ops-spin"></span> Loading products&hellip;</div>
+                        }
+                        else if (!string.IsNullOrWhiteSpace(productMixError))
+                        {
+                            <div class="ops-rsr-none">
+                                Could not load the products: @productMixError
+                                <button type="button" class="ops-rsr-more" @onclick="LoadProductMixAsync">Try again</button>
+                            </div>
+                        }
+                        else if (TopProducts.Count == 0)
+                        {
+                            <p class="ops-rsr-none">Nothing was sold to route customers on this filter.</p>
+                        }
+                        else
+                        {
+                            <ol class="ops-rsr-rank">
+                                @foreach (var entry in TopProducts)
+                                {
+                                    var item = entry.Item;
+                                    <li class="ops-rsr-rank-row is-product">
+                                        <span class="ops-rsr-rank-no">@entry.Rank</span>
+                                        <div class="ops-rsr-rank-body">
+                                            <div class="ops-rsr-rank-name">
+                                                <span class="ops-name">@(string.IsNullOrWhiteSpace(item.ItemDescription) ? item.ItemCode : item.ItemDescription)</span>
+                                                <span class="ops-rsr-rank-meta">@item.ItemCode · @item.CustomerCount.ToString("N0") customer(s)</span>
+                                            </div>
+                                            <div class="ops-rsr-bar" aria-hidden="true"><span style="width: @Pct(entry.Share)"></span></div>
+                                        </div>
+                                        <div class="ops-rsr-rank-fig">
+                                            <div class="ops-rsr-rank-value">@item.LineCount.ToString("N0")<span class="ops-rsr-rank-unit"> times</span></div>
+                                            <div class="ops-rsr-rank-sub">
+                                                @item.Quantity.ToString("N2")@(string.IsNullOrWhiteSpace(item.UoMCode) ? "" : $" {item.UoMCode}")
+                                                @if (ActiveCurrency is not null && RouteSalesOverview.In(item.TotalsByCurrency, ActiveCurrency) is { } itemTotals)
+                                                {
+                                                    <span> · @itemTotals.Currency @itemTotals.Gross.ToString("N2")</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </li>
+                                }
+                            </ol>
+                            <div class="ops-rsr-card-foot">
+                                <span>Ranked by how often bought, not by value or quantity</span>
+                                <button type="button" class="ops-rsr-more" @onclick="ShowProductMixAsync">
+                                    Full product mix <i class="ph ph-arrow-right" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        }
+                    </section>
+                </div>
+
+                <section class="ops-panel ops-rsr-board" aria-labelledby="rsr-board-title">
+                    <div class="ops-rsr-card-head">
+                        <div class="ops-rsr-card-title">
+                            <h2 id="rsr-board-title">Routes</h2>
+                            <p>Largest first. Open a route for its top customers; the full list is a click further.</p>
+                        </div>
+                        <label class="ops-search ops-rsr-find">
+                            <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                            <input type="search" class="ops-input" placeholder="Find a customer, code or phone"
+                                   aria-label="Find a customer, code or phone"
+                                   @bind="customerSearch" @bind:event="oninput" />
+                        </label>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(customerSearch))
+                    {
+                        var matches = SearchMatches;
+                        <div class="ops-rsr-found">
+                            <div class="ops-rsr-found-head">
+                                @(matches.Total == 0
+                                    ? $"No customer matches “{customerSearch.Trim()}”."
+                                    : matches.Total > matches.Rows.Count
+                                        ? $"Showing {matches.Rows.Count} of {matches.Total:N0} matches — keep typing to narrow it."
+                                        : $"{matches.Total:N0} match(es)")
+                            </div>
+                            @if (matches.Rows.Count > 0)
+                            {
+                                <div class="ops-scroll">
+                                    <table class="ops-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Customer</th>
+                                                <th>Code</th>
+                                                <th>Route</th>
+                                                <th class="ops-mid">Standing</th>
+                                                <th class="ops-mid">Sales</th>
+                                                <th class="ops-num">Value</th>
+                                                <th>Last sale (all time)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var customer in matches.Rows)
+                                            {
+                                                <tr>
+                                                    <td>@RenderCustomerName(customer)</td>
+                                                    <td><span class="ops-code">@customer.Code</span></td>
+                                                    <td><span class="ops-code">@customer.AssignedBusinessPartnerCode</span></td>
+                                                    <td class="ops-mid">@RenderStanding(customer)</td>
+                                                    <td class="ops-mid">@customer.SaleCount</td>
+                                                    <td class="ops-num">@RenderMoney(customer.TotalsByCurrency)</td>
+                                                    <td>@RenderLastSale(customer)</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="ops-scroll">
+                        <table class="ops-table ops-rsr-board-table">
+                            <thead>
+                                <tr>
+                                    <th>Route</th>
+                                    <th class="ops-mid">Customers</th>
+                                    <th class="ops-mid">Sales</th>
+                                    <th class="ops-mid">Dormant</th>
+                                    <th class="ops-mid">Never bought</th>
+                                    <th class="ops-num">Value@(ActiveCurrency is null ? "" : $" ({ActiveCurrency})")</th>
+                                    @if (showGp)
+                                    {
+                                        <th class="ops-num">Gross profit</th>
+                                        <th class="ops-num">Margin</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in RouteLines)
+                                {
+                                    var routeCode = line.Route.AssignedBusinessPartnerCode;
+                                    var isOpen = string.Equals(openRoute, routeCode, StringComparison.OrdinalIgnoreCase);
+                                    var detailId = $"rsr-route-{routeCode}";
+                                    <tr class="ops-rsr-route @(isOpen ? "is-open" : "")">
+                                        <td>
+                                            <button type="button" class="ops-rsr-route-btn" @onclick="() => ToggleRoute(routeCode)"
+                                                    aria-expanded="@(isOpen ? "true" : "false")" aria-controls="@detailId">
+                                                <i class="ph ph-caret-right ops-rsr-caret" aria-hidden="true"></i>
+                                                <span class="ops-rsr-route-name">
+                                                    <span class="ops-name">@routeCode</span>
+                                                    <span class="ops-sub">@RouteName(routeCode)</span>
+                                                </span>
+                                            </button>
+                                        </td>
+                                        <td class="ops-mid">@line.Route.CustomerCount.ToString("N0")</td>
+                                        <td class="ops-mid">@line.Route.SaleCount.ToString("N0")</td>
+                                        <td class="ops-mid @(line.Route.DormantCount > 0 ? "ops-rsr-warn" : "")">@line.Route.DormantCount.ToString("N0")</td>
+                                        <td class="ops-mid @(line.Route.NeverBoughtCount > 0 ? "ops-rsr-bad" : "")">@line.Route.NeverBoughtCount.ToString("N0")</td>
+                                        <td class="ops-num">
+                                            <span class="ops-rsr-valuebar">
+                                                <span class="ops-rsr-bar" aria-hidden="true"><span style="width: @Pct(line.Share)"></span></span>
+                                                <span class="ops-rsr-value">@(line.Totals is { } routeTotals ? routeTotals.Gross.ToString("N2") : "—")</span>
+                                            </span>
+                                        </td>
+                                        @if (showGp)
+                                        {
+                                            <td class="ops-num">@RenderGpValue(line.Totals)</td>
+                                            <td class="ops-num">@RenderMargin(line.Totals)</td>
+                                        }
+                                    </tr>
+                                    @if (isOpen)
+                                    {
+                                        <tr class="ops-rsr-route-detail" id="@detailId">
+                                            <td colspan="@(showGp ? 8 : 6)">
+                                                <div class="ops-rsr-route-inner">
+                                                    @if (line.TopCustomers.Count == 0)
+                                                    {
+                                                        <p class="ops-rsr-none">No customer on @routeCode bought@(ActiveCurrency is null ? "" : $" in {ActiveCurrency}") in this period.</p>
+                                                    }
+                                                    else
+                                                    {
+                                                        <table class="ops-table ops-rsr-mini">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th class="ops-mid">#</th>
+                                                                    <th>Top customers on this route</th>
+                                                                    <th>Code</th>
+                                                                    <th class="ops-mid">Sales</th>
+                                                                    <th class="ops-num">Value (@ActiveCurrency)</th>
+                                                                    <th>Last sale</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                @foreach (var entry in line.TopCustomers)
+                                                                {
+                                                                    <tr>
+                                                                        <td class="ops-mid ops-sub">@entry.Rank</td>
+                                                                        <td>@RenderCustomerLink(entry.Customer)</td>
+                                                                        <td><span class="ops-routeCode">@entry.Customer.Code</span></td>
+                                                                        <td class="ops-mid">@entry.Totals.SaleCount.ToString("N0")</td>
+                                                                        <td class="ops-num">@entry.Totals.Gross.ToString("N2")</td>
+                                                                        <td>@(entry.Customer.LastSaleAt?.ToString("dd MMM yyyy") ?? "—")</td>
+                                                                    </tr>
+                                                                }
+                                                            </tbody>
+                                                        </table>
+                                                    }
+                                                    <div class="ops-rsr-route-links">
+                                                        <button type="button" class="ops-rsr-more" @onclick="() => OpenRouteAsync(routeCode, View.Routes)">
+                                                            All @line.Route.CustomerCount.ToString("N0") customers on @routeCode <i class="ph ph-arrow-right" aria-hidden="true"></i>
+                                                        </button>
+                                                        @if (line.Route.DormantCount + line.Route.NeverBoughtCount > 0)
+                                                        {
+                                                            <button type="button" class="ops-rsr-more is-warn" @onclick="() => OpenRouteAsync(routeCode, View.Dormant)">
+                                                                @line.Route.DormantCount.ToString("N0") dormant · @line.Route.NeverBoughtCount.ToString("N0") never bought <i class="ph ph-arrow-right" aria-hidden="true"></i>
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr class="ops-rsr-board-total">
+                                    <td><span class="ops-rsr-route-pad">All routes</span></td>
+                                    <td class="ops-mid">@AllCustomers.Count.ToString("N0")</td>
+                                    <td class="ops-mid">@TotalSaleCount.ToString("N0")</td>
+                                    <td class="ops-mid @(DormantCount > 0 ? "ops-rsr-warn" : "")">@DormantCount.ToString("N0")</td>
+                                    <td class="ops-mid @(NeverBoughtCount > 0 ? "ops-rsr-bad" : "")">@NeverBoughtCount.ToString("N0")</td>
+                                    <td class="ops-num"><span class="ops-rsr-value">@(CurrencyTotal is { } allTotals ? allTotals.Gross.ToString("N2") : "—")</span></td>
+                                    @if (showGp)
+                                    {
+                                        <td class="ops-num">@RenderGpValue(CurrencyTotal)</td>
+                                        <td class="ops-num">@RenderMargin(CurrencyTotal)</td>
+                                    }
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </section>
+            }
+        }
+        else if (activeView == View.Routes)
         {
             @if (summary.Routes.Count == 0)
             {
@@ -428,7 +794,11 @@
 </div>
 
 @code {
-    private enum View { Summary, Dormant, ProductMix }
+    /// <summary>The tabs. "Summary" was the per-route lists before the overview took the first tab; an old link
+    /// carrying it opens Routes, which is what it showed.</summary>
+    private enum View { Overview, Routes, Dormant, ProductMix }
+
+    private const int SearchLimit = 25;
 
     /// <summary>The page's own presets beside the standard ones; 90 days is its default.</summary>
     private static readonly int[] RecentDays = [30, 90, 180, 365];
@@ -444,6 +814,7 @@
     [SupplyParameterFromQuery(Name = ViewQueryName)] private string? ViewQuery { get; set; }
 
     private readonly LatestLoad loads = new();
+    private readonly LatestLoad mixLoads = new();
     private DateTime? readAtUtc;
 
     /// <summary>
@@ -467,8 +838,15 @@
     private bool showGp => summary?.Margin is { Available: true } || productMix?.Margin is { Available: true };
     private Dictionary<string, string> routeDisplayNames = new(StringComparer.OrdinalIgnoreCase);
 
-    private View activeView = View.Summary;
+    private View activeView = View.Overview;
     private string? selectedRouteCode;
+
+    // Overview state. The currency is the reader's pick until a reload no longer trades in it; the open route
+    // is the largest until the reader opens another.
+    private string? pickedCurrency;
+    private string? openRoute;
+    private string? customerSearch;
+    private bool isExportMenuOpen;
     private DateTime? fromDate;
     private DateTime? toDate;
     private int dormantDays = 30;
@@ -508,17 +886,73 @@
     ///
     /// Membership is those two findings and nothing else. It used to include anyone with an empty window,
     /// which put a shop that bought last week into a "needs a visit" list whenever the dates were narrower
-    /// than the dormancy threshold — and then labelled it as never having bought.
+    /// than the dormancy threshold — and then labelled it as never having bought. The detail workbook's
+    /// Dormant sheet reads the same list.
     /// </summary>
-    private List<RouteCustomerSalesRowModel> DormantRows => summary is null
+    private IReadOnlyList<RouteCustomerSalesRowModel> DormantRows => summary is null
         ? []
-        : AllCustomers
-            .Where(customer => customer.LastSaleAt is null ||
-                (customer.DaysSinceLastSale is { } days && days > summary.DormantDays))
-            .OrderBy(customer => customer.LastSaleAt is null)
-            .ThenByDescending(customer => customer.DaysSinceLastSale ?? 0)
-            .ThenBy(customer => customer.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        : RouteSalesOverview.NeedsAVisit(summary);
+
+    private IReadOnlyList<string> Currencies => summary is null ? [] : RouteSalesOverview.Currencies(summary);
+
+    /// <summary>The currency the overview ranks in: the reader's pick while it is still traded, else the busiest.</summary>
+    private string? ActiveCurrency =>
+        pickedCurrency is not null && Currencies.Contains(pickedCurrency) ? pickedCurrency : Currencies.FirstOrDefault();
+
+    private IReadOnlyList<RouteSalesRankedCustomer> TopCustomers => ActiveCurrency is null
+        ? []
+        : RouteSalesOverview.TopCustomers(AllCustomers, ActiveCurrency);
+
+    private IReadOnlyList<RouteSalesRankedProduct> TopProducts => RouteSalesOverview.TopProducts(productMix);
+
+    private IReadOnlyList<RouteSalesRouteLine> RouteLines => summary is null
+        ? []
+        : RouteSalesOverview.Routes(summary, ActiveCurrency);
+
+    private RouteCustomerSalesTotalsModel? CurrencyTotal => summary is null || ActiveCurrency is null
+        ? null
+        : RouteSalesOverview.Total(summary, ActiveCurrency);
+
+    /// <summary>"These five took 8.4% of USD 223,470.63" — how much of the takings the list in front of the reader is.</summary>
+    private string TopCustomersShareLine
+    {
+        get
+        {
+            var top = TopCustomers;
+            if (top.Count == 0 || CurrencyTotal is not { Gross: > 0 } total)
+            {
+                return string.Empty;
+            }
+
+            var share = top.Sum(entry => entry.Totals.Gross) / total.Gross;
+            var who = top.Count == 1 ? "This customer" : $"These {top.Count}";
+            return $"{who} took {share.ToString("0.0%", CultureInfo.CurrentCulture)} of {total.Currency} {total.Gross.ToString("N2", CultureInfo.CurrentCulture)}";
+        }
+    }
+
+    /// <summary>Customers whose name, code or phone holds the search text, best-selling first; at most <see cref="SearchLimit"/>.</summary>
+    private (IReadOnlyList<RouteCustomerSalesRowModel> Rows, int Total) SearchMatches
+    {
+        get
+        {
+            var text = customerSearch?.Trim();
+            if (string.IsNullOrEmpty(text))
+            {
+                return ([], 0);
+            }
+
+            var found = AllCustomers
+                .Where(customer =>
+                    customer.Name.Contains(text, StringComparison.OrdinalIgnoreCase) ||
+                    customer.Code.Contains(text, StringComparison.OrdinalIgnoreCase) ||
+                    (customer.Phone?.Contains(text, StringComparison.OrdinalIgnoreCase) ?? false))
+                .OrderByDescending(customer => customer.SaleCount)
+                .ThenBy(customer => customer.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return (found.Take(SearchLimit).ToList(), found.Count);
+        }
+    }
 
     private IEnumerable<NocturneSelectOption<string>> RouteFilterOptions =>
         knownAccounts
@@ -544,7 +978,11 @@
             dormantDays = days;
         }
 
-        if (Enum.TryParse<View>(ViewQuery, ignoreCase: true, out var view))
+        if (string.Equals(ViewQuery, "Summary", StringComparison.OrdinalIgnoreCase))
+        {
+            activeView = View.Routes;
+        }
+        else if (Enum.TryParse<View>(ViewQuery, ignoreCase: true, out var view) && Enum.IsDefined(view))
         {
             activeView = view;
         }
@@ -620,22 +1058,48 @@
             return;
         }
 
-        // The mix is already on screen, so it has to follow the filter rather than wait to be reopened.
-        if (activeView == View.ProductMix)
+        // The largest route opens by itself, so the overview never lands with every route shut; a route the
+        // reader opened stays open across a reload that still has it.
+        if (summary is not null && !summary.Routes.Any(route =>
+                string.Equals(route.AssignedBusinessPartnerCode, openRoute, StringComparison.OrdinalIgnoreCase)))
         {
-            await LoadProductMixAsync();
+            openRoute = RouteLines.FirstOrDefault()?.Route.AssignedBusinessPartnerCode;
         }
-        else
-        {
-            productMix = null;
-        }
+
+        // The overview's top products are read from the mix, so it loads with the summary now rather than
+        // waiting for its own tab, and follows every change of filter.
+        await LoadProductMixAsync();
     }
 
-    /// <summary>Loaded on first open rather than with the page — it is a third query for a third tab.</summary>
     private void ShowView(View view)
     {
         activeView = view;
         WriteQuery();
+    }
+
+    private void PickCurrency(string currency) => pickedCurrency = currency;
+
+    private void ToggleRoute(string code) =>
+        openRoute = string.Equals(openRoute, code, StringComparison.OrdinalIgnoreCase) ? null : code;
+
+    /// <summary>Narrows the report to one route and shows its full list or its dormant customers.</summary>
+    private async Task OpenRouteAsync(string code, View view)
+    {
+        activeView = view;
+        selectedRouteCode = code;
+        await LoadAsync();
+    }
+
+    private void ToggleExportMenu() => isExportMenuOpen = !isExportMenuOpen;
+
+    private void CloseExportMenu() => isExportMenuOpen = false;
+
+    private void OnExportMenuKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            isExportMenuOpen = false;
+        }
     }
 
     private async Task ShowProductMixAsync()
@@ -651,22 +1115,31 @@
 
     private async Task LoadProductMixAsync()
     {
+        var token = mixLoads.Begin();
         isLoadingProductMix = true;
         productMixError = null;
 
         try
         {
-            productMix = await RouteCustomerService.GetProductMixAsync(
+            var loaded = await RouteCustomerService.GetProductMixAsync(
                 selectedRouteCode, null, fromDate, toDate);
+
+            if (!token.IsCancellationRequested)
+            {
+                productMix = loaded;
+            }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!token.IsCancellationRequested)
         {
             productMixError = ex.Message;
             productMix = null;
         }
         finally
         {
-            isLoadingProductMix = false;
+            if (!token.IsCancellationRequested)
+            {
+                isLoadingProductMix = false;
+            }
         }
     }
 
@@ -688,11 +1161,107 @@
         var values = VanReportLinks.Query(summary?.From ?? fromDate, summary?.To ?? toDate);
         values[AccountQueryName] = string.IsNullOrWhiteSpace(selectedRouteCode) ? null : selectedRouteCode;
         values[DormantQueryName] = dormantDays == 30 ? null : dormantDays;
-        values[ViewQueryName] = activeView == View.Summary ? null : activeView.ToString();
+        values[ViewQueryName] = activeView == View.Overview ? null : activeView.ToString();
         VanReportLinks.WriteQuery(Navigation, values);
     }
 
-    public void Dispose() => loads.Dispose();
+    public void Dispose()
+    {
+        loads.Dispose();
+        mixLoads.Dispose();
+    }
+
+    private string RouteName(string code)
+    {
+        var label = RouteLabel(code);
+        var separator = label.IndexOf(" - ", StringComparison.Ordinal);
+        return separator < 0 ? string.Empty : label[(separator + 3)..];
+    }
+
+    private static string Pct(decimal share) =>
+        (share * 100m).ToString("0.#", CultureInfo.InvariantCulture) + "%";
+
+    /// <summary>The customer's name as a link to their history, or plain text once the record is deleted.</summary>
+    private RenderFragment RenderCustomerLink(RouteCustomerSalesRowModel customer) => builder =>
+    {
+        if (customer.RouteCustomerId is { } id)
+        {
+            builder.OpenElement(0, "a");
+            builder.AddAttribute(1, "class", "ops-link ops-name");
+            builder.AddAttribute(2, "href", summary is null
+                ? $"/route-customers/{id}/sales"
+                : VanReportLinks.RouteCustomer(id, summary.From, summary.To));
+            builder.AddContent(3, customer.Name);
+            builder.CloseElement();
+            return;
+        }
+
+        builder.OpenElement(4, "span");
+        builder.AddAttribute(5, "class", "ops-name");
+        builder.AddAttribute(6, "title", "Customer deleted");
+        builder.AddContent(7, customer.Name);
+        builder.CloseElement();
+    };
+
+    private RenderFragment RenderStanding(RouteCustomerSalesRowModel customer) => builder =>
+    {
+        var standing = RouteSalesOverview.Standing(customer, summary?.DormantDays ?? dormantDays);
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", standing switch
+        {
+            "Never bought" => "ops-badge ops-fam-bad",
+            "Dormant" => "ops-badge ops-fam-warn",
+            _ => "ops-badge ops-fam-good"
+        });
+        builder.AddContent(2, standing);
+        builder.CloseElement();
+    };
+
+    /// <summary>"GP 2,031.10 · 42.2%" under a ranked figure, or why there is none.</summary>
+    private static RenderFragment RenderGpLine(RouteCustomerSalesTotalsModel totals) => builder =>
+    {
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "ops-rsr-rank-sub");
+        if (totals.GrossProfit is { } gp)
+        {
+            builder.AddContent(2, "GP ");
+            builder.OpenElement(3, "span");
+            builder.AddAttribute(4, "class", $"gpx-value {GrossProfitFormat.Tone(gp)}");
+            builder.AddContent(5, GrossProfitFormat.Money(gp));
+            builder.CloseElement();
+            if (totals.MarginPercent is { } margin)
+            {
+                builder.AddContent(6, $" · {GrossProfitFormat.Percent(margin)}");
+            }
+        }
+        else
+        {
+            builder.AddContent(7, "GP not in SAP yet");
+        }
+
+        builder.CloseElement();
+    };
+
+    private static RenderFragment RenderGpValue(RouteCustomerSalesTotalsModel? totals) => builder =>
+    {
+        if (totals?.GrossProfit is { } gp)
+        {
+            builder.OpenElement(0, "span");
+            builder.AddAttribute(1, "class", $"gpx-value {GrossProfitFormat.Tone(gp)}");
+            builder.AddContent(2, GrossProfitFormat.Money(gp));
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(3, "span");
+            builder.AddAttribute(4, "class", "ops-sub");
+            builder.AddContent(5, totals is null ? "—" : "Not in SAP yet");
+            builder.CloseElement();
+        }
+    };
+
+    private static RenderFragment RenderMargin(RouteCustomerSalesTotalsModel? totals) => builder =>
+        builder.AddContent(0, totals?.MarginPercent is { } margin ? GrossProfitFormat.Percent(margin) : "—");
 
     /// <summary>
     /// The customer's name, linked to their history — unless the record has been deleted, in which case
@@ -775,8 +1344,48 @@
         return new MarkupString(string.Join("<br />", lines));
     }
 
+    /// <summary>
+    /// The detail workbook. The handler reads each customer's items, which nothing on screen has loaded,
+    /// so this is a query of its own rather than a layout of what the page already holds.
+    /// </summary>
+    private async Task ExportDetailAsync()
+    {
+        isExportMenuOpen = false;
+        if (summary is null)
+        {
+            return;
+        }
+
+        isExporting = true;
+
+        try
+        {
+            var result = await Mediator.Send(new ExportRouteSalesDetailQuery(
+                summary, productMix, selectedRouteCode, routeDisplayNames, pickedCurrency));
+
+            if (result.IsError)
+            {
+                Snackbar.Add($"Export failed: {result.FirstError.Description}", Severity.Error);
+                return;
+            }
+
+            var fileName = $"Route_Sales_Detail_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(result.Value));
+            Snackbar.Add("Detail workbook ready.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
+
     private async Task ExportToExcel()
     {
+        isExportMenuOpen = false;
         if (summary is null)
         {
             return;

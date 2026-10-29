@@ -2340,6 +2340,488 @@
     color: var(--ops-mute-3);
 }
 
+/* ── Export menu ───────────────────────────────────────────────────────────
+   Two files behind one button. The scrim is transparent: it is there to take
+   the click that closes the menu, not to dim the page. */
+
+.ops-rsr .ops-rsr-export {
+    position: relative;
+}
+
+.ops-rsr .ops-rsr-menu-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+}
+
+.ops-rsr .ops-rsr-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 41;
+    width: min(360px, calc(100vw - 32px));
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-radius: var(--ops-r-md);
+    background: var(--ops-surface);
+    box-shadow: var(--ops-shadow-pop);
+}
+
+/* Stated left-aligned and full width: a global button rule centres a
+   button's content, which pushed each item's icon and words inwards. */
+.ops-rsr .ops-rsr-menu-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    width: 100%;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: var(--ops-r-sm);
+    background: transparent;
+    color: var(--ops-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ops-rsr .ops-rsr-menu-item > span {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.ops-rsr .ops-rsr-menu-item > i {
+    margin-top: 2px;
+    font-size: 17px;
+    color: var(--ops-mute-3);
+}
+
+.ops-rsr .ops-rsr-menu-item:hover,
+.ops-rsr .ops-rsr-menu-item:focus-visible {
+    background: var(--ops-hover);
+}
+
+.ops-rsr .ops-rsr-menu-item:focus-visible {
+    outline: 2px solid var(--ops-accent);
+    outline-offset: -2px;
+}
+
+.ops-rsr .ops-rsr-menu-item.is-featured > i {
+    color: var(--ops-accent-text);
+}
+
+.ops-rsr .ops-rsr-menu-name {
+    display: block;
+    font-size: 13.5px;
+    font-weight: 600;
+}
+
+.ops-rsr .ops-rsr-menu-sub {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--ops-mute-2);
+}
+
+/* ── Overview ──────────────────────────────────────────────────────────────
+   The first tab: two ranked lists side by side, then one line per route. The
+   lists stack below 1040px, where two of them would squeeze the names. */
+
+.ops-rsr .ops-rsr-top {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr));
+    gap: var(--ops-s6);
+    margin-bottom: var(--ops-s6);
+}
+
+.ops-rsr .ops-rsr-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.ops-rsr .ops-rsr-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+    padding: var(--ops-s6) var(--ops-s8) var(--ops-s3);
+}
+
+.ops-rsr .ops-rsr-card-title h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.ops-rsr .ops-rsr-card-title p {
+    margin: 3px 0 0;
+    font-size: 12px;
+    color: var(--ops-mute-2);
+}
+
+/* The currency switch: one currency ranked at a time, never two added. */
+.ops-rsr .ops-rsr-seg {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-sm);
+}
+
+.ops-rsr .ops-rsr-seg-btn {
+    min-height: 30px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: calc(var(--ops-r-sm) - 2px);
+    background: transparent;
+    color: var(--ops-mute-2);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.ops-rsr .ops-rsr-seg-btn:hover {
+    color: var(--ops-ink);
+}
+
+.ops-rsr .ops-rsr-seg-btn.is-on {
+    color: var(--ops-accent-text);
+    background: rgba(var(--ops-accent-rgb), .16);
+    font-weight: 600;
+}
+
+.ops-rsr .ops-rsr-seg-btn:focus-visible {
+    outline: 2px solid var(--ops-accent);
+    outline-offset: 1px;
+}
+
+.ops-rsr .ops-rsr-none {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 0;
+    padding: var(--ops-s4) var(--ops-s8) var(--ops-s6);
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+}
+
+.ops-rsr .ops-rsr-rank {
+    list-style: none;
+    margin: 0;
+    padding: 0 var(--ops-s8);
+}
+
+.ops-rsr .ops-rsr-rank-row {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--ops-s4);
+    padding: 11px 0;
+    border-top: 1px solid var(--ops-rule);
+}
+
+.ops-rsr .ops-rsr-rank-row:first-child {
+    border-top: 0;
+}
+
+.ops-rsr .ops-rsr-rank-no {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    font-size: 11.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-accent-text);
+    background: rgba(var(--ops-accent-rgb), .14);
+}
+
+.ops-rsr .ops-rsr-rank-row.is-product .ops-rsr-rank-no {
+    color: var(--ops-fam-info);
+    background: rgba(var(--ops-fam-info-rgb), .14);
+}
+
+.ops-rsr .ops-rsr-rank-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.ops-rsr .ops-rsr-rank-name {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    min-width: 0;
+}
+
+.ops-rsr .ops-rsr-rank-name .ops-link {
+    font-size: 13px;
+    white-space: normal;
+}
+
+.ops-rsr .ops-rsr-rank-meta {
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+}
+
+/* A share of the first in the list (or of the largest route), as a thin bar. */
+.ops-rsr .ops-rsr-bar {
+    display: block;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--ops-press);
+    overflow: hidden;
+}
+
+.ops-rsr .ops-rsr-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--ops-accent);
+    transition: width .3s ease;
+}
+
+.ops-rsr .ops-rsr-rank-row.is-product .ops-rsr-bar > span {
+    background: var(--ops-fam-info);
+}
+
+.ops-rsr .ops-rsr-rank-fig {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.ops-rsr .ops-rsr-rank-value {
+    font-size: 13.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink);
+}
+
+.ops-rsr .ops-rsr-rank-unit {
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--ops-mute-3);
+}
+
+.ops-rsr .ops-rsr-rank-sub {
+    margin-top: 2px;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-mute-2);
+}
+
+.ops-rsr .ops-rsr-card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px var(--ops-s4);
+    margin-top: auto;
+    padding: var(--ops-s4) var(--ops-s8);
+    border-top: 1px solid var(--ops-rule);
+    font-size: 12px;
+    color: var(--ops-mute-2);
+}
+
+/* A link-styled button: it changes the view rather than leaving the page. */
+.ops-rsr .ops-rsr-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 28px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    color: var(--ops-accent-text);
+    cursor: pointer;
+}
+
+.ops-rsr .ops-rsr-more:hover,
+.ops-rsr .ops-rsr-more:focus-visible {
+    color: var(--ops-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.ops-rsr .ops-rsr-more.is-warn {
+    color: var(--ops-fam-warn);
+}
+
+/* ── Routes board ────────────────────────────────────────────────────────── */
+
+.ops-rsr .ops-rsr-find {
+    width: min(100%, 300px);
+}
+
+.ops-rsr .ops-rsr-find .ops-input {
+    width: 100%;
+}
+
+.ops-rsr .ops-rsr-found {
+    margin: 0 0 var(--ops-s4);
+    border-top: 1px solid var(--ops-rule);
+    border-bottom: 1px solid var(--ops-divider);
+}
+
+.ops-rsr .ops-rsr-found-head {
+    padding: var(--ops-s3) var(--ops-s8);
+    font-size: 12px;
+    color: var(--ops-mute-2);
+}
+
+.ops-rsr .ops-rsr-route-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ops-rsr .ops-rsr-route-btn:focus-visible {
+    outline: 2px solid var(--ops-accent);
+    outline-offset: 4px;
+    border-radius: 4px;
+}
+
+.ops-rsr .ops-rsr-caret {
+    font-size: 13px;
+    color: var(--ops-mute-3);
+    transition: transform .15s ease;
+}
+
+.ops-rsr .ops-rsr-route.is-open .ops-rsr-caret {
+    transform: rotate(90deg);
+    color: var(--ops-accent-text);
+}
+
+.ops-rsr .ops-rsr-route-name {
+    display: flex;
+    flex-direction: column;
+}
+
+.ops-rsr .ops-rsr-route.is-open td {
+    background: rgba(var(--ops-accent-rgb), .05);
+}
+
+.ops-rsr .ops-rsr-warn {
+    color: var(--ops-fam-warn);
+}
+
+.ops-rsr .ops-rsr-bad {
+    color: var(--ops-fam-bad);
+}
+
+.ops-rsr .ops-rsr-valuebar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    width: 100%;
+}
+
+.ops-rsr .ops-rsr-valuebar .ops-rsr-bar {
+    flex: 1 1 80px;
+    max-width: 160px;
+}
+
+.ops-rsr .ops-rsr-value {
+    min-width: 84px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink);
+}
+
+/* The open route's own top five, indented under its name. */
+.ops .ops-table tbody tr.ops-rsr-route-detail:hover {
+    background: transparent;
+}
+
+.ops .ops-table tbody tr.ops-rsr-route-detail > td {
+    padding-top: 0;
+    border-top: 0;
+    background: rgba(var(--ops-accent-rgb), .05);
+}
+
+.ops-rsr .ops-rsr-route-inner {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s3);
+    padding: 0 0 var(--ops-s3) 23px;
+}
+
+.ops-rsr .ops-rsr-mini {
+    border: 1px solid var(--ops-rule);
+    border-radius: var(--ops-r-sm);
+    background: var(--ops-wash);
+}
+
+.ops .ops-rsr-mini thead th:first-child,
+.ops .ops-rsr-mini tbody td:first-child {
+    padding-left: var(--ops-s4);
+}
+
+.ops .ops-rsr-mini thead th:last-child,
+.ops .ops-rsr-mini tbody td:last-child {
+    padding-right: var(--ops-s4);
+}
+
+.ops .ops-rsr-mini tbody td {
+    padding-block: 8px;
+}
+
+.ops-rsr .ops-rsr-route-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px var(--ops-s6);
+}
+
+/* The "All routes" line. tfoot is outside `.ops-table tbody td`, so it states
+   its own cell padding, rule and weight. */
+.ops .ops-rsr-board-table tfoot td {
+    padding: 12px var(--ops-s4);
+    border-top: 1px solid var(--ops-divider);
+    background: var(--ops-hover);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink);
+}
+
+.ops .ops-rsr-board-table tfoot td:first-child {
+    padding-left: var(--ops-s8);
+}
+
+.ops .ops-rsr-board-table tfoot td:last-child {
+    padding-right: var(--ops-s8);
+}
+
+.ops-rsr .ops-rsr-route-pad {
+    padding-left: 23px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ops-rsr .ops-rsr-caret,
+    .ops-rsr .ops-rsr-bar > span {
+        transition: none;
+    }
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    /desktop-transactions — `.ops-dt`
    ═════════════════════════════════════════════════════════════════════════ */
@@ -4831,8 +5313,21 @@
     .ops-filters,
     .ops-foot,
     .ops-rc .ops-rc-head,
-    .ops-rsr .ops-rsr-head {
+    .ops-rsr .ops-rsr-head,
+    .ops-rsr .ops-rsr-card-head,
+    .ops-rsr .ops-rsr-rank,
+    .ops-rsr .ops-rsr-card-foot,
+    .ops-rsr .ops-rsr-none,
+    .ops-rsr .ops-rsr-found-head {
         padding-inline: 14px;
+    }
+
+    .ops .ops-rsr-board-table tfoot td:first-child {
+        padding-left: 14px;
+    }
+
+    .ops-rsr .ops-rsr-find {
+        width: 100%;
     }
 
     /* Follows the first-cell padding above, or the lines would keep an indent

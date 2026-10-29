@@ -104,6 +104,7 @@
         @if (showChecklist)
         {
             <RetailRouteChecklist StatusName="GetDisplayStatusName" StatusTone="GetStatusToneClass"
+                                  InvoiceDocNum="GetOrderInvoiceDocNum"
                                   OnOpenOrder="ViewOrder" CanEditRoutes="canEditRoutes" />
         }
         else

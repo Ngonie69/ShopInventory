@@ -1,0 +1,27 @@
+@* One chart on the van sales performance page: a titled card with a caption naming what is plotted
+   and in which currency. Styled by van-sales.css under `vsp-card`. *@
+
+<section class="vsp-card @Class">
+    <header class="vsp-card-head">
+        <div>
+            <h3 class="vsp-card-title">@Title</h3>
+            @if (!string.IsNullOrWhiteSpace(Caption))
+            {
+                <div class="vsp-card-caption">@Caption</div>
+            }
+        </div>
+        @Aside
+    </header>
+    @ChildContent
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter] public string? Caption { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>A legend or a link, top right.</summary>
+    [Parameter] public RenderFragment? Aside { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

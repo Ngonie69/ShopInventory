@@ -1,0 +1,1160 @@
+/* ==========================================================================
+   Reports Hub — Nocturne
+
+   /reports with no `tab` in the address: the period's headline figures, what
+   needs attention, the activity behind them and a directory of every report.
+   Built from the "Reports Hub redesign" canvas (claude.ai design, 2026-10-29),
+   which was drawn on Nocturne's dark ground; the light scheme comes from the
+   same tokens, which flip at the root, so this sheet has no .dark-theme block.
+
+   Every colour is a nocturne-tokens.css alias. Tones that must be told apart —
+   the four ages of a debt, the three levels of a warning — use the measured
+   family hues, never two steps of the accent, which collapse to one colour in
+   the light scheme (see nocturne-tokens.css). The accent is kept for the bars
+   that carry no judgement: sales, margin, share of payments.
+
+   Controls carry a class and every control selector is two classes deep, so
+   app.css's `.dark-theme input` (0,1,1) cannot repaint the search field.
+
+   The full reports behind each card are still Reports.razor's tabs; the one
+   piece of them styled here is the "Reports hub" link back, `.rpt-back-link`.
+   ========================================================================== */
+
+.rhb {
+    --rhb-surface: var(--noct-surface);
+    --rhb-ink: var(--noct-ink);
+    --rhb-ink-2: var(--noct-ink-2);
+    --rhb-mute: var(--noct-mute);
+    --rhb-mute-2: var(--noct-mute-2);
+    --rhb-mute-3: var(--noct-mute-3);
+    --rhb-divider: var(--noct-divider);
+    --rhb-rule: var(--noct-rule);
+    --rhb-hover: var(--noct-hover);
+    --rhb-press: var(--noct-press);
+    --rhb-field-bg: var(--noct-field-bg);
+    --rhb-field-edge: var(--noct-field-edge);
+    --rhb-placeholder: var(--noct-placeholder);
+    --rhb-accent: var(--noct-accent);
+    --rhb-accent-rgb: var(--noct-accent-rgb);
+    --rhb-accent-text: var(--noct-accent-text);
+    --rhb-good: var(--noct-fam-good);
+    --rhb-good-rgb: var(--noct-fam-good-rgb);
+    --rhb-info: var(--noct-fam-info);
+    --rhb-info-rgb: var(--noct-fam-info-rgb);
+    --rhb-warn: var(--noct-fam-warn);
+    --rhb-warn-rgb: var(--noct-fam-warn-rgb);
+    --rhb-bad: var(--noct-fam-bad);
+    --rhb-bad-rgb: var(--noct-fam-bad-rgb);
+    --rhb-neutral: var(--noct-fam-neutral);
+    --rhb-r-md: var(--noct-r-md);
+    --rhb-r-lg: var(--noct-r-lg);
+    --rhb-scheme: var(--noct-scheme);
+
+    color-scheme: var(--rhb-scheme);
+    color: var(--rhb-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+}
+
+.rhb *,
+.rhb *::before,
+.rhb *::after {
+    box-sizing: border-box;
+}
+
+/* app.css forces -webkit-text-fill-color: inherit in dark theme; hand it back
+   to `color` so the tone colours below survive on WebKit. */
+.rhb,
+.rhb * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.rhb :focus-visible {
+    outline: 2px solid var(--rhb-accent);
+    outline-offset: 2px;
+}
+
+.rhb h1,
+.rhb h2,
+.rhb h3 {
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+}
+
+.rhb p {
+    margin: 0;
+}
+
+.rhb a {
+    text-decoration: none;
+}
+
+.rhb-wrap {
+    max-width: 1360px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.rhb-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.rhb-num,
+.rhb .num {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+
+.rhb-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.rhb-head-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.rhb-kicker {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--rhb-mute-3);
+}
+
+.rhb .rhb-title {
+    font-family: 'Space Grotesk', 'Inter', sans-serif;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    line-height: 1.15;
+    color: var(--rhb-ink);
+}
+
+.rhb-sub {
+    color: var(--rhb-mute-2);
+}
+
+.rhb-head-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────── */
+
+.rhb .rhb-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 15px;
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--rhb-ink-2);
+    background: transparent;
+    border: 1px solid var(--rhb-divider);
+    border-radius: var(--rhb-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.rhb .rhb-btn:hover:not(:disabled) {
+    background: var(--rhb-hover);
+    color: var(--rhb-ink);
+}
+
+.rhb .rhb-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.rhb .rhb-btn i {
+    font-size: 16px;
+}
+
+/* Nocturne outlines its primary action rather than filling it. */
+.rhb .rhb-btn-primary {
+    color: var(--rhb-accent-text);
+    border-color: var(--rhb-accent);
+}
+
+.rhb .rhb-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--rhb-accent-rgb), .12);
+    color: var(--rhb-accent-text);
+}
+
+.rhb .rhb-link-btn {
+    padding: 0;
+    font: inherit;
+    font-weight: 600;
+    color: inherit;
+    background: none;
+    border: 0;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.rhb-spin {
+    display: inline-block;
+    animation: rhb-spin 1s linear infinite;
+}
+
+@keyframes rhb-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Notices ────────────────────────────────────────────────────────── */
+
+.rhb-notice {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: var(--rhb-r-md);
+    border: 1px solid rgba(var(--rhb-bad-rgb), .4);
+    background: rgba(var(--rhb-bad-rgb), .1);
+    color: var(--rhb-bad);
+}
+
+/* ── Period bar ─────────────────────────────────────────────────────── */
+
+.rhb-period {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px;
+    background: var(--rhb-surface);
+    border: 1px solid var(--rhb-rule);
+    border-radius: var(--rhb-r-lg);
+}
+
+.rhb-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.rhb .rhb-chip {
+    min-height: 40px;
+    padding: 0 14px;
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--rhb-mute);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--rhb-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.rhb .rhb-chip:hover {
+    background: var(--rhb-hover);
+    color: var(--rhb-ink);
+}
+
+.rhb .rhb-chip.is-on {
+    color: var(--rhb-accent-text);
+    background: rgba(var(--rhb-accent-rgb), .12);
+    border-color: rgba(var(--rhb-accent-rgb), .55);
+    font-weight: 600;
+}
+
+.rhb-period-range {
+    display: flex;
+    flex-direction: column;
+    padding: 0 8px;
+    text-align: right;
+}
+
+.rhb-range {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.rhb-range-note {
+    font-size: 12.5px;
+    color: var(--rhb-mute-3);
+}
+
+.rhb-custom {
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    padding: 10px 8px 4px;
+    border-top: 1px solid var(--rhb-rule);
+}
+
+.rhb-custom-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 190px;
+}
+
+.rhb-custom-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--rhb-mute-2);
+}
+
+/* ── Cards ──────────────────────────────────────────────────────────── */
+
+.rhb-card {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px;
+    background: var(--rhb-surface);
+    border: 1px solid var(--rhb-rule);
+    border-radius: var(--rhb-r-lg);
+}
+
+.rhb-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.rhb-card-head-tight {
+    justify-content: flex-start;
+    align-items: center;
+    gap: 10px;
+}
+
+.rhb .rhb-card-title {
+    font-size: 15.5px;
+    font-weight: 600;
+    color: var(--rhb-ink);
+}
+
+.rhb-card-sub {
+    margin-top: 2px;
+    font-size: 12.5px;
+    color: var(--rhb-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.rhb .rhb-card-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--rhb-accent-text);
+}
+
+.rhb .rhb-card-link:hover {
+    text-decoration: underline;
+}
+
+.rhb-empty {
+    padding: 18px 0;
+    color: var(--rhb-mute-2);
+}
+
+.rhb-empty-good {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--rhb-good);
+}
+
+.rhb-muted {
+    color: var(--rhb-mute-3);
+}
+
+.rhb-strong {
+    font-weight: 600;
+}
+
+/* ── Headline figures ───────────────────────────────────────────────── */
+
+.rhb-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.rhb .rhb-kpi {
+    gap: 7px;
+    color: var(--rhb-ink);
+    transition: border-color .15s, background-color .15s;
+}
+
+.rhb a.rhb-kpi:hover {
+    border-color: rgba(var(--rhb-accent-rgb), .5);
+}
+
+.rhb-kpi-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-weight: 500;
+    color: var(--rhb-mute);
+}
+
+.rhb-kpi-label i {
+    color: var(--rhb-mute-3);
+}
+
+.rhb-kpi-value {
+    font-family: 'Space Grotesk', 'Inter', sans-serif;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.rhb-kpi-secondary {
+    margin-top: -3px;
+    font-size: 13px;
+    color: var(--rhb-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.rhb-kpi-change {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-height: 22px;
+}
+
+.rhb-delta {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--rhb-mute);
+    background: var(--rhb-hover);
+}
+
+.rhb-delta[data-tone="good"] {
+    color: var(--rhb-good);
+    background: rgba(var(--rhb-good-rgb), .13);
+}
+
+.rhb-delta[data-tone="bad"] {
+    color: var(--rhb-bad);
+    background: rgba(var(--rhb-bad-rgb), .12);
+}
+
+.rhb-kpi-note {
+    font-size: 12.5px;
+    color: var(--rhb-mute-3);
+}
+
+.rhb-kpi-foot {
+    margin-top: auto;
+    padding-top: 9px;
+    border-top: 1px solid var(--rhb-rule);
+    font-size: 13px;
+    color: var(--rhb-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.rhb-kpi-foot[data-tone="bad"] {
+    color: var(--rhb-bad);
+}
+
+.rhb-kpi-foot[data-tone="good"] {
+    color: var(--rhb-good);
+}
+
+.rhb-kpi-missing {
+    justify-content: center;
+    color: var(--rhb-mute-2);
+}
+
+/* ── Loading placeholders ───────────────────────────────────────────── */
+
+.rhb-skel {
+    display: block;
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--rhb-hover), var(--rhb-press), var(--rhb-hover));
+    background-size: 200% 100%;
+    animation: rhb-shimmer 1.4s ease-in-out infinite;
+}
+
+.rhb-skel-lg {
+    height: 28px;
+}
+
+.rhb-skel-chart {
+    height: 260px;
+}
+
+.rhb-skel-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 8px 0;
+}
+
+.rhb-kpi-skel {
+    min-height: 150px;
+    justify-content: center;
+    gap: 14px;
+}
+
+@keyframes rhb-shimmer {
+    from {
+        background-position: 100% 0;
+    }
+
+    to {
+        background-position: -100% 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rhb-skel,
+    .rhb-spin {
+        animation: none;
+    }
+}
+
+/* ── Trend + attention row ──────────────────────────────────────────── */
+
+/* Top-aligned, not stretched: the attention list can run longer than the chart, and a stretched
+   chart card is mostly empty space under its figures. */
+.rhb-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: flex-start;
+}
+
+.rhb-trend {
+    flex: 999 1 560px;
+}
+
+.rhb-attn {
+    flex: 1 1 340px;
+}
+
+/* The chart: CSS bars on a three-line grid, axis on the left. */
+
+.rhb-chart {
+    display: flex;
+    gap: 10px;
+}
+
+.rhb-axis {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    flex: none;
+    width: 40px;
+    height: 220px;
+    font-size: 11.5px;
+    color: var(--rhb-mute-3);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.rhb-axis span:first-child {
+    transform: translateY(-50%);
+}
+
+.rhb-axis span:last-child {
+    transform: translateY(50%);
+}
+
+.rhb-plot-wrap {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.rhb-plot {
+    height: 220px;
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    border-bottom: 1px solid var(--rhb-divider);
+    background-image: linear-gradient(var(--rhb-rule) 1px, transparent 1px);
+    background-size: 100% 50%;
+}
+
+.rhb-bar-slot {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    border-radius: 3px 3px 0 0;
+}
+
+.rhb-bar-slot:hover {
+    background: var(--rhb-hover);
+}
+
+.rhb-bar {
+    display: block;
+    width: 100%;
+    min-height: 1px;
+    border-radius: 3px 3px 0 0;
+    background: var(--rhb-accent);
+}
+
+/* A day still running is drawn hollow rather than faded, so it reads in both schemes. */
+.rhb-bar.is-partial {
+    background: rgba(var(--rhb-accent-rgb), .2);
+    box-shadow: inset 0 0 0 1px var(--rhb-accent);
+}
+
+.rhb-ticks {
+    display: flex;
+    gap: 3px;
+    font-size: 11.5px;
+    color: var(--rhb-mute-3);
+}
+
+.rhb-tick {
+    flex: 1;
+    min-width: 0;
+    overflow: visible;
+    white-space: nowrap;
+}
+
+.rhb-stats {
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--rhb-rule);
+}
+
+.rhb-stats div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.rhb-stats dt {
+    font-size: 12.5px;
+    font-weight: 400;
+    color: var(--rhb-mute-3);
+}
+
+.rhb-stats dd {
+    margin: 0;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Needs attention. */
+
+.rhb-count {
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--rhb-info);
+    background: rgba(var(--rhb-info-rgb), .13);
+}
+
+.rhb-count[data-tone="bad"] {
+    color: var(--rhb-bad);
+    background: rgba(var(--rhb-bad-rgb), .13);
+}
+
+.rhb-count[data-tone="warn"] {
+    color: var(--rhb-warn);
+    background: rgba(var(--rhb-warn-rgb), .14);
+}
+
+.rhb-attn-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.rhb-attn-list > li + li {
+    border-top: 1px solid var(--rhb-rule);
+}
+
+.rhb .rhb-attn-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 6px;
+    margin: 0 -6px;
+    border-radius: var(--rhb-r-md);
+    color: var(--rhb-ink);
+}
+
+.rhb .rhb-attn-item:hover {
+    background: var(--rhb-hover);
+}
+
+.rhb-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 6px;
+    border-radius: 999px;
+    background: var(--rhb-info);
+}
+
+.rhb-attn-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.rhb-attn-sev {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--rhb-info);
+}
+
+.rhb-dot[data-tone="bad"] {
+    background: var(--rhb-bad);
+}
+
+.rhb-dot[data-tone="warn"] {
+    background: var(--rhb-warn);
+}
+
+.rhb-attn-sev[data-tone="bad"] {
+    color: var(--rhb-bad);
+}
+
+.rhb-attn-sev[data-tone="warn"] {
+    color: var(--rhb-warn);
+}
+
+.rhb-attn-title {
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.rhb-attn-detail {
+    font-size: 13px;
+    color: var(--rhb-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.rhb-attn-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+    margin-top: 17px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--rhb-accent-text);
+    white-space: nowrap;
+}
+
+.rhb-attn-pending {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0;
+    font-size: 13px;
+    color: var(--rhb-mute-3);
+}
+
+/* ── The four activity cards ────────────────────────────────────────── */
+
+.rhb-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 500px), 1fr));
+    gap: 14px;
+}
+
+.rhb-table-wrap {
+    overflow-x: auto;
+}
+
+.rhb-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Two classes deep: app.css's `.dark-theme table thead th` (0,1,3) paints every header cell
+   slate #0f172a in dark theme, which reads as a black band across these cards. */
+.rhb .rhb-table th {
+    background: transparent;
+    border-bottom: 0;
+    padding: 0 8px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--rhb-mute-3);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.rhb-table td {
+    padding: 10px 8px;
+    border-top: 1px solid var(--rhb-rule);
+    vertical-align: middle;
+}
+
+.rhb-table th:first-child,
+.rhb-table td:first-child {
+    padding-left: 0;
+}
+
+.rhb-table th:last-child,
+.rhb-table td:last-child {
+    padding-right: 0;
+}
+
+.rhb-table .num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.rhb-cell-main {
+    display: block;
+    font-weight: 500;
+}
+
+.rhb-cell-sub {
+    display: block;
+    font-size: 12px;
+    color: var(--rhb-mute-3);
+}
+
+.rhb-col-margin {
+    width: 130px;
+}
+
+.rhb-margin {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.rhb-margin > span:last-child {
+    min-width: 44px;
+}
+
+.rhb-meter {
+    display: block;
+    width: 60px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--rhb-hover);
+    overflow: hidden;
+}
+
+.rhb-meter > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--rhb-accent);
+}
+
+.rhb-meter-wide {
+    width: 100%;
+    height: 8px;
+}
+
+/* Owed by age: one stacked bar and its legend. */
+
+.rhb-stack {
+    display: flex;
+    gap: 2px;
+    height: 14px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--rhb-hover);
+}
+
+.rhb-stack span,
+.rhb-swatch {
+    background: var(--rhb-neutral);
+}
+
+.rhb-legend {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+.rhb-legend li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-top: 1px solid var(--rhb-rule);
+}
+
+.rhb-swatch {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+}
+
+.rhb-stack [data-tone="good"],
+.rhb-swatch[data-tone="good"] {
+    background: var(--rhb-good);
+}
+
+.rhb-stack [data-tone="info"],
+.rhb-swatch[data-tone="info"] {
+    background: var(--rhb-info);
+}
+
+.rhb-stack [data-tone="warn"],
+.rhb-swatch[data-tone="warn"] {
+    background: var(--rhb-warn);
+}
+
+.rhb-stack [data-tone="bad"],
+.rhb-swatch[data-tone="bad"] {
+    background: var(--rhb-bad);
+}
+
+.rhb-legend-label {
+    flex: 1;
+    color: var(--rhb-mute);
+}
+
+.rhb-legend-share {
+    min-width: 48px;
+    text-align: right;
+    font-size: 12.5px;
+    color: var(--rhb-mute-3);
+}
+
+.rhb-legend-amount {
+    min-width: 104px;
+    text-align: right;
+    font-weight: 600;
+}
+
+.rhb-legend-amount[data-tone="bad"] {
+    color: var(--rhb-bad);
+}
+
+/* How customers paid. */
+
+.rhb-methods {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    font-variant-numeric: tabular-nums;
+}
+
+.rhb-methods li {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.rhb-method-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.rhb-method-name {
+    color: var(--rhb-mute);
+}
+
+/* ── Directory ──────────────────────────────────────────────────────── */
+
+.rhb-dir {
+    padding: 24px;
+    scroll-margin-top: calc(var(--kf-topbar-h, 54px) + 16px);
+}
+
+.rhb .rhb-dir-title {
+    font-size: 17px;
+}
+
+.rhb-dir-head {
+    align-items: center;
+}
+
+.rhb-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: min(100%, 340px);
+    margin: 0;
+}
+
+.rhb-search i {
+    position: absolute;
+    left: 12px;
+    color: var(--rhb-mute-3);
+    pointer-events: none;
+}
+
+.rhb .rhb-search-input {
+    width: 100%;
+    min-height: 42px;
+    padding: 0 12px 0 36px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--rhb-ink);
+    background: var(--rhb-field-bg);
+    border: 1px solid var(--rhb-field-edge);
+    border-radius: var(--rhb-r-md);
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.rhb .rhb-search-input::placeholder {
+    color: var(--rhb-placeholder);
+    -webkit-text-fill-color: var(--rhb-placeholder);
+}
+
+.rhb .rhb-search-input:focus {
+    border-color: var(--rhb-accent);
+}
+
+.rhb-dir-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 22px;
+}
+
+.rhb-dir-group {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.rhb .rhb-dir-group-title {
+    margin-bottom: 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--rhb-mute-3);
+}
+
+.rhb .rhb-dir-link {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-height: 44px;
+    padding: 8px 10px;
+    margin: 0 -10px;
+    border-radius: var(--rhb-r-md);
+    color: var(--rhb-ink);
+}
+
+.rhb .rhb-dir-link:hover {
+    background: var(--rhb-hover);
+}
+
+.rhb-dir-name {
+    font-weight: 500;
+    color: var(--rhb-ink-2);
+}
+
+.rhb-dir-desc {
+    font-size: 12.5px;
+    color: var(--rhb-mute-3);
+}
+
+/* ── Phone width ────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+    .rhb .rhb-title {
+        font-size: 24px;
+    }
+
+    .rhb-period-range {
+        text-align: left;
+        padding: 4px 6px;
+    }
+
+    .rhb-card {
+        padding: 16px;
+    }
+
+    .rhb-attn-link {
+        display: none;
+    }
+
+    .rhb-col-margin {
+        width: auto;
+    }
+
+    .rhb-meter:not(.rhb-meter-wide) {
+        display: none;
+    }
+}
+
+/* ── The full reports' way back ─────────────────────────────────────── */
+
+.rpt-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--noct-accent-text);
+    text-decoration: none;
+}
+
+.rpt-back-link:hover {
+    text-decoration: underline;
+}

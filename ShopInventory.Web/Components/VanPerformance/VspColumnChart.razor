@@ -1,0 +1,138 @@
+@using System.Globalization
+@* Vertical columns: takings by day, by weekday, drops by band. Optionally a second series drawn as a
+   line over them — productive calls on a day — on its own scale at the right.
+
+   A column with no value is a short tick in the faint tone, not a zero bar: a day nothing sold is
+   present and silent, and the line skips it rather than diving to the floor and back. *@
+
+<div class="vsp-cols-wrap">
+    <div class="vsp-cols @(Axis ? "has-axis" : null) @(HasLine ? "has-line" : null) @(ShowValues ? "has-values" : null)"
+         style="--vsp-n: @Columns.Count; min-width: @MinWidth">
+        <div class="vsp-plot">
+            @if (Axis)
+            {
+                @for (var step = 0; step <= 4; step++)
+                {
+                    <div class="vsp-tick" style="bottom:@(step * 25)%">
+                        <span class="vsp-tick-left">@((_max * step / 4).ToString("N0", CultureInfo.InvariantCulture))</span>
+                        @if (HasLine)
+                        {
+                            <span class="vsp-tick-right">@((_lineMax * step / 4).ToString("N0", CultureInfo.InvariantCulture))</span>
+                        }
+                    </div>
+                }
+            }
+            <div class="vsp-col-row">
+                @foreach (var column in Columns)
+                {
+                    <div class="vsp-col" title="@column.Tip">
+                        @if (column.Value is { } value && value > 0)
+                        {
+                            <span class="vsp-col-bar @(column.Emphasis || !Emphasise ? "is-strong" : null)" style="height:@Percent(value, _max)%">
+                                @if (ShowValues)
+                                {
+                                    <span class="vsp-col-value">@column.ValueText</span>
+                                }
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="vsp-col-bar is-silent">
+                                @if (ShowValues)
+                                {
+                                    <span class="vsp-col-value">@column.ValueText</span>
+                                }
+                            </span>
+                        }
+                    </div>
+                }
+            </div>
+            @if (HasLine)
+            {
+                <svg class="vsp-line" viewBox="0 0 @(Columns.Count * 10) 100" preserveAspectRatio="none" aria-hidden="true">
+                    @foreach (var segment in Segments())
+                    {
+                        <polyline points="@segment" vector-effect="non-scaling-stroke"></polyline>
+                    }
+                </svg>
+                @if (Columns.Count <= 45)
+                {
+                    @for (var index = 0; index < Columns.Count; index++)
+                    {
+                        if (Columns[index].Line is { } line)
+                        {
+                            <span class="vsp-dot" style="left:@X(index)%; bottom:@Percent((decimal)line, _lineMax)%"></span>
+                        }
+                    }
+                }
+            }
+        </div>
+        <div class="vsp-col-labels" aria-hidden="true">
+            @foreach (var column in Columns)
+            {
+                <span class="@(column.StrongLabel ? "is-strong" : null)">@(column.ShowLabel ? column.Label : null)</span>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<VspColumn> Columns { get; set; } = [];
+
+    /// <summary>Gridlines and scale labels. Off where every column carries its own value.</summary>
+    [Parameter] public bool Axis { get; set; }
+
+    /// <summary>Each column's value printed above it.</summary>
+    [Parameter] public bool ShowValues { get; set; }
+
+    /// <summary>Only emphasised columns take the strong fill; the rest are washed.</summary>
+    [Parameter] public bool Emphasise { get; set; }
+
+    /// <summary>Below this the chart scrolls sideways rather than squeezing a month into a phone.</summary>
+    [Parameter] public string MinWidth { get; set; } = "0";
+
+    private decimal _max = 1;
+    private decimal _lineMax = 1;
+
+    private bool HasLine => Columns.Any(column => column.Line is not null);
+
+    protected override void OnParametersSet()
+    {
+        var top = Columns.Select(column => column.Value ?? 0).DefaultIfEmpty(0).Max();
+        _max = Axis ? VanPerformanceCharts.NiceMax(top) : Math.Max(top, 1) * 1.12m;
+
+        var lineTop = Columns.Select(column => column.Line ?? 0).DefaultIfEmpty(0).Max();
+        _lineMax = VanPerformanceCharts.NiceMax((decimal)lineTop);
+    }
+
+    private static string Percent(decimal value, decimal max) =>
+        max <= 0 ? "0" : Math.Clamp((double)(value / max) * 100, 0, 100).ToString("F2", CultureInfo.InvariantCulture);
+
+    private string X(int index) =>
+        ((index + 0.5) / Columns.Count * 100).ToString("F2", CultureInfo.InvariantCulture);
+
+    /// <summary>The line in runs of consecutive days that traded; a silent day breaks it.</summary>
+    private IEnumerable<string> Segments()
+    {
+        var points = new List<string>();
+        for (var index = 0; index < Columns.Count; index++)
+        {
+            if (Columns[index].Line is { } line)
+            {
+                var x = (index + 0.5) * 10;
+                var y = 100 - Math.Clamp(line / (double)_lineMax * 100, 0, 100);
+                points.Add($"{x.ToString("F1", CultureInfo.InvariantCulture)},{y.ToString("F1", CultureInfo.InvariantCulture)}");
+            }
+            else if (points.Count > 0)
+            {
+                yield return string.Join(" ", points);
+                points = [];
+            }
+        }
+
+        if (points.Count > 0)
+        {
+            yield return string.Join(" ", points);
+        }
+    }
+}
