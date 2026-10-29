@@ -1,5 +1,7 @@
 using ClosedXML.Excel;
+using DocumentFormat.OpenXml.Packaging;
 using ShopInventory.Web.Models;
+using S = DocumentFormat.OpenXml.Spreadsheet;
 using ShopInventory.Web.Services;
 
 namespace ShopInventory.Tests;
@@ -36,13 +38,16 @@ public sealed class RouteChecklistWorkbookTests
         }).ToList()
     };
 
-    private byte[] Export(IEnumerable<SalesOrderDto> orders, params string[] routes)
+    private byte[] Export(IEnumerable<SalesOrderDto> orders, params string[] routes) =>
+        Export(orders, invoiceDocNum: null, routes);
+
+    private byte[] Export(IEnumerable<SalesOrderDto> orders, Func<SalesOrderDto, int?>? invoiceDocNum, params string[] routes)
     {
         var checklist = RouteOrderChecklist.Build(DeliveryRouteDirectory.Build([]), orders);
         var chosen = checklist.Routes.Where(route => routes.Contains(route.Route.Name)).ToList();
         return _service.ExportRouteChecklistToExcel(new RouteChecklistExport(
             Day, false, "All routes", null, chosen, checklist.OffRouteOrders, checklist.SkippedOrderCount,
-            order => order.Status.ToString()));
+            order => order.Status.ToString(), invoiceDocNum));
     }
 
     private static IXLRow RowWhere(IXLWorksheet sheet, int column, string value) =>
@@ -60,10 +65,12 @@ public sealed class RouteChecklistWorkbookTests
         var shopRow = RowWhere(sheet, 1, "Spar Bridge Yellowcob Ent P/L t/a");
         Assert.Equal("ORDERED", shopRow.Cell(3).GetString());
         Assert.Equal("SO-1", shopRow.Cell(4).GetString());
-        Assert.Equal("MILK1L", shopRow.Cell(7).GetString());
-        Assert.Equal(12m, shopRow.Cell(9).GetValue<decimal>());
-        Assert.Equal("YOG500", sheet.Row(shopRow.RowNumber() + 1).Cell(7).GetString());
-        Assert.Equal(168m, shopRow.Cell(13).GetValue<decimal>());
+        Assert.Equal("2 items", shopRow.Cell(8).GetString());
+        Assert.Equal(168m, shopRow.Cell(14).GetValue<decimal>());
+        var firstLine = sheet.Row(shopRow.RowNumber() + 1);
+        Assert.Equal("MILK1L", firstLine.Cell(8).GetString());
+        Assert.Equal(12m, firstLine.Cell(10).GetValue<decimal>());
+        Assert.Equal("YOG500", sheet.Row(shopRow.RowNumber() + 2).Cell(8).GetString());
         Assert.NotEqual(sheet.Cell(shopRow.RowNumber(), 3).Style.Fill.BackgroundColor,
             RowWhere(sheet, 1, "Eskbank").Cell(3).Style.Fill.BackgroundColor);
 
@@ -101,10 +108,89 @@ public sealed class RouteChecklistWorkbookTests
         Assert.Equal(["SO-1", "SO-1", "SO-2", "SO-3"], orderNumbers);
         Assert.Equal("(no route)", RowWhere(sheet, 4, "SO-3").Cell(1).GetString());
 
-        var usdTotal = sheet.RowsUsed().Single(row => row.Cell(15).GetString() == "USD" && row.Cell(13).GetString().StartsWith("Total"));
-        Assert.Equal(35m, usdTotal.Cell(14).GetValue<decimal>());
-        var zigTotal = sheet.RowsUsed().Single(row => row.Cell(15).GetString() == "ZWG" && row.Cell(13).GetString().StartsWith("Total"));
-        Assert.Equal(300m, zigTotal.Cell(14).GetValue<decimal>());
+        var usdTotal = sheet.RowsUsed().Single(row => row.Cell(16).GetString() == "USD" && row.Cell(14).GetString().StartsWith("Total"));
+        Assert.Equal(35m, usdTotal.Cell(15).GetValue<decimal>());
+        var zigTotal = sheet.RowsUsed().Single(row => row.Cell(16).GetString() == "ZWG" && row.Cell(14).GetString().StartsWith("Total"));
+        Assert.Equal(300m, zigTotal.Cell(15).GetValue<decimal>());
+    }
+
+    [Fact]
+    public void An_orders_items_are_folded_beneath_it_and_open_with_its_plus()
+    {
+        var bridge = Order(1, "SPA070", "Spar Bridge Yellowcob Ent P/L t/a ZiG", "ZWG", ("MILK1L", 12, 120m), ("YOG500", 6, 48m));
+
+        using var workbook = new XLWorkbook(new MemoryStream(Export([bridge], "BORROWDALE")));
+        var sheet = workbook.Worksheet("Checklist");
+        var orderRow = RowWhere(sheet, 4, "SO-1");
+
+        Assert.Equal(XLOutlineSummaryVLocation.Top, sheet.Outline.SummaryVLocation);
+        Assert.Equal(0, orderRow.OutlineLevel);
+        Assert.False(orderRow.IsHidden);
+        foreach (var line in new[] { sheet.Row(orderRow.RowNumber() + 1), sheet.Row(orderRow.RowNumber() + 2) })
+        {
+            Assert.Equal(1, line.OutlineLevel);
+            Assert.True(line.IsHidden);
+        }
+
+        var eskbank = RowWhere(sheet, 1, "Eskbank");
+        Assert.Equal(0, eskbank.OutlineLevel);
+        Assert.False(eskbank.IsHidden);
+    }
+
+    [Fact]
+    public void Excel_is_told_the_order_row_holds_a_shut_group()
+    {
+        var bridge = Order(1, "SPA070", "Spar Bridge Yellowcob Ent P/L t/a ZiG", "ZWG", ("MILK1L", 12, 120m), ("YOG500", 6, 48m));
+        var bytes = Export([bridge], "BORROWDALE");
+
+        int orderRow;
+        using (var workbook = new XLWorkbook(new MemoryStream(bytes)))
+        {
+            orderRow = RowWhere(workbook.Worksheet("Checklist"), 4, "SO-1").RowNumber();
+        }
+
+        using var document = SpreadsheetDocument.Open(new MemoryStream(bytes), false);
+        var workbookPart = document.WorkbookPart!;
+        var sheet = workbookPart.Workbook.Descendants<S.Sheet>().Single(sheet => sheet.Name == "Checklist");
+        var worksheet = ((WorksheetPart)workbookPart.GetPartById(sheet.Id!)).Worksheet;
+        var rows = worksheet.Descendants<S.Row>().ToDictionary(row => (int)row.RowIndex!.Value);
+
+        // Excel draws the + from the summary row's flag, and sizes the outline gutter from outlineLevelRow.
+        Assert.True(rows[orderRow].Collapsed?.Value);
+        Assert.Null(rows[orderRow + 1].Collapsed);
+        Assert.Equal(1, (int?)worksheet.GetFirstChild<S.SheetFormatProperties>()!.OutlineLevelRow?.Value);
+        Assert.Null(worksheet.GetFirstChild<S.SheetFormatProperties>()!.OutlineLevelColumn);
+    }
+
+    [Fact]
+    public void An_invoiced_order_carries_its_invoice_number_on_both_sheets()
+    {
+        var invoiced = Order(1, "SPA070", "Spar Bridge Yellowcob Ent P/L t/a ZiG", "ZWG", ("MILK1L", 12, 120m));
+        var waiting = Order(2, "SPA050 USD", "Spar Bridge Yellowcob Ent P/L t/a", "USD", ("MILK1L", 1, 10m));
+
+        using var workbook = new XLWorkbook(new MemoryStream(
+            Export([invoiced, waiting], order => order.Id == 1 ? 412345 : null, "BORROWDALE")));
+
+        var checklist = workbook.Worksheet("Checklist");
+        Assert.Equal("Invoice #", RowWhere(checklist, 1, "Shop").Cell(6).GetString());
+        Assert.Equal(412345, RowWhere(checklist, 4, "SO-1").Cell(6).GetValue<int>());
+        Assert.True(RowWhere(checklist, 4, "SO-2").Cell(6).IsEmpty());
+
+        var lines = workbook.Worksheet("Order Lines");
+        Assert.Equal("Invoice #", RowWhere(lines, 1, "Route").Cell(8).GetString());
+        Assert.Equal(412345, RowWhere(lines, 4, "SO-1").Cell(8).GetValue<int>());
+        Assert.True(RowWhere(lines, 4, "SO-2").Cell(8).IsEmpty());
+    }
+
+    [Fact]
+    public void An_order_converted_here_shows_its_own_invoice_without_the_page_asking_sap()
+    {
+        var converted = Order(1, "SPA070", "Spar Bridge Yellowcob Ent P/L t/a ZiG", "ZWG", ("MILK1L", 12, 120m));
+        converted.InvoiceSapDocNum = 400001;
+
+        using var workbook = new XLWorkbook(new MemoryStream(Export([converted], "BORROWDALE")));
+
+        Assert.Equal(400001, RowWhere(workbook.Worksheet("Checklist"), 4, "SO-1").Cell(6).GetValue<int>());
     }
 
     [Fact]

@@ -2,6 +2,8 @@
 @inject ISalesOrderService SalesOrderService
 @inject IDeliveryRouteDirectory RouteDirectory
 @inject IReportExportService ExportService
+@inject IPodService PodService
+@inject SalesOrderPodStatusCache PodStatusCache
 @inject IJSRuntime JS
 @inject ILogger<RetailRouteChecklist> Logger
 
@@ -269,6 +271,12 @@
     /// <summary>How the page names an order's status, so the checklist reads the same as the list.</summary>
     [Parameter, EditorRequired] public Func<SalesOrderDto, string> StatusName { get; set; } = order => order.Status.ToString();
 
+    /// <summary>
+    /// The SAP invoice the page already knows an order became. The export asks SAP about the rest,
+    /// since the page only checks the orders on its own list.
+    /// </summary>
+    [Parameter] public Func<SalesOrderDto, int?>? InvoiceDocNum { get; set; }
+
     /// <summary>The page's status tone class for the pill.</summary>
     [Parameter, EditorRequired] public Func<SalesOrderDto, string> StatusTone { get; set; } = _ => string.Empty;
 
@@ -393,7 +401,9 @@
         {
             var routes = ExportRoutes();
             var offRoute = OffRouteForExport();
-            await FillMissingLinesAsync(routes.SelectMany(route => route.Shops).SelectMany(shop => shop.Orders).Concat(offRoute));
+            var exported = routes.SelectMany(route => route.Shops).SelectMany(shop => shop.Orders).Concat(offRoute).ToList();
+            await FillMissingLinesAsync(exported);
+            var (sapAnswers, invoiceCheckComplete) = await AskSapForInvoicesAsync(exported);
 
             var date = (day ?? DateTime.Today).Date;
             var routesLabel = dayFilter switch
@@ -405,7 +415,10 @@
 
             var bytes = ExportService.ExportRouteChecklistToExcel(new RouteChecklistExport(
                 date, matchOnDelivery, routesLabel, query?.Trim(), routes, offRoute,
-                checklist.SkippedOrderCount, StatusName));
+                checklist.SkippedOrderCount,
+                order => ExportStatusName(order, sapAnswers),
+                order => InvoiceDocNum?.Invoke(order) ?? InvoiceFromSap(order, sapAnswers),
+                InvoiceCheckIncomplete: !invoiceCheckComplete));
 
             await JS.InvokeVoidAsync(
                 "downloadFile",
@@ -436,6 +449,103 @@
                     || order.CardCode.Contains(term, StringComparison.OrdinalIgnoreCase)
                     || (order.CardName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false))
                 .ToList();
+    }
+
+    /// <summary>
+    /// Asks SAP which invoice each approved order became, for the orders the page has no answer for.
+    /// SAP closes an order when it is copied to an invoice but nothing writes that back here, and the
+    /// page only checks the orders on its own list. Answers already had come from the shared cache,
+    /// so this is one call per hundred orders at most.
+    /// </summary>
+    /// <returns>SAP's answer per order id, and whether SAP answered for every order asked about.</returns>
+    private async Task<(Dictionary<int, BulkPodValidationResult> Answers, bool Complete)> AskSapForInvoicesAsync(
+        IEnumerable<SalesOrderDto> orders)
+    {
+        var answers = new Dictionary<int, BulkPodValidationResult>();
+        var ordersBySapDocNum = orders
+            .Where(order => order.SAPDocNum is > 0
+                && order.Status is SalesOrderStatus.Approved or SalesOrderStatus.PartiallyFulfilled or SalesOrderStatus.Fulfilled
+                && InvoiceDocNum?.Invoke(order) is null
+                && order.InvoiceSapDocNum is not > 0)
+            .DistinctBy(order => order.Id)
+            .GroupBy(order => order.SAPDocNum!.Value)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        var toAsk = new List<int>();
+        foreach (var (sapDocNum, matching) in ordersBySapDocNum)
+        {
+            if (!PodStatusCache.TryGet(sapDocNum, out var known))
+            {
+                toAsk.Add(sapDocNum);
+                continue;
+            }
+
+            foreach (var order in matching)
+                answers[order.Id] = known;
+        }
+
+        if (toAsk.Count == 0)
+            return (answers, true);
+
+        try
+        {
+            var complete = await SalesOrderPodStatusSweep.RunAsync(
+                toAsk,
+                (batch, ct) => PodService.ValidateBulkSalesOrderPodsAsync(batch, ct),
+                results =>
+                {
+                    foreach (var result in results)
+                    {
+                        if (!result.SalesOrderDocNum.HasValue
+                            || !ordersBySapDocNum.TryGetValue(result.SalesOrderDocNum.Value, out var matching))
+                            continue;
+
+                        PodStatusCache.Remember(result, matching[0].OrderDate);
+                        foreach (var order in matching)
+                            answers[order.Id] = result;
+                    }
+
+                    return Task.FromResult(true);
+                },
+                CancellationToken.None);
+            return (answers, complete);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not ask SAP which invoices the route checklist's orders became");
+            return (answers, false);
+        }
+    }
+
+    /// <summary>The invoice SAP names for an order, read the way Mobile Orders reads it.</summary>
+    private static int? InvoiceFromSap(SalesOrderDto order, IReadOnlyDictionary<int, BulkPodValidationResult> answers)
+    {
+        if (answers.TryGetValue(order.Id, out var answer))
+        {
+            if (answer.ResolvedInvoiceDocNum is > 0)
+                return answer.ResolvedInvoiceDocNum;
+
+            if (answer.DocNum > 0)
+                return answer.DocNum;
+        }
+
+        return order.InvoiceSapDocNum is > 0 ? order.InvoiceSapDocNum : null;
+    }
+
+    /// <summary>
+    /// The page's status name, moved on to Invoiced or Delivered where SAP's answer says so and the
+    /// page itself had not heard yet.
+    /// </summary>
+    private string ExportStatusName(SalesOrderDto order, IReadOnlyDictionary<int, BulkPodValidationResult> answers)
+    {
+        var name = StatusName(order);
+        if (name != order.Status.ToString() || !answers.TryGetValue(order.Id, out var answer))
+            return name;
+
+        if (answer.Found && answer.ExistingPodCount > 0)
+            return "Delivered";
+
+        return InvoiceFromSap(order, answers) is not null ? "Invoiced" : name;
     }
 
     /// <summary>
