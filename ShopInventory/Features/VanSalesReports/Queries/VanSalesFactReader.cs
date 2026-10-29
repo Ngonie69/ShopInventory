@@ -43,14 +43,7 @@ public static class VanSalesFactReader
         VanSalesFactFilter filter,
         CancellationToken cancellationToken)
     {
-        var (windowStartUtc, windowEndUtc) = VanSalesFacts.ToUtcWindow(filter.From, filter.To);
-
-        var offline = await db.DesktopSales
-            .AsNoTracking()
-            .Where(sale => sale.SourceSystem == SaleSourceSystems.VanSales
-                           && sale.DocDate >= filter.From
-                           && sale.DocDate <= filter.To
-                           && sale.CreatedBy != null)
+        var offline = await OfflineScope(db, filter)
             .Select(sale => new
             {
                 sale.CreatedBy,
@@ -74,12 +67,7 @@ public static class VanSalesFactReader
 
         // A sale is a reservation SAP confirmed, or one signed and waiting in the invoice queue for SAP to
         // come back (VanSaleReservations). Any other pending, cancelled or expired one is not a sale.
-        var online = await VanSaleReservations.Sold(db)
-            .AsNoTracking()
-            .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
-                                  && reservation.CreatedAt >= windowStartUtc
-                                  && reservation.CreatedAt < windowEndUtc
-                                  && reservation.CreatedBy != null)
+        var online = await OnlineScope(db, filter)
             .Select(reservation => new
             {
                 reservation.CreatedBy,
@@ -200,14 +188,7 @@ public static class VanSalesFactReader
         VanSalesFactFilter filter,
         CancellationToken cancellationToken)
     {
-        var (windowStartUtc, windowEndUtc) = VanSalesFacts.ToUtcWindow(filter.From, filter.To);
-
-        var offline = await db.DesktopSales
-            .AsNoTracking()
-            .Where(sale => sale.SourceSystem == SaleSourceSystems.VanSales
-                           && sale.DocDate >= filter.From
-                           && sale.DocDate <= filter.To
-                           && sale.CreatedBy != null)
+        var offline = await OfflineScope(db, filter)
             .Select(sale => new
             {
                 sale.CreatedBy,
@@ -237,12 +218,7 @@ public static class VanSalesFactReader
             })
             .ToListAsync(cancellationToken);
 
-        var online = await VanSaleReservations.Sold(db)
-            .AsNoTracking()
-            .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
-                                  && reservation.CreatedAt >= windowStartUtc
-                                  && reservation.CreatedAt < windowEndUtc
-                                  && reservation.CreatedBy != null)
+        var online = await OnlineScope(db, filter)
             .Select(reservation => new
             {
                 reservation.CreatedBy,
@@ -572,6 +548,46 @@ public static class VanSalesFactReader
     /// comparison against a formatted Guid would match nothing at all if any writer ever used a
     /// different format, and would do so without erroring.
     /// </summary>
+    /// <summary>
+    /// The offline sales a filter names: its period, or its references when it carries them.
+    /// </summary>
+    private static IQueryable<DesktopSaleEntity> OfflineScope(ApplicationDbContext db, VanSalesFactFilter filter)
+    {
+        var scope = db.DesktopSales
+            .AsNoTracking()
+            .Where(sale => sale.SourceSystem == SaleSourceSystems.VanSales && sale.CreatedBy != null);
+
+        if (filter.References is { } references)
+        {
+            var wanted = references.Distinct().ToList();
+            return scope.Where(sale => wanted.Contains(sale.ExternalReferenceId));
+        }
+
+        return scope.Where(sale => sale.DocDate >= filter.From && sale.DocDate <= filter.To);
+    }
+
+    /// <summary>
+    /// The online sales a filter names. A period is a window of UTC instants, so evening sales land on
+    /// their own CAT day; references ignore the clock altogether.
+    /// </summary>
+    private static IQueryable<StockReservationEntity> OnlineScope(ApplicationDbContext db, VanSalesFactFilter filter)
+    {
+        var scope = VanSaleReservations.Sold(db)
+            .AsNoTracking()
+            .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
+                                  && reservation.CreatedBy != null);
+
+        if (filter.References is { } references)
+        {
+            var wanted = references.Distinct().ToList();
+            return scope.Where(reservation => wanted.Contains(reservation.ExternalReferenceId));
+        }
+
+        var (windowStartUtc, windowEndUtc) = VanSalesFacts.ToUtcWindow(filter.From, filter.To);
+        return scope.Where(reservation => reservation.CreatedAt >= windowStartUtc
+                                          && reservation.CreatedAt < windowEndUtc);
+    }
+
     private static bool TryAttribute(string? createdBy, VanSalesFactFilter filter, out Guid userId)
     {
         if (!VanSalesFacts.TryResolveRep(createdBy, out userId))

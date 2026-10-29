@@ -12,12 +12,15 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetAdrPerformanceReport
 /// every van, because "what share did this ADR bring in" has no meaning against a total of one.
 /// With <c>UserId</c> the result also carries that ADR's <see cref="AdrPerformanceDetailResult"/>,
 /// whose items are ranked and cut at <c>TopItems</c> (zero or less keeps them all).
+/// <c>ComparePrevious</c> measures the period before as well, for the deltas on the page; see
+/// <see cref="AdrConversion.PreviousPeriod"/> for which period that is.
 /// </remarks>
 public sealed record GetAdrPerformanceReportQuery(
     DateTime FromDate,
     DateTime ToDate,
     Guid? UserId = null,
-    int TopItems = 25
+    int TopItems = 25,
+    bool ComparePrevious = true
 ) : IRequest<ErrorOr<AdrPerformanceReportResult>>;
 
 /// <summary>
@@ -40,6 +43,12 @@ public sealed record AdrPerformanceReportResult(
 {
     /// <summary>Whether SAP's booked gross profit could be read for the sales figures, and what it means.</summary>
     public ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; init; }
+
+    /// <summary>
+    /// The ADRs' orders followed to the van sales they became. The measure the report leads on: an ADR
+    /// is worth what their orders turn into, not what they write down.
+    /// </summary>
+    public AdrConversionReportResult? Conversion { get; init; }
 }
 
 /// <summary>

@@ -211,6 +211,17 @@ public sealed record VanSalesFactFilter(DateTime FromDate, DateTime ToDate, Guid
     public DateTime From => FromDate.Date;
 
     public DateTime To => ToDate.Date;
+
+    /// <summary>
+    /// When set, the sales filed under these references whenever they were made, in place of the
+    /// period. How a report follows an order to the sale it became: an order taken on the last day
+    /// of a period is often invoiced on the first day of the next.
+    /// </summary>
+    public IReadOnlyCollection<string>? References { get; init; }
+
+    /// <summary>The sales filed under <paramref name="references"/>, whatever day they were made.</summary>
+    public static VanSalesFactFilter ForReferences(IReadOnlyCollection<string> references) =>
+        new(DateTime.MinValue, DateTime.MaxValue) { References = references };
 }
 
 /// <summary>
