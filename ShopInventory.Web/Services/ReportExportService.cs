@@ -52,6 +52,7 @@ public interface IReportExportService
     /// <summary>The Van Activity calls on screen, round by round, as the page shows them.</summary>
     byte[] ExportVanActivityToExcel(IReadOnlyList<VanActivityExportRow> rows, DateTime? fromDate, DateTime? toDate);
     byte[] ExportAdrPerformanceToExcel(AdrPerformanceReportResponse report);
+    byte[] ExportOrderConversionToExcel(OrderConversionReportResponse report);
 
     byte[] ExportVanSalesCoverageToExcel(VanSalesCoverageReportResponse report);
 

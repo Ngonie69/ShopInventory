@@ -6071,3 +6071,322 @@
         font-size: 2rem;
     }
 }
+
+/* ── Order conversion (`vsoc-`) ─────────────────────────────────────────────────
+   OrderConversion.razor: the sales reps' and ADRs' orders followed to the van
+   sales they became. It wears the ADR page's `vsadr-` cards, funnel, meters,
+   gap bar and day chart and the performance page's `vsp-` KPI band; this block
+   is only what it adds — the raiser cards, the role marks, the sales-mix bar,
+   the attention list and the projection.
+
+   One colour role per raiser, held on every card, chip, chart and row: sales
+   reps are the info family, ADRs the flag family. Orders from anyone else are
+   neutral, and a sale with no order behind it is the quiet field fill. Tokens
+   only, so both schemes follow the root. */
+
+.vs .vsoc-role {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.vs .vsoc-role.vsoc-role-sales {
+    background: rgba(var(--vs-info-rgb), .14);
+    color: var(--vs-info);
+}
+
+.vs .vsoc-role.vsoc-role-adr {
+    background: rgba(var(--vs-flag-rgb), .16);
+    color: var(--vs-flag);
+}
+
+.vs .vsoc-fill-sales { background: var(--vs-info); }
+.vs .vsoc-fill-adr { background: var(--vs-flag); }
+.vs .vsoc-fill-other { background: var(--vs-neutral); }
+.vs .vsoc-fill-direct { background: var(--vs-mute-3); }
+
+/* A table row marked with its raiser's colour down the leading edge. */
+.vs tr.vsoc-row.vsoc-role-sales > td:first-child { box-shadow: inset 3px 0 0 var(--vs-info); }
+.vs tr.vsoc-row.vsoc-role-adr > td:first-child { box-shadow: inset 3px 0 0 var(--vs-flag); }
+
+/* — The products line under the funnel — */
+
+.vs .vsoc-products-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 0.75rem;
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--vs-rule);
+    font-size: 0.86rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsoc-products-line strong {
+    color: var(--vs-ink);
+}
+
+.vs .vsoc-products-figure {
+    font-size: 1.3rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--vs-ink);
+}
+
+/* — Who raised the orders: two cards that also filter the page — */
+
+.vs .vsoc-raisers {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    margin: 0 0 1rem;
+}
+
+.vs .vsoc-raiser {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem 1.15rem;
+    border: 1px solid var(--vs-rule);
+    border-radius: var(--vs-r-lg);
+    background: var(--vs-surface);
+    color: var(--vs-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.vs .vsoc-raiser.vsoc-role-sales { box-shadow: inset 4px 0 0 var(--vs-info); }
+.vs .vsoc-raiser.vsoc-role-adr { box-shadow: inset 4px 0 0 var(--vs-flag); }
+
+.vs .vsoc-raiser:hover {
+    border-color: var(--vs-field-edge-hi);
+}
+
+.vs .vsoc-raiser:focus-visible {
+    outline: 2px solid var(--vs-accent);
+    outline-offset: 2px;
+}
+
+.vs .vsoc-raiser.vsoc-raiser-on.vsoc-role-sales { border-color: var(--vs-info); }
+.vs .vsoc-raiser.vsoc-raiser-on.vsoc-role-adr { border-color: var(--vs-flag); }
+
+.vs .vsoc-raiser-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.vs .vsoc-raiser-head .vsoc-role {
+    font-size: 0.8rem;
+    padding: 2px 10px;
+}
+
+.vs .vsoc-raiser-rate {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+}
+
+.vs .vsoc-raiser-value {
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsoc-raiser.vsoc-role-sales .vsoc-raiser-value { color: var(--vs-info); }
+.vs .vsoc-raiser.vsoc-role-adr .vsoc-raiser-value { color: var(--vs-flag); }
+
+.vs .vsoc-raiser-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.6rem 1rem;
+    font-size: 0.86rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsoc-raiser-grid > span {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+/* — Areas to look at — */
+
+.vs .vsoc-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.vs .vsoc-attention {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.vs .vsoc-attention li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--vs-rule);
+}
+
+.vs .vsoc-attention li:last-child {
+    border-bottom: 0;
+}
+
+.vs .vsoc-attention-mark {
+    flex: none;
+    width: 4px;
+    align-self: stretch;
+    border-radius: 2px;
+    background: var(--vs-neutral);
+}
+
+.vs .vsoc-attention-high .vsoc-attention-mark { background: var(--vs-bad); }
+.vs .vsoc-attention-medium .vsoc-attention-mark { background: var(--vs-warn); }
+
+.vs .vsoc-attention-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.vs .vsoc-attention-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+}
+
+.vs .vsoc-attention-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--vs-ink);
+}
+
+.vs .vsoc-attention-value {
+    margin-left: auto;
+    font-size: 0.86rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--vs-ink);
+    white-space: nowrap;
+}
+
+.vs .vsoc-attention-go {
+    flex: none;
+}
+
+.vs .vsoc-clear {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 0;
+    color: var(--vs-good);
+    font-size: 0.9rem;
+}
+
+/* — The projection — */
+
+.vs .vsoc-projection {
+    margin: 0.85rem 0 0;
+}
+
+.vs .vsoc-projection > div {
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--vs-rule);
+}
+
+.vs .vsoc-projection dt {
+    font-size: 0.74rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsoc-projection dd {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.6rem;
+    margin: 0.2rem 0 0;
+}
+
+.vs .vsoc-proj-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--vs-ink);
+}
+
+.vs .vsoc-subhead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin: 1rem 0 0.4rem;
+    font-size: 0.86rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+}
+
+/* The narrow card has no room for the league's 130px meter: the week table
+   fits its card and lets the bar take what the figures leave. */
+.vs .vsoc-weeks {
+    width: 100%;
+    table-layout: auto;
+}
+
+.vs .vs-table.vsoc-weeks thead th,
+.vs .vs-table.vsoc-weeks tbody td {
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
+}
+
+.vs .vsoc-weeks .vsadr-meter {
+    min-width: 0;
+}
+
+/* — The day chart's converted bar, split by raiser — */
+
+.vs .vsoc-col {
+    flex-direction: column;
+    justify-content: flex-end;
+}
+
+.vs .vsoc-col-part {
+    width: 100%;
+    flex: none;
+}
+
+.vs .vsoc-col-part:first-child {
+    border-radius: 3px 3px 0 0;
+}
+
+@media (max-width: 560px) {
+    .vs .vsoc-raiser-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .vs .vsoc-attention li {
+        flex-wrap: wrap;
+    }
+}

@@ -21,6 +21,7 @@ using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetAdrPerformanceReport;
+using ShopInventory.Features.VanSalesReports.Queries.GetOrderConversionReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesAnalysis;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
 using ShopInventory.Models;
@@ -121,6 +122,44 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 userId,
                 routeCode,
                 topItems),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// How much of what the van sales reps and the ADRs ordered became actual van sales, by value and by
+    /// product, split by who raised each order, with a projection and the areas to look at.
+    /// </summary>
+    /// <param name="fromDate">First CAT trading day an order was captured on, inclusive. Defaults to 30 days ago.</param>
+    /// <param name="toDate">Last CAT trading day, inclusive. Defaults to today.</param>
+    /// <param name="role">"Sales" or "ADR" narrows the orders to that raiser; omitted, both.</param>
+    /// <param name="userId">Narrows the orders to one rep or ADR.</param>
+    /// <param name="compare">Also measure the period before, for the deltas. On by default.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("order-conversion-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(OrderConversionReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetOrderConversionReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? role = null,
+        [FromQuery] Guid? userId = null,
+        [FromQuery] bool compare = true,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetOrderConversionReportQuery(
+                fromDate?.Date ?? today.AddDays(-30),
+                toDate?.Date ?? today,
+                role,
+                userId,
+                compare),
             cancellationToken);
 
         return result.Match(

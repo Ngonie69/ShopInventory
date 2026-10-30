@@ -1,0 +1,1257 @@
+@page "/van-sales/reports/order-conversion"
+@* Admin and Manager only, like the other van performance reports. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using ShopInventory.Web.Models
+@inject IVanSalesReportService VanSalesReportService
+@inject IReportExportService ExportService
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>Order Conversion - Shop Inventory</PageTitle>
+
+@* How much of what the van sales reps and the ADRs ordered became actual van sales.
+
+   Every order is followed through the invoice queue to the van sale it became — the same following
+   the ADR report does (the API's AdrConversion), so an ADR's figures agree on both pages. The page
+   splits everything by who raised the order: sales reps in the info family, ADRs in the flag family,
+   held across every card, chart and table.
+
+   Carried by wwwroot/css/van-sales.css: the shared `vs-`, the performance page's `vsp-` KPI band,
+   the ADR page's `vsadr-` cards, funnel, meters and chart, and `vsoc-` for what only this page draws. *@
+
+<div class="vs vsadr vsoc">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Order conversion</h2>
+            <p class="vs-subtitle">
+                How much of what the sales reps and the ADRs ordered became actual sales on the van — by value
+                and by product, order by order — where it is heading, and what to look at.
+            </p>
+        </div>
+        <div class="vs-actions">
+            <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || report is null)">
+                Export to Excel
+            </button>
+        </div>
+    </div>
+
+    <VanReportPeriodBar IdPrefix="vsoc" @bind-From="fromDate" @bind-To="toDate" RecentDays="RecentDays"
+                        OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="readAtUtc"
+                        ShownFrom="report?.FromDate" ShownTo="report?.ToDate">
+        <NocturneSelect Id="vsoc-role" Class="nsel-block" TValue="string"
+                        Options="RoleOptions" @bind-Value="selectedRole"
+                        OnChanged="RoleChangedAsync" AriaLabel="Filter by who raised the order"
+                        Placeholder="Sales reps and ADRs" />
+        <NocturneSelect Id="vsoc-rep" Class="nsel-block" TValue="string"
+                        Options="RepOptions" @bind-Value="selectedRepId"
+                        OnChanged="LoadAsync" AriaLabel="Filter by rep"
+                        Placeholder="Every rep" />
+    </VanReportPeriodBar>
+
+    @if (loadError is not null)
+    {
+        <div class="vs-notice">@loadError</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Following the orders to their sales…</span>
+        </div>
+    }
+    else if (report is null && loadError is not null)
+    {
+        @* The error above says why the page is empty. *@
+    }
+    else if (report is null)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">Nothing loaded yet</div>
+            <div>Choose a period and run the report.</div>
+        </div>
+    }
+    else if (report.Overall.Counts.Ordered == 0)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">No van orders in this period</div>
+            <div>No sales rep or ADR raised a sales order on the van app between these days@(ScopeSuffix).</div>
+        </div>
+    }
+    else
+    {
+        var lead = report.LeadCurrency;
+        var focus = report.Overall;
+        var money = focus.In(lead);
+        var previousMoney = report.Previous?.Overall.In(lead);
+        var products = report.Products;
+        var mix = report.SalesMix.FirstOrDefault(part => Same(part.Currency, lead)) ?? report.SalesMix.FirstOrDefault();
+        var projection = report.Projections.FirstOrDefault(part => Same(part.Currency, lead));
+
+        @* ── The headline: ordered to actual sales ─────────────────────────── *@
+        <section class="vsadr-card vsadr-funnel" aria-labelledby="vsoc-funnel-h">
+            <div class="vsadr-card-head">
+                <div>
+                    <h3 id="vsoc-funnel-h" class="vsadr-card-title">From sales order to actual sale</h3>
+                    <p class="vsp-note">
+                        Every order @ScopeText captured in the period, followed to the van invoice it became@(lead is null ? "." : $", in {lead}.")
+                        @OtherCurrencies(focus.Money, lead)
+                    </p>
+                </div>
+                <div class="vsadr-headline">
+                    <span class="vsadr-headline-value @Tone(money?.Conversion)">@Rate(money?.Conversion, 1)</span>
+                    <span class="vsadr-headline-text">
+                        <span><strong>@Money(lead, money?.Invoiced)</strong> of @Money(lead, money?.Ordered) ordered became actual sales</span>
+                        @Delta(Points(money?.Conversion, previousMoney?.Conversion), "pts")
+                    </span>
+                </div>
+            </div>
+
+            <div class="vsadr-stages">
+                @foreach (var stage in Stages(focus, money))
+                {
+                    <div class="vsadr-stage">
+                        <div class="vsp-kpi-label">@stage.Label</div>
+                        <div class="vsadr-stage-figure">
+                            <span class="vsadr-stage-value vsadr-ink-@stage.Tone">@Money(lead, stage.Value)</span>
+                            <span class="vsp-sub">@stage.Orders</span>
+                        </div>
+                        <div class="vsadr-bar"><span class="vsadr-bar-fill vsadr-fill-@stage.Tone" style="width:@Width(stage.Share)"></span></div>
+                        <div class="vsp-sub">@stage.Note</div>
+                    </div>
+                }
+            </div>
+
+            <div class="vsoc-products-line">
+                <span class="vsoc-products-figure">@Rate(products.UnitConversion, 1)</span>
+                <span>
+                    of ordered units delivered — <strong>@products.UnitsSupplied.ToString("N0")</strong> of
+                    @products.UnitsOrdered.ToString("N0") units across @Count(products.ProductsOrdered, "product").
+                    @products.ProductsSupplied.ToString("N0") products reached shops,
+                    @products.ProductsShort.ToString("N0") arrived short, and
+                    @products.UnitsNotInvoiced.ToString("N0") units are on orders not invoiced.
+                </span>
+            </div>
+        </section>
+
+        @* ── Who raised the orders ─────────────────────────────────────────── *@
+        <div class="vsoc-raisers" role="group" aria-label="Orders by who raised them">
+            @foreach (var raiser in report.Raisers)
+            {
+                var raiserMoney = raiser.Summary.In(lead);
+                var before = report.Previous?.Raisers.FirstOrDefault(part => part.Role == raiser.Role)?.Summary.In(lead);
+                var share = money is { Ordered: > 0 } && raiserMoney is not null && selectedRole is null && selectedRepId is null
+                    ? (double)(raiserMoney.Ordered / AllOrdered(report, lead))
+                    : (double?)null;
+                var chosen = selectedRole == raiser.Role;
+                <button type="button"
+                        class="vsoc-raiser @RoleClass(raiser.Role) @(chosen ? "vsoc-raiser-on" : null)"
+                        aria-pressed="@(chosen ? "true" : "false")"
+                        @onclick="() => ToggleRoleAsync(raiser.Role)">
+                    <span class="vsoc-raiser-head">
+                        <span class="vsoc-role @RoleClass(raiser.Role)">@raiser.Label</span>
+                        <span class="vsp-sub">@raiser.ActivePeople.ToString("N0") of @raiser.People.ToString("N0") raised orders</span>
+                    </span>
+                    <span class="vsoc-raiser-rate">
+                        <span class="vsoc-raiser-value">@Rate(raiserMoney?.Conversion, 1)</span>
+                        <span class="vsp-sub">converted @Delta(Points(raiserMoney?.Conversion, before?.Conversion), "pts")</span>
+                    </span>
+                    <span class="vsoc-raiser-grid">
+                        <span><span class="vsp-kpi-label">Orders</span>@raiser.Summary.Counts.Ordered.ToString("N0")</span>
+                        <span><span class="vsp-kpi-label">Ordered</span>@Money(lead, raiserMoney?.Ordered)</span>
+                        <span><span class="vsp-kpi-label">Actual sales</span><strong>@Money(lead, raiserMoney?.Invoiced)</strong></span>
+                        <span><span class="vsp-kpi-label">Not converted</span>@Money(lead, raiserMoney?.Gap)</span>
+                        <span><span class="vsp-kpi-label">Fill rate</span>@Rate(raiserMoney?.FillRate)</span>
+                        <span><span class="vsp-kpi-label">Order to invoice</span>@Days(raiser.Summary.MedianDaysToInvoice)</span>
+                    </span>
+                    @if (share is not null)
+                    {
+                        <span class="vsp-sub">@Rate(share) of all ordered value</span>
+                    }
+                </button>
+            }
+        </div>
+
+        @* ── The figures, each against the period before ──────────────────── *@
+        <div class="vsp-kpis">
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-label">Actual sales from orders</div>
+                <div class="vsp-kpi-value">@Money(lead, money?.Invoiced)</div>
+                <div class="vsp-kpi-sub">@focus.Counts.Invoiced.ToString("N0") of @focus.Counts.Ordered.ToString("N0") orders invoiced</div>
+                @Delta(Change(money?.Invoiced, previousMoney?.Invoiced), "%")
+            </div>
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-label">Value conversion</div>
+                <div class="vsp-kpi-value">@Rate(money?.Conversion, 1)</div>
+                <div class="vsp-kpi-sub">of @Money(lead, money?.Ordered) ordered</div>
+                @Delta(Points(money?.Conversion, previousMoney?.Conversion), "pts")
+            </div>
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-label">Product conversion</div>
+                <div class="vsp-kpi-value">@Rate(products.UnitConversion, 1)</div>
+                <div class="vsp-kpi-sub">@products.UnitsSupplied.ToString("N0") of @products.UnitsOrdered.ToString("N0") units delivered</div>
+            </div>
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-label">Fill rate</div>
+                <div class="vsp-kpi-value">@Rate(money?.FillRate, 1)</div>
+                <div class="vsp-kpi-sub">of invoiced orders' value delivered · @focus.Counts.InvoicedInFull.ToString("N0") in full</div>
+                @Delta(Points(money?.FillRate, previousMoney?.FillRate), "pts")
+            </div>
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-label">Order to invoice</div>
+                <div class="vsp-kpi-value">@Days(focus.MedianDaysToInvoice)</div>
+                <div class="vsp-kpi-sub">median · @Rate(focus.InvoicedByNextDay) by the next day</div>
+                @Delta(DaysFaster(focus.MedianDaysToInvoice, report.Previous?.Overall.MedianDaysToInvoice), "days")
+            </div>
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-label">Van sales from orders</div>
+                <div class="vsp-kpi-value">@Rate(mix?.FromOrdersShare, 1)</div>
+                <div class="vsp-kpi-sub">of @Money(mix?.Currency, mix?.VanSales) every van sold in the period</div>
+            </div>
+        </div>
+
+        @if (report.Previous is { } previous)
+        {
+            <p class="vsp-note vsadr-compare-note">
+                Arrows compare with @VanReportPeriod.Describe(previous.FromDate, previous.ToDate).
+            </p>
+        }
+
+        @* ── What to look at, and where it is heading ─────────────────────── *@
+        <div class="vsadr-pair">
+            <section class="vsadr-card vsadr-wide" aria-labelledby="vsoc-attention-h">
+                <div class="vsadr-card-head">
+                    <div>
+                        <h3 id="vsoc-attention-h" class="vsadr-card-title">Areas to look at</h3>
+                        <p class="vsp-note">Most pressing first. Choose one to open the orders, reps, products or shops behind it.</p>
+                    </div>
+                    <div class="vsoc-counts">
+                        @foreach (var level in new[] { "high", "medium", "low" })
+                        {
+                            var count = report.Attention.Count(item => item.Severity == level);
+                            if (count > 0)
+                            {
+                                <span class="vs-chip @SeverityChip(level)">@count @level</span>
+                            }
+                        }
+                    </div>
+                </div>
+                @if (report.Attention.Count == 0)
+                {
+                    <div class="vsoc-clear">
+                        <i class="ph ph-check-circle" aria-hidden="true"></i>
+                        Nothing stands out: orders are reaching SAP, being invoiced, and delivered in full.
+                    </div>
+                }
+                else
+                {
+                    <ul class="vsoc-attention">
+                        @foreach (var item in report.Attention)
+                        {
+                            <li class="vsoc-attention-@item.Severity">
+                                <span class="vsoc-attention-mark" aria-hidden="true"></span>
+                                <div class="vsoc-attention-body">
+                                    <div class="vsoc-attention-line">
+                                        <span class="vs-chip @SeverityChip(item.Severity)">@item.Area</span>
+                                        <span class="vsoc-attention-title">@item.Title</span>
+                                        @if (item.ValueAtStake is { } value)
+                                        {
+                                            <span class="vsoc-attention-value">@Money(item.Currency, value)</span>
+                                        }
+                                    </div>
+                                    <div class="vsp-sub">@item.Detail</div>
+                                </div>
+                                @if (item.Focus is not null)
+                                {
+                                    <button type="button" class="vs-btn vsoc-attention-go" @onclick="() => OpenFocus(item.Focus)">
+                                        Show
+                                    </button>
+                                }
+                            </li>
+                        }
+                    </ul>
+                }
+            </section>
+
+            <section class="vsadr-card vsadr-narrow" aria-labelledby="vsoc-projection-h">
+                <h3 id="vsoc-projection-h" class="vsadr-card-title">Projection</h3>
+                @if (projection is null)
+                {
+                    <div class="vs-metric-none">Nothing ordered to project from.</div>
+                }
+                else
+                {
+                    <p class="vsp-note">
+                        At this period's pace — @Money(lead, projection.OrderedPerDay) ordered a trading day over
+                        @projection.OrderDays.ToString("N0") days, @Rate(projection.SettledConversion ?? money?.Conversion, 1) converting.
+                    </p>
+                    <dl class="vsoc-projection">
+                        <div>
+                            <dt>This period, once settled</dt>
+                            <dd>
+                                <span class="vsoc-proj-value @Tone(projection.ProjectedPeriodConversion)">@Rate(projection.ProjectedPeriodConversion, 1)</span>
+                                <span class="vsp-sub">
+                                    @Money(lead, projection.ExpectedFromOpenOrders) more expected from
+                                    @Money(lead, projection.OpenOrdersValue) of orders still open
+                                </span>
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>@Capitalise(projection.HorizonLabel) · @projection.HorizonDays.ToString("N0") trading days</dt>
+                            <dd>
+                                <span class="vsoc-proj-value">@Money(lead, projection.ProjectedConverted)</span>
+                                <span class="vsp-sub">
+                                    actual sales from @Money(lead, projection.ProjectedOrdered) ordered;
+                                    @Money(lead, projection.ProjectedLeakage) would not convert
+                                </span>
+                            </dd>
+                        </div>
+                        @if (projection.ProjectedMonthOrdered is { } monthOrdered)
+                        {
+                            <div>
+                                <dt>Month end</dt>
+                                <dd>
+                                    <span class="vsoc-proj-value">@Money(lead, projection.ProjectedMonthConverted)</span>
+                                    <span class="vsp-sub">of @Money(lead, monthOrdered) ordered in the month</span>
+                                </dd>
+                            </div>
+                        }
+                        <div>
+                            <dt>At @Rate(projection.TargetConversion) conversion</dt>
+                            <dd>
+                                @if (projection.UpsideAtTarget > 0)
+                                {
+                                    <span class="vsoc-proj-value vsadr-ink-info">+@Money(lead, projection.UpsideAtTarget)</span>
+                                    <span class="vsp-sub">more actual sales over @projection.HorizonLabel</span>
+                                }
+                                else
+                                {
+                                    <span class="vsoc-proj-value vsadr-ink-info">On target</span>
+                                    <span class="vsp-sub">conversion is already at or above it</span>
+                                }
+                            </dd>
+                        </div>
+                    </dl>
+
+                    <h4 class="vsoc-subhead">
+                        Week by week
+                        @if (projection.WeeklyTrendPoints is { } slope)
+                        {
+                            <span class="vsadr-delta @(slope >= 0 ? "vsadr-delta-up" : "vsadr-delta-down")">
+                                @(slope >= 0 ? "▲" : "▼") @Math.Abs(slope).ToString("N1") pts a week
+                            </span>
+                        }
+                    </h4>
+                    <table class="vs-table vsoc-weeks">
+                        <thead>
+                            <tr><th>Week of</th><th class="vs-num">Orders</th><th class="vs-num">Ordered</th><th>Conversion</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var week in projection.Weeks)
+                            {
+                                <tr>
+                                    <td>@week.WeekStart.ToString("dd MMM", CultureInfo.InvariantCulture)</td>
+                                    <td class="vs-num">@week.Orders.ToString("N0")</td>
+                                    <td class="vs-num">@Amount(week.Ordered)</td>
+                                    <td>@Meter(week.Conversion)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    <p class="vsp-note">
+                        The latest week settles as the vans invoice it. The trend uses settled weeks only.
+                    </p>
+                }
+            </section>
+        </div>
+
+        @* ── Van sales by where they came from, and where the gap went ────── *@
+        <div class="vsadr-pair">
+            <section class="vsadr-card vsadr-wide" aria-labelledby="vsoc-mix-h">
+                <h3 id="vsoc-mix-h" class="vsadr-card-title">What the vans sold, by where it came from</h3>
+                <p class="vsp-note">
+                    Every van sale made in the period@(mix is null ? "" : $" ({mix.Currency})"), split into sales that were
+                    converted from an order — by who raised it — and sales the van made on the spot. Dated by the sale,
+                    so an order from before the period invoiced in it counts here.
+                </p>
+                @if (mix is null || mix.VanSales <= 0)
+                {
+                    <div class="vs-metric-none">The vans made no sales in this period.</div>
+                }
+                else
+                {
+                    var parts = MixParts(mix);
+                    <div class="vsadr-gapbar vsoc-mixbar" role="img" aria-label="@string.Join(", ", parts.Where(part => part.Value > 0).Select(part => $"{part.Label} {(double)(part.Value / mix.VanSales):P0}"))">
+                        @foreach (var part in parts.Where(part => part.Value > 0))
+                        {
+                            <span class="@part.Css" style="width:@Width((double)(part.Value / mix.VanSales))"></span>
+                        }
+                    </div>
+                    <ul class="vsadr-reasons">
+                        @foreach (var part in parts)
+                        {
+                            <li>
+                                <i class="vsadr-key @part.Css" aria-hidden="true"></i>
+                                <div>
+                                    <div class="vsadr-reason-line">
+                                        <span class="vsadr-reason-name">@part.Label</span>
+                                        <span class="vsadr-reason-value">@Money(mix.Currency, part.Value) · @Rate((double)(part.Value / mix.VanSales), 1)</span>
+                                    </div>
+                                    <div class="vsp-sub">@part.Note</div>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                    <p class="vsp-note">
+                        @mix.FromOrdersCount.ToString("N0") of @mix.SaleCount.ToString("N0") van sales came from an order.
+                    </p>
+                }
+            </section>
+
+            <section class="vsadr-card vsadr-narrow" aria-labelledby="vsoc-gap-h">
+                <h3 id="vsoc-gap-h" class="vsadr-card-title">Why @Money(lead, money?.Gap) did not convert</h3>
+                <p class="vsp-note">
+                    The @Rate(money is { Ordered: > 0 } ? (double)(money.Gap / money.Ordered) : null, 1) of ordered
+                    value that did not become a sale, by reason. The reasons add up to the gap.
+                </p>
+                @{
+                    var reasons = AdrConversionReading.GapReasons(focus, money);
+                    var positive = reasons.Where(reason => reason.Value > 0).Sum(reason => reason.Value);
+                }
+                @if (positive > 0)
+                {
+                    <div class="vsadr-gapbar" role="img" aria-label="@string.Join(", ", reasons.Where(reason => reason.Value > 0).Select(reason => $"{reason.Reason} {(double)(reason.Value / positive):P0}"))">
+                        @for (var i = 0; i < reasons.Count; i++)
+                        {
+                            if (reasons[i].Value > 0)
+                            {
+                                <span class="vsadr-gap-@i" style="width:@Width((double)(reasons[i].Value / positive))"></span>
+                            }
+                        }
+                    </div>
+                }
+                <ul class="vsadr-reasons">
+                    @for (var i = 0; i < reasons.Count; i++)
+                    {
+                        var reason = reasons[i];
+                        <li>
+                            <i class="vsadr-key vsadr-gap-@i" aria-hidden="true"></i>
+                            <div>
+                                <div class="vsadr-reason-line">
+                                    <span class="vsadr-reason-name">@reason.Reason</span>
+                                    <span class="vsadr-reason-value">@Money(lead, reason.Value)</span>
+                                </div>
+                                <div class="vsp-sub">@reason.Explanation · @Count(reason.Orders, "order")</div>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            </section>
+        </div>
+
+        @* ── Day by day ────────────────────────────────────────────────────── *@
+        <section class="vsadr-card" aria-labelledby="vsoc-days-h">
+            <div class="vsadr-card-head">
+                <div>
+                    <h3 id="vsoc-days-h" class="vsadr-card-title">Ordered against converted, day by day</h3>
+                    <p class="vsp-note">
+                        The pale bar is what was ordered that day; inside it, what those orders sold — sales reps' and
+                        ADRs' stacked@(lead is null ? "" : $", in {lead}"). The most recent days settle as the vans invoice them.
+                    </p>
+                </div>
+                <div class="vsadr-legend">
+                    <span><i class="vsadr-key vsadr-key-ordered"></i>Ordered</span>
+                    <span><i class="vsadr-key vsoc-fill-sales"></i>Sales reps converted</span>
+                    <span><i class="vsadr-key vsoc-fill-adr"></i>ADRs converted</span>
+                </div>
+            </div>
+            @{
+                var chart = report.Days.Where(day => Same(day.Currency, lead)).ToList();
+                var peak = chart.Count == 0 ? 0m : chart.Max(day => Math.Max(day.Ordered, day.Invoiced));
+            }
+            @if (chart.Count == 0 || peak <= 0)
+            {
+                <div class="vs-metric-none">No priced orders in this period.</div>
+            }
+            else
+            {
+                <div class="vsadr-chart-wrap">
+                    <div class="vsadr-chart" role="img"
+                         aria-label="@($"Ordered against converted over {chart.Count} trading days")"
+                         style="--vsadr-cols:@chart.Count">
+                        @foreach (var day in chart)
+                        {
+                            var height = Math.Max(day.Ordered, day.Invoiced);
+                            <div class="vsadr-col"
+                                 title="@($"{day.TradingDate:ddd dd MMM} — ordered {lead} {day.Ordered:N2}; converted {lead} {day.Invoiced:N2} (sales reps {day.SalesRepInvoiced:N2}, ADRs {day.AdrInvoiced:N2})")">
+                                <div class="vsadr-col-ordered vsoc-col" style="height:@Width((double)(height / peak))">
+                                    <div class="vsoc-col-part vsoc-fill-adr" style="height:@Width(height > 0 ? (double)(day.AdrInvoiced / height) : 0)"></div>
+                                    <div class="vsoc-col-part vsoc-fill-sales" style="height:@Width(height > 0 ? (double)(day.SalesRepInvoiced / height) : 0)"></div>
+                                </div>
+                                <span class="vsadr-col-label @(day.TradingDate.DayOfWeek == DayOfWeek.Saturday ? "vsadr-col-sat" : null)">
+                                    @(day.TradingDate.DayOfWeek == DayOfWeek.Saturday ? "S" : day.TradingDate.Day.ToString(CultureInfo.InvariantCulture))
+                                </span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </section>
+
+        @if (report.Caveats.Count > 0)
+        {
+            <div class="vsp-caveats">
+                <div class="vsp-caveats-head">What this period could not answer</div>
+                <ul class="vsp-caveats-list">
+                    @foreach (var caveat in report.Caveats)
+                    {
+                        <li>@caveat</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        @* ── Reps, products, shops and orders ─────────────────────────────── *@
+        <div class="vsp-sections" id="vsoc-detail">
+            @foreach (var (key, label, count) in new[]
+            {
+                (TabReps, "Reps", report.Reps.Count),
+                (TabProducts, "Products", products.Items.Count),
+                (TabShops, "Shops", report.Shops.Count),
+                (TabOrders, "Order ledger", report.Orders.Count + report.OrdersNotListed)
+            })
+            {
+                <button type="button"
+                        class="vs-chip @(activeTab == key ? "vs-chip-info" : "vs-chip-quiet")"
+                        @onclick="() => ShowTab(key)">
+                    @label
+                    <span class="vsp-section-count">@count.ToString("N0")</span>
+                </button>
+            }
+        </div>
+
+        @if (activeTab == TabReps)
+        {
+            @RepsTable(report, lead)
+        }
+        else if (activeTab == TabProducts)
+        {
+            @ProductsTable(report, lead)
+        }
+        else if (activeTab == TabShops)
+        {
+            @ShopsTable(report, lead)
+        }
+        else
+        {
+            @LedgerTable(report)
+        }
+    }
+</div>
+
+@code {
+    private OrderConversionReportResponse? report;
+
+    /// <summary>
+    /// The reps the last load without a rep filter held, so choosing one rep does not empty the picker.
+    /// </summary>
+    private List<OrderConversionRep> reps = [];
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? selectedRole;
+    private string? selectedRepId;
+
+    private bool isLoading;
+    private string? loadError;
+    private DateTime? readAtUtc;
+
+    private static readonly int[] RecentDays = [30];
+
+    /// <summary>The most rows a table draws; the export carries every one.</summary>
+    private const int RowsShown = 200;
+
+    private const string RoleQueryName = "raisedBy";
+    private const string TabQueryName = "tab";
+    private const string OutcomeQueryName = "outcome";
+
+    [SupplyParameterFromQuery(Name = VanReportLinks.From)] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.To)] private string? ToQuery { get; set; }
+    [SupplyParameterFromQuery(Name = VanReportLinks.Rep)] private string? RepQuery { get; set; }
+    [SupplyParameterFromQuery(Name = RoleQueryName)] private string? RoleQuery { get; set; }
+    [SupplyParameterFromQuery(Name = TabQueryName)] private string? TabQuery { get; set; }
+    [SupplyParameterFromQuery(Name = OutcomeQueryName)] private string? OutcomeQuery { get; set; }
+
+    private readonly LatestLoad loads = new();
+
+    private const string TabReps = "reps";
+    private const string TabProducts = "products";
+    private const string TabShops = "shops";
+    private const string TabOrders = "orders";
+    private string activeTab = TabReps;
+
+    /// <summary>The ledger's outcome filter: null for every order.</summary>
+    private string? outcomeFilter;
+
+    private static readonly (string? Key, string Label)[] OutcomeFilters =
+    [
+        (null, "All"),
+        (AdrOutcome.InvoicedInFull, "Invoiced in full"),
+        (AdrOutcome.ShortSupplied, "Short-supplied"),
+        (AdrOutcome.Repriced, "Repriced"),
+        (AdrOutcome.NoLinkedInvoice, "No linked invoice"),
+        (AdrOutcome.NotYetInSap, "Not yet in SAP"),
+        (AdrOutcome.Cancelled, "Cancelled")
+    ];
+
+    private static IEnumerable<INocturneSelectOption<string>> RoleOptions =>
+    [
+        NocturneSelectOption.All("Sales reps and ADRs"),
+        new NocturneSelectOption<string>(OrderRaiser.SalesReps, "Sales reps"),
+        new NocturneSelectOption<string>(OrderRaiser.Adrs, "ADRs")
+    ];
+
+    private IEnumerable<INocturneSelectOption<string>> RepOptions =>
+        new[] { NocturneSelectOption.All("Every rep") }
+            .Concat(reps
+                .Where(rep => selectedRole is null || rep.Role == selectedRole)
+                .OrderBy(rep => rep.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .Select(rep => new NocturneSelectOption<string>(rep.UserId.ToString("N"), rep.DisplayName)
+                {
+                    Hint = OrderRaiser.Singular(rep.Role)
+                }));
+
+    private string ScopeText =>
+        Guid.TryParse(selectedRepId, out var id) && Person(id) is { } rep ? $"{rep.DisplayName} raised"
+        : selectedRole is not null ? $"the {OrderRaiser.Label(selectedRole).ToLowerInvariant()} raised"
+        : "the sales reps and ADRs raised";
+
+    private string ScopeSuffix =>
+        selectedRole is not null || selectedRepId is not null ? " for the filters chosen" : string.Empty;
+
+    private OrderConversionRep? Person(Guid userId) =>
+        report?.Reps.FirstOrDefault(rep => rep.UserId == userId) ?? reps.FirstOrDefault(rep => rep.UserId == userId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var (defaultFrom, defaultTo) = VanReportPeriod.LastDays(RecentDays[0], VanReportPeriod.TodayCat);
+        fromDate = VanReportPeriod.ParseDay(FromQuery) ?? defaultFrom;
+        toDate = VanReportPeriod.ParseDay(ToQuery) ?? defaultTo;
+        selectedRepId = VanReportLinks.ParseRep(RepQuery) is { } fromLink ? VanReportLinks.RepKey(fromLink) : null;
+        selectedRole = RoleQuery is OrderRaiser.SalesReps or OrderRaiser.Adrs ? RoleQuery : null;
+
+        if (TabQuery is TabReps or TabProducts or TabShops or TabOrders)
+        {
+            activeTab = TabQuery;
+        }
+
+        outcomeFilter = OutcomeFilters.FirstOrDefault(filter => filter.Key == OutcomeQuery).Key;
+
+        await LoadAsync();
+    }
+
+    private async Task RoleChangedAsync()
+    {
+        // A rep of the other kind would leave the page empty with no reason given.
+        if (Guid.TryParse(selectedRepId, out var id) && selectedRole is not null && Person(id)?.Role != selectedRole)
+        {
+            selectedRepId = null;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task ToggleRoleAsync(string role)
+    {
+        selectedRole = selectedRole == role ? null : role;
+        await RoleChangedAsync();
+    }
+
+    private async Task SelectRepAsync(Guid userId)
+    {
+        selectedRepId = userId.ToString("N");
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var token = loads.Begin();
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            Guid? repId = Guid.TryParse(selectedRepId, out var parsed) ? parsed : null;
+
+            var result = await VanSalesReportService.GetOrderConversionReportAsync(
+                fromDate, toDate, selectedRole, repId, token);
+            report = result.Value;
+
+            if (report is null)
+            {
+                loadError = result.Error;
+                return;
+            }
+
+            readAtUtc = DateTime.UtcNow;
+            WriteQuery();
+
+            if (repId is null)
+            {
+                reps = selectedRole is null
+                    ? report.Reps
+                    : [.. reps.Where(rep => rep.Role != selectedRole), .. report.Reps];
+            }
+            else if (report.Reps.Count > 0 && reps.All(rep => rep.UserId != repId))
+            {
+                reps = [.. reps, .. report.Reps];
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // A newer load replaced this one and owns the page now.
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to load the order conversion report: {ex.Message}";
+        }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void ShowTab(string key)
+    {
+        activeTab = key;
+        WriteQuery();
+    }
+
+    private void ShowOutcome(string? outcome)
+    {
+        outcomeFilter = outcome;
+        WriteQuery();
+    }
+
+    /// <summary>Opens the part of the page an attention item points at.</summary>
+    private async Task OpenFocus(string focus)
+    {
+        if (focus.StartsWith("orders", StringComparison.Ordinal))
+        {
+            activeTab = TabOrders;
+            var colon = focus.IndexOf(':');
+            outcomeFilter = colon > 0 ? focus[(colon + 1)..] : null;
+        }
+        else if (focus is TabReps or TabShops)
+        {
+            activeTab = focus;
+        }
+        else if (focus == "items")
+        {
+            activeTab = TabProducts;
+            productsShortOnly = true;
+        }
+
+        WriteQuery();
+        StateHasChanged();
+        await JS.InvokeVoidAsync("shopInventory.scrollIntoView", "vsoc-detail");
+    }
+
+    private bool productsShortOnly;
+
+    private void WriteQuery()
+    {
+        var values = VanReportLinks.Query(
+            report?.FromDate ?? fromDate,
+            report?.ToDate ?? toDate,
+            rep: VanReportLinks.ParseRep(selectedRepId));
+        values[RoleQueryName] = selectedRole;
+        values[TabQueryName] = activeTab == TabReps ? null : activeTab;
+        values[OutcomeQueryName] = activeTab == TabOrders ? outcomeFilter : null;
+        VanReportLinks.WriteQuery(Navigation, values);
+    }
+
+    public void Dispose() => loads.Dispose();
+
+    private async Task ExportAsync()
+    {
+        if (report is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var bytes = ExportService.ExportOrderConversionToExcel(report);
+            var scope = Guid.TryParse(selectedRepId, out var id) && Person(id) is { } rep ? $"_{rep.Username}"
+                : selectedRole is not null ? $"_{selectedRole}"
+                : string.Empty;
+            var fileName = $"OrderConversion_{report.FromDate:yyyyMMdd}-{report.ToDate:yyyyMMdd}{scope}.xlsx";
+
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            loadError = $"The export could not be downloaded: {ex.Message}";
+        }
+    }
+
+    // ── What the page shows ─────────────────────────────────────────────────────
+
+    private sealed record Stage(string Label, decimal? Value, string Orders, double? Share, string Tone, string Note);
+
+    private static IEnumerable<Stage> Stages(AdrConversionSummary summary, AdrConversionMoney? money)
+    {
+        var counts = summary.Counts;
+        var ordered = money?.Ordered ?? 0m;
+        double? Of(decimal? value) => ordered > 0 && value is { } part ? (double)(part / ordered) : null;
+
+        yield return new Stage("Sales orders raised", money?.Ordered, $"{counts.Ordered:N0} orders", ordered > 0 ? 1 : null, "accent",
+            $"{counts.Cancelled:N0} cancelled since");
+        yield return new Stage("Reached SAP", money?.ReachedSap, $"{counts.ReachedSap:N0} orders", Of(money?.ReachedSap), "accent",
+            $"{Rate(Of(money?.ReachedSap), 1)} · {counts.NotYetInSap:N0} still waiting");
+        yield return new Stage("Converted to actual sales", money?.Invoiced, $"{counts.Invoiced:N0} orders", Of(money?.Invoiced), "info",
+            $"{Rate(Of(money?.Invoiced), 1)} of ordered value · {counts.InvoicedInFull:N0} in full");
+        yield return new Stage("Not converted", money?.Gap, Rate(Of(money?.Gap), 1), Of(money?.Gap), "warn",
+            "Split by reason below");
+    }
+
+    private sealed record MixPart(string Label, decimal Value, string Css, string Note);
+
+    private static List<MixPart> MixParts(OrderConversionSalesMix mix) =>
+    [
+        new("From sales reps' orders", mix.FromSalesRepOrders, "vsoc-fill-sales", "Orders a sales rep raised, converted by a van"),
+        new("From ADRs' orders", mix.FromAdrOrders, "vsoc-fill-adr", "Orders an ADR raised, converted by a van"),
+        new("From other orders", mix.FromOtherOrders, "vsoc-fill-other", "The customer ordering app and the office"),
+        new("Sold on the spot", mix.Direct, "vsoc-fill-direct", "A van sale with no order behind it")
+    ];
+
+    /// <summary>Every raiser's ordered value, so a raiser's share is out of the whole order book.</summary>
+    private static decimal AllOrdered(OrderConversionReportResponse report, string? lead)
+    {
+        var total = report.Raisers.Sum(raiser => raiser.Summary.In(lead)?.Ordered ?? 0m);
+        return total > 0 ? total : 1m;
+    }
+
+    private RenderFragment RepsTable(OrderConversionReportResponse report, string? lead) => __builder =>
+    {
+        <p class="vsp-note">
+            Every rep who raised an order in the period, ranked on what their orders actually sold. Choose a name to
+            see that rep on their own.
+        </p>
+        <div class="vs-table-wrap">
+            <table class="vs-table vsadr-league">
+                <thead>
+                    <tr>
+                        <th class="vs-num">#</th>
+                        <th>Rep · route</th>
+                        <th>Raised by</th>
+                        <th class="vs-num">Orders</th>
+                        <th class="vs-num">Ordered</th>
+                        <th class="vs-num">Actual sales</th>
+                        <th>Conversion</th>
+                        <th class="vs-num">Not converted</th>
+                        <th class="vs-num">Fill</th>
+                        <th class="vs-num">Days to inv.</th>
+                        <th class="vs-num">Not invoiced</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{ var rank = 0; }
+                    @foreach (var rep in report.Reps.Take(RowsShown))
+                    {
+                        var repMoney = rep.Summary.In(lead);
+                        var counts = rep.Summary.Counts;
+                        rank++;
+                        <tr class="vsoc-row @RoleClass(rep.Role)">
+                            <td class="vs-num"><span class="vsadr-rank">@rank</span></td>
+                            <td>
+                                <button type="button" class="vsadr-name" @onclick="() => SelectRepAsync(rep.UserId)">@rep.DisplayName</button>
+                                @if (!rep.IsActive)
+                                {
+                                    <span class="vsp-sub">inactive</span>
+                                }
+                                <div class="vsp-sub">@(rep.RouteCode is null ? rep.VanAccountCode ?? "no route" : $"{rep.RouteCode} {rep.RouteName}")</div>
+                            </td>
+                            <td><span class="vsoc-role @RoleClass(rep.Role)">@OrderRaiser.Singular(rep.Role)</span></td>
+                            <td class="vs-num">@counts.Ordered.ToString("N0")</td>
+                            <td class="vs-num">@Amount(repMoney?.Ordered)</td>
+                            <td class="vs-num vsadr-strong">@Amount(repMoney?.Invoiced)</td>
+                            <td>@Meter(repMoney?.Conversion)</td>
+                            <td class="vs-num @(repMoney is { Gap: > 0 } ? "vsadr-warn" : null)">@Amount(repMoney?.Gap)</td>
+                            <td class="vs-num @(repMoney?.FillRate is < 0.85 ? "vsadr-warn" : null)">@Rate(repMoney?.FillRate)</td>
+                            <td class="vs-num">@Days(rep.Summary.MedianDaysToInvoice, shortForm: true)</td>
+                            <td class="vs-num">@((counts.NoLinkedInvoice + counts.NotYetInSap).ToString("N0"))</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @RowsNote(report.Reps.Count, "reps")
+    };
+
+    private RenderFragment ProductsTable(OrderConversionReportResponse report, string? lead) => __builder =>
+    {
+        var items = report.Products.Items.Where(item => !productsShortOnly || item.ShortQuantity > 0).ToList();
+        <div class="vsadr-filters" role="group" aria-label="Filter the products">
+            <button type="button" aria-pressed="@(!productsShortOnly ? "true" : "false")"
+                    class="vs-chip @(!productsShortOnly ? "vs-chip-info" : "vs-chip-quiet")"
+                    @onclick="() => productsShortOnly = false">
+                Every product <span class="vsp-section-count">@report.Products.Items.Count.ToString("N0")</span>
+            </button>
+            <button type="button" aria-pressed="@(productsShortOnly ? "true" : "false")"
+                    class="vs-chip @(productsShortOnly ? "vs-chip-info" : "vs-chip-quiet")"
+                    @onclick="() => productsShortOnly = true">
+                Delivered short <span class="vsp-section-count">@report.Products.ProductsShort.ToString("N0")</span>
+            </button>
+        </div>
+        <p class="vsp-note">
+            Units ordered on every live order against units the vans delivered on the orders they invoiced, in each
+            order's own unit. "Not invoiced" is on orders with no invoice yet. Converted value is the ordered value of
+            what was delivered, at the order's prices.
+        </p>
+        <div class="vs-table-wrap">
+            <table class="vs-table">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th class="vs-num">Orders</th>
+                        <th class="vs-num">Shops</th>
+                        <th class="vs-num">Ordered</th>
+                        <th class="vs-num"><span class="vsoc-role vsoc-role-sales">Sales reps</span></th>
+                        <th class="vs-num"><span class="vsoc-role vsoc-role-adr">ADRs</span></th>
+                        <th class="vs-num">Delivered</th>
+                        <th class="vs-num">Short</th>
+                        <th class="vs-num">Not invoiced</th>
+                        <th>Unit conversion</th>
+                        <th class="vs-num">Ordered value</th>
+                        <th class="vs-num">Converted</th>
+                        <th class="vs-num">Short value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in items.Take(RowsShown))
+                    {
+                        var itemMoney = item.In(lead);
+                        <tr>
+                            <td>@item.DisplayName <span class="vsp-sub">@item.ItemCode</span></td>
+                            <td class="vs-num">@item.Orders.ToString("N0")</td>
+                            <td class="vs-num">@item.Shops.ToString("N0")</td>
+                            <td class="vs-num">@Quantity(item.OrderedQuantity, item.UoMCode)</td>
+                            <td class="vs-num">@Quantity(item.SalesRepQuantity, null)</td>
+                            <td class="vs-num">@Quantity(item.AdrQuantity, null)</td>
+                            <td class="vs-num vsadr-strong">@Quantity(item.SuppliedQuantity, null)</td>
+                            <td class="vs-num @(item.ShortQuantity > 0 ? "vsadr-warn" : null)">@Quantity(item.ShortQuantity, null)</td>
+                            <td class="vs-num">@Quantity(item.NotInvoicedQuantity, null)</td>
+                            <td>@Meter(item.UnitConversion)</td>
+                            <td class="vs-num">@Amount(itemMoney?.Ordered)</td>
+                            <td class="vs-num vsadr-strong">@Amount(itemMoney?.Converted)</td>
+                            <td class="vs-num @(itemMoney is { ShortSupplied: > 0 } ? "vsadr-warn" : null)">@Amount(itemMoney?.ShortSupplied)</td>
+                        </tr>
+                    }
+                    @if (items.Count == 0)
+                    {
+                        <tr><td colspan="13" class="vs-metric-none">The vans delivered every invoiced order in full.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @RowsNote(items.Count, "products")
+    };
+
+    private RenderFragment ShopsTable(OrderConversionReportResponse report, string? lead) => __builder =>
+    {
+        <p class="vsp-note">
+            Did each shop's orders arrive? Flags mark shops that order but are not receiving.
+        </p>
+        <div class="vs-table-wrap">
+            <table class="vs-table">
+                <thead>
+                    <tr>
+                        <th>Shop</th>
+                        <th>Ordered by</th>
+                        <th class="vs-num">Orders</th>
+                        <th class="vs-num">Ordered</th>
+                        <th class="vs-num">Actual sales</th>
+                        <th>Conversion</th>
+                        <th class="vs-num">Short</th>
+                        <th class="vs-num">Not invoiced</th>
+                        <th>Last order</th>
+                        <th>Flag</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var shop in report.Shops.Take(RowsShown))
+                    {
+                        var shopMoney = shop.In(lead);
+                        var flag = ShopFlag(shop, shopMoney);
+                        <tr>
+                            <td>@shop.DisplayName <span class="vsp-sub">@shop.CustomerCode</span></td>
+                            <td>
+                                @if (shop.RaisedBy == "Both")
+                                {
+                                    <span class="vsoc-role vsoc-role-sales">Sales rep</span>
+                                    <span class="vsoc-role vsoc-role-adr">ADR</span>
+                                }
+                                else
+                                {
+                                    var role = shop.RaisedBy == "ADRs" ? OrderRaiser.Adrs : OrderRaiser.SalesReps;
+                                    <span class="vsoc-role @RoleClass(role)">@OrderRaiser.Singular(role)</span>
+                                }
+                            </td>
+                            <td class="vs-num">@shop.Orders.ToString("N0")</td>
+                            <td class="vs-num">@Amount(shopMoney?.Ordered)</td>
+                            <td class="vs-num vsadr-strong">@Amount(shopMoney?.Invoiced)</td>
+                            <td>@Meter(shopMoney?.Conversion)</td>
+                            <td class="vs-num @(shopMoney is { ShortSupplied: > 0 } ? "vsadr-warn" : null)">@Amount(shopMoney?.ShortSupplied)</td>
+                            <td class="vs-num">@shop.Uninvoiced.ToString("N0")</td>
+                            <td>@(shop.LastOrderOn?.ToString("ddd dd MMM") ?? "—")</td>
+                            <td>
+                                @if (flag is not null)
+                                {
+                                    <span class="vs-chip vs-chip-warn">@flag</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (report.Shops.Count == 0)
+                    {
+                        <tr><td colspan="10" class="vs-metric-none">No shop recorded on any order.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @RowsNote(report.Shops.Count, "shops")
+    };
+
+    private RenderFragment LedgerTable(OrderConversionReportResponse report) => __builder =>
+    {
+        var rows = report.Orders.Where(row => outcomeFilter is null || row.Order.Outcome == outcomeFilter).ToList();
+        <div class="vsadr-filters" role="group" aria-label="Filter the ledger by outcome">
+            @foreach (var (key, label) in OutcomeFilters)
+            {
+                var count = key is null ? report.Orders.Count : report.Orders.Count(row => row.Order.Outcome == key);
+                <button type="button" aria-pressed="@(outcomeFilter == key ? "true" : "false")"
+                        class="vs-chip @(outcomeFilter == key ? "vs-chip-info" : "vs-chip-quiet")"
+                        @onclick="() => ShowOutcome(key)">
+                    @label <span class="vsp-section-count">@count.ToString("N0")</span>
+                </button>
+            }
+        </div>
+        <p class="vsp-note">
+            Newest first. Variance is invoiced minus ordered; the outcome says why they differ.
+            @if (report.OrdersNotListed > 0)
+            {
+                <span>The newest @report.Orders.Count.ToString("N0") are listed; @report.OrdersNotListed.ToString("N0") older ones are in every figure and in the export.</span>
+            }
+        </p>
+        <div class="vs-table-wrap">
+            <table class="vs-table">
+                <thead>
+                    <tr>
+                        <th>Captured</th>
+                        <th>Order</th>
+                        <th>Raised by</th>
+                        <th>Shop</th>
+                        <th class="vs-num">Ordered</th>
+                        <th>SAP order</th>
+                        <th>Invoice</th>
+                        <th class="vs-num">Invoiced</th>
+                        <th class="vs-num">Days</th>
+                        <th class="vs-num">Variance</th>
+                        <th>Outcome</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in rows.Take(RowsShown))
+                    {
+                        var order = row.Order;
+                        <tr class="vsoc-row @RoleClass(row.Role) @(order.Outcome == AdrOutcome.Cancelled ? "vsadr-cancelled" : null)">
+                            <td>@order.CapturedAtCat.ToString("ddd dd MMM HH:mm")</td>
+                            <td>@order.OrderNumber</td>
+                            <td>
+                                <span class="vsoc-role @RoleClass(row.Role)">@OrderRaiser.Singular(row.Role)</span>
+                                <div class="vsp-sub">@(Person(order.UserId)?.DisplayName ?? "—")</div>
+                            </td>
+                            <td>@order.DisplayCustomer</td>
+                            <td class="vs-num">@($"{order.Currency} {order.Ordered:N2}")</td>
+                            <td>@(order.SapOrderDocNum?.ToString(CultureInfo.InvariantCulture) ?? "—")</td>
+                            <td>
+                                @if (order.InvoiceReference is null)
+                                {
+                                    <span>—</span>
+                                }
+                                else
+                                {
+                                    @(order.InvoiceDocNum?.ToString(CultureInfo.InvariantCulture) ?? "not posted yet")
+                                    <span class="vsp-sub">@order.InvoiceReference</span>
+                                }
+                            </td>
+                            <td class="vs-num">@(order.Invoiced is { } invoiced ? invoiced.ToString("N2") : "—")</td>
+                            <td class="vs-num">@(order.DaysToInvoice is { } days ? days.ToString("N1") : "—")</td>
+                            <td class="vs-num @(order.Variance is < 0 ? "vsadr-warn" : null)">@(order.Variance is { } variance ? variance.ToString("N2") : "—")</td>
+                            <td><span class="vs-chip @OutcomeChip(order.Outcome)">@order.Outcome</span></td>
+                        </tr>
+                    }
+                    @if (rows.Count == 0)
+                    {
+                        <tr><td colspan="11" class="vs-metric-none">No orders with this outcome in the period.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @RowsNote(rows.Count, "orders")
+    };
+
+    /// <summary>Why a shop stands out, or null when it does not.</summary>
+    private static string? ShopFlag(OrderConversionShop shop, AdrConversionDayMoney? money)
+    {
+        if (shop.Orders >= 2 && shop.Invoiced == 0)
+        {
+            return "Orders, never receives";
+        }
+
+        if (shop.ShortSupplied >= 2)
+        {
+            return $"Short-supplied {shop.ShortSupplied}×";
+        }
+
+        if (shop.Uninvoiced >= 2)
+        {
+            return $"{shop.Uninvoiced} orders not invoiced";
+        }
+
+        return money?.Conversion is < 0.7 && shop.Orders >= 2 ? "Orders rarely arrive" : null;
+    }
+
+    // ── Formatting ──────────────────────────────────────────────────────────────
+    //
+    // An em dash for every unavailable value, never a zero standing in for one.
+
+    private static RenderFragment RowsNote(int count, string noun) => __builder =>
+    {
+        if (count > RowsShown)
+        {
+            <p class="vsp-note">
+                Showing the first @RowsShown.ToString("N0") of @count.ToString("N0") @noun. The Excel export carries every one.
+            </p>
+        }
+    };
+
+    private static string RoleClass(string? role) => role == OrderRaiser.Adrs ? "vsoc-role-adr" : "vsoc-role-sales";
+
+    private static string Money(string? currency, decimal? value) =>
+        value is { } amount && currency is not null ? $"{currency} {amount:N2}" : "—";
+
+    private static string Amount(decimal? value) => value is { } amount ? amount.ToString("N2") : "—";
+
+    private static string Rate(double? rate, int decimals = 0) =>
+        rate is { } value ? value.ToString(decimals == 0 ? "P0" : "P1") : "—";
+
+    private static string Days(double? days, bool shortForm = false) =>
+        days is not { } value ? "—" : shortForm ? value.ToString("N1") : $"{value:N1} days";
+
+    private static string Quantity(decimal quantity, string? unit) =>
+        unit is null ? quantity.ToString("N0") : $"{quantity:N0} {unit}";
+
+    private static string Count(int count, string noun) => $"{count:N0} {noun}{(count == 1 ? "" : "s")}";
+
+    private static string Capitalise(string text) =>
+        text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
+
+    private static string Width(double? share) =>
+        $"{Math.Clamp((share ?? 0) * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture)}%";
+
+    private static string Tone(double? conversion) => conversion switch
+    {
+        null => "vsadr-ink-mute",
+        >= 0.85 => "vsadr-ink-info",
+        >= 0.75 => "vsadr-ink-mute",
+        _ => "vsadr-ink-warn"
+    };
+
+    private static string SeverityChip(string severity) => severity switch
+    {
+        "high" => "vs-chip-bad",
+        "medium" => "vs-chip-warn",
+        _ => "vs-chip-neutral"
+    };
+
+    private static string OtherCurrencies(List<AdrConversionMoney> money, string? lead)
+    {
+        var others = money.Where(part => !Same(part.Currency, lead)).ToList();
+        return others.Count == 0
+            ? string.Empty
+            : $"Also {string.Join(", ", others.Select(part => $"{part.Currency} {part.Invoiced:N0} sold of {part.Ordered:N0} ({Rate(part.Conversion)})"))}.";
+    }
+
+    /// <summary>A rate as a bar with its figure, toned by how well it reads.</summary>
+    private static RenderFragment Meter(double? rate) => __builder =>
+    {
+        if (rate is not { } value)
+        {
+            <span class="vs-metric-none">—</span>
+            return;
+        }
+
+        var tone = value >= 0.85 ? "info" : value >= 0.75 ? "mute" : "warn";
+        <span class="vsadr-meter">
+            <span class="vsadr-meter-track"><span class="vsadr-meter-fill vsadr-fill-@tone" style="width:@Width(value)"></span></span>
+            <span class="vsadr-meter-value vsadr-ink-@tone">@value.ToString("P0")</span>
+        </span>
+    };
+
+    /// <summary>A change against the period before. Days count as better when they fall.</summary>
+    private static RenderFragment Delta(double? change, string unit) => __builder =>
+    {
+        if (change is not { } value)
+        {
+            return;
+        }
+
+        var better = value >= 0;
+        var magnitude = Math.Abs(value);
+        var text = unit switch
+        {
+            "pts" => $"{magnitude:N1} pts",
+            "%" => $"{magnitude:N0}%",
+            "days" => $"{magnitude:N1} days {(better ? "faster" : "slower")}",
+            _ => magnitude.ToString("N1")
+        };
+        <span class="vsadr-delta @(better ? "vsadr-delta-up" : "vsadr-delta-down")">
+            <span aria-hidden="true">@(better ? "▲" : "▼")</span>
+            <span class="vsadr-sr">@(better ? "up" : "down")</span>
+            @text
+        </span>
+    };
+
+    private static double? Points(double? now, double? before) =>
+        now is { } current && before is { } previous ? (current - previous) * 100 : null;
+
+    private static double? Change(decimal? now, decimal? before) =>
+        now is { } current && before is { } previous && previous > 0 ? (double)((current - previous) / previous) * 100 : null;
+
+    private static double? DaysFaster(double? now, double? before) =>
+        now is { } current && before is { } previous ? previous - current : null;
+
+    private static string OutcomeChip(string outcome) => outcome switch
+    {
+        AdrOutcome.InvoicedInFull => "vs-chip-good",
+        AdrOutcome.ShortSupplied => "vs-chip-warn",
+        AdrOutcome.Cancelled => "vs-chip-bad",
+        AdrOutcome.NoLinkedInvoice => "vs-chip-info",
+        _ => "vs-chip-quiet"
+    };
+
+    private static bool Same(string? left, string? right) =>
+        string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+}

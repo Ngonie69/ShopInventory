@@ -80,7 +80,7 @@ public sealed class GetAdrPerformanceReportHandler(
             .Select(rep => rep.Id)
             .ToHashSet();
 
-        var orders = await LoadOrdersAsync(from, to, vanRepIds, cancellationToken);
+        var orders = await LoadOrdersAsync(db, from, to, vanRepIds, cancellationToken);
 
         // Every van's sales, not only the ADRs': the shares need the whole.
         var sales = await VanSalesFactReader.LoadSalesAsync(
@@ -213,7 +213,7 @@ public sealed class GetAdrPerformanceReportHandler(
         CancellationToken cancellationToken)
     {
         var (previousFrom, previousTo) = AdrConversion.PreviousPeriod(from, to);
-        var orders = await LoadOrdersAsync(previousFrom, previousTo, adrIds.ToList(), cancellationToken);
+        var orders = await LoadOrdersAsync(db, previousFrom, previousTo, adrIds.ToList(), cancellationToken);
         var sales = await VanSalesFactReader.LoadSalesAsync(
             db, tax.Value, new VanSalesFactFilter(previousFrom, previousTo), cancellationToken);
         var (visits, visitNames) = await LoadVisitsAsync(adrIds, previousFrom, previousTo, cancellationToken);
@@ -271,7 +271,8 @@ public sealed class GetAdrPerformanceReportHandler(
     /// <c>OrderDate</c> is a UTC instant, so the window is converted rather than compared as dates —
     /// otherwise every order after 22:00 CAT lands on the day before.
     /// </remarks>
-    private async Task<List<VanOrderFact>> LoadOrdersAsync(
+    internal static async Task<List<VanOrderFact>> LoadOrdersAsync(
+        ApplicationDbContext db,
         DateTime from,
         DateTime to,
         List<Guid> vanRepIds,
