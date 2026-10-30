@@ -27,6 +27,17 @@ public interface IVanSalesReportService
         int topItems = 25,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The sales reps' and ADRs' orders followed to the van sales they became. <paramref name="role"/>
+    /// is "Sales" or "ADR"; null for both.
+    /// </summary>
+    Task<ReportResult<OrderConversionReportResponse>> GetOrderConversionReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        string? role = null,
+        Guid? userId = null,
+        CancellationToken cancellationToken = default);
+
     Task<ReportResult<VanSalesCoverageReportResponse>> GetCoverageReportAsync(
         DateTime? fromDate = null,
         DateTime? toDate = null,
@@ -116,6 +127,7 @@ public interface IVanSalesReportService
 /// swallows it, and the page reports "no data" as though the vans had a quiet month. Both paths are
 /// checked against <c>VanSalesReportController</c> — <c>api/van-sales/compliance-report</c>,
 /// <c>api/van-sales/performance-report</c>, <c>api/van-sales/adr-performance-report</c>,
+/// <c>api/van-sales/order-conversion-report</c>,
 /// <c>api/van-sales/coverage-report</c>,
 /// <c>api/van-sales/replenishment-report</c>, <c>api/van-sales/stock-report</c> and
 /// <c>api/van-sales/routes</c>, <c>api/van-sales/route-stops</c>,
@@ -192,6 +204,28 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
             : "api/van-sales/adr-performance-report";
 
         return await GetReportAsync<AdrPerformanceReportResponse>(url, "ADR performance report", cancellationToken);
+    }
+
+    public async Task<ReportResult<OrderConversionReportResponse>> GetOrderConversionReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        string? role = null,
+        Guid? userId = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Dates only: these are CAT trading days, not instants.
+        var queryParams = new List<string>();
+
+        if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+        if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+        if (!string.IsNullOrWhiteSpace(role)) queryParams.Add($"role={Uri.EscapeDataString(role)}");
+        if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
+
+        var url = queryParams.Count > 0
+            ? $"api/van-sales/order-conversion-report?{string.Join("&", queryParams)}"
+            : "api/van-sales/order-conversion-report";
+
+        return await GetReportAsync<OrderConversionReportResponse>(url, "order conversion report", cancellationToken);
     }
 
     public async Task<ReportResult<VanSalesCoverageReportResponse>> GetCoverageReportAsync(

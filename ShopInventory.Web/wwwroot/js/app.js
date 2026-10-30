@@ -323,6 +323,15 @@ window.shopInventory.scrollToBottom = function (elementId) {
     }
 };
 
+// Brings a section into view — used by a report's "Show" links, which open a
+// tab further down the page. A no-op when the element is not rendered.
+window.shopInventory.scrollIntoView = function (elementId) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+};
+
 window.shopInventory.formatUtcForBrowserLocalDisplay = function (utcIsoString) {
     if (!utcIsoString) {
         return null;

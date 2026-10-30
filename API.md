@@ -3665,6 +3665,7 @@ handlers and are not recorded twice.
 | GET | `/api/van-sales/compliance-report` | `vansales.attendance.view` | Departure compliance: a row per rep per trading day |
 | GET | `/api/van-sales/performance-report` | `vansales.attendance.view` | What sold, by territory and route, by rep, by item, over time |
 | GET | `/api/van-sales/adr-performance-report` | `vansales.attendance.view` | What each ADR ordered, followed to the van sales it became, and the ADRs' share of every van's |
+| GET | `/api/van-sales/order-conversion-report` | `vansales.attendance.view` | How much of what the sales reps and ADRs ordered became actual van sales, by value and product, with a projection and areas to look at |
 | GET | `/api/van-sales/sales-analysis` | `vansales.attendance.view` | The sales breakdown for the vans: takings by tender, day, hour, van, customer, channel, rep and item |
 | GET | `/api/van-sales/coverage-report` | `vansales.attendance.view` | Who the vans are reaching and who they are losing |
 | GET | `/api/van-sales/replenishment-report` | `vansales.attendance.view` | How well the depots are keeping the vans stocked |
@@ -3983,6 +3984,34 @@ notYetInSap + cancelled`. Both sides include VAT. `overall` covers every ADR; `a
 `orders` (the ledger, every order) follow `userId`. `vanSales` / `adrLedVanSales` are the serving vans'
 takings in the period and the part from ADR orders, for the share. `previous` holds the comparison
 period's `overall` and `adrs`, without gross profit.
+
+##### GET `/api/van-sales/order-conversion-report`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | today − 30 days | Inclusive CAT trading day the order was captured on |
+| `toDate` | today | Inclusive CAT trading day |
+| `role` | — | `Sales` or `ADR` narrows the orders followed to that raiser; anything else is a 400 |
+| `userId` | — | Narrows the orders followed to one rep or ADR |
+| `compare` | `true` | Also measure the period before for `previous`, chosen as the ADR report chooses it |
+
+**Response:** `OrderConversionReportResult` — every van sales order (a `Mobile` order raised by a `Sales`
+or `ADR` account, role compared trimmed and case-blind) followed to the van sale it became, exactly as the
+ADR report's `conversion` follows ADR orders (same outcomes, same VAT-inclusive money, same invoice-queue
+link), so an ADR's figures agree on both. `overall` is the orders in scope; `raisers` splits every van order
+into `Sales` and `ADR`, whatever `role`/`userId` say; `reps` is one row per rep with orders, with role and
+assigned route. `salesMix` is every van sale in the period (sale-dated) split into the part a converted
+order became — `fromSalesRepOrders`, `fromAdrOrders`, `fromOtherOrders` (customer app, office) — and
+`direct`, sold with no order. `products` sets units ordered on live orders against units delivered on
+invoiced ones (capped at what each order asked for), short, and still on orders with no invoice, per item
+with the split by raiser and the converted value at the order's prices. `days`, `shops` and `orders` (the
+newest 1,000; `ordersNotListed` counts the rest) carry the raiser too. `projections`, one per currency:
+the settled conversion (orders two or more days old), what open orders should still bring, and the rest of
+the month (the next month instead when under a week of this one is left, with `projectedMonth*` still
+closing the current month) at the period's pace over the weekdays the reps order on, with the upside at 90% conversion and the weekly trend in points a week.
+`attention` lists what a manager should look at, `high`/`medium`/`low`, with the value at stake in the
+lead currency and a `focus` naming the part of the page that shows it. Page:
+`/van-sales/reports/order-conversion`.
 
 ##### GET `/api/van-sales/sales-analysis`
 

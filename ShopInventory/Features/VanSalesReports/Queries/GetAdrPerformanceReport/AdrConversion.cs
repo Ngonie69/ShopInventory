@@ -79,7 +79,11 @@ internal static class AdrConversion
         List<AdrLedgerOrderResult> Orders,
         int UnpricedInvoiced,
         int StaleWithoutInvoice,
-        int RecentAwaitingInvoice);
+        int RecentAwaitingInvoice)
+    {
+        /// <summary>Every order followed to its end, for a report that groups them its own way.</summary>
+        public IReadOnlyList<Outcome> Outcomes { get; init; } = [];
+    }
 
     // ── Loading ─────────────────────────────────────────────────────────────────
 
@@ -155,7 +159,7 @@ internal static class AdrConversion
     // ── Measuring ───────────────────────────────────────────────────────────────
 
     /// <summary>One item of one order: what was ordered, what the van delivered, and its share of the money.</summary>
-    private sealed record ItemOutcome(
+    internal sealed record ItemOutcome(
         string ItemCode,
         string? Description,
         string? UoMCode,
@@ -167,7 +171,7 @@ internal static class AdrConversion
         decimal ShortGross);
 
     /// <summary>One order, followed to its end.</summary>
-    private sealed record Outcome(
+    internal sealed record Outcome(
         VanOrderFact Order,
         string Kind,
         decimal Ordered,
@@ -217,7 +221,10 @@ internal static class AdrConversion
             StaleWithoutInvoice: outcomes.Count(outcome => outcome.Kind == AdrOutcomes.NoLinkedInvoice
                                                            && outcome.Order.TradingDate <= input.TodayCat.AddDays(-2)),
             RecentAwaitingInvoice: outcomes.Count(outcome => outcome.Kind is AdrOutcomes.NoLinkedInvoice or AdrOutcomes.NotYetInSap
-                                                             && outcome.Order.TradingDate > input.TodayCat.AddDays(-2)));
+                                                             && outcome.Order.TradingDate > input.TodayCat.AddDays(-2)))
+        {
+            Outcomes = outcomes
+        };
     }
 
     /// <summary>Where one order ended up.</summary>

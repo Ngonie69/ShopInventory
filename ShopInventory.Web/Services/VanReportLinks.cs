@@ -32,6 +32,8 @@ public static class VanReportLinks
     public const string DailyTruckPath = "/van-sales/reports/daily";
     public const string PerformancePath = "/van-sales/reports/performance";
     public const string CoveragePath = "/van-sales/reports/coverage";
+    public const string OrderConversionPath = "/van-sales/reports/order-conversion";
+    public const string AdrPerformancePath = "/van-sales/reports/adr-performance";
     public const string InvoicesPath = "/van-sales/invoices";
 
     public static string Activity(DateTime from, DateTime to, Guid? rep = null) =>
@@ -51,6 +53,12 @@ public static class VanReportLinks
 
     public static string Coverage(DateTime from, DateTime to, string? route = null) =>
         Build(CoveragePath, from, to, route);
+
+    public static string OrderConversion(DateTime from, DateTime to, Guid? rep = null) =>
+        Build(OrderConversionPath, from, to, rep: rep);
+
+    public static string AdrPerformance(DateTime from, DateTime to, Guid? rep = null) =>
+        Build(AdrPerformancePath, from, to, rep: rep);
 
     /// <summary>A route customer's own sales page over the same period.</summary>
     public static string RouteCustomer(int routeCustomerId, DateTime from, DateTime to) =>
