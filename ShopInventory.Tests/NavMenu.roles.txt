@@ -127,6 +127,7 @@ Van Reports
     Daily Truck Report  /van-sales/reports/daily
     Sales Performance  /van-sales/reports/performance
     ADR Performance  /van-sales/reports/adr-performance
+    Order Conversion  /van-sales/reports/order-conversion
     Sales Breakdown  /van-sales/reports/sales-breakdown
     Coverage & Outlets  /van-sales/reports/coverage
     Van Stock  /van-sales/reports/stock
@@ -353,6 +354,7 @@ Van Reports
     Daily Truck Report  /van-sales/reports/daily
     Sales Performance  /van-sales/reports/performance
     ADR Performance  /van-sales/reports/adr-performance
+    Order Conversion  /van-sales/reports/order-conversion
     Sales Breakdown  /van-sales/reports/sales-breakdown
     Coverage & Outlets  /van-sales/reports/coverage
     Van Stock  /van-sales/reports/stock
