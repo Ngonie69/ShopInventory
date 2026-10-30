@@ -27,6 +27,16 @@ namespace ShopInventory.Tests;
 /// </remarks>
 public sealed class TransferListenerHealthCheckTests
 {
+    /// <summary>
+    /// The moment every case runs at: 12:00 CAT, hours from the 07:00 ledger-day rollover. The check
+    /// used to read the machine clock, so a case stamping a refusal "a minute ago" failed whenever the
+    /// suite ran in the minute after 07:00 CAT (it did on 2026-10-30, at 07:00:55).
+    /// </summary>
+    private static readonly DateTime Now = new(2026, 10, 30, 10, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>07:00 CAT on the same day: the ledger day turns over here.</summary>
+    private static readonly DateTime Rollover = new(2026, 10, 30, 5, 0, 0, DateTimeKind.Utc);
+
     [Fact]
     public async Task A_current_poll_is_healthy()
     {
@@ -58,7 +68,7 @@ public sealed class TransferListenerHealthCheckTests
     public async Task A_late_poll_is_degraded_rather_than_unhealthy()
     {
         var result = await CheckAsync(FakeListener.Healthy(
-            Poll(lastSuccess: DateTime.UtcNow.AddMinutes(-25))));
+            Poll(lastSuccess: Now.AddMinutes(-25))));
 
         Assert.Equal(HealthStatus.Degraded, result.Status);
     }
@@ -67,7 +77,7 @@ public sealed class TransferListenerHealthCheckTests
     public async Task A_poll_stale_past_the_critical_threshold_is_unhealthy()
     {
         var result = await CheckAsync(FakeListener.Healthy(
-            Poll(lastSuccess: DateTime.UtcNow.AddMinutes(-90), consecutiveFailures: 12)));
+            Poll(lastSuccess: Now.AddMinutes(-90), consecutiveFailures: 12)));
 
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
         Assert.Contains("absent from the daily snapshot", result.Description);
@@ -83,7 +93,7 @@ public sealed class TransferListenerHealthCheckTests
     {
         var result = await CheckAsync(FakeListener.Healthy(Poll(
             neverPolled: true,
-            processStarted: DateTime.UtcNow.AddHours(-3))));
+            processStarted: Now.AddHours(-3))));
 
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
     }
@@ -98,7 +108,7 @@ public sealed class TransferListenerHealthCheckTests
     {
         var result = await CheckAsync(FakeListener.Healthy(Poll(
             pendingNotifications: 106,
-            oldestPending: DateTime.UtcNow.AddHours(-4),
+            oldestPending: Now.AddHours(-4),
             lastDeliveryError: "HTTP 404",
             webhookUrl: "http://10.10.10.9/api/desktopintegration/webhook/transfer-event")));
 
@@ -112,7 +122,7 @@ public sealed class TransferListenerHealthCheckTests
     public async Task Lines_waiting_past_the_warning_threshold_are_degraded()
     {
         var result = await CheckAsync(FakeListener.Healthy(Poll(
-            pendingNotifications: 4, oldestPending: DateTime.UtcNow.AddMinutes(-30))));
+            pendingNotifications: 4, oldestPending: Now.AddMinutes(-30))));
 
         Assert.Equal(HealthStatus.Degraded, result.Status);
         Assert.Contains("retried every cycle", result.Description);
@@ -123,7 +133,7 @@ public sealed class TransferListenerHealthCheckTests
     public async Task A_line_that_has_only_just_queued_is_still_healthy()
     {
         var result = await CheckAsync(FakeListener.Healthy(Poll(
-            pendingNotifications: 1, oldestPending: DateTime.UtcNow.AddMinutes(-2))));
+            pendingNotifications: 1, oldestPending: Now.AddMinutes(-2))));
 
         Assert.Equal(HealthStatus.Healthy, result.Status);
     }
@@ -171,7 +181,7 @@ public sealed class TransferListenerHealthCheckTests
             webhookFailures: 2,
             rejectedNotifications: 35,
             lastDeliveryError: "HTTP 400: 'Quantity' must be greater than '0'.",
-            lastDeliveryErrorUtc: DateTime.UtcNow.AddDays(-2))));
+            lastDeliveryErrorUtc: Now.AddDays(-2))));
 
         Assert.Equal(HealthStatus.Healthy, result.Status);
         Assert.Contains("all before today's snapshot", result.Description);
@@ -185,7 +195,44 @@ public sealed class TransferListenerHealthCheckTests
             webhookFailures: 2,
             rejectedNotifications: 35,
             lastDeliveryError: "HTTP 400",
-            lastDeliveryErrorUtc: DateTime.UtcNow.AddMinutes(-1))));
+            lastDeliveryErrorUtc: Now.AddMinutes(-1))));
+
+        Assert.Equal(HealthStatus.Degraded, result.Status);
+        Assert.Contains("nothing retries them", result.Description);
+    }
+
+    /// <summary>
+    /// The case that failed on 2026-10-30: a check run seconds after 07:00 CAT, with the refusal
+    /// stamped seconds before it. The refusal belongs to the ledger day that just ended, and that
+    /// day's closing snapshot counted it, so it no longer degrades the check.
+    /// </summary>
+    [Fact]
+    public async Task A_refusal_just_before_the_rollover_belongs_to_the_day_that_ended()
+    {
+        var at = Rollover.AddSeconds(55);
+
+        var result = await CheckAsync(FakeListener.Healthy(Poll(
+            lastSuccess: at.AddMinutes(-1),
+            webhookFailures: 2,
+            rejectedNotifications: 35,
+            lastDeliveryError: "HTTP 400",
+            lastDeliveryErrorUtc: Rollover.AddSeconds(-5))), at: at);
+
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+        Assert.Equal(true, result.Data["webhookFailuresBeforeToday"]);
+    }
+
+    [Fact]
+    public async Task A_refusal_just_after_the_rollover_belongs_to_the_new_day()
+    {
+        var at = Rollover.AddSeconds(55);
+
+        var result = await CheckAsync(FakeListener.Healthy(Poll(
+            lastSuccess: at.AddMinutes(-1),
+            webhookFailures: 2,
+            rejectedNotifications: 35,
+            lastDeliveryError: "HTTP 400",
+            lastDeliveryErrorUtc: Rollover.AddSeconds(5))), at: at);
 
         Assert.Equal(HealthStatus.Degraded, result.Status);
         Assert.Contains("nothing retries them", result.Description);
@@ -258,7 +305,8 @@ public sealed class TransferListenerHealthCheckTests
 
     private static async Task<HealthCheckResult> CheckAsync(
         FakeListener listener,
-        List<string>? snapshotted = null)
+        List<string>? snapshotted = null,
+        DateTime? at = null)
     {
         // No saved list, so the configured one decides, as it did before the list could be edited.
         using var connection = new SqliteConnection("DataSource=:memory:");
@@ -274,7 +322,8 @@ public sealed class TransferListenerHealthCheckTests
             {
                 MonitoredWarehouses = snapshotted ?? ["KEFSHOP"]
             }),
-            context);
+            context,
+            ClockAt(at ?? Now));
 
         return await check.CheckHealthAsync(new HealthCheckContext(), default);
     }
@@ -306,17 +355,24 @@ public sealed class TransferListenerHealthCheckTests
             OldestPendingNotificationUtc = oldestPending,
             LastDeliveryError = lastDeliveryError,
             WebhookUrl = webhookUrl,
-            ProcessStartedUtc = processStarted ?? DateTime.UtcNow.AddHours(-2),
+            ProcessStartedUtc = processStarted ?? Now.AddHours(-2),
             PollingStarted = pollingStarted,
-            LastAttemptUtc = DateTime.UtcNow.AddMinutes(-1),
+            LastAttemptUtc = Now.AddMinutes(-1),
             LastSuccessUtc = neverPolled || !pollingStarted
                 ? null
-                : lastSuccess ?? DateTime.UtcNow.AddMinutes(-1),
-            PollingSinceUtc = DateTime.UtcNow.AddMinutes(-1),
+                : lastSuccess ?? Now.AddMinutes(-1),
+            PollingSinceUtc = Now.AddMinutes(-1),
             ConsecutiveFailures = consecutiveFailures,
             PollIntervalSeconds = 300,
             WebhookFailures = webhookFailures
         };
+
+    private static ManualClock ClockAt(DateTime utc)
+    {
+        var clock = new ManualClock();
+        clock.Advance(utc - clock.GetUtcNow().UtcDateTime);
+        return clock;
+    }
 
     private sealed class FakeListener : ITransferEventListenerClient
     {

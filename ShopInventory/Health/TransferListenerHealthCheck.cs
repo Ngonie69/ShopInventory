@@ -33,7 +33,8 @@ public sealed class TransferListenerHealthCheck(
     ITransferEventListenerClient listenerClient,
     IOptions<TransferEventListenerSettings> listenerOptions,
     IOptions<DailyStockSettings> dailyStockOptions,
-    ApplicationDbContext context) : IHealthCheck
+    ApplicationDbContext context,
+    TimeProvider timeProvider) : IHealthCheck
 {
     private readonly TransferEventListenerSettings _settings = listenerOptions.Value;
 
@@ -68,11 +69,15 @@ public sealed class TransferListenerHealthCheck(
 
         var poll = health.Poll ?? new DTOs.TransferListenerPollDto();
 
+        // One reading of the clock for the whole check, from the injected provider so tests can pin it
+        // either side of the 07:00 ledger-day rollover.
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+
         // Measured from the last cycle that actually read SAP. Before the first one lands there is no
         // such moment, so the listener's process start stands in — a listener that has never succeeded
         // has been failing since it started.
         var reference = poll.LastSuccessUtc ?? poll.ProcessStartedUtc;
-        var sinceSuccess = DateTime.UtcNow - reference;
+        var sinceSuccess = now - reference;
 
         var data = new Dictionary<string, object>
         {
@@ -124,7 +129,7 @@ public sealed class TransferListenerHealthCheck(
         // one that has waited past the critical threshold is stock a till is refusing right now.
         if (poll.PendingNotifications > 0 && poll.OldestPendingNotificationUtc is { } oldestPending)
         {
-            var waited = DateTime.UtcNow - DateTime.SpecifyKind(oldestPending, DateTimeKind.Utc);
+            var waited = now - DateTime.SpecifyKind(oldestPending, DateTimeKind.Utc);
             var cause = string.IsNullOrWhiteSpace(poll.LastDeliveryError)
                 ? string.Empty
                 : $" Last answer: {poll.LastDeliveryError.Trim()}"
@@ -162,7 +167,7 @@ public sealed class TransferListenerHealthCheck(
         {
             var fetchTime = StockLedgerDay.ParseFetchTime(dailyStockOptions.Value.StockFetchTimeCAT);
             failuresBeforeToday = StockLedgerDay.Resolve(DateTime.SpecifyKind(lastDeliveryError, DateTimeKind.Utc), fetchTime)
-                < StockLedgerDay.Resolve(DateTime.UtcNow, fetchTime);
+                < StockLedgerDay.Resolve(now, fetchTime);
         }
 
         if (failuresBeforeToday)
