@@ -28,10 +28,15 @@ public sealed class GetAdrPerformanceReportHandler(
     ApplicationDbContext db,
     IOptions<TaxSettings> tax,
     ShopInventory.Common.Sales.ISaleInvoiceCostReader? costReader = null,
-    ILogger<GetAdrPerformanceReportHandler>? logger = null
+    ILogger<GetAdrPerformanceReportHandler>? logger = null,
+    ISAPServiceLayerClient? sapClient = null,
+    IOptions<SAPSettings>? sapSettings = null
 ) : IRequestHandler<GetAdrPerformanceReportQuery, ErrorOr<AdrPerformanceReportResult>>
 {
     private static readonly string[] VanRepRoles = [ApplicationRoles.Adr, ApplicationRoles.Sales];
+
+    /// <summary>The van app sends order lines without item names; SAP fills the ones no sale line does.</summary>
+    internal ItemNameSource? ItemNames { get; init; } = OrderItemNames.FromSap(sapClient, sapSettings?.Value, logger);
 
     /// <summary>
     /// The most orders one ADR's detail lists. Every figure still counts the rest.
@@ -93,7 +98,7 @@ public sealed class GetAdrPerformanceReportHandler(
         var (visits, visitNames) = await LoadVisitsAsync(adrIds, from, to, cancellationToken);
 
         // Every ADR order followed to the van sale it became, wherever and whenever that was made.
-        var evidence = await AdrConversion.LoadAsync(db, tax.Value, adrOrders, cancellationToken);
+        var evidence = await AdrConversion.LoadAsync(db, tax.Value, adrOrders, ItemNames, cancellationToken);
 
         // SAP's booked gross profit on what the ADRs sold themselves and on the van invoices their orders
         // became, read in one pass. An order has none of its own until it is invoiced.
@@ -217,7 +222,8 @@ public sealed class GetAdrPerformanceReportHandler(
         var sales = await VanSalesFactReader.LoadSalesAsync(
             db, tax.Value, new VanSalesFactFilter(previousFrom, previousTo), cancellationToken);
         var (visits, visitNames) = await LoadVisitsAsync(adrIds, previousFrom, previousTo, cancellationToken);
-        var evidence = await AdrConversion.LoadAsync(db, tax.Value, orders, cancellationToken);
+        // The comparison shows no products, so it needs no names from SAP.
+        var evidence = await AdrConversion.LoadAsync(db, tax.Value, orders, null, cancellationToken);
 
         var analysis = AdrConversion.Build(
             new AdrConversion.Input(
@@ -581,12 +587,15 @@ public sealed class GetAdrPerformanceReportHandler(
                 row.LineTotal)));
         }
 
+        var names = await OrderItemNames.ResolveAsync(
+            lines.Select(line => (line.ItemCode, line.Description)), [], ItemNames, cancellationToken);
+
         var ranked = lines
             .GroupBy(line => line.ItemCode)
             .Select(group => new
             {
                 ItemCode = group.Key,
-                Description = group.Select(line => line.Description).FirstOrDefault(d => !string.IsNullOrWhiteSpace(d)),
+                Description = names.GetValueOrDefault(group.Key),
                 LineCount = group.Count(),
                 ShopCount = group
                     .Select(line => byId[line.OrderId].Customer?.ToUpperInvariant() ?? VanSalesMeasures.Unattributed)
