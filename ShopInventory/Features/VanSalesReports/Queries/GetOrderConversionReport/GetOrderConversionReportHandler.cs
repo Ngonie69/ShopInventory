@@ -25,13 +25,19 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetOrderConversionRepor
 /// </remarks>
 public sealed class GetOrderConversionReportHandler(
     ApplicationDbContext db,
-    IOptions<TaxSettings> tax
+    IOptions<TaxSettings> tax,
+    ISAPServiceLayerClient? sapClient = null,
+    IOptions<SAPSettings>? sapSettings = null,
+    ILogger<GetOrderConversionReportHandler>? logger = null
 ) : IRequestHandler<GetOrderConversionReportQuery, ErrorOr<OrderConversionReportResult>>
 {
     /// <summary>The most orders the ledger lists. Every figure still counts the rest.</summary>
     public const int MaximumOrdersListed = 1000;
 
     private static readonly string[] Roles = [OrderRaisers.SalesReps, OrderRaisers.Adrs];
+
+    /// <summary>The van app sends order lines without item names; SAP fills the ones no sale line does.</summary>
+    internal ItemNameSource? ItemNames { get; init; } = OrderItemNames.FromSap(sapClient, sapSettings?.Value, logger);
 
     public async Task<ErrorOr<OrderConversionReportResult>> Handle(
         GetOrderConversionReportQuery query,
@@ -166,7 +172,7 @@ public sealed class GetOrderConversionReportHandler(
         var roleOf = reps.ToDictionary(rep => rep.Id, rep => rep.Role);
         var orders = await LoadOrdersAsync(db, from, to, reps.Select(rep => rep.Id).ToList(), cancellationToken);
         var sales = await VanSalesFactReader.LoadSalesAsync(db, tax.Value, new VanSalesFactFilter(from, to), cancellationToken);
-        var evidence = await AdrConversion.LoadAsync(db, tax.Value, orders, cancellationToken);
+        var evidence = await AdrConversion.LoadAsync(db, tax.Value, orders, ItemNames, cancellationToken);
 
         var accounts = reps.ToDictionary(rep => rep.Id, rep => rep.AccountCode);
         var routes = reps

@@ -170,6 +170,54 @@ public sealed class OrderConversionReportTests : IDisposable
         Assert.Equal(103.5m, money.Ordered); // 57.50 (half of 115) + 46.00
     }
 
+    /// <summary>
+    /// The van app sends order lines with no item name. A product takes its name from the van sale line
+    /// that delivered it, and SAP names the rest — so the products list and its export are never bare
+    /// codes. SAP is asked only for what no sale line named.
+    /// </summary>
+    [Fact]
+    public async Task Products_the_order_did_not_name_are_named_from_the_sale_then_from_SAP()
+    {
+        var sold = AddOrder(SalesRep, 115m, sapDocNum: 8010, lines: [("CHE011", 10m, 50m), ("YOG002", 10m, 50m)]);
+        AddOrder(Adr, 46m, lines: [("ICV003", 4m, 40m), ("MUE001", 1m, 6m)]);
+        foreach (var line in _context.SalesOrders.Local.SelectMany(order => order.Lines))
+        {
+            line.ItemDescription = null;
+        }
+        await _context.SaveChangesAsync();
+        AddConversion(sold, "VO-R5", 115m, [("CHE011", 10m, 50m), ("YOG002", 10m, 50m)]);
+        _context.StockReservations.Local
+            .Single(reservation => reservation.ExternalReferenceId == "VO-R5")
+            .Lines.Single(line => line.ItemCode == "CHE011")
+            .ItemDescription = "Cheddar 1kg";
+        await _context.SaveChangesAsync();
+
+        var asked = new List<string>();
+        var handler = new GetOrderConversionReportHandler(_context, Options.Create(new TaxSettings()))
+        {
+            ItemNames = (codes, _) =>
+            {
+                asked.AddRange(codes);
+                return Task.FromResult<IReadOnlyDictionary<string, string?>>(new Dictionary<string, string?>
+                {
+                    ["YOG002"] = "Yoghurt 500ml",
+                    ["ICV003"] = " Vanilla cone ",
+                    ["MUE001"] = null // SAP does not know it
+                });
+            }
+        };
+
+        var result = await handler.Handle(new GetOrderConversionReportQuery(Day, Day), CancellationToken.None);
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        var items = result.Value.Products.Items.ToDictionary(item => item.ItemCode, item => item.ItemDescription);
+
+        Assert.Equal("Cheddar 1kg", items["CHE011"]);
+        Assert.Equal("Yoghurt 500ml", items["YOG002"]);
+        Assert.Equal("Vanilla cone", items["ICV003"]);
+        Assert.Null(items["MUE001"]);
+        Assert.DoesNotContain("CHE011", asked);
+    }
+
     /// <summary>A role narrows what is followed; the comparison between the two raisers stays whole.</summary>
     [Fact]
     public async Task Choosing_a_role_narrows_the_orders_but_not_the_split()

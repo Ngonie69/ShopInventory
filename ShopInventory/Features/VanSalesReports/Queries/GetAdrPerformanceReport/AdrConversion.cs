@@ -91,6 +91,7 @@ internal static class AdrConversion
         ApplicationDbContext db,
         TaxSettings tax,
         IReadOnlyList<VanOrderFact> orders,
+        ItemNameSource? itemNames,
         CancellationToken cancellationToken)
     {
         var liveIds = orders.Where(order => !order.IsWithdrawn).Select(order => order.Id).ToList();
@@ -141,6 +142,17 @@ internal static class AdrConversion
             sales = await VanSalesFactReader.LoadSalesAsync(db, tax, filter, cancellationToken);
             saleLines = await VanSalesFactReader.LoadSaleLinesAsync(db, tax, filter, cancellationToken);
         }
+
+        var names = await OrderItemNames.ResolveAsync(
+            orderLines.Select(line => (line.Line.ItemCode, line.Line.Description)),
+            saleLines,
+            itemNames,
+            cancellationToken);
+        orderLines = orderLines
+            .Select(line => line.Line.Description is null && names.TryGetValue(line.Line.ItemCode, out var name)
+                ? (line.OrderId, line.Line with { Description = name })
+                : line)
+            .ToList();
 
         return new Evidence(
             links.GroupBy(link => link.OrderId)
