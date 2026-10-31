@@ -162,6 +162,11 @@ try
     {
         options.GroupNameFormat = "'v'VVV";
         options.SubstituteApiVersionInUrl = false;
+        // Swagger documents only the query-string parameter. The X-API-Version header is still
+        // accepted, but showing both gave every operation two free-text version boxes, and a browser
+        // autofill put the API key in one and a page title in the other, so login failed with
+        // AmbiguousApiVersion.
+        options.ApiVersionParameterSource = new QueryStringApiVersionReader("api-version");
     });
 #pragma warning restore AV0013
     builder.Services.AddTransient<IConfigureOptions<Swashbuckle.AspNetCore.SwaggerGen.SwaggerGenOptions>, ConfigureSwaggerOptions>();
