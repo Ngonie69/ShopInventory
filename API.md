@@ -3486,15 +3486,28 @@ no longer an on-demand backfill endpoint.
 `Fiscalisation:Provider=Platform` it files nothing new, but while `Revmax:Enabled` is on it answers
 "did REVMax already file this?" and credits its own receipts. A vendor device on the LAN at `Revmax:BaseUrl` (`http://172.16.16.201:8001`),
 reached through `IRevmaxClient` and driven by `RevmaxFiscalizationService`. **No route on it carries any
-authentication**, which is one reason it is not proxied: exposing it through this API would put an
-unauthenticated fiscal device behind an authenticated one.
+authentication.** Two of its routes are exposed here **temporarily** (added 2026-10-31, to be removed
+once the manual work they serve is done); nothing else on the device is.
 
-Callers never touch it directly. Writes go through `IFiscalizationService` and read-back through
+**Temporary direct routes** (`RevmaxController`, `AdminOnly`; Swagger only, not in the Web's API Explorer):
+
+| Method | Path | What it does |
+|--------|------|--------------|
+| GET | `/api/revmax/invoices/{invoiceNumber}` | The device's `GetInvoice`. 200 with the receipt (check `DeviceID`: the box answers for several devices), 404 `Revmax.InvoiceNotFound`, 400 `Revmax.DeviceUnavailable` when it gives no clear answer |
+| POST | `/api/revmax/transact-m-ext` | The device's `TransactMExt`: **files a credit note with ZIMRA, irreversibly**, against a receipt **another** device filed. Sent once, never retried |
+
+`transact-m-ext` refuses before sending when `Revmax:Enabled` is off, when `refDeviceId` is REVMax's own
+device (400 `Revmax.OwnDeviceReference`: that credit belongs on `TransactM`), when the device already holds
+`InvoiceNumber` (409 `Revmax.AlreadyFiled`), or when `GetInvoice` cannot say either way. The device's own
+`Code: "0"` refusal comes back as 400 `Revmax.Refused`, and a timeout or empty answer as 400
+`Revmax.OutcomeUnknown`: look the number up before sending it again.
+
+Apart from those, callers never touch it directly. Writes go through `IFiscalizationService` and read-back through
 `IFiscalReceiptReader`; both resolve by provider, so an invoice handler is identical under either.
 
 **Device operations this API calls.** These are the **device's** routes, not this service's — they are
 served by the REVMax box, and every one of them sits under `http://172.16.16.201:8001/api/RevmaxAPI/`.
-Nothing in the table below is reachable on this API.
+Only `TransactMExt` and `GetInvoice` are reachable on this API, through the temporary routes above.
 
 | Purpose | Method | Operation |
 |---------|--------|-----------|
