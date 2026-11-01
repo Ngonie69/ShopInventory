@@ -84,7 +84,8 @@ public class DailyIncomingPaymentsController(IMediator mediator, ICallerAccountR
 
     /// <summary>
     /// Switches one business partner's daily incoming payment on or off. Off leaves its invoices open in
-    /// SAP; on pays its invoices from the last <c>DailyPaymentLookbackDays</c> days at the next run.
+    /// SAP; on pays, once a day, its invoices dated from the day it was switched on (CAT). Earlier invoices
+    /// are never claimed: the cashier settled those, sometimes on account, where SAP still shows them unpaid.
     /// </summary>
     [Authorize(Roles = "Admin")]
     [HttpPut("gl-mappings/{cardCode}/active")]

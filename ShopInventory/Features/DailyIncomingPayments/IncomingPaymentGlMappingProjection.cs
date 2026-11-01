@@ -15,5 +15,6 @@ internal static class IncomingPaymentGlMappingProjection
             mapping.NeedsReview,
             mapping.IsActive,
             mapping.UpdatedAtUtc,
-            mapping.UpdatedBy);
+            mapping.UpdatedBy,
+            mapping.PaysFrom);
 }

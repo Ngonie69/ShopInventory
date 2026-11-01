@@ -54,7 +54,8 @@
                 <strong>Daily payments are off for every partner</strong>
                 <span>
                     Invoices still post to SAP, but no incoming payment is created. Switch a partner on under
-                    G/L accounts and the next run pays its invoices from the last @LookbackDays days; anything older is left for finance.
+                    G/L accounts and it is paid from that day on, one payment a day. Its earlier invoices stay open for
+                    finance, so receipts its cashier already posted are never paid twice.
                 </span>
             </div>
             @if (tab != Tab.Accounts)
@@ -491,7 +492,7 @@
                                         else if (confirmingOn == mapping.CardCode)
                                         {
                                             <div class="dpy-switch-confirm">
-                                                <span>Pay its invoices from the last @LookbackDays days?</span>
+                                                <span>Pay its invoices from today on? Earlier ones stay with finance.</span>
                                                 <div class="dpy-switch-confirm-actions">
                                                     <button type="button" class="dpy-btn dpy-btn-primary" disabled="@(switching is not null)"
                                                             @onclick="() => SetActiveAsync(mapping, true)">Turn on</button>
@@ -513,6 +514,10 @@
                                                 <span class="dpy-switch-track"></span>
                                                 <span class="dpy-switch-text">@(switching == mapping.CardCode ? "Saving…" : mapping.IsActive ? "On" : "Off")</span>
                                             </label>
+                                        }
+                                        @if (mapping.IsActive && mapping.PaysFrom is { } paysFrom)
+                                        {
+                                            <span class="dpy-sub" title="Invoices dated before this stay open for finance.">Pays from @paysFrom.ToString("d MMM yyyy")</span>
                                         }
                                     </td>
                                     <td>
@@ -808,8 +813,9 @@
                     <span>
                         <span class="dpy-primary">Pay this partner's invoices daily</span>
                         <span class="dpy-sub">
-                            Off: its invoices post to SAP and stay open. On: the next run pays its open invoices
-                            from the last @LookbackDays days, then one payment a day.
+                            Off: its invoices post to SAP and stay open. On: one payment a day for its invoices
+                            from the day it is switched on. Earlier ones stay open for finance, so the cashier's own
+                            receipts are never paid twice; from that day the cashier stops posting them.
                         </span>
                     </span>
                 </label>

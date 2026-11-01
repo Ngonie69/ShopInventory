@@ -44,25 +44,29 @@ public sealed class SaveIncomingPaymentGlMappingHandler(
             ? "none"
             : $"cash {mapping.CashAccount}, electronic {mapping.ElectronicAccount}, {mapping.Run}, {(mapping.IsActive ? "active" : "inactive")}";
 
+        var isNew = mapping is null;
         if (mapping is null)
         {
             mapping = new IncomingPaymentGlMappingEntity { CardCode = cardCode };
             db.IncomingPaymentGlMappings.Add(mapping);
         }
 
+        var now = DateTime.UtcNow;
+
         mapping.CardName = string.IsNullOrWhiteSpace(request.CardName) ? mapping.CardName : request.CardName.Trim();
         mapping.CashAccount = cash;
         mapping.ElectronicAccount = electronic;
         mapping.Run = Enum.Parse<DailyPaymentRun>(request.Run, ignoreCase: true);
         mapping.NotifyEmails = IncomingPaymentGlMappingAddresses.Normalise(request.NotifyEmails);
-        mapping.IsActive = request.IsActive;
+        DailyPaymentSwitch.Set(mapping, request.IsActive, now, isNew);
         mapping.NeedsReview = false;
-        mapping.UpdatedAtUtc = DateTime.UtcNow;
+        mapping.UpdatedAtUtc = now;
         mapping.UpdatedBy = request.CallerName;
 
         await db.SaveChangesAsync(cancellationToken);
 
-        var after = $"cash {cash}, electronic {electronic}, {mapping.Run}, {(mapping.IsActive ? "active" : "inactive")}, "
+        var after = $"cash {cash}, electronic {electronic}, {mapping.Run}, "
+                    + $"{(mapping.IsActive ? $"active, paying invoices from {mapping.PaysFrom:yyyy-MM-dd}" : "inactive")}, "
                     + $"emails {mapping.NotifyEmails ?? "none"}";
 
         logger.LogWarning(

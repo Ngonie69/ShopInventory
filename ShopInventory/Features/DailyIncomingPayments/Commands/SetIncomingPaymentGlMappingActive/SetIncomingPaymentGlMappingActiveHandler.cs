@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -35,8 +36,9 @@ public sealed class SetIncomingPaymentGlMappingActiveHandler(
             return IncomingPaymentGlMappingProjection.ToDto(mapping);
         }
 
-        mapping.IsActive = request.IsActive;
-        mapping.UpdatedAtUtc = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+        DailyPaymentSwitch.Set(mapping, request.IsActive, now);
+        mapping.UpdatedAtUtc = now;
         mapping.UpdatedBy = request.CallerName;
 
         await db.SaveChangesAsync(cancellationToken);
@@ -52,7 +54,7 @@ public sealed class SetIncomingPaymentGlMappingActiveHandler(
                 AuditActions.SetIncomingPaymentGlMappingActive,
                 "IncomingPaymentGlMapping",
                 cardCode,
-                $"Daily incoming payments for {cardCode} switched {(request.IsActive ? "on" : "off")} by {request.CallerName ?? "unknown"}",
+                $"Daily incoming payments for {cardCode} switched {(request.IsActive ? $"on, paying invoices from {mapping.PaysFrom:yyyy-MM-dd}," : "off")} by {request.CallerName ?? "unknown"}",
                 true);
         }
         catch (Exception ex)

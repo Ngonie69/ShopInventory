@@ -190,6 +190,37 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Switching_a_partner_on_leaves_its_earlier_invoices_for_finance()
+    {
+        // The cashier posted the 14th's receipt on account, so SAP still shows the invoice unpaid. Paying it
+        // again would book that cash twice.
+        GivenMapping("BP-1", "700300", "701100", paysFrom: Day.AddDays(1));
+        var before = await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
+        await GivenSaleAsync("BP-1", docEntry: 102, TenderTypes.Cash, 40m, postedAt: Cat(Day.AddDays(1), 9, 0));
+        await GivenConsolidationAsync("BP-1", docEntry: 103, total: 15m, postedAt: Cat(Day, 10, 0));
+
+        var result = await Run(Cat(Day.AddDays(1), 17, 0));
+
+        Assert.Equal(1, result.Posted);
+        Assert.Equal(102, Assert.Single(Assert.Single(_sap.Held).Request.PaymentInvoices!).DocEntry);
+        Assert.Null((await Reload(before)).PaymentStatus);
+        Assert.Equal(0, await _context.DailyIncomingPaymentLines.CountAsync(line => line.InvoiceDocEntry != 102));
+    }
+
+    [Fact]
+    public async Task An_online_van_sale_counts_from_its_CAT_day_when_set_against_the_switch_on_date()
+    {
+        GivenMapping("VAN008", "700610", "700610", DailyPaymentRun.Vans, paysFrom: Day.AddDays(1));
+        // 23:00 CAT on the 14th: the day before the switch. 00:30 CAT on the 15th is the 14th in UTC.
+        await GivenReservationAsync("VAN008", docEntry: 821, netValue: 10m, invoiceTotal: 10m, tender: TenderTypes.Cash, confirmedAt: Cat(Day, 23, 0));
+        await GivenReservationAsync("VAN008", docEntry: 822, netValue: 20m, invoiceTotal: 20m, tender: TenderTypes.Cash, confirmedAt: Cat(Day.AddDays(1), 0, 31));
+
+        await Run(Cat(Day.AddDays(1), 20, 0));
+
+        Assert.Equal(822, Assert.Single(Assert.Single(_sap.Held).Request.PaymentInvoices!).DocEntry);
+    }
+
+    [Fact]
     public async Task A_payment_claimed_before_its_partner_was_switched_off_is_held()
     {
         await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
@@ -582,7 +613,8 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
         string electronic,
         DailyPaymentRun run = DailyPaymentRun.Shops,
         string? emails = null,
-        bool isActive = true)
+        bool isActive = true,
+        DateTime? paysFrom = null)
     {
         using var context = NewContext();
         var mapping = context.IncomingPaymentGlMappings.Find(cardCode);
@@ -597,6 +629,7 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
         mapping.Run = run;
         mapping.NotifyEmails = emails;
         mapping.IsActive = isActive;
+        mapping.PaysFrom = paysFrom;
         context.SaveChanges();
     }
 
