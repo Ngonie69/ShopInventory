@@ -1,6 +1,8 @@
+using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ShopInventory.Common.Auth;
+using ShopInventory.Common.Errors;
 using ShopInventory.Common.Extensions;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -71,7 +73,11 @@ public interface IAuthService
     /// <summary>
     /// Complete login after successful 2FA verification. Exchanges the challenge token + TOTP code for a real JWT.
     /// </summary>
-    Task<AuthLoginResponse?> CompleteTwoFactorLoginAsync(string challengeToken, string code, bool isBackupCode, string ipAddress, CancellationToken cancellationToken);
+    /// <remarks>
+    /// Every refusal is an Unauthorized error naming what went wrong: the challenge is gone, the code
+    /// is wrong or spent, or the account is locked.
+    /// </remarks>
+    Task<ErrorOr<AuthLoginResponse>> CompleteTwoFactorLoginAsync(string challengeToken, string code, bool isBackupCode, string ipAddress, CancellationToken cancellationToken);
 
     /// <summary>
     /// Complete login after a successful passkey assertion.
@@ -376,21 +382,25 @@ public class AuthService : IAuthService
             .FirstOrDefaultAsync();
     }
 
-    public async Task<AuthLoginResponse?> CompleteTwoFactorLoginAsync(
+    public async Task<ErrorOr<AuthLoginResponse>> CompleteTwoFactorLoginAsync(
         string challengeToken, string code, bool isBackupCode, string ipAddress, CancellationToken cancellationToken)
     {
+        // The challenge lives only in this process's memory for five minutes, so a restart or deploy
+        // between the two steps loses it just as surely as waiting too long or signing in again.
         var userId = _pendingStore.GetChallengeUserId(challengeToken);
         if (userId is null)
         {
             _logger.LogWarning("Invalid or expired 2FA challenge token from IP: {IpAddress}", ipAddress);
-            return null;
+            return Errors.Auth.TwoFactorChallengeExpired;
         }
 
         var result = await _twoFactorService.VerifyCodeAsync(userId.Value, code, isBackupCode);
         if (!result.IsSuccess)
         {
-            _logger.LogWarning("Failed 2FA code verification for user {UserId} from IP: {IpAddress}", userId.Value, ipAddress);
-            return null;
+            _logger.LogWarning(
+                "Failed 2FA code verification for user {UserId} from IP: {IpAddress}: {Reason}",
+                userId.Value, ipAddress, result.FailureReason?.ToString() ?? result.Message);
+            return TwoFactorRefusal(result);
         }
 
         _pendingStore.ConsumeChallenge(challengeToken);
@@ -399,12 +409,28 @@ public class AuthService : IAuthService
         if (user is null || !user.IsActive)
         {
             _logger.LogWarning("2FA completed for unknown/inactive user {UserId}", userId.Value);
-            return null;
+            return Errors.Auth.InvalidCredentials;
         }
 
         user.LastLoginAt = DateTime.UtcNow;
         return await IssueLoginResponseAsync(user, ipAddress, cancellationToken);
     }
+
+    private static Error TwoFactorRefusal(ServiceResult result) => result.FailureReason switch
+    {
+        TwoFactorFailureReason.WrongCode => Errors.Auth.TwoFactorCodeInvalid,
+        TwoFactorFailureReason.CodeAlreadyUsed => Errors.Auth.TwoFactorCodeAlreadyUsed,
+        TwoFactorFailureReason.WrongBackupCode => Errors.Auth.TwoFactorBackupCodeInvalid,
+        TwoFactorFailureReason.NoBackupCodes => Errors.Auth.TwoFactorNoBackupCodes,
+        TwoFactorFailureReason.NotConfigured => Errors.Auth.TwoFactorNotConfigured,
+        TwoFactorFailureReason.LockedOut => Errors.Auth.TwoFactorLockedOut(MinutesUntil(result.LockedUntilUtc)),
+        // Two-factor was turned off after the password step, so a fresh sign-in needs no code.
+        TwoFactorFailureReason.NotEnabled => Errors.Auth.TwoFactorChallengeExpired,
+        _ => Errors.Auth.InvalidCredentials
+    };
+
+    private static int MinutesUntil(DateTime? utc) =>
+        utc is { } until ? Math.Max(1, (int)Math.Ceiling((until - DateTime.UtcNow).TotalMinutes)) : 1;
 
     public async Task<AuthLoginResponse?> CompletePasskeyLoginAsync(Guid userId, string ipAddress, CancellationToken cancellationToken)
     {

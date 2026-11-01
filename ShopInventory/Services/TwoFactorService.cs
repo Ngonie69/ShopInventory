@@ -205,12 +205,12 @@ public class TwoFactorService : ITwoFactorService
 
         if (!user.TwoFactorEnabled)
         {
-            return ServiceResult.Failure("Two-factor authentication is not enabled");
+            return ServiceResult.Failure("Two-factor authentication is not enabled", TwoFactorFailureReason.NotEnabled);
         }
 
         if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTime.UtcNow)
         {
-            return ServiceResult.Failure("Too many failed two-factor attempts. Please try again later.");
+            return LockedOut(user);
         }
 
         if (isBackupCode)
@@ -220,7 +220,7 @@ public class TwoFactorService : ITwoFactorService
 
         if (!TryGetSecret(user, out var secret, out var requiresSecretMigration))
         {
-            return ServiceResult.Failure("Two-factor authentication not properly configured");
+            return ServiceResult.Failure("Two-factor authentication not properly configured", TwoFactorFailureReason.NotConfigured);
         }
 
         return await VerifyTotpCodeAsync(user, secret, code, requiresSecretMigration);
@@ -308,7 +308,7 @@ public class TwoFactorService : ITwoFactorService
     {
         if (string.IsNullOrEmpty(user.TwoFactorBackupCodes))
         {
-            return ServiceResult.Failure("No backup codes available");
+            return ServiceResult.Failure("No backup codes available", TwoFactorFailureReason.NoBackupCodes);
         }
 
         try
@@ -317,7 +317,7 @@ public class TwoFactorService : ITwoFactorService
             var (storedCodes, backupCodesMigrated) = MigrateLegacyBackupCodes(codes);
             if (codes == null || codes.Count == 0)
             {
-                return ServiceResult.Failure("No backup codes available");
+                return ServiceResult.Failure("No backup codes available", TwoFactorFailureReason.NoBackupCodes);
             }
 
             // Normalize the code
@@ -350,9 +350,8 @@ public class TwoFactorService : ITwoFactorService
             _logger.LogError(ex, "Error verifying backup code for user {UserId}", user.Id);
         }
 
-        await RecordFailedTwoFactorAttemptAsync(user);
-
-        return ServiceResult.Failure("Invalid backup code");
+        return await RecordFailedTwoFactorAttemptAsync(
+            user, ServiceResult.Failure("Invalid backup code", TwoFactorFailureReason.WrongBackupCode));
     }
 
     private async Task<ServiceResult> VerifyTotpCodeAsync(User user, string secret, string code, bool requiresSecretMigration)
@@ -361,13 +360,15 @@ public class TwoFactorService : ITwoFactorService
 
         if (!TryGetMatchingTimeStep(secret, code, out var timeStep))
         {
-            await RecordFailedTwoFactorAttemptAsync(user);
-            return ServiceResult.Failure("Invalid verification code");
+            return await RecordFailedTwoFactorAttemptAsync(
+                user, ServiceResult.Failure("Invalid verification code", TwoFactorFailureReason.WrongCode));
         }
 
         if (user.TwoFactorLastUsedTimeStep == timeStep)
         {
-            return ServiceResult.Failure("This verification code was already used. Wait for a new code and try again.");
+            return ServiceResult.Failure(
+                "This verification code was already used. Wait for a new code and try again.",
+                TwoFactorFailureReason.CodeAlreadyUsed);
         }
 
         user.TwoFactorLastUsedTimeStep = timeStep;
@@ -389,12 +390,18 @@ public class TwoFactorService : ITwoFactorService
         return ServiceResult.Success("Code verified successfully");
     }
 
-    private async Task RecordFailedTwoFactorAttemptAsync(User user)
+    /// <summary>
+    /// Counts a wrong code against the account and answers with <paramref name="failure"/>, or with
+    /// the lockout when this was the attempt that locked it, so the caller hears about the lockout on
+    /// the attempt that caused it rather than on the next one.
+    /// </summary>
+    private async Task<ServiceResult> RecordFailedTwoFactorAttemptAsync(User user, ServiceResult failure)
     {
         user.FailedLoginAttempts++;
         user.UpdatedAt = DateTime.UtcNow;
 
-        if (user.FailedLoginAttempts >= _securitySettings.MaxFailedLoginAttempts)
+        var lockedNow = user.FailedLoginAttempts >= _securitySettings.MaxFailedLoginAttempts;
+        if (lockedNow)
         {
             user.LockoutEnd = DateTime.UtcNow.AddMinutes(_securitySettings.LockoutDurationMinutes);
             _logger.LogWarning(
@@ -404,6 +411,15 @@ public class TwoFactorService : ITwoFactorService
         }
 
         await _context.SaveChangesAsync();
+        return lockedNow ? LockedOut(user) : failure;
+    }
+
+    private static ServiceResult LockedOut(User user)
+    {
+        var result = ServiceResult.Failure(
+            "Too many failed two-factor attempts. Please try again later.", TwoFactorFailureReason.LockedOut);
+        result.LockedUntilUtc = user.LockoutEnd;
+        return result;
     }
 
     private bool TryGetSecret(User user, out string secret, out bool requiresSecretMigration)
@@ -739,4 +755,45 @@ public class ServiceResult
     {
         return new ServiceResult { IsSuccess = false, Message = errors.FirstOrDefault() ?? "Operation failed", Errors = errors };
     }
+
+    /// <summary>
+    /// Why a two-factor check failed, for a caller that answers each reason differently. Null on
+    /// every other failure.
+    /// </summary>
+    public TwoFactorFailureReason? FailureReason { get; set; }
+
+    /// <summary>When a <see cref="TwoFactorFailureReason.LockedOut"/> account unlocks.</summary>
+    public DateTime? LockedUntilUtc { get; set; }
+
+    public static ServiceResult Failure(string error, TwoFactorFailureReason reason)
+    {
+        var result = Failure(error);
+        result.FailureReason = reason;
+        return result;
+    }
+}
+
+/// <summary>Why <see cref="ITwoFactorService.VerifyCodeAsync"/> refused a code.</summary>
+public enum TwoFactorFailureReason
+{
+    /// <summary>The account no longer has two-factor authentication turned on.</summary>
+    NotEnabled,
+
+    /// <summary>Two-factor is on but the stored secret cannot be read.</summary>
+    NotConfigured,
+
+    /// <summary>Too many wrong codes; see <see cref="ServiceResult.LockedUntilUtc"/>.</summary>
+    LockedOut,
+
+    /// <summary>The authenticator code matches none of the current, previous or next 30-second steps.</summary>
+    WrongCode,
+
+    /// <summary>The authenticator code is right but was already spent on an earlier sign-in.</summary>
+    CodeAlreadyUsed,
+
+    /// <summary>The backup code is not one of the account's unused backup codes.</summary>
+    WrongBackupCode,
+
+    /// <summary>The account has no backup codes left.</summary>
+    NoBackupCodes
 }
