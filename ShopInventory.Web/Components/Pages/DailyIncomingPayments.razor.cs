@@ -52,8 +52,6 @@ public partial class DailyIncomingPayments
 
     private const string SwitchedOffPrefix = "Daily payments for ";
 
-    /// <summary>The API's <c>DesktopSalePosting:DailyPaymentLookbackDays</c> default: how far back switching on pays.</summary>
-    private const int LookbackDays = 7;
     private const int AttentionCards = 6;
 
     private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;

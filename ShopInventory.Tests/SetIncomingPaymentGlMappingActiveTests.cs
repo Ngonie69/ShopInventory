@@ -2,6 +2,7 @@ using ErrorOr;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.Features.DailyIncomingPayments.Commands.SetIncomingPaymentGlMappingActive;
 using ShopInventory.Models.Entities;
@@ -53,6 +54,9 @@ public sealed class SetIncomingPaymentGlMappingActiveTests : IDisposable
         // Only saving the full form confirms the accounts, so the review flag stays.
         Assert.True(saved.NeedsReview);
         Assert.Equal("tester", saved.UpdatedBy);
+        // Paid from the day it was switched on, never for invoices its cashier already settled.
+        Assert.Equal(DailyPaymentSwitch.TradingDay(DateTime.UtcNow), saved.PaysFrom);
+        Assert.Equal(saved.PaysFrom, result.Value.PaysFrom);
     }
 
     [Fact]

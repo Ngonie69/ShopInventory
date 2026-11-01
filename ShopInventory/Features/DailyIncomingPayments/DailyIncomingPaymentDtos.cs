@@ -11,7 +11,8 @@ public sealed record IncomingPaymentGlMappingDto(
     bool NeedsReview,
     bool IsActive,
     DateTime UpdatedAtUtc,
-    string? UpdatedBy);
+    string? UpdatedBy,
+    DateTime? PaysFrom = null);
 
 /// <summary>One daily incoming payment, as the list shows it.</summary>
 public sealed record DailyIncomingPaymentSummaryDto(

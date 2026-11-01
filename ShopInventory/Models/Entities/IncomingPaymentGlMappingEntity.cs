@@ -69,6 +69,19 @@ public class IncomingPaymentGlMappingEntity
 
     public bool IsActive { get; set; } = true;
 
+    /// <summary>
+    /// The first trading day, in CAT, whose invoices the daily payment pays: the day the partner was last
+    /// switched on. Earlier invoices are never claimed and stay with finance.
+    /// </summary>
+    /// <remarks>
+    /// Before a partner is switched on, its cashier posts the day's receipt by hand. Some apply it to the
+    /// invoices; others post it on account, which leaves every invoice looking unpaid in SAP. The run's
+    /// balance check cannot see a receipt on account, so without this floor the first run would book those
+    /// days' cash a second time. Null puts no floor under the lookback.
+    /// </remarks>
+    [Column(TypeName = "date")]
+    public DateTime? PaysFrom { get; set; }
+
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 
     [MaxLength(100)]

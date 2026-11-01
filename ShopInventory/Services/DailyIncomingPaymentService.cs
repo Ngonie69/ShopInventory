@@ -31,7 +31,8 @@ namespace ShopInventory.Services;
 /// <item>Hands back the invoices of an earlier day's payment that never reached SAP, so today's picks them up.</item>
 /// <item>Creates the day's payment for each switched-on partner that has none yet, claiming its invoices.
 /// A partner is switched on by its active <see cref="IncomingPaymentGlMappingEntity"/>; any other partner's
-/// invoices are left open.</item>
+/// invoices are left open. So are a switched-on partner's invoices dated before
+/// <see cref="IncomingPaymentGlMappingEntity.PaysFrom"/>, the day it was switched on.</item>
 /// <item>Posts the day's payments that have not posted, to the partner's mapped G/L accounts. A payment
 /// whose partner was switched off after it was claimed is held, never posted to SAP's default account.</item>
 /// <item>Emails the people who receive the cash for each payment that has posted.</item>
@@ -101,6 +102,12 @@ public sealed class DailyIncomingPaymentService(
             .Select(mapping => mapping.CardCode)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // The day each partner was switched on. Its invoices from before then were settled by its cashier,
+        // sometimes as a receipt on account that the balance check cannot see, so they are never claimed.
+        var paysFrom = mappings.Values
+            .Where(mapping => mapping.IsActive && mapping.PaysFrom is not null)
+            .ToDictionary(mapping => mapping.CardCode, mapping => mapping.PaysFrom!.Value.Date, StringComparer.OrdinalIgnoreCase);
+
         await ResolveUnresolvedAsync(utcNow, result, cancellationToken);
 
         foreach (var run in new[] { DailyPaymentRun.Shops, DailyPaymentRun.Vans })
@@ -109,7 +116,7 @@ public sealed class DailyIncomingPaymentService(
                 ? ParseTime(settings.Value.VanDailyPaymentTimeCAT, new TimeSpan(20, 0, 0))
                 : ParseTime(settings.Value.DailyPaymentTimeCAT, new TimeSpan(17, 0, 0));
             var (paymentDate, cutoffUtc) = PeriodFor(utcNow, time, QuartzConfiguration.CatTimeZone);
-            var scope = new RunScope(run, vanPartners, enabledPartners);
+            var scope = new RunScope(run, vanPartners, enabledPartners, paysFrom);
 
             if (run == DailyPaymentRun.Shops)
             {
@@ -142,7 +149,12 @@ public sealed class DailyIncomingPaymentService(
 
     /// <summary>Which partners a run pays: a van run pays the van-mapped partners, a shop run every other.</summary>
     /// <param name="EnabledPartners">The partners whose daily payment is switched on.</param>
-    private sealed record RunScope(DailyPaymentRun Run, IReadOnlySet<string> VanPartners, IReadOnlySet<string> EnabledPartners)
+    /// <param name="PaysFrom">The first trading day each switched-on partner is paid for, where one is set.</param>
+    private sealed record RunScope(
+        DailyPaymentRun Run,
+        IReadOnlySet<string> VanPartners,
+        IReadOnlySet<string> EnabledPartners,
+        IReadOnlyDictionary<string, DateTime> PaysFrom)
     {
         /// <summary>Whether the partner belongs to this run, switched on or not.</summary>
         public bool Includes(string? cardCode) =>
@@ -151,6 +163,14 @@ public sealed class DailyIncomingPaymentService(
         /// <summary>Whether this run claims the partner's invoices: it belongs to the run and is switched on.</summary>
         public bool Claims(string? cardCode) =>
             Includes(cardCode) && EnabledPartners.Contains(cardCode ?? string.Empty);
+
+        /// <summary>
+        /// Whether this run claims an invoice of the partner's dated <paramref name="tradingDay"/>: the
+        /// partner is claimed, and the day is not before it was switched on.
+        /// </summary>
+        public bool Claims(string? cardCode, DateTime tradingDay) =>
+            Claims(cardCode)
+            && (!PaysFrom.TryGetValue(cardCode ?? string.Empty, out var from) || tradingDay.Date >= from);
     }
 
     /// <summary>
@@ -325,7 +345,7 @@ public sealed class DailyIncomingPaymentService(
                                && ClaimingStatuses.Contains(line.DailyIncomingPayment!.Status)))
             .OrderBy(sale => sale.Id)
             .ToListAsync(cancellationToken);
-        sales = sales.Where(sale => scope.Claims(sale.CardCode)).ToList();
+        sales = sales.Where(sale => scope.Claims(sale.CardCode, sale.DocDate)).ToList();
 
         var consolidations = await context.SaleConsolidations
             .Where(consolidation => consolidation.SapDocEntry != null
@@ -341,7 +361,9 @@ public sealed class DailyIncomingPaymentService(
                                         && ClaimingStatuses.Contains(line.DailyIncomingPayment!.Status)))
             .OrderBy(consolidation => consolidation.Id)
             .ToListAsync(cancellationToken);
-        consolidations = consolidations.Where(consolidation => scope.Claims(consolidation.CardCode)).ToList();
+        consolidations = consolidations
+            .Where(consolidation => scope.Claims(consolidation.CardCode, consolidation.ConsolidationDate))
+            .ToList();
 
         // An online van sale went straight to SAP, and its confirmed reservation is its only local record.
         var lookbackStartUtc = DateTime.SpecifyKind(lookbackStart, DateTimeKind.Utc).AddHours(-2);
@@ -358,7 +380,9 @@ public sealed class DailyIncomingPaymentService(
                                       && ClaimingStatuses.Contains(line.DailyIncomingPayment!.Status)))
             .OrderBy(reservation => reservation.Id)
             .ToListAsync(cancellationToken);
-        reservations = reservations.Where(reservation => scope.Claims(reservation.CardCode)).ToList();
+        reservations = reservations
+            .Where(reservation => scope.Claims(reservation.CardCode, DailyPaymentSwitch.TradingDay(reservation.CreatedAt)))
+            .ToList();
 
         var consolidationIds = consolidations.Select(consolidation => consolidation.Id).ToList();
         var linkedSales = consolidationIds.Count == 0
