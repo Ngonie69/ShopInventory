@@ -105,6 +105,23 @@ internal static partial class ApiErrorResponse
         return fallbackMessage;
     }
 
+    /// <summary>
+    /// The sentence a problem+json body carries for the user, or null when it carries none.
+    /// </summary>
+    /// <remarks>
+    /// For a caller that knows its 401 or 403 means something other than "signed out" or "not
+    /// allowed", which <see cref="GetFriendlyMessage(HttpStatusCode?, string?, string, string?, string?)"/>
+    /// assumes. Unlike <see cref="NormalizeUserMessage"/>, a body with no message gives null rather
+    /// than the raw JSON.
+    /// </remarks>
+    public static string? TryGetUserMessage(string? responseContent)
+    {
+        var structuredMessage = TryExtractStructuredMessage(responseContent);
+        return string.IsNullOrWhiteSpace(structuredMessage)
+            ? null
+            : NormalizeUserMessage(structuredMessage) ?? structuredMessage;
+    }
+
     public static string? NormalizeUserMessage(string? message)
     {
         if (string.IsNullOrWhiteSpace(message))

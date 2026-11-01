@@ -520,10 +520,24 @@ Finish a login that came back `requiresTwoFactor`.
 `code` is the six-digit TOTP from the authenticator app, or one of the backup codes issued by
 `/api/TwoFactor/enable` when `isBackupCode` is `true`. A backup code is spent on use.
 
-A bad code, a spent backup code, an expired challenge token and a token that never existed are
-**one refusal**, the same `Auth.InvalidCredentials` a wrong password gets. Separating them would let
-the endpoint confirm that a username and password were right, which is exactly what the second
-factor exists to stop being enough.
+Every refusal is a **403** naming what went wrong:
+
+| `code` | When |
+|---|---|
+| `Auth.TwoFactorChallengeExpired` | The challenge token is unknown: more than five minutes old, replaced by a newer sign-in for the same user, or lost when the API restarted (challenges live in process memory, so a deploy between the two steps clears them). Also when two-factor was turned off after the password step. Sign in with the password again |
+| `Auth.TwoFactorCodeInvalid` | The six-digit code matches none of the previous, current or next 30-second steps |
+| `Auth.TwoFactorCodeAlreadyUsed` | The code is right but was already spent on an earlier sign-in |
+| `Auth.TwoFactorBackupCodeInvalid` | `isBackupCode` is `true` and the code is not an unused backup code |
+| `Auth.TwoFactorNoBackupCodes` | `isBackupCode` is `true` and the account has no backup codes left |
+| `Auth.TwoFactorLockedOut` | Too many wrong codes (`Security:MaxFailedLoginAttempts`). The `detail` says how many minutes are left. This is also the answer to the wrong code that triggers the lockout |
+| `Auth.TwoFactorNotConfigured` | Two-factor is on but the stored secret cannot be read; an admin has to reset it |
+| `Auth.InvalidCredentials` | The user was deactivated between the two steps |
+
+A wrong code leaves the challenge open, so a client can ask again. Until 2026-10-31 all of these were
+one `Auth.InvalidCredentials`, on the reasoning that separating them would confirm the password.
+It would not: `login` only issues a challenge token once the password is right, so step two has
+nothing left to reveal about it. Every refusal stays a 403 because the KefShop till treats any
+401/403 here as "code not accepted" and keeps the challenge open.
 
 Both outcomes are audited: success as a login naming the user, failure as `LoginFailed` against
 `"Unknown"` — the challenge token is not resolved to a user before it has been proved, so a failed

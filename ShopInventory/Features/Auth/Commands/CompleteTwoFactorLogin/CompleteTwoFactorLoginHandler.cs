@@ -1,6 +1,5 @@
 using ErrorOr;
 using MediatR;
-using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -19,26 +18,27 @@ public sealed class CompleteTwoFactorLoginHandler(
         var result = await authService.CompleteTwoFactorLoginAsync(
             command.ChallengeToken, command.Code, command.IsBackupCode, command.IpAddress, cancellationToken);
 
-        if (result is null)
+        if (result.IsError)
         {
             try
             {
                 await auditService.LogAsync(
                     AuditActions.LoginFailed, "Unknown", "Unknown", "User", null,
-                    "Failed 2FA challenge", null, false, "Invalid or expired 2FA code");
+                    "Failed 2FA challenge", null, false, result.FirstError.Code);
             }
             catch { }
-            return Errors.Auth.InvalidCredentials;
+            return result.Errors;
         }
 
+        var response = result.Value;
         try
         {
             await auditService.LogAsync(
-                AuditActions.Login, result.User?.Username ?? "Unknown", result.User?.Role ?? "Unknown",
-                "User", null, $"User {result.User?.Username} completed 2FA login");
+                AuditActions.Login, response.User?.Username ?? "Unknown", response.User?.Role ?? "Unknown",
+                "User", null, $"User {response.User?.Username} completed 2FA login");
         }
         catch { }
 
-        return result;
+        return response;
     }
 }

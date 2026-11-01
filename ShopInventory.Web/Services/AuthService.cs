@@ -133,10 +133,17 @@ public class AuthService : IAuthService
             _logger.LogWarning("2FA challenge failed. Status: {StatusCode}, Error: {Error}",
                 response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
+            // The API refuses this step with a 403 that says why: wrong code, code already used,
+            // sign-in expired, or locked out. GetFriendlyMessage would replace any 403 with "you do
+            // not have permission", so pass the API's own sentence through.
+            var refusal = ApiErrorResponse.TryGetUserMessage(errorContent)
+                ?? "That code was not accepted. Enter the code your authenticator app shows now.";
             return (false, ApiErrorResponse.GetFriendlyMessage(
                 response.StatusCode,
                 errorContent,
-                "Invalid code"), null);
+                "Invalid code",
+                unauthorizedMessage: refusal,
+                forbiddenMessage: refusal), null);
         }
         catch (Exception ex)
         {
