@@ -3,7 +3,8 @@ using ShopInventory.Models;
 namespace ShopInventory.Common.Sales;
 
 /// <summary>
-/// A SAP sales order's amounts in the order's own currency.
+/// A SAP marketing document's amounts in the document's own currency: sales orders, quotations,
+/// purchase orders, purchase invoices, goods receipt POs and purchase quotations.
 /// </summary>
 /// <remarks>
 /// SAP keeps two sets of figures on every document. <c>DocTotal</c>, <c>VatSum</c>,
@@ -20,44 +21,44 @@ namespace ShopInventory.Common.Sales;
 /// </remarks>
 public static class SapDocumentAmounts
 {
-    /// <summary>Whether SAP holds the order in a currency other than the company's local one.</summary>
-    public static bool IsForeignCurrency(SAPSalesOrder order) =>
-        order.DocTotalFc is { } foreignTotal && foreignTotal != 0m;
+    /// <summary>Whether SAP holds the document in a currency other than the company's local one.</summary>
+    public static bool IsForeignCurrency(ISapDocumentAmounts document) =>
+        document.DocTotalFc is { } foreignTotal && foreignTotal != 0m;
 
-    /// <summary>The order total, tax included, in the order's currency. Null when SAP sent no total.</summary>
-    public static decimal? DocTotal(SAPSalesOrder order) =>
-        IsForeignCurrency(order) ? order.DocTotalFc : order.DocTotal;
+    /// <summary>The document total, tax included, in the document's currency. Null when SAP sent no total.</summary>
+    public static decimal? DocTotal(ISapDocumentAmounts document) =>
+        IsForeignCurrency(document) ? document.DocTotalFc : document.DocTotal;
 
-    /// <summary>The order's tax in its own currency. Null when SAP sent none.</summary>
-    public static decimal? VatSum(SAPSalesOrder order) =>
-        IsForeignCurrency(order)
-            ? order.VatSumFc ?? ToDocumentCurrency(order, order.VatSum)
-            : order.VatSum;
+    /// <summary>The document's tax in its own currency. Null when SAP sent none.</summary>
+    public static decimal? VatSum(ISapDocumentAmounts document) =>
+        IsForeignCurrency(document)
+            ? document.VatSumFc ?? ToDocumentCurrency(document, document.VatSum)
+            : document.VatSum;
 
-    /// <summary>The header discount in the order's own currency. Null when SAP sent none.</summary>
-    public static decimal? TotalDiscount(SAPSalesOrder order) =>
-        IsForeignCurrency(order)
-            ? order.TotalDiscountFC ?? ToDocumentCurrency(order, order.TotalDiscount)
-            : order.TotalDiscount;
+    /// <summary>The header discount in the document's own currency. Null when SAP sent none.</summary>
+    public static decimal? TotalDiscount(ISapDocumentAmounts document) =>
+        IsForeignCurrency(document)
+            ? document.TotalDiscountFC ?? ToDocumentCurrency(document, document.TotalDiscount)
+            : document.TotalDiscount;
 
-    /// <summary>A line's total in the order's currency. Null when SAP sent none.</summary>
-    public static decimal? LineTotal(SAPSalesOrder order, SAPSalesOrderLine line) =>
-        IsForeignCurrency(order)
-            ? line.RowTotalFC ?? ToDocumentCurrency(order, line.LineTotal)
+    /// <summary>A line's total in the document's currency. Null when SAP sent none.</summary>
+    public static decimal? LineTotal(ISapDocumentAmounts document, ISapDocumentLineAmounts line) =>
+        IsForeignCurrency(document)
+            ? line.RowTotalFC ?? ToDocumentCurrency(document, line.LineTotal)
             : line.LineTotal;
 
     /// <summary>
     /// Converts a local-currency amount at the document's own ratio of its two totals, for a read
     /// that left the foreign-currency field out of its <c>$select</c>.
     /// </summary>
-    private static decimal? ToDocumentCurrency(SAPSalesOrder order, decimal? localAmount)
+    private static decimal? ToDocumentCurrency(ISapDocumentAmounts document, decimal? localAmount)
     {
         if (localAmount is not { } amount)
             return null;
 
-        if (order.DocTotal is not { } localTotal || localTotal == 0m)
-            return order.DocRate is { } rate && rate > 0m ? Math.Round(amount * rate, 2) : null;
+        if (document.DocTotal is not { } localTotal || localTotal == 0m)
+            return document.DocRate is { } rate && rate > 0m ? Math.Round(amount * rate, 2) : null;
 
-        return Math.Round(amount * order.DocTotalFc.GetValueOrDefault() / localTotal, 2);
+        return Math.Round(amount * document.DocTotalFc.GetValueOrDefault() / localTotal, 2);
     }
 }

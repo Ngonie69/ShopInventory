@@ -5,7 +5,7 @@ namespace ShopInventory.Models;
 /// <summary>
 /// SAP Business One Sales Order model
 /// </summary>
-public class SAPSalesOrder
+public class SAPSalesOrder : ISapDocumentAmounts
 {
     [JsonPropertyName("DocEntry")]
     public int DocEntry { get; set; }
@@ -95,7 +95,7 @@ public class SAPSalesOrder
 /// <summary>
 /// SAP Business One Sales Order Line model
 /// </summary>
-public class SAPSalesOrderLine
+public class SAPSalesOrderLine : ISapDocumentLineAmounts
 {
     [JsonPropertyName("LineNum")]
     public int LineNum { get; set; }

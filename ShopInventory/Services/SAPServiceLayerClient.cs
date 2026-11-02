@@ -367,9 +367,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // document total, and SAPPurchaseRequest.DocTotal is nullable and read as `?? 0` because it was
     // never populated.
     private const string PurchaseRequestSelect = "$select=DocEntry,DocNum,DocDate,RequriedDate,Comments,Requester,RequesterName,DocumentStatus,Cancelled,DocumentLines";
-    private const string PurchaseQuotationSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,VatSum,DiscountPercent,TotalDiscount,DocCurrency,DocumentStatus,Cancelled,Address,Address2,DocumentLines";
-    private const string GoodsReceiptPurchaseOrderSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,VatSum,DiscountPercent,TotalDiscount,DocCurrency,DocumentStatus,Cancelled,Address,Address2,DocumentLines";
-    private const string PurchaseInvoiceSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,VatSum,DiscountPercent,TotalDiscount,DocCurrency,DocumentStatus,Cancelled,Address,Address2,DocumentLines";
+    private const string PurchaseQuotationSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DiscountPercent,TotalDiscount,DocCurrency,DocumentStatus,Cancelled,Address,Address2,DocumentLines";
+    private const string GoodsReceiptPurchaseOrderSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DiscountPercent,TotalDiscount,DocCurrency,DocumentStatus,Cancelled,Address,Address2,DocumentLines";
+    private const string PurchaseInvoiceSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DiscountPercent,TotalDiscount,DocCurrency,DocumentStatus,Cancelled,Address,Address2,DocumentLines";
     // No BaseEntry or BaseType: on an A/R credit memo those live on the line, not the header, and
     // SAP rejects them here. ResolveOriginalInvoiceDocEntry already reads the header field with a
     // fallback to the lines, and the fallback was always what actually answered.
