@@ -46,6 +46,8 @@ public static class QuartzConfiguration
             .Get<CartrackSettings>() ?? new CartrackSettings();
         var customerDocuments = configuration.GetSection(CustomerDocumentDeliverySettings.SectionName)
             .Get<CustomerDocumentDeliverySettings>() ?? new CustomerDocumentDeliverySettings();
+        var exchangeRateMonitor = configuration.GetSection(ExchangeRateMonitorSettings.SectionName)
+            .Get<ExchangeRateMonitorSettings>() ?? new ExchangeRateMonitorSettings();
 
         services.AddQuartz(q =>
         {
@@ -129,6 +131,17 @@ public static class QuartzConfiguration
             {
                 AddIntervalJob<TransferArrivalAlertJob>(
                     q, TransferArrivalAlertJob.JobName, TimeSpan.FromMinutes(2), startDelay: TimeSpan.FromMinutes(2));
+            }
+
+            // Watches the rate SAP books ZiG documents at: changes, re-keyed days, and the day the keyed
+            // rates run out. See ExchangeRateMonitor.
+            if (sap.Enabled && exchangeRateMonitor.Enabled)
+            {
+                AddIntervalJob<ExchangeRateMonitorJob>(
+                    q,
+                    ExchangeRateMonitorJob.JobName,
+                    TimeSpan.FromMinutes(Math.Max(1, exchangeRateMonitor.IntervalMinutes)),
+                    startDelay: TimeSpan.FromMinutes(2));
             }
 
             // The sales reports' gross profit is read from a copy of SAP's booked invoice cost, never

@@ -823,13 +823,15 @@ BasePath = "/api/ExchangeRate",
 Description = "Currency exchange rates for multi-currency transactions.",
 Icon = Icons.Material.Filled.CurrencyExchange,
 Color = Color.Primary,
-Methods = new[] { "GET" },
+Methods = new[] { "GET", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/ExchangeRate", "Get all exchange rates"),
 new("GET", "/api/ExchangeRate/{fromCurrency}/{toCurrency}", "Get rate between two currencies"),
 new("GET", "/api/ExchangeRate/{fromCurrency}/{toCurrency}/history", "Get rate history"),
-new("GET", "/api/ExchangeRate/convert", "Convert amount between currencies")
+new("GET", "/api/ExchangeRate/convert", "Convert amount between currencies"),
+new("GET", "/api/ExchangeRate/monitor", "Get monitor status"),
+new("POST", "/api/ExchangeRate/monitor/check", "Run monitor check")
 }
 },
 new ApiModule

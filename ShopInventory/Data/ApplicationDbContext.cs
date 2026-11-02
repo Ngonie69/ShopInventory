@@ -181,6 +181,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
   // System tables
   public DbSet<ExchangeRateEntity> ExchangeRates { get; set; }
+  public DbSet<ExchangeRateObservationEntity> ExchangeRateObservations { get; set; }
+  public DbSet<ExchangeRateMonitorAlertEntity> ExchangeRateMonitorAlerts { get; set; }
+  public DbSet<ExchangeRateMonitorStateEntity> ExchangeRateMonitorStates { get; set; }
   public DbSet<SystemConfigEntity> SystemConfigs { get; set; }
   public DbSet<BackupEntity> Backups { get; set; }
   public DbSet<ApiRateLimitEntity> ApiRateLimits { get; set; }
@@ -1548,6 +1551,32 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
             .WithMany()
             .HasForeignKey(e => e.CreatedByUserId)
             .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // SAP exchange-rate monitor (ExchangeRateMonitor)
+    modelBuilder.Entity<ExchangeRateObservationEntity>(entity =>
+    {
+      entity.ToTable("ExchangeRateObservations");
+      entity.HasKey(e => e.Id);
+      // One current value per currency and day; a re-keyed day supersedes its row before adding one.
+      entity.HasIndex(e => new { e.Currency, e.RateDate })
+            .IsUnique()
+            .HasFilter("\"SupersededAtUtc\" IS NULL")
+            .HasDatabaseName("IX_ExchangeRateObservations_Currency_RateDate_Current");
+    });
+
+    modelBuilder.Entity<ExchangeRateMonitorAlertEntity>(entity =>
+    {
+      entity.ToTable("ExchangeRateMonitorAlerts");
+      entity.HasKey(e => e.Id);
+      entity.HasIndex(e => e.AlertKey).IsUnique();
+      entity.HasIndex(e => new { e.Currency, e.RaisedAtUtc });
+    });
+
+    modelBuilder.Entity<ExchangeRateMonitorStateEntity>(entity =>
+    {
+      entity.ToTable("ExchangeRateMonitorStates");
+      entity.HasKey(e => e.Currency);
     });
 
     // System Config configuration
