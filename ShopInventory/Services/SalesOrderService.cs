@@ -1768,7 +1768,7 @@ public class SalesOrderService : ISalesOrderService
         await PostApprovedOrderToSapCoreAsync(order, cancellationToken);
     }
 
-    private async Task PostApprovedOrderToSapCoreAsync(SalesOrderEntity order, CancellationToken cancellationToken)
+    internal async Task PostApprovedOrderToSapCoreAsync(SalesOrderEntity order, CancellationToken cancellationToken)
     {
         if (!CanPostToSap(order.Status))
         {
@@ -1795,6 +1795,13 @@ public class SalesOrderService : ISalesOrderService
                 order.SAPDocNum);
 
             return;
+        }
+
+        // Orders captured before the currency was corrected at capture still say USD, and SAP
+        // refuses that for a ZiG account. Correcting here lets them post on their next approval.
+        if (await AlignMobileOrderCurrencyWithPartnerAsync(order, cancellationToken))
+        {
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
         // Runs before the credit gate because an unpriced line understates DocTotal, so credit
@@ -3103,6 +3110,23 @@ public class SalesOrderService : ISalesOrderService
             }
         }
 
+        try
+        {
+            if (await AlignMobileOrderCurrencyWithPartnerAsync(order, cancellationToken))
+            {
+                changed = true;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not read the account currency for mobile sales order {OrderNumber} ({CardCode}); it keeps {Currency} until it is posted",
+                order.OrderNumber,
+                order.CardCode,
+                order.Currency);
+        }
+
         if (NeedsResolvedCardName(order.CardCode, order.CardName))
         {
             try
@@ -3210,6 +3234,56 @@ public class SalesOrderService : ISalesOrderService
 
         var discountAmount = subTotal * headerDiscountPercent / 100;
         return (subTotal, taxAmount, discountAmount, subTotal - discountAmount + taxAmount);
+    }
+
+    /// <summary>
+    /// Puts a merchandiser's mobile order in its account's own currency.
+    /// </summary>
+    /// <remarks>
+    /// The merchandiser app never sets a currency, so every order it sends says USD. A ZiG account
+    /// then shows ZiG price-list prices labelled USD, and SAP refuses the post with "enter valid
+    /// currency code [ORDR.DocCur], 'USD'" (SO-20261101-0008, TMP158, 2026-11-01). The lines are
+    /// priced from the account's price list, so the account's currency is the one that matches them.
+    /// <para>
+    /// Reads the partner's currency from the synced price profile, which holds every SAP customer,
+    /// frozen ones included, so no SAP call is made. An account set to "All currencies" (<c>##</c>)
+    /// keeps what the order says. Van orders are left alone: their account is the van's own, and the
+    /// handset chooses the currency on purpose. Returns true when the order was changed.
+    /// </para>
+    /// </remarks>
+    internal async Task<bool> AlignMobileOrderCurrencyWithPartnerAsync(SalesOrderEntity order, CancellationToken cancellationToken)
+    {
+        if (order.Source != SalesOrderSource.Mobile || string.IsNullOrWhiteSpace(order.CardCode))
+            return false;
+
+        var cardCode = order.CardCode.Trim();
+        var partnerCurrency = await _context.BusinessPartnerPriceProfiles
+            .AsNoTracking()
+            .Where(profile => profile.SyncedFromSAP && profile.CardCode == cardCode)
+            .Select(profile => profile.Currency)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        partnerCurrency = partnerCurrency?.Trim();
+        if (string.IsNullOrEmpty(partnerCurrency)
+            || partnerCurrency == "##"
+            || string.Equals(partnerCurrency, order.Currency?.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (await IsVanSalesOrderAsync(order.Id, cancellationToken))
+            return false;
+
+        _logger.LogInformation(
+            "Mobile sales order {OrderNumber} for {CardCode} arrived in {OrderCurrency}; it now carries the account's currency {PartnerCurrency}",
+            order.OrderNumber,
+            cardCode,
+            order.Currency,
+            partnerCurrency);
+
+        order.Currency = partnerCurrency.ToUpperInvariant();
+        order.UpdatedAt = DateTime.UtcNow;
+        return true;
     }
 
     private async Task<string?> ResolveCardNameAsync(string? cardCode, string? currentCardName, CancellationToken cancellationToken)
