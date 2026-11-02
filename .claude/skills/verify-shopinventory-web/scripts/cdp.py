@@ -278,10 +278,11 @@ class Chrome:
     def set_theme(self, dark: bool) -> None:
         """Switch the app between its light and dark palettes.
 
-        Two mechanisms, and both have to move. App.razor's pre-paint script
-        stamps `data-theme` on <html> and a `dark-theme` class on <html> and
-        <body>; nocturne-tokens.css keys its dark block on the attribute, while
-        the page sheets and app.css key theirs on the class. Toggling only the
+        Three markers, and all of them have to move. App.razor's pre-paint script
+        stamps `data-theme` and `data-bs-theme` on <html> and a `dark-theme`
+        class on <html> and <body>; nocturne-tokens.css keys its dark block on
+        `data-theme`, Bootstrap's colour mode on `data-bs-theme`, and the page
+        sheets and app.css on the class. Toggling only the
         class leaves `data-theme="dark"` in place, every token stays dark, and
         the "light" screenshot comes out dark -- a check that reports the same
         thing whether it ran or not.
@@ -294,6 +295,10 @@ class Chrome:
             "   el.classList.toggle('dark-theme', on);"
             " }"
             " r.setAttribute('data-theme', on ? 'dark' : 'light');"
+            # Bootstrap's colour mode follows data-bs-theme, which App.razor and app.js set
+            # alongside data-theme. Left dark, a "light" shot draws Bootstrap tables at
+            # #212529 and .text-muted at Bootstrap's dark grey.
+            " r.setAttribute('data-bs-theme', on ? 'dark' : 'light');"
             " return true; })()" % ("true" if dark else "false")
         )
         time.sleep(0.35)

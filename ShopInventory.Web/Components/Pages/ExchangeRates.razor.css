@@ -1,0 +1,59 @@
+/* The ZiG rate monitor's health colours. Scoped, so no page sheet can reach them, and not the
+   Bootstrap bg-success / alert-success classes: app.css paints success and danger the same grey
+   (#e5e5e5) in the light theme, so "OK" and "Action needed" would differ only in their words.
+   Same red and green as the SAP outage banner, so the two read alike. */
+
+.fxm-health {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.6;
+    vertical-align: middle;
+}
+
+.fxm-banner {
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.fxm-ok {
+    background: rgba(22, 163, 74, .10);
+    box-shadow: inset 0 0 0 1px rgba(22, 163, 74, .32);
+    color: #166534;
+}
+
+.fxm-warning {
+    background: rgba(217, 119, 6, .12);
+    box-shadow: inset 0 0 0 1px rgba(217, 119, 6, .36);
+    color: #92400e;
+}
+
+.fxm-error {
+    background: rgba(220, 38, 38, .10);
+    box-shadow: inset 0 0 0 1px rgba(220, 38, 38, .34);
+    color: #991b1b;
+}
+
+/* .dark-theme sits on <html> and <body>, outside this component, so the descendant selector
+   still reaches in; only the last element carries the scope attribute. */
+.dark-theme .fxm-ok {
+    background: rgba(74, 222, 128, .12);
+    box-shadow: inset 0 0 0 1px rgba(74, 222, 128, .3);
+    color: #86efac;
+}
+
+.dark-theme .fxm-warning {
+    background: rgba(251, 191, 36, .12);
+    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, .34);
+    color: #fde68a;
+}
+
+.dark-theme .fxm-error {
+    background: rgba(248, 113, 113, .14);
+    box-shadow: inset 0 0 0 1px rgba(248, 113, 113, .34);
+    color: #fca5a5;
+}

@@ -27,6 +27,187 @@
         </div>
     </div>
 
+    <!-- SAP rate monitor -->
+    @if (monitorStatuses is null)
+    {
+        @if (!isLoadingMonitor)
+        {
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle me-2"></i>The SAP rate monitor could not be read.
+            </div>
+        }
+    }
+    else
+    {
+        @foreach (var monitor in monitorStatuses)
+        {
+            <div class="card mb-4" data-testid="rate-monitor-@monitor.Currency">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <h5 class="mb-0">
+                        <i class="bi bi-activity me-2"></i>@monitor.Currency rate in SAP
+                        <span class="fxm-health @HealthClass(monitor.Health) ms-2">@HealthLabel(monitor.Health)</span>
+                    </h5>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                               OnClick="RunMonitorCheck" Disabled="@isCheckingRate">
+                        @if (isCheckingRate)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <i class="bi bi-arrow-repeat me-1"></i>Check SAP now
+                    </MudButton>
+                </div>
+                <div class="card-body">
+                    <div class="row g-4 align-items-start">
+                        <div class="col-md-4">
+                            <div class="text-muted small">Today, @monitor.Today.ToString("ddd d MMM yyyy")</div>
+                            @if (monitor.TodayRate is not null)
+                            {
+                                <h3 class="mb-1">@monitor.TodayRateText</h3>
+                                @if (monitor.LocalPerForeign is { } localPer && monitor.LocalCurrency is { } local)
+                                {
+                                    <div class="text-muted small">1 @monitor.Currency = @localPer.ToString("0.######") @local</div>
+                                }
+                            }
+                            else
+                            {
+                                <h3 class="mb-1 text-danger">No rate keyed</h3>
+                            }
+                        </div>
+                        <div class="col-md-4">
+                            <div class="text-muted small">Keyed in SAP through</div>
+                            <div class="fs-5">
+                                @if (monitor.KeyedThrough is { } through)
+                                {
+                                    @through.ToString("ddd d MMM yyyy")
+                                    @if (monitor.KeyedBeyondWindow)
+                                    {
+                                        <span class="text-muted small"> or later</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-danger">Not keyed for today</span>
+                                }
+                            </div>
+                            @if (monitor.DaysKeyedAhead is { } ahead)
+                            {
+                                <div class="text-muted small">@ahead day@(ahead == 1 ? "" : "s") ahead@(monitor.KeyedBeyondWindow ? " at least" : "")</div>
+                            }
+                        </div>
+                        <div class="col-md-4">
+                            <div class="text-muted small">Last checked</div>
+                            <div class="fs-5">@(monitor.LastCheckedAtUtc is { } checkedAt ? Cat(checkedAt) : "Never")</div>
+                            <div class="text-muted small">Every @monitor.CheckIntervalMinutes minutes</div>
+                        </div>
+                    </div>
+
+                    <div class="fxm-banner @HealthClass(monitor.Health) mt-3">
+                        @monitor.HealthReason
+                        @if (!string.IsNullOrWhiteSpace(monitor.LastError))
+                        {
+                            <div class="small mt-1">Last error: @monitor.LastError</div>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(monitorMessage))
+                    {
+                        <div class="small text-muted mt-2">@monitorMessage</div>
+                    }
+
+                    @if (monitor.PriceListFactors.Count > 0)
+                    {
+                        <h6 class="mt-4">@monitor.Currency price lists worked out from another list</h6>
+                        <p class="text-muted small mb-2">
+                            These lists are a fixed multiple of another list. They do not follow the rate above:
+                            when the rate changes in SAP, their prices stay where they are until the factor is changed.
+                            Where the base list holds USD prices, the factor is the rate those prices are converted at,
+                            so it is compared with today's rate below.
+                        </p>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Price list</th>
+                                        <th>Worked out from</th>
+                                        <th class="text-end">Factor</th>
+                                        <th class="text-end">Against today's rate</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var list in monitor.PriceListFactors)
+                                    {
+                                        <tr>
+                                            <td>@list.PriceListNo · @list.Name</td>
+                                            <td>@list.BasePriceList · @(list.BasePriceListName ?? "")</td>
+                                            <td class="text-end">@list.Factor.ToString("0.####")</td>
+                                            <td class="text-end">@FactorAgainstRate(list.Factor, monitor)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    <div class="row g-4 mt-1">
+                        <div class="col-lg-6">
+                            <h6 class="mt-3">Rate changes</h6>
+                            @if (monitor.Changes.Count == 0)
+                            {
+                                <p class="text-muted small mb-0">No change in the recorded history.</p>
+                            }
+                            else
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>From</th>
+                                                <th class="text-end">Was</th>
+                                                <th class="text-end">Became</th>
+                                                <th class="text-end">Change</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var change in monitor.Changes.Take(12))
+                                            {
+                                                <tr>
+                                                    <td>@change.RateDate.ToString("ddd d MMM yyyy")</td>
+                                                    <td class="text-end">@change.PreviousRate.ToString("0.######")</td>
+                                                    <td class="text-end">@change.Rate.ToString("0.######")</td>
+                                                    <td class="text-end">@change.PercentChange.ToString("+0.##;-0.##;0")%</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                        <div class="col-lg-6">
+                            <h6 class="mt-3">Recent alerts</h6>
+                            @if (monitor.RecentAlerts.Count == 0)
+                            {
+                                <p class="text-muted small mb-0">None raised.</p>
+                            }
+                            else
+                            {
+                                <ul class="list-unstyled small mb-0">
+                                    @foreach (var alert in monitor.RecentAlerts.Take(8))
+                                    {
+                                        <li class="mb-2">
+                                            <span class="fxm-health @HealthClass(alert.Severity) me-1">@alert.Kind</span>
+                                            <span class="text-muted">@Cat(alert.RaisedAtUtc)</span>
+                                            <div>@alert.Message</div>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+
     <!-- Quick Converter -->
     <div class="card mb-4">
         <div class="card-header">
@@ -335,6 +516,10 @@
         NocturneSelectOption.FromLabels("ZIG", "USD", "EUR", "GBP", "ZAR");
 
     private List<ExchangeRateDto>? rates;
+    private List<ExchangeRateMonitorStatus>? monitorStatuses;
+    private bool isLoadingMonitor = true;
+    private bool isCheckingRate;
+    private string? monitorMessage;
     private ExchangeRateDto? editingRate;
     private ExchangeRateHistoryResponse? historyData;
     private bool isLoading = true;
@@ -356,7 +541,13 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadRates();
+        // The monitor reads the API's own record and answers at once; the rate cards ask SAP live.
+        // Draw the monitor as soon as it is in, so it is on screen when SAP is slow or down, which
+        // is exactly when it matters.
+        var rates = LoadRates();
+        await LoadMonitor();
+        StateHasChanged();
+        await rates;
         await AuditService.LogAsync(AuditActions.ViewExchangeRates, "ExchangeRate", null);
     }
 
@@ -382,6 +573,71 @@
             isLoading = false;
         }
     }
+
+    private async Task LoadMonitor()
+    {
+        isLoadingMonitor = true;
+        try
+        {
+            monitorStatuses = await ExchangeRateService.GetMonitorStatusAsync();
+        }
+        finally
+        {
+            isLoadingMonitor = false;
+        }
+    }
+
+    private async Task RunMonitorCheck()
+    {
+        isCheckingRate = true;
+        monitorMessage = null;
+        try
+        {
+            var results = await ExchangeRateService.RunMonitorCheckAsync();
+            monitorMessage = results is null
+                ? "The check could not be run."
+                : string.Join(" ", results.Select(r => r.Succeeded
+                    ? $"{r.Currency}: checked with SAP, {(r.AlertsRaised == 0 ? "no new alerts" : $"{r.AlertsRaised} new alert{(r.AlertsRaised == 1 ? "" : "s")}")}."
+                    : $"{r.Currency}: SAP could not be read: {r.Error}"));
+            await Task.WhenAll(LoadMonitor(), LoadRates());
+        }
+        finally
+        {
+            isCheckingRate = false;
+        }
+    }
+
+    private static string Cat(DateTime utc) =>
+        IAuditService.ToCAT(utc.Kind == DateTimeKind.Utc ? utc : DateTime.SpecifyKind(utc, DateTimeKind.Utc))
+            .ToString("d MMM HH:mm");
+
+    private static string HealthLabel(string health) => health switch
+    {
+        "Ok" => "OK",
+        "Error" => "Action needed",
+        "Warning" => "Check",
+        _ => health
+    };
+
+    private static string HealthClass(string health) => health switch
+    {
+        "Ok" or "Info" => "fxm-ok",
+        "Error" => "fxm-error",
+        _ => "fxm-warning"
+    };
+
+    /// <summary>The factor next to today's rate as ZiG per USD: 36 against 30 is +20%.</summary>
+    private static string FactorAgainstRate(decimal factor, ExchangeRateMonitorStatus monitor)
+    {
+        if (monitor.ForeignPerLocal is not { } perLocal || perLocal == 0)
+        {
+            return "—";
+        }
+
+        var difference = (factor - perLocal) / perLocal * 100m;
+        return Math.Abs(difference) < 0.005m ? "Same" : $"{difference:+0.#;-0.#}%";
+    }
+
 
     private async Task SaveRate()
     {

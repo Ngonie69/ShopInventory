@@ -2166,6 +2166,13 @@ switched off.
 | GET | `/api/ExchangeRate/{fromCurrency}/{toCurrency}` | Current rate between two currencies |
 | GET | `/api/ExchangeRate/{fromCurrency}/{toCurrency}/history?days={days}` | Rate history (default 30 days) |
 | GET | `/api/ExchangeRate/convert?from={from}&to={to}&amount={amount}` | Convert an amount |
+| GET | `/api/ExchangeRate/monitor` | SAP rate monitor per watched currency (ZiG): today's rate, how far ahead SAP has rates keyed, health, changes, recent alerts and the price lists that are a fixed multiple of another list. Read from what the monitor recorded; never calls SAP |
+| POST | `/api/ExchangeRate/monitor/check` | Run a rate monitor pass against SAP now (the job runs every `ExchangeRateMonitor:IntervalMinutes`, 15). Returns per currency whether SAP was read and how many new alerts were raised. Roles: Admin, ApiUser, Cashier, StockController (not Manager: a pass can raise alerts) |
+
+SAP's rate is "1 USD = 30 ZiG" in production: the local currency is USD and rates are quoted
+indirectly. Both are read from SAP (`CompanyService_GetAdminInfo`), not assumed. Rates are keyed per
+day in SAP; a day with none makes SAP refuse every document in that currency dated that day
+(`-4006 "Update the exchange rate"`), which the monitor warns about `RunningOutWarningDays` (7) ahead.
 
 **Exchange Rate DTO:**
 

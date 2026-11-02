@@ -2774,7 +2774,9 @@ html.dark-theme {
 }
 
 .dark-theme .card-header {
-    background-color: #1e293b;
+    /* The shorthand, not background-color: the light rule paints a gradient image, which a colour
+       alone leaves on top, so the header stayed near-white under light text. */
+    background: #1e293b;
     border-bottom-color: var(--border-color);
     color: var(--text-primary);
 }

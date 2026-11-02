@@ -17467,9 +17467,12 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         await EnsureAuthenticatedAsync(cancellationToken);
 
         // Query exchange rates from SAP - ORTT table contains exchange rates
-        var sqlText = @"SELECT T0.""Currency"", T0.""RateDate"", T0.""Rate""
+        // Today's rate, not the latest keyed: SAP keys rates ahead (production had ZiG through 30 Nov
+        // on 2 Nov), and the latest of those is not the rate anything books at today.
+        var today = ExchangeRateMonitorDates.TodayCat(DateTime.UtcNow).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var sqlText = $@"SELECT T0.""Currency"", T0.""RateDate"", T0.""Rate""
                         FROM ORTT T0
-                        WHERE T0.""RateDate"" = (SELECT MAX(T1.""RateDate"") FROM ORTT T1 WHERE T1.""Currency"" = T0.""Currency"")
+                        WHERE T0.""RateDate"" = (SELECT MAX(T1.""RateDate"") FROM ORTT T1 WHERE T1.""Currency"" = T0.""Currency"" AND T1.""RateDate"" <= '{today}')
                         ORDER BY T0.""Currency""";
 
         var rows = await RunStoredSqlQueryAsync(
@@ -17512,9 +17515,12 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         // Query specific exchange rate from SAP. The date literal changes per call, so
         // RunStoredSqlQueryAsync PATCHes the stored query text before executing.
+        // ORTT holds SAP's own code and HANA compares it case-sensitively. ZiG is mixed case, so the
+        // upper-cased suffix ('ZIG') matched no row and the ZiG rate was never found.
+        var sapCode = SapCurrencyCodes.ToSapCode(currency);
         var sqlText = $@"SELECT TOP 1 T0.""Currency"", T0.""RateDate"", T0.""Rate""
                          FROM ORTT T0
-                         WHERE T0.""Currency"" = '{queryCodeSuffix}'
+                         WHERE T0.""Currency"" = '{sapCode}'
                          AND T0.""RateDate"" <= '{formattedDate}'
                          ORDER BY T0.""RateDate"" DESC";
 

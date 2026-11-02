@@ -839,6 +839,24 @@ public interface ISAPServiceLayerClient
     Task<SAPExchangeRate?> GetExchangeRateAsync(string currency, DateTime? date = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The rate SAP has keyed for <paramref name="currency"/> on <paramref name="date"/>, through
+    /// <c>SBOBobService_GetCurrencyRate</c> — the rate a document in that currency dated that day is
+    /// booked at. "None keyed" (SAP -4006) is an answer; any other failure throws.
+    /// </summary>
+    Task<SapCurrencyRateLookup> GetCurrencyRateAsync(string currency, DateTime date, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The company's local currency and whether its rates are quoted directly or indirectly.
+    /// </summary>
+    Task<SapCurrencyRateSettings> GetCurrencyRateSettingsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every price list's base list, factor and currency. A list whose base is another list holds
+    /// prices that are a fixed multiple of that list's, whatever the exchange rate does.
+    /// </summary>
+    Task<IReadOnlyList<SapPriceListFactor>> GetPriceListFactorsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets currencies defined in SAP Business One
     /// </summary>
     Task<List<SAPCurrency>> GetCurrenciesAsync(CancellationToken cancellationToken = default);

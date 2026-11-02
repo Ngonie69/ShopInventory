@@ -2856,6 +2856,141 @@ namespace ShopInventory.Migrations
                     b.ToTable("ExchangeRates", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.ExchangeRateMonitorAlertEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AlertKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("RaisedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly?>("RateDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AlertKey")
+                        .IsUnique();
+
+                    b.HasIndex("Currency", "RaisedAtUtc");
+
+                    b.ToTable("ExchangeRateMonitorAlerts", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.ExchangeRateMonitorStateEntity", b =>
+                {
+                    b.Property<string>("Currency")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<bool?>("IndirectQuotation")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("KeyedBeyondWindow")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateOnly?>("KeyedThrough")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("LastCheckedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("LastSuccessAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LocalCurrency")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("PriceListFactorsJson")
+                        .HasColumnType("text");
+
+                    b.HasKey("Currency");
+
+                    b.ToTable("ExchangeRateMonitorStates", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.ExchangeRateObservationEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTime>("FirstSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IndirectQuotation")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("LastSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LocalCurrency")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<decimal>("Rate")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<DateOnly>("RateDate")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("ReplacedRate")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<DateTime?>("SupersededAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Currency", "RateDate")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ExchangeRateObservations_Currency_RateDate_Current")
+                        .HasFilter("\"SupersededAtUtc\" IS NULL");
+
+                    b.ToTable("ExchangeRateObservations", (string)null);
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.FactoryTransferEntity", b =>
                 {
                     b.Property<int>("Id")

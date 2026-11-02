@@ -558,6 +558,7 @@ try
 
     // Register system health alert settings
     builder.Services.Configure<SystemHealthAlertSettings>(builder.Configuration.GetSection("SystemHealthAlert"));
+    builder.Services.Configure<ExchangeRateMonitorSettings>(builder.Configuration.GetSection(ExchangeRateMonitorSettings.SectionName));
 
     // Register sync and queue services
     builder.Services.AddScoped<IOfflineQueueService, OfflineQueueService>();
@@ -841,6 +842,8 @@ try
 
     // Register exchange rate service (depends on SAP Service Layer client)
     builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
+    builder.Services.AddScoped<ExchangeRateMonitor>();
+    builder.Services.AddScoped<ExchangeRateMonitorStatusReader>();
 
     // Register the REVMax fiscal device client. REVMax filed everything until ZIMRA issued the in-house
     // platform its production devices. Under Fiscalisation:Provider=Platform it files nothing new, but it

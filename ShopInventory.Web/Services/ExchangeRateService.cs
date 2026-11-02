@@ -11,6 +11,12 @@ public interface IExchangeRateService
     Task<ExchangeRateDto?> UpsertRateAsync(UpsertExchangeRateRequest request);
     Task<decimal?> ConvertAsync(decimal amount, string fromCurrency, string toCurrency);
     Task<bool> FetchExternalRatesAsync();
+
+    /// <summary>The SAP rate monitor's state per watched currency, or null when the API could not be read.</summary>
+    Task<List<ExchangeRateMonitorStatus>?> GetMonitorStatusAsync();
+
+    /// <summary>Runs a rate monitor pass against SAP now; null when the API could not be reached.</summary>
+    Task<List<ExchangeRateMonitorCheckResult>?> RunMonitorCheckAsync();
 }
 
 public class ExchangeRateService : IExchangeRateService
@@ -107,6 +113,39 @@ public class ExchangeRateService : IExchangeRateService
         {
             _logger.LogError(ex, "Error fetching external exchange rates");
             return false;
+        }
+    }
+
+    public async Task<List<ExchangeRateMonitorStatus>?> GetMonitorStatusAsync()
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<List<ExchangeRateMonitorStatus>>("api/exchangerate/monitor");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching the exchange rate monitor status");
+            return null;
+        }
+    }
+
+    public async Task<List<ExchangeRateMonitorCheckResult>?> RunMonitorCheckAsync()
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync("api/exchangerate/monitor/check", null);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Exchange rate monitor check failed: {StatusCode}", response.StatusCode);
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<List<ExchangeRateMonitorCheckResult>>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error running the exchange rate monitor check");
+            return null;
         }
     }
 

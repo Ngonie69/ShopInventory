@@ -140,6 +140,74 @@ public class SapSqlQueryProvisioningTests
     }
 
     [Fact]
+    public async Task The_ZiG_rate_is_asked_for_by_SAPs_mixed_case_code()
+    {
+        // ORTT holds "ZiG" and HANA compares it case-sensitively: the old 'ZIG' matched no row.
+        var sap = new FakeServiceLayer();
+        var client = CreateClient(sap);
+
+        await client.GetExchangeRateAsync("ZIG", new DateTime(2026, 11, 2));
+
+        var sql = sap.StoredSql["SHOP_EXCH_RATE_ZIG"];
+        Assert.Contains("T0.\"Currency\" = 'ZiG'", sql);
+        Assert.DoesNotContain("'ZIG'", sql);
+        Assert.Contains("T0.\"RateDate\" <= '2026-11-02'", sql);
+    }
+
+    [Fact]
+    public async Task The_latest_rates_are_todays_not_the_furthest_keyed_ahead()
+    {
+        // SAP keys rates ahead: on 2 Nov 2026 production's latest ZiG row was 30 Nov.
+        var sap = new FakeServiceLayer();
+        var client = CreateClient(sap);
+
+        await client.GetExchangeRatesAsync();
+
+        var today = ExchangeRateMonitorDates.TodayCat(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        Assert.Contains($"T1.\"RateDate\" <= '{today}'", sap.StoredSql["SHOP_EXCH_RATES"]);
+    }
+
+    [Fact]
+    public async Task SAPs_rate_function_is_read_as_production_answers_it()
+    {
+        var client = CreateClient(new FakeServiceLayer());
+
+        var keyed = await client.GetCurrencyRateAsync("ZiG", new DateTime(2026, 11, 30));
+        var notKeyed = await client.GetCurrencyRateAsync("ZiG", new DateTime(2026, 12, 1));
+
+        Assert.True(keyed.IsKeyed);
+        Assert.Equal(30m, keyed.Rate);
+        Assert.False(notKeyed.IsKeyed);
+        Assert.Equal("Update the exchange rate", notKeyed.NotKeyedMessage);
+    }
+
+    [Fact]
+    public async Task SAPs_currency_settings_are_read_as_USD_quoted_indirectly()
+    {
+        var settings = await CreateClient(new FakeServiceLayer()).GetCurrencyRateSettingsAsync();
+
+        Assert.Equal("USD", settings.LocalCurrency);
+        Assert.True(settings.IndirectQuotation);
+        Assert.Equal(30m, settings.ForeignPerLocal(30m));
+    }
+
+    [Fact]
+    public async Task Price_list_factors_are_read_with_their_base_list_and_currency()
+    {
+        var lists = await CreateClient(new FakeServiceLayer()).GetPriceListFactorsAsync();
+
+        Assert.Equal(3, lists.Count);
+        var list29 = Assert.Single(lists, l => l.PriceListNo == 29);
+        Assert.True(list29.IsDerived);
+        Assert.Equal(28, list29.BasePriceList);
+        Assert.Equal(36m, list29.Factor);
+        Assert.Equal("ZiG", list29.Currency);
+        Assert.True(list29.Active);
+        Assert.False(Assert.Single(lists, l => l.PriceListNo == 28).IsDerived);
+        Assert.Equal(13.5m, Assert.Single(lists, l => l.PriceListNo == 31).Factor);
+    }
+
+    [Fact]
     public async Task A_rejected_statement_is_not_retried()
     {
         // Retrying is for the transport losing a request, not for SAP answering that it will not
@@ -305,6 +373,11 @@ public class SapSqlQueryProvisioningTests
                 return Json("{}", HttpStatusCode.Created);
             }
 
+            if (ReplayRateCall(path, await ReadBodyAsync(request, cancellationToken)) is { } replayed)
+            {
+                return replayed;
+            }
+
             var code = ExtractCode(path);
 
             if (path.EndsWith("/List", StringComparison.Ordinal))
@@ -347,6 +420,48 @@ public class SapSqlQueryProvisioningTests
             }
 
             return Json("{}", HttpStatusCode.NotFound);
+        }
+
+        /// <summary>
+        /// Production's answers, as captured from KEFALOS_USD_NEW2 on 2026-11-02: ZiG keyed at 30
+        /// through 30 Nov and refused with -4006 from 1 Dec; local currency USD, quoted indirectly.
+        /// </summary>
+        private static HttpResponseMessage? ReplayRateCall(string path, string body)
+        {
+            if (path.EndsWith("/SBOBobService_GetCurrencyRate", StringComparison.Ordinal))
+            {
+                var date = JsonDocument.Parse(body).RootElement.GetProperty("Date").GetString()!;
+                return string.CompareOrdinal(date, "2026-11-30") <= 0
+                    ? Json("30.0")
+                    : Json("""
+                        {
+                           "error" : {
+                              "code" : -4006,
+                              "message" : {
+                                 "lang" : "en-us",
+                                 "value" : "Update the exchange rate"
+                              }
+                           }
+                        }
+
+                        """, HttpStatusCode.BadRequest);
+            }
+
+            if (path.EndsWith("/CompanyService_GetAdminInfo", StringComparison.Ordinal))
+            {
+                return Json("{\"ManagingDirector\":null,\"LocalCurrency\":\"USD\",\"SystemCurrency\":\"USD\",\"DirectIndirectRate\":\"tNO\",\"RateAccuracy\":6,\"MultiCurrencyCheck\":\"cc_Block\"}");
+            }
+
+            if (path.EndsWith("/PriceLists", StringComparison.Ordinal))
+            {
+                return Json("{\"value\":[" +
+                    "{\"PriceListNo\":28,\"PriceListName\":\"Factory ZiG Pricelist\",\"BasePriceList\":28,\"Factor\":1.0,\"DefaultPrimeCurrency\":\"ZiG\",\"Active\":\"tYES\"}," +
+                    "{\"PriceListNo\":29,\"PriceListName\":\"Factory ZiG Pricelist 2024\",\"BasePriceList\":28,\"Factor\":36.0,\"DefaultPrimeCurrency\":\"ZiG\",\"Active\":\"tYES\"}," +
+                    "{\"PriceListNo\":31,\"PriceListName\":\"Ok Zim Zig Factor reinvoice\",\"BasePriceList\":30,\"Factor\":13.5,\"DefaultPrimeCurrency\":\"ZiG\",\"Active\":\"tYES\"}" +
+                    "]}");
+            }
+
+            return null;
         }
 
         /// <summary>Pulls <c>CODE</c> out of a <c>SQLQueries('CODE')</c> or <c>…/List</c> path.</summary>

@@ -5,6 +5,8 @@ using ShopInventory.Features.ExchangeRates.Queries.GetAllActiveRates;
 using ShopInventory.Features.ExchangeRates.Queries.GetCurrentRate;
 using ShopInventory.Features.ExchangeRates.Queries.GetRateHistory;
 using ShopInventory.Features.ExchangeRates.Queries.ConvertCurrency;
+using ShopInventory.Features.ExchangeRates.Queries.GetMonitorStatus;
+using ShopInventory.Features.ExchangeRates.Commands.RunMonitorCheck;
 
 namespace ShopInventory.Controllers;
 
@@ -19,6 +21,31 @@ public class ExchangeRateController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> GetAllActive(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetAllActiveRatesQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Where the SAP rate monitor stands: today's rate, how far ahead rates are keyed, changes and alerts
+    /// </summary>
+    [HttpGet("monitor")]
+    public async Task<IActionResult> GetMonitorStatus(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetMonitorStatusQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Run a rate monitor pass against SAP now
+    /// </summary>
+    /// <remarks>
+    /// The roles that can open the Exchange Rates page. Not a manager's: a pass can raise alerts,
+    /// which go to the bell and by email, and the manager role raises nothing.
+    /// </remarks>
+    [HttpPost("monitor/check")]
+    [Authorize(Roles = "Admin,ApiUser,Cashier,StockController")]
+    public async Task<IActionResult> RunMonitorCheck(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new RunMonitorCheckCommand(), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
