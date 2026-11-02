@@ -30,6 +30,12 @@ public sealed class SalesOrderReconciliationJob : IJob
     private const int MaxOrdersPerRun = 25;
 
     /// <summary>
+    /// How far back a posted ZiG order saved with its USD totals is corrected. Runs on full sweeps only:
+    /// a corrected order leaves the candidate set, so the sweep goes quiet once the backlog is cleared.
+    /// </summary>
+    private static readonly TimeSpan ForeignCurrencyHealLookback = TimeSpan.FromDays(60);
+
+    /// <summary>
     /// Whether this run sweeps the whole lookback or only the recent window.
     /// </summary>
     /// <remarks>
@@ -87,6 +93,32 @@ public sealed class SalesOrderReconciliationJob : IJob
         {
             // Never let a SAP outage fault the trigger; the next run retries the same candidates.
             _logger.LogError(ex, "Sales order SAP reconciliation sweep failed");
+        }
+
+        if (!isFullSweep)
+            return;
+
+        try
+        {
+            var healedCount = await salesOrderService.HealForeignCurrencySalesOrderTotalsAsync(
+                ForeignCurrencyHealLookback,
+                MaxOrdersPerRun,
+                context.CancellationToken);
+
+            if (healedCount > 0)
+            {
+                _logger.LogInformation(
+                    "Sales order reconciliation corrected {HealedCount} foreign-currency order(s) to the totals SAP holds",
+                    healedCount);
+            }
+        }
+        catch (OperationCanceledException) when (context.CancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Sales order foreign-currency totals sweep failed");
         }
     }
 }

@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -544,12 +545,12 @@ public sealed class GetAllSalesOrdersHandler(
             Comments = sap.Comments,
             SalesPersonCode = sap.SalesPersonCode,
             Currency = sap.DocCurrency,
-            ExchangeRate = 1,
-            SubTotal = (sap.DocTotal ?? 0) - (sap.VatSum ?? 0),
-            TaxAmount = sap.VatSum ?? 0,
+            ExchangeRate = sap.DocRate is { } rate && rate > 0m ? rate : 1,
+            SubTotal = (SapDocumentAmounts.DocTotal(sap) ?? 0) - (SapDocumentAmounts.VatSum(sap) ?? 0),
+            TaxAmount = SapDocumentAmounts.VatSum(sap) ?? 0,
             DiscountPercent = sap.DiscountPercent ?? 0,
-            DiscountAmount = sap.TotalDiscount ?? 0,
-            DocTotal = sap.DocTotal ?? 0,
+            DiscountAmount = SapDocumentAmounts.TotalDiscount(sap) ?? 0,
+            DocTotal = SapDocumentAmounts.DocTotal(sap) ?? 0,
             ShipToAddress = sap.Address,
             BillToAddress = sap.Address2,
             IsSynced = true
