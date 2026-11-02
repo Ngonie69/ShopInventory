@@ -1852,14 +1852,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             return null;
         }
 
-        var normalized = currency.Trim();
-        return normalized.ToUpperInvariant() switch
-        {
-            "USD" => null,
-            "ZIG" => "ZW$",
-            "ZWG" => "ZW$",
-            _ => normalized
-        };
+        // USD is the company's local currency, so it is left for SAP to fill in.
+        return CurrencyTaxCodes.IsUsd(currency) ? null : SapCurrencyCodes.ToSapCode(currency);
     }
 
     private static DateOnly GetCurrentSapBusinessDate()
@@ -15706,7 +15700,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             throw new Exception($"Sales order {order.OrderNumber} is missing a currency selection.");
         }
 
-        var docCurrency = order.Currency.Trim().ToUpperInvariant();
+        var docCurrency = SapCurrencyCodes.ToSapCode(order.Currency);
 
         var lineSapUomLookup = await ResolveSalesOrderLineSapUomsAsync(
             order.Lines.Select(line => (ItemCode: (string?)line.ItemCode, RequestedUomCode: line.UoMCode)),
@@ -17123,7 +17117,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                 NumAtCard = request.SapReference,
                 // How the fiscalisation platform finds the memo of a credit it filed first.
                 U_Van_saleorder = request.FiscalReference,
-                DocCurrency = !string.IsNullOrWhiteSpace(request.Currency) && request.Currency != "USD" ? request.Currency : (string?)null,
+                DocCurrency = CurrencyTaxCodes.IsUsd(request.Currency) ? null : SapCurrencyCodes.ToSapCode(request.Currency!),
                 DocumentLines = request.Lines?.Select((line, index) =>
                 {
                     // Only include BatchNumbers if there are actual entries. Omitting them does NOT
@@ -17186,7 +17180,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                 NumAtCard = request.SapReference,
                 // How the fiscalisation platform finds the memo of a credit it filed first.
                 U_Van_saleorder = request.FiscalReference,
-                DocCurrency = !string.IsNullOrWhiteSpace(request.Currency) && request.Currency != "USD" ? request.Currency : (string?)null,
+                DocCurrency = CurrencyTaxCodes.IsUsd(request.Currency) ? null : SapCurrencyCodes.ToSapCode(request.Currency!),
                 DocumentLines = request.Lines?.Select((line, index) => new
                 {
                     LineNum = index,
@@ -18526,7 +18520,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             throw new Exception($"Quotation {quotation.QuotationNumber} is missing a currency selection.");
         }
 
-        var docCurrency = quotation.Currency.Trim().ToUpperInvariant();
+        var docCurrency = SapCurrencyCodes.ToSapCode(quotation.Currency);
 
         var lineSapUomLookup = await ResolveSalesOrderLineSapUomsAsync(
             quotation.Lines.Select(line => (ItemCode: (string?)line.ItemCode, RequestedUomCode: line.UoMCode)),
