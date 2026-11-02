@@ -1,3 +1,4 @@
+using ShopInventory.Common.Sales;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 
@@ -13,7 +14,7 @@ internal static class GoodsReceiptPurchaseOrderMappings
             ItemCode = line.ItemCode,
             ItemDescription = line.ItemDescription,
             Quantity = line.Quantity ?? 0,
-            LineTotal = line.LineTotal ?? 0,
+            LineTotal = SapDocumentAmounts.LineTotal(sapGoodsReceipt, line) ?? 0,
             WarehouseCode = line.WarehouseCode,
             TaxCode = line.TaxCode,
             UoMCode = line.UoMCode,
@@ -33,10 +34,10 @@ internal static class GoodsReceiptPurchaseOrderMappings
             NumAtCard = sapGoodsReceipt.NumAtCard,
             Comments = sapGoodsReceipt.Comments,
             DocStatus = MapStatus(sapGoodsReceipt.DocumentStatus, sapGoodsReceipt.Cancelled),
-            DocTotal = sapGoodsReceipt.DocTotal ?? 0,
-            VatSum = sapGoodsReceipt.VatSum ?? 0,
+            DocTotal = SapDocumentAmounts.DocTotal(sapGoodsReceipt) ?? 0,
+            VatSum = SapDocumentAmounts.VatSum(sapGoodsReceipt) ?? 0,
             DiscountPercent = sapGoodsReceipt.DiscountPercent ?? 0,
-            TotalDiscount = sapGoodsReceipt.TotalDiscount ?? 0,
+            TotalDiscount = SapDocumentAmounts.TotalDiscount(sapGoodsReceipt) ?? 0,
             DocCurrency = sapGoodsReceipt.DocCurrency,
             BillToAddress = sapGoodsReceipt.Address,
             ShipToAddress = sapGoodsReceipt.Address2,

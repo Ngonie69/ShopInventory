@@ -34,6 +34,12 @@ public interface ISalesOrderService
     Task<SalesOrderDto> PostToSAPAsync(int id, Guid userId, CancellationToken cancellationToken = default);
     Task<int> ReconcileUnlinkedSapSalesOrdersAsync(TimeSpan lookback, int maxOrders, CancellationToken cancellationToken = default);
     Task<SalesOrderTaxRepairSummary> RepairSyncedSalesOrderTaxFromSapAsync(IReadOnlyCollection<int> orderIds, bool dryRun, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-reads posted foreign-currency orders whose totals were saved in USD and rewrites them in the
+    /// order's own currency. Returns how many orders were corrected.
+    /// </summary>
+    Task<int> HealForeignCurrencySalesOrderTotalsAsync(TimeSpan lookback, int maxOrders, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
