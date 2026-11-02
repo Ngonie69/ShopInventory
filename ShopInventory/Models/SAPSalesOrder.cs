@@ -5,7 +5,7 @@ namespace ShopInventory.Models;
 /// <summary>
 /// SAP Business One Sales Order model
 /// </summary>
-public class SAPSalesOrder
+public class SAPSalesOrder : ISapDocumentAmounts
 {
     [JsonPropertyName("DocEntry")]
     public int DocEntry { get; set; }
@@ -43,6 +43,17 @@ public class SAPSalesOrder
     [JsonPropertyName("VatSum")]
     public decimal? VatSum { get; set; }
 
+    /// <summary>
+    /// The tax in the document's own currency. <see cref="VatSum"/>, like <see cref="DocTotal"/>, is in
+    /// the company's local currency (USD). See <see cref="Common.Sales.SapDocumentAmounts"/>.
+    /// </summary>
+    [JsonPropertyName("VatSumFc")]
+    public decimal? VatSumFc { get; set; }
+
+    /// <summary>The rate SAP converted the document at: document currency per unit of local currency.</summary>
+    [JsonPropertyName("DocRate")]
+    public decimal? DocRate { get; set; }
+
     [JsonPropertyName("DocCurrency")]
     public string? DocCurrency { get; set; }
 
@@ -60,6 +71,10 @@ public class SAPSalesOrder
 
     [JsonPropertyName("TotalDiscount")]
     public decimal? TotalDiscount { get; set; }
+
+    /// <summary>The header discount in the document's own currency.</summary>
+    [JsonPropertyName("TotalDiscountFC")]
+    public decimal? TotalDiscountFC { get; set; }
 
     [JsonPropertyName("Address")]
     public string? Address { get; set; }
@@ -80,7 +95,7 @@ public class SAPSalesOrder
 /// <summary>
 /// SAP Business One Sales Order Line model
 /// </summary>
-public class SAPSalesOrderLine
+public class SAPSalesOrderLine : ISapDocumentLineAmounts
 {
     [JsonPropertyName("LineNum")]
     public int LineNum { get; set; }
@@ -106,8 +121,13 @@ public class SAPSalesOrderLine
     [JsonPropertyName("Price")]
     public decimal? Price { get; set; }
 
+    /// <summary>The line total in the company's local currency (USD), whatever the document's currency.</summary>
     [JsonPropertyName("LineTotal")]
     public decimal? LineTotal { get; set; }
+
+    /// <summary>The line total in the document's own currency; zero on a local-currency document.</summary>
+    [JsonPropertyName("RowTotalFC")]
+    public decimal? RowTotalFC { get; set; }
 
     [JsonPropertyName("WarehouseCode")]
     public string? WarehouseCode { get; set; }

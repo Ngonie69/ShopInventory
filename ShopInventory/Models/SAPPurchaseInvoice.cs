@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace ShopInventory.Models;
 
-public class SAPPurchaseInvoice
+public class SAPPurchaseInvoice : ISapDocumentAmounts
 {
     [JsonPropertyName("DocEntry")]
     public int DocEntry { get; set; }
@@ -31,14 +31,30 @@ public class SAPPurchaseInvoice
     [JsonPropertyName("DocTotal")]
     public decimal? DocTotal { get; set; }
 
+    /// <summary>The total in the document's own currency; zero on a local-currency (USD) document.</summary>
+    [JsonPropertyName("DocTotalFc")]
+    public decimal? DocTotalFc { get; set; }
+
     [JsonPropertyName("VatSum")]
     public decimal? VatSum { get; set; }
+
+    /// <summary>The tax in the document's own currency. VatSum is in local currency (USD).</summary>
+    [JsonPropertyName("VatSumFc")]
+    public decimal? VatSumFc { get; set; }
+
+    /// <summary>The rate SAP converted the document at: document currency per unit of local currency.</summary>
+    [JsonPropertyName("DocRate")]
+    public decimal? DocRate { get; set; }
 
     [JsonPropertyName("DiscountPercent")]
     public decimal? DiscountPercent { get; set; }
 
     [JsonPropertyName("TotalDiscount")]
     public decimal? TotalDiscount { get; set; }
+
+    /// <summary>The header discount in the document's own currency.</summary>
+    [JsonPropertyName("TotalDiscountFC")]
+    public decimal? TotalDiscountFC { get; set; }
 
     [JsonPropertyName("DocCurrency")]
     public string? DocCurrency { get; set; }
@@ -59,7 +75,7 @@ public class SAPPurchaseInvoice
     public List<SAPPurchaseInvoiceLine>? DocumentLines { get; set; }
 }
 
-public class SAPPurchaseInvoiceLine
+public class SAPPurchaseInvoiceLine : ISapDocumentLineAmounts
 {
     [JsonPropertyName("LineNum")]
     public int LineNum { get; set; }
@@ -78,6 +94,10 @@ public class SAPPurchaseInvoiceLine
 
     [JsonPropertyName("LineTotal")]
     public decimal? LineTotal { get; set; }
+
+    /// <summary>The line total in the document's own currency; zero on a local-currency document.</summary>
+    [JsonPropertyName("RowTotalFC")]
+    public decimal? RowTotalFC { get; set; }
 
     [JsonPropertyName("WarehouseCode")]
     public string? WarehouseCode { get; set; }

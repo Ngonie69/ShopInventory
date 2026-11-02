@@ -1,3 +1,4 @@
+using ShopInventory.Common.Sales;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 
@@ -14,7 +15,7 @@ internal static class PurchaseInvoiceMappings
             ItemDescription = line.ItemDescription,
             Quantity = line.Quantity ?? 0,
             UnitPrice = line.UnitPrice ?? 0,
-            LineTotal = line.LineTotal ?? 0,
+            LineTotal = SapDocumentAmounts.LineTotal(sapInvoice, line) ?? 0,
             WarehouseCode = line.WarehouseCode,
             DiscountPercent = line.DiscountPercent ?? 0,
             TaxCode = line.TaxCode,
@@ -32,10 +33,10 @@ internal static class PurchaseInvoiceMappings
             NumAtCard = sapInvoice.NumAtCard,
             Comments = sapInvoice.Comments,
             DocStatus = MapStatus(sapInvoice.DocumentStatus, sapInvoice.Cancelled),
-            DocTotal = sapInvoice.DocTotal ?? 0,
-            VatSum = sapInvoice.VatSum ?? 0,
+            DocTotal = SapDocumentAmounts.DocTotal(sapInvoice) ?? 0,
+            VatSum = SapDocumentAmounts.VatSum(sapInvoice) ?? 0,
             DiscountPercent = sapInvoice.DiscountPercent ?? 0,
-            TotalDiscount = sapInvoice.TotalDiscount ?? 0,
+            TotalDiscount = SapDocumentAmounts.TotalDiscount(sapInvoice) ?? 0,
             DocCurrency = sapInvoice.DocCurrency,
             BillToAddress = sapInvoice.Address,
             ShipToAddress = sapInvoice.Address2,

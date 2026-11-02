@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Sales;
 using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -2578,6 +2579,89 @@ public class SalesOrderService : ISalesOrderService
             updatedOrderCount);
     }
 
+    /// <summary>
+    /// Posted orders in a currency other than USD whose totals have not been read back from SAP in
+    /// that currency.
+    /// </summary>
+    /// <remarks>
+    /// Until 2026-11-02 the SAP read-back copied SAP's local-currency (USD) totals onto the order, so a
+    /// ZiG order showed its USD value labelled ZiG. Nothing ever set an order's exchange rate either, so
+    /// the default of 1 marks a row that predates the fix: a corrected read-back stores SAP's DocRate,
+    /// which takes the order out of this filter for good.
+    /// </remarks>
+    internal static Expression<Func<SalesOrderEntity, bool>> ForeignCurrencyTotalsToHealFilter(DateTime cutoff) =>
+        o => o.IsSynced
+            && o.SAPDocEntry != null
+            && o.SAPDocEntry > 0
+            && o.ExchangeRate == 1m
+            && o.Currency != null
+            && o.Currency != ""
+            && o.Currency.ToUpper() != "USD"
+            && o.CreatedAt >= cutoff;
+
+    public async Task<int> HealForeignCurrencySalesOrderTotalsAsync(
+        TimeSpan lookback,
+        int maxOrders,
+        CancellationToken cancellationToken = default)
+    {
+        if (maxOrders <= 0)
+            return 0;
+
+        var cutoff = DateTime.UtcNow - lookback;
+        var candidateIds = await _context.SalesOrders
+            .AsNoTracking()
+            .Where(ForeignCurrencyTotalsToHealFilter(cutoff))
+            .OrderByDescending(o => o.Id)
+            .Select(o => o.Id)
+            .Take(maxOrders)
+            .ToListAsync(cancellationToken);
+
+        var healed = 0;
+
+        foreach (var orderId in candidateIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // One order per unit of work, so a row someone else saved meanwhile costs only itself.
+            _context.ChangeTracker.Clear();
+            var order = await _context.SalesOrders
+                .AsTracking()
+                .FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
+            if (order is null)
+                continue;
+
+            var oldTotal = order.DocTotal;
+            if (!await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, cancellationToken))
+                continue;
+
+            try
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Still carries the old rate, so the next sweep picks it up again.
+                _logger.LogInformation(
+                    "Sales order {OrderNumber} changed while its foreign-currency totals were being corrected; retrying next sweep.",
+                    order.OrderNumber);
+                continue;
+            }
+
+            healed++;
+            _logger.LogWarning(
+                "Corrected sales order {OrderNumber} (SAP {SapDocNum}) to its {Currency} totals: DocTotal {OldTotal} -> {NewTotal} at rate {Rate}.",
+                order.OrderNumber,
+                order.SAPDocNum,
+                order.Currency,
+                oldTotal,
+                order.DocTotal,
+                order.ExchangeRate);
+        }
+
+        _context.ChangeTracker.Clear();
+        return healed;
+    }
+
     private async Task<bool> TryRefreshLocalSalesOrderSnapshotFromSapAsync(
         SalesOrderEntity order,
         CancellationToken cancellationToken)
@@ -2642,13 +2726,22 @@ public class SalesOrderService : ISalesOrderService
             hasChanges = true;
         }
 
-        var sapDocTotal = sapOrder.DocTotal ?? order.DocTotal;
-        var sapTaxAmount = sapOrder.VatSum ?? order.TaxAmount;
-        var sapSubTotal = sapOrder.DocTotal.HasValue || sapOrder.VatSum.HasValue
+        // In the order's own currency: SAP's plain DocTotal/VatSum are USD even on a ZiG order.
+        var sapDocTotalInDocCurrency = SapDocumentAmounts.DocTotal(sapOrder);
+        var sapTaxInDocCurrency = SapDocumentAmounts.VatSum(sapOrder);
+        var sapDocTotal = sapDocTotalInDocCurrency ?? order.DocTotal;
+        var sapTaxAmount = sapTaxInDocCurrency ?? order.TaxAmount;
+        var sapSubTotal = sapDocTotalInDocCurrency.HasValue || sapTaxInDocCurrency.HasValue
             ? Math.Max(sapDocTotal - sapTaxAmount, 0m)
             : order.SubTotal;
         var sapDiscountPercent = sapOrder.DiscountPercent ?? order.DiscountPercent;
-        var sapDiscountAmount = sapOrder.TotalDiscount ?? order.DiscountAmount;
+        var sapDiscountAmount = SapDocumentAmounts.TotalDiscount(sapOrder) ?? order.DiscountAmount;
+
+        if (sapOrder.DocRate is { } sapRate && sapRate > 0m && order.ExchangeRate != sapRate)
+        {
+            order.ExchangeRate = sapRate;
+            hasChanges = true;
+        }
 
         if (order.SubTotal != sapSubTotal)
         {
@@ -3585,12 +3678,12 @@ public class SalesOrderService : ISalesOrderService
             Comments = sap.Comments,
             SalesPersonCode = sap.SalesPersonCode,
             Currency = sap.DocCurrency,
-            ExchangeRate = 1,
-            SubTotal = (sap.DocTotal ?? 0) - (sap.VatSum ?? 0),
-            TaxAmount = sap.VatSum ?? 0,
+            ExchangeRate = sap.DocRate is { } rate && rate > 0m ? rate : 1,
+            SubTotal = (SapDocumentAmounts.DocTotal(sap) ?? 0) - (SapDocumentAmounts.VatSum(sap) ?? 0),
+            TaxAmount = SapDocumentAmounts.VatSum(sap) ?? 0,
             DiscountPercent = sap.DiscountPercent ?? 0,
-            DiscountAmount = sap.TotalDiscount ?? 0,
-            DocTotal = sap.DocTotal ?? 0,
+            DiscountAmount = SapDocumentAmounts.TotalDiscount(sap) ?? 0,
+            DocTotal = SapDocumentAmounts.DocTotal(sap) ?? 0,
             ShipToAddress = sap.Address,
             BillToAddress = sap.Address2,
             IsSynced = true,
@@ -3604,7 +3697,7 @@ public class SalesOrderService : ISalesOrderService
                 QuantityFulfilled = l.DeliveredQuantity ?? 0,
                 UnitPrice = l.UnitPrice ?? 0,
                 DiscountPercent = l.DiscountPercent ?? 0,
-                LineTotal = l.LineTotal ?? 0,
+                LineTotal = SapDocumentAmounts.LineTotal(sap, l) ?? 0,
                 WarehouseCode = l.WarehouseCode,
                 UoMCode = l.UoMCode,
                 CostCentreCode = l.CostingCode

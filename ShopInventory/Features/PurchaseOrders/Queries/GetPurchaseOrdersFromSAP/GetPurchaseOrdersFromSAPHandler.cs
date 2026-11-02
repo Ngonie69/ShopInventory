@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Sales;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -111,7 +112,7 @@ public sealed class GetPurchaseOrdersFromSAPHandler(
             Quantity = l.Quantity ?? 0,
             QuantityReceived = l.DeliveredQuantity ?? 0,
             UnitPrice = l.UnitPrice ?? 0,
-            LineTotal = l.LineTotal ?? 0,
+            LineTotal = SapDocumentAmounts.LineTotal(sap, l) ?? 0,
             WarehouseCode = l.WarehouseCode,
             DiscountPercent = l.DiscountPercent ?? 0,
             UoMCode = l.UoMCode
@@ -130,10 +131,10 @@ public sealed class GetPurchaseOrdersFromSAPHandler(
             SupplierRefNo = sap.NumAtCard,
             Status = status,
             Currency = sap.DocCurrency ?? "USD",
-            SubTotal = (sap.DocTotal ?? 0) - (sap.VatSum ?? 0),
-            TaxAmount = sap.VatSum ?? 0,
-            DiscountAmount = sap.TotalDiscount ?? 0,
-            DocTotal = sap.DocTotal ?? 0,
+            SubTotal = (SapDocumentAmounts.DocTotal(sap) ?? 0) - (SapDocumentAmounts.VatSum(sap) ?? 0),
+            TaxAmount = SapDocumentAmounts.VatSum(sap) ?? 0,
+            DiscountAmount = SapDocumentAmounts.TotalDiscount(sap) ?? 0,
+            DocTotal = SapDocumentAmounts.DocTotal(sap) ?? 0,
             Comments = sap.Comments,
             Lines = lines,
             CreatedByUserName = "SAP",

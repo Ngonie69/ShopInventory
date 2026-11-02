@@ -2086,10 +2086,10 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
                 CardCode = g.Key.CardCode ?? "Unknown",
                 CardName = g.Key.CardName ?? g.Key.CardCode ?? "Unknown",
                 OrderCount = g.Count(),
-                TotalValueUSD = g.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0),
-                TotalValueZIG = g.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => po.DocTotal ?? 0),
+                TotalValueUSD = g.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0),
+                TotalValueZIG = g.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0),
                 OpenOrders = g.Count(po => po.DocumentStatus == "bost_Open"),
-                PendingValueUSD = g.Where(po => po.DocumentStatus == "bost_Open" && (po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency))).Sum(po => po.DocTotal ?? 0)
+                PendingValueUSD = g.Where(po => po.DocumentStatus == "bost_Open" && (po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency))).Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0)
             })
             .OrderByDescending(s => s.TotalValueUSD + s.TotalValueZIG)
             .ToList();
@@ -2102,8 +2102,8 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
             {
                 Date = g.Key,
                 Count = g.Count(),
-                TotalValueUSD = g.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0),
-                TotalValueZIG = g.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => po.DocTotal ?? 0)
+                TotalValueUSD = g.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0),
+                TotalValueZIG = g.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0)
             })
             .OrderBy(d => d.Date)
             .ToList();
@@ -2111,7 +2111,7 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
         // Top purchased products
         var topProducts = activePOs
             .Where(po => po.DocumentLines != null)
-            .SelectMany(po => po.DocumentLines!.Select(l => new { Line = l, po.DocCurrency }))
+            .SelectMany(po => po.DocumentLines!.Select(l => new { Line = l, po.DocCurrency, LineTotal = SapDocumentAmounts.LineTotal(po, l) }))
             .GroupBy(x => new { x.Line.ItemCode, x.Line.ItemDescription })
             .Select((g, index) => new TopPurchasedProductDto
             {
@@ -2119,8 +2119,8 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
                 ItemCode = g.Key.ItemCode ?? "Unknown",
                 ItemName = g.Key.ItemDescription ?? g.Key.ItemCode ?? "Unknown",
                 TotalQuantityOrdered = g.Sum(x => x.Line.Quantity ?? 0),
-                TotalCostUSD = g.Where(x => x.DocCurrency == "USD" || x.DocCurrency == "$" || string.IsNullOrEmpty(x.DocCurrency)).Sum(x => x.Line.LineTotal ?? 0),
-                TotalCostZIG = g.Where(x => x.DocCurrency == "ZIG" || x.DocCurrency == "ZiG").Sum(x => x.Line.LineTotal ?? 0),
+                TotalCostUSD = g.Where(x => x.DocCurrency == "USD" || x.DocCurrency == "$" || string.IsNullOrEmpty(x.DocCurrency)).Sum(x => x.LineTotal ?? 0),
+                TotalCostZIG = g.Where(x => x.DocCurrency == "ZIG" || x.DocCurrency == "ZiG").Sum(x => x.LineTotal ?? 0),
                 TimesOrdered = g.Count()
             })
             .OrderByDescending(p => p.TotalCostUSD + p.TotalCostZIG)
@@ -2138,11 +2138,11 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
             OpenOrders = openPOs.Count,
             ClosedOrders = closedPOs.Count,
             CancelledOrders = cancelledPOs.Count,
-            TotalOrderValueUSD = usdPOs.Sum(po => po.DocTotal ?? 0),
-            TotalOrderValueZIG = zigPOs.Sum(po => po.DocTotal ?? 0),
-            TotalPendingValueUSD = openPOs.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0),
-            TotalPendingValueZIG = openPOs.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => po.DocTotal ?? 0),
-            AverageOrderValueUSD = usdPOs.Count > 0 ? Math.Round(usdPOs.Average(po => po.DocTotal ?? 0), 2) : 0,
+            TotalOrderValueUSD = usdPOs.Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0),
+            TotalOrderValueZIG = zigPOs.Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0),
+            TotalPendingValueUSD = openPOs.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0),
+            TotalPendingValueZIG = openPOs.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0),
+            AverageOrderValueUSD = usdPOs.Count > 0 ? Math.Round(usdPOs.Average(po => SapDocumentAmounts.DocTotal(po) ?? 0), 2) : 0,
             UniqueSuppliers = activePOs.Select(po => po.CardCode).Distinct().Count(),
             BySupplier = bySupplier,
             DailyBreakdown = dailyBreakdown,
@@ -2310,8 +2310,8 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
         var collectedZIG = payments.Where(p => p.DocCurrency == "ZIG" || p.DocCurrency == "ZiG").Sum(p => GetPaymentTotal(p));
 
         // Purchase costs
-        var purchaseCostUSD = purchaseOrders.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0);
-        var purchaseCostZIG = purchaseOrders.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => po.DocTotal ?? 0);
+        var purchaseCostUSD = purchaseOrders.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0);
+        var purchaseCostZIG = purchaseOrders.Where(po => po.DocCurrency == "ZIG" || po.DocCurrency == "ZiG").Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0);
 
         var netRevenueUSD = revenueUSD - cnUSD;
         var netRevenueZIG = revenueZIG - cnZIG;
@@ -2345,7 +2345,7 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
             var mRevenueZIG = mSales.Sum(d => d.TotalSalesZIG);
             var mCnUSD = mCreditNotes.Where(cn => cn.DocCurrency == "USD" || cn.DocCurrency == "$" || string.IsNullOrEmpty(cn.DocCurrency)).Sum(cn => cn.DocTotal);
             var mCollectedUSD = mPayments.Where(p => p.DocCurrency == "USD" || p.DocCurrency == "$" || string.IsNullOrEmpty(p.DocCurrency)).Sum(p => GetPaymentTotal(p));
-            var mPurchaseCostUSD = mPurchases.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => po.DocTotal ?? 0);
+            var mPurchaseCostUSD = mPurchases.Where(po => po.DocCurrency == "USD" || po.DocCurrency == "$" || string.IsNullOrEmpty(po.DocCurrency)).Sum(po => SapDocumentAmounts.DocTotal(po) ?? 0);
             var mInvoiced = Sum(invoiceProfitRows.Where(row => { var d = GetRowDate(row, "DocDate"); return d.Year == m.Year && d.Month == m.Month; }));
             var mCredited = Sum(creditProfitRows.Where(row => { var d = GetRowDate(row, "DocDate"); return d.Year == m.Year && d.Month == m.Month; }));
             var mNetBeforeVat = mInvoiced.Revenue - mCredited.Revenue;

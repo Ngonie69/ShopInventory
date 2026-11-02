@@ -5,7 +5,7 @@ namespace ShopInventory.Models;
 /// <summary>
 /// SAP Business One Purchase Order model
 /// </summary>
-public class SAPPurchaseOrder
+public class SAPPurchaseOrder : ISapDocumentAmounts
 {
     [JsonPropertyName("DocEntry")]
     public int DocEntry { get; set; }
@@ -40,6 +40,14 @@ public class SAPPurchaseOrder
     [JsonPropertyName("VatSum")]
     public decimal? VatSum { get; set; }
 
+    /// <summary>The tax in the document's own currency. VatSum is in local currency (USD).</summary>
+    [JsonPropertyName("VatSumFc")]
+    public decimal? VatSumFc { get; set; }
+
+    /// <summary>The rate SAP converted the document at: document currency per unit of local currency.</summary>
+    [JsonPropertyName("DocRate")]
+    public decimal? DocRate { get; set; }
+
     [JsonPropertyName("DocCurrency")]
     public string? DocCurrency { get; set; }
 
@@ -55,6 +63,10 @@ public class SAPPurchaseOrder
     [JsonPropertyName("TotalDiscount")]
     public decimal? TotalDiscount { get; set; }
 
+    /// <summary>The header discount in the document's own currency.</summary>
+    [JsonPropertyName("TotalDiscountFC")]
+    public decimal? TotalDiscountFC { get; set; }
+
     [JsonPropertyName("Address")]
     public string? Address { get; set; }
 
@@ -68,7 +80,7 @@ public class SAPPurchaseOrder
 /// <summary>
 /// SAP Business One Purchase Order Line model
 /// </summary>
-public class SAPPurchaseOrderLine
+public class SAPPurchaseOrderLine : ISapDocumentLineAmounts
 {
     [JsonPropertyName("LineNum")]
     public int LineNum { get; set; }
@@ -96,6 +108,10 @@ public class SAPPurchaseOrderLine
 
     [JsonPropertyName("LineTotal")]
     public decimal? LineTotal { get; set; }
+
+    /// <summary>The line total in the document's own currency; zero on a local-currency document.</summary>
+    [JsonPropertyName("RowTotalFC")]
+    public decimal? RowTotalFC { get; set; }
 
     [JsonPropertyName("WarehouseCode")]
     public string? WarehouseCode { get; set; }
