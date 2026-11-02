@@ -45,7 +45,7 @@
       run on Linux in CI, where AttachmentImageCompressionTests needs libSkiaSharp too. NoDependencies
       links fontconfig statically, so the runner needs no system packages.
     -->
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.154.0" />
   </ItemGroup>
   <ItemGroup>
     <!--
