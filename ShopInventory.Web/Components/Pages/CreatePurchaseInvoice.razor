@@ -82,16 +82,20 @@
                         {
                             <span class="pfm-ap-lab">Supplier</span>
                             <div class="pfm-ap-sup">
-                                <span class="pfm-ap-avatar" aria-hidden="true">@SupplierInitials(selectedSupplier.CardName)</span>
+                                <span class="pfm-ap-avatar" aria-hidden="true">@SupplierInitials(SupplierName(selectedSupplier))</span>
                                 <div class="pfm-ap-sup-bd">
-                                    <div class="pfm-ap-sup-name">@selectedSupplier.CardName</div>
-                                    <div class="pfm-ap-sup-sub">
-                                        @selectedSupplier.CardCode
-                                        @if (!string.IsNullOrWhiteSpace(selectedSupplier.Phone1))
+                                    <div class="pfm-ap-sup-name">@SupplierName(selectedSupplier)</div>
+                                    @{
+                                        var subParts = new[]
                                         {
-                                            <span> · @selectedSupplier.Phone1</span>
-                                        }
-                                    </div>
+                                            HasOwnName(selectedSupplier) ? selectedSupplier.CardCode : null,
+                                            selectedSupplier.Phone1
+                                        }.Where(part => !string.IsNullOrWhiteSpace(part)).ToList();
+                                    }
+                                    @if (subParts.Count > 0)
+                                    {
+                                        <div class="pfm-ap-sup-sub">@string.Join(" · ", subParts)</div>
+                                    }
                                     <div class="pfm-ap-tags">
                                         @if (HasRealCurrency(selectedSupplier.Currency))
                                         {
@@ -133,8 +137,11 @@
                                             <button type="button" class="pfm-drop-i"
                                                     @onmousedown="() => SelectSupplier(supplier)">
                                                 <span>
-                                                    <span class="pfm-drop-code">@supplier.CardName</span>
-                                                    <span class="pfm-drop-sub">@supplier.CardCode</span>
+                                                    <span class="pfm-drop-code">@SupplierName(supplier)</span>
+                                                    @if (HasOwnName(supplier))
+                                                    {
+                                                        <span class="pfm-drop-sub">@supplier.CardCode</span>
+                                                    }
                                                 </span>
                                                 @if (HasRealCurrency(supplier.Currency))
                                                 {
@@ -537,7 +544,7 @@
                                     : "Ready to post, but the total differs from their paper")
                             </span>
                             <span class="pfm-ap-ready-s">
-                                @(selectedSupplier?.CardName ?? purchaseInvoice.CardCode)
+                                @(selectedSupplier is not null ? SupplierName(selectedSupplier) : purchaseInvoice.CardCode)
                                 · @purchaseInvoice.NumAtCard
                                 · @ItemLineCount @(ItemLineCount == 1 ? "line" : "lines")
                                 @if (purchaseInvoice.DocDueDate is DateTime due)

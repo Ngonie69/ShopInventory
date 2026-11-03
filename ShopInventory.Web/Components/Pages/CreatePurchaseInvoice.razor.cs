@@ -168,6 +168,15 @@ public partial class CreatePurchaseInvoice
         !string.IsNullOrWhiteSpace(defaultWarehouseCode)
         && string.Equals(line.WarehouseCode, defaultWarehouseCode, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The name to lead with. Some cached partners carry a code and no name, and
+    /// the card and the picker both lead with the name, so fall back to the code.
+    /// </summary>
+    private static string SupplierName(BusinessPartnerDto supplier) =>
+        string.IsNullOrWhiteSpace(supplier.CardName) ? supplier.CardCode ?? string.Empty : supplier.CardName;
+
+    private static bool HasOwnName(BusinessPartnerDto supplier) => !string.IsNullOrWhiteSpace(supplier.CardName);
+
     private static string SupplierInitials(string? name)
     {
         var letters = (name ?? string.Empty)
