@@ -1717,3 +1717,95 @@
         padding: var(--stg-space-6) var(--stg-space-4);
     }
 }
+
+/* ── Daily Sales on WhatsApp (DailySalesWhatsAppCard.razor) ─────────────────
+   The two row editors and the message preview. Every colour is a --stg-*
+   token, so both themes come from the page's own token blocks. */
+.stg .dsw-rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--stg-space-2);
+}
+
+.stg .dsw-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: var(--stg-space-2);
+    align-items: center;
+}
+
+.stg .dsw-rows-area .dsw-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+}
+
+.stg .dsw-area {
+    align-items: center;
+    white-space: nowrap;
+}
+
+.stg .dsw-area input {
+    margin: 0;
+}
+
+.stg .dsw-row-tools {
+    display: inline-flex;
+    gap: 2px;
+}
+
+.stg .dsw-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--stg-space-2);
+}
+
+.stg .dsw-empty {
+    font-size: 13px;
+    color: var(--stg-t-45);
+}
+
+.stg .dsw-preview {
+    margin-top: var(--stg-space-4);
+    border: 1px solid var(--stg-divider);
+    border-radius: var(--stg-radius-md);
+    background: var(--stg-neutral-900);
+    overflow: hidden;
+}
+
+.stg .dsw-preview-head {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--stg-space-3);
+    padding: var(--stg-space-3) var(--stg-space-4);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--stg-t-70);
+    border-bottom: 1px solid var(--stg-divider);
+}
+
+.stg .dsw-preview-note {
+    font-weight: 400;
+    color: var(--stg-t-45);
+}
+
+.stg .dsw-preview pre {
+    margin: 0;
+    padding: var(--stg-space-4);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--stg-text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+    .stg .dsw-row,
+    .stg .dsw-rows-area .dsw-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .stg .dsw-codes {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+}
