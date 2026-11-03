@@ -66,6 +66,8 @@ public sealed class DailySalesWhatsAppTests : IDisposable
         _context.Routes.AddRange(cbd, east1, east2, upc1, west1);
         _context.Shops.Add(new ShopEntity { Code = "KEF", Name = "Kefalos Factory Shop", BusinessPartnerCode = "CIS006", WarehouseCode = "KEFSHOP", IsActive = true });
         _context.Shops.Add(new ShopEntity { Code = "OTH", Name = "Other Shop", BusinessPartnerCode = "CIS007", WarehouseCode = "OTHSHOP", IsActive = true });
+        _context.Shops.Add(new ShopEntity { Code = "QUI", Name = "Quiet Shop", BusinessPartnerCode = "CIS008", WarehouseCode = "QUISHOP", IsActive = true });
+        _context.Shops.Add(new ShopEntity { Code = "CLO", Name = "Closed Shop", BusinessPartnerCode = "CIS009", WarehouseCode = "CLOSHOP", IsActive = false });
         _context.SaveChanges();
 
         AddRep(CbdRep, "VAN001", cbd);
@@ -93,11 +95,12 @@ public sealed class DailySalesWhatsAppTests : IDisposable
 
         // The shop: 157 tubs of Cortina over two sales and 463 yoghurts, $5,446.16 in all with the other item.
         AddShopSale(Wednesday, "KEFSHOP", 2000m, ("CORT5L", 100m), ("YOG200", 463m));
-        AddShopSale(Wednesday, "KEFSHOP", 1446.16m, ("cort5l ", 57m));
-        AddShopSale(Wednesday, "KEFSHOP", 2000m, ("SCOOP6", 110m));
+        AddShopSale(Wednesday, "KEFSHOP", 1446.16m, tender: "ecocash", lines: [("cort5l ", 57m)]);
+        AddShopSale(Wednesday, "KEFSHOP", 2000m, tender: TenderTypes.Swipe, lines: [("SCOOP6", 110m)]);
         // None of these is the shop's day: another day, another shop, the vending depot at the same warehouse, ZiG.
         AddShopSale(Tuesday, "KEFSHOP", 999m, ("CORT5L", 999m));
-        AddShopSale(Wednesday, "OTHSHOP", 999m, ("CORT5L", 999m));
+        AddShopSale(Wednesday, "OTHSHOP", 999m, tender: TenderTypes.Innbucks, lines: [("CORT5L", 999m)]);
+        AddShopSale(Wednesday, "OTHSHOP", 1m, tender: null);
         AddShopSale(Wednesday, "KEFSHOP", 999m, source: SaleSourceSystems.Vending, lines: [("CORT5L", 999m)]);
         AddShopSale(Wednesday, "KEFSHOP", 3000m, currency: "ZiG", lines: [("YOG200", 10m)]);
         _context.SaveChanges();
@@ -208,8 +211,78 @@ public sealed class DailySalesWhatsAppTests : IDisposable
             150ml scoop: 0
             *Total: $5,446.16*
             _Plus ZIG 3,000.00, not in the total_
+
+            *Shop & Vending Sales (Wednesday 28.10.2026)*
+            *Kefalos Factory Shop: $5,446.16*
+            Cash: $2,000.00
+            EcoCash: $1,446.16
+            InnBucks: $0.00
+            Swipe: $2,000.00
+            _Plus ZIG 3,000.00, not in the total_
+
+            *Other Shop: $1,000.00*
+            Cash: $0.00
+            EcoCash: $0.00
+            InnBucks: $999.00
+            Swipe: $0.00
+            Not recorded: $1.00
+
+            *Quiet Shop: $0.00*
+            No sales recorded.
+
+            *Vending: $999.00*
+            Cash: $999.00
+            EcoCash: $0.00
+            InnBucks: $0.00
+            Swipe: $0.00
+
+            *SHOPS & VENDING TOTAL: $7,445.16*
+            Cash: $2,999.00
+            EcoCash: $1,446.16
+            InnBucks: $999.00
+            Swipe: $2,000.00
+            Not recorded: $1.00
+            _Plus ZIG 3,000.00, not in the total_
             """.ReplaceLineEndings("\n"),
             message);
+    }
+
+    // ---- Every shop and vending, by tender -------------------------------------------------------
+
+    [Fact]
+    public async Task Every_active_shop_and_vending_is_split_by_tender_and_adds_up()
+    {
+        // No settings at all: the counter section does not depend on the chosen shop.
+        var counters = (await ReportAsync()).Counters;
+
+        // Active shops by name, a shop without sales included; the closed one without sales is left out.
+        Assert.Equal(["Kefalos Factory Shop", "Other Shop", "Quiet Shop"], counters.Shops.Select(shop => shop.Label));
+
+        var kefalos = counters.Shops[0];
+        Assert.Equal(
+            [("Cash", 2000m), ("EcoCash", 1446.16m), ("InnBucks", 0m), ("Swipe", 2000m)],
+            kefalos.Tenders.Select(tender => (tender.Tender, tender.Amount)));
+        Assert.Equal(5446.16m, kefalos.Total);
+        Assert.Equal([new DailySalesWhatsAppCurrencyAmount("ZIG", 3000m)], kefalos.OtherCurrencies);
+
+        // A sale with no tender recorded keeps its own line rather than being called cash.
+        Assert.Equal(
+            [("Cash", 0m), ("EcoCash", 0m), ("InnBucks", 999m), ("Swipe", 0m), ("Not recorded", 1m)],
+            counters.Shops[1].Tenders.Select(tender => (tender.Tender, tender.Amount)));
+        Assert.Equal(0, counters.Shops[2].SalesCount);
+
+        // Vending at a shop's warehouse is vending, not the shop.
+        Assert.Equal(999m, counters.Vending.Total);
+        Assert.Equal(["KEFSHOP"], counters.Vending.WarehouseCodes);
+
+        // Each block's tenders add up to its total, and the total is the shops and vending together.
+        foreach (var block in counters.Shops.Append(counters.Vending).Append(counters.Total))
+        {
+            Assert.Equal(block.Total, block.Tenders.Sum(tender => tender.Amount));
+        }
+
+        Assert.Equal(counters.Shops.Sum(shop => shop.Total) + counters.Vending.Total, counters.Total.Total);
+        Assert.Equal(7445.16m, counters.Total.Total);
     }
 
     // ---- Settings ---------------------------------------------------------------------------------
@@ -507,7 +580,8 @@ public sealed class DailySalesWhatsAppTests : IDisposable
         decimal total,
         string source = SaleSourceSystems.ShopTill,
         string currency = "USD",
-        (string ItemCode, decimal Quantity)[]? lines = null) =>
+        (string ItemCode, decimal Quantity)[]? lines = null,
+        string? tender = TenderTypes.Cash) =>
         _context.DesktopSales.Add(new DesktopSaleEntity
         {
             ExternalReferenceId = $"TILL-{++_reference}",
@@ -520,7 +594,7 @@ public sealed class DailySalesWhatsAppTests : IDisposable
             VatAmount = 0m,
             AmountPaid = total,
             Currency = currency,
-            PaymentMethod = TenderTypes.Cash,
+            PaymentMethod = tender,
             FiscalizationStatus = DesktopSaleFiscalizationStatus.Success,
             CreatedBy = Guid.NewGuid().ToString(),
             CreatedAt = DateTime.SpecifyKind(day.AddHours(10), DateTimeKind.Utc),

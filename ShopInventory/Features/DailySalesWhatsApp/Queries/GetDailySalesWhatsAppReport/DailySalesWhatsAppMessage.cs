@@ -4,8 +4,8 @@ using System.Text;
 namespace ShopInventory.Features.DailySalesWhatsApp.Queries.GetDailySalesWhatsAppReport;
 
 /// <summary>
-/// The report as WhatsApp text: the two tables of the office's daily sheet, one "label: figure" line per
-/// row, headings and totals in bold.
+/// The report as WhatsApp text: the two tables of the office's daily sheet, then every shop and vending
+/// by tender — one "label: figure" line per row, headings and totals in bold.
 /// </summary>
 /// <remarks>
 /// Plain lines rather than a monospaced table. A phone wraps a padded table at its own width and the
@@ -20,7 +20,8 @@ public static class DailySalesWhatsAppMessage
         IReadOnlyList<DailySalesWhatsAppVanLine> vanLines,
         decimal vanTotal,
         IReadOnlyList<DailySalesWhatsAppCurrencyAmount> vanOther,
-        DailySalesWhatsAppShop? shop)
+        DailySalesWhatsAppShop? shop,
+        DailySalesWhatsAppCounters counters)
     {
         var date = DayLabel(day);
         var text = new StringBuilder();
@@ -52,7 +53,40 @@ public static class DailySalesWhatsAppMessage
             AppendOther(text, shop.OtherCurrencies);
         }
 
+        text.Append('\n');
+        text.Append(Bold($"Shop & Vending Sales ({date})")).Append('\n');
+        foreach (var counter in counters.Shops)
+        {
+            AppendCounter(text, counter.Label, counter);
+            text.Append('\n');
+        }
+
+        AppendCounter(text, counters.Vending.Label, counters.Vending);
+        text.Append('\n');
+        AppendCounter(text, $"{counters.Total.Label.ToUpperInvariant()} TOTAL", counters.Total);
+
         return text.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>
+    /// A shop, vending or the total: its dollar takings in the heading, then one line per tender. A block
+    /// with no sales says so in one line instead of four zeros.
+    /// </summary>
+    private static void AppendCounter(StringBuilder text, string label, DailySalesWhatsAppCounter counter)
+    {
+        text.Append(Bold($"{Plain(label)}: {Money(counter.Total)}")).Append('\n');
+        if (counter.SalesCount == 0)
+        {
+            text.Append("No sales recorded.").Append('\n');
+            return;
+        }
+
+        foreach (var tender in counter.Tenders)
+        {
+            text.Append(Plain(tender.Tender)).Append(": ").Append(Money(tender.Amount)).Append('\n');
+        }
+
+        AppendOther(text, counter.OtherCurrencies);
     }
 
     /// <summary>"Wednesday 28.10.2026", as the office's sheet dates it.</summary>
