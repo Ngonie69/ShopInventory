@@ -1,0 +1,4 @@
+# Outputs hold rep names and positions; the repo is public.
+*.xlsx
+fleet-*/
+fleet-*.zip
