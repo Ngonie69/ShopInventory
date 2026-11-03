@@ -211,6 +211,8 @@ public static class AuditActions
     public const string SendDesktopSalesReview = "SendDesktopSalesReview";
     public const string UpdateSalesPerformanceEmailSchedule = "UpdateSalesPerformanceEmailSchedule";
     public const string SendSalesPerformanceEmail = "SendSalesPerformanceEmail";
+    public const string UpdateDailySalesWhatsAppSettings = "UpdateDailySalesWhatsAppSettings";
+    public const string SendDailySalesWhatsApp = "SendDailySalesWhatsApp";
 
     // Timesheet actions
     public const string CheckIn = "CheckIn";

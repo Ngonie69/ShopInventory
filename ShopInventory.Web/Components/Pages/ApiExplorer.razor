@@ -1736,6 +1736,22 @@ new("PUT", "/api/daily-incoming-payments/gl-mappings/{cardCode}/active", "Switch
 },
 new ApiModule
 {
+Name = "Daily Sales on WhatsApp",
+BasePath = "/api/daily-sales-whatsapp",
+Description = "Yesterday's van sales by route and one shop's product quantities, sent each morning on WhatsApp.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/daily-sales-whatsapp/preview", "The report for a day and its message text, without sending"),
+new("GET", "/api/daily-sales-whatsapp/settings", "Switch, numbers, shop, rows and what was last sent"),
+new("POST", "/api/daily-sales-whatsapp/send", "Send now, for a day and numbers or yesterday to the saved ones"),
+new("PUT", "/api/daily-sales-whatsapp/settings", "Save the switch, numbers, shop and rows")
+}
+},
+new ApiModule
+{
 Name = "Desktop Credit Note List",
 BasePath = "/api/DesktopIntegration/credit-notes",
 Description = "2 endpoints under /api/DesktopIntegration/credit-notes.",
