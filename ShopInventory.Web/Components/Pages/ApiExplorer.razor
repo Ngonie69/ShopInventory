@@ -1457,6 +1457,7 @@ new("GET", "/api/DesktopIntegration/sales", "Get desktop sales"),
 new("GET", "/api/DesktopIntegration/sales/analysis", "Get desktop sales analysis"),
 new("GET", "/api/DesktopIntegration/sales/management-report", "Get management sales report"),
 new("GET", "/api/DesktopIntegration/sales/management-report/item", "Get management item analysis"),
+new("GET", "/api/DesktopIntegration/sales/month-on-month", "Two months of shop and vending sales by place, tender and item, for the month-on-month report"),
 new("GET", "/api/DesktopIntegration/sales/posting-date-policy", "Get posting date policy"),
 new("GET", "/api/DesktopIntegration/sales/review", "Get desktop sales review"),
 new("GET", "/api/DesktopIntegration/sales/review/pdf", "Get desktop sales review PDF"),
@@ -1831,6 +1832,22 @@ new("GET", "/api/Maintenance/mobile/status", "Get maintenance status (name the A
 new("GET", "/api/Maintenance/status", "Get maintenance status for the calling client"),
 new("PUT", "/api/Maintenance", "Turn the maintenance lockout on or off"),
 new("PUT", "/api/Maintenance/mobile", "Turn the lockout on or off (name the Android builds call)")
+}
+},
+new ApiModule
+{
+Name = "Report Product Groups",
+BasePath = "/api/report-product-groups",
+Description = "Named product groups the month-on-month report follows (Admin edits).",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Primary,
+Methods = new[] { "DELETE", "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/report-product-groups", "List product groups with their members"),
+new("POST", "/api/report-product-groups", "Create a product group"),
+new("DELETE", "/api/report-product-groups/{id}", "Delete a product group"),
+new("PUT", "/api/report-product-groups/{id}", "Replace a product group and its members")
 }
 },
 new ApiModule

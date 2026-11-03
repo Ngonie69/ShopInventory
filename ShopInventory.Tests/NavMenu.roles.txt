@@ -149,6 +149,7 @@ Reports
     Management Sales  /reports/management-sales
     Shop & Vending Analysis  /reports/desktop-sales
     Shop & Vending Review  /reports/desktop-sales/review
+    Month on Month  /reports/shop-vending-month-on-month
     Sales Order vs Invoice  /reports/order-fulfillment
 System
     Exception Center  /exception-center
@@ -201,6 +202,7 @@ Reports
     Management Sales  /reports/management-sales
     Shop & Vending Analysis  /reports/desktop-sales
     Shop & Vending Review  /reports/desktop-sales/review
+    Month on Month  /reports/shop-vending-month-on-month
     Sales Order vs Invoice  /reports/order-fulfillment
 System
     Exception Center  /exception-center
@@ -382,6 +384,7 @@ Reports
     Management Sales  /reports/management-sales
     Shop & Vending Analysis  /reports/desktop-sales
     Shop & Vending Review  /reports/desktop-sales/review
+    Month on Month  /reports/shop-vending-month-on-month
     Sales Order vs Invoice  /reports/order-fulfillment
     Customer Revenue  /reports/customer-revenue
     Partner Performance  /reports/partner-performance
@@ -406,6 +409,7 @@ Administration
     Approval Process  /approval-process/setup
     Merch Products  /merchandiser-products
     Volume Factors  /reports/volume-conversions
+    Product Groups  /reports/product-groups
     Webhooks  /webhooks
     WhatsApp Inbox  /whatsapp-inbox
     WhatsApp Deliveries  /whatsapp-deliveries

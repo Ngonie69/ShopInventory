@@ -68,6 +68,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.TriggerTransferListener
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferListenerStatus;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
+using ShopInventory.Features.DesktopIntegration.Queries.GetCounterMonthOnMonth;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesReview;
 using ShopInventory.Features.DesktopIntegration.Commands.SendDesktopSalesReviewEmail;
@@ -1316,6 +1317,27 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
                 userId.Value, fromDate, toDate, warehouseCode, sourceSystem, paymentMethod, CardCode: cardCode,
                 IncludeMargin: includeMargin),
             cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Two calendar months of shop and vending sales side by side, by place, tender and item, for the
+    /// month-on-month report. Months are passed as yyyy-MM (any day of the month also works).
+    /// </summary>
+    [Authorize(Roles = "Admin,Manager,Cashier")]
+    [HttpGet("sales/month-on-month")]
+    public async Task<IActionResult> GetCounterMonthOnMonth(
+        [FromQuery] DateTime previousMonth,
+        [FromQuery] DateTime currentMonth,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new GetCounterMonthOnMonthQuery(userId.Value, previousMonth, currentMonth), cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
     }

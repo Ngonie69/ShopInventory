@@ -1,0 +1,185 @@
+@page "/reports/product-groups"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.ReportProductGroups
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>Product Groups - Shop Inventory</PageTitle>
+
+@* The product groups the month-on-month report follows: one card each on that page and one sheet each in its
+   workbook. Laid out from the "Month on Month redesign" canvas. Shares month-on-month.css (`mom-`). *@
+
+<div class="mom">
+    <header class="mom-head">
+        <div class="mom-title">
+            <span class="mom-kicker">Shop &amp; vending sales · Set-up</span>
+            <h1>Product groups</h1>
+            <p class="mom-sub">The ranges the month-on-month report follows on their own. Change them as products come and go: a group's current products count in both months compared.</p>
+        </div>
+        <a class="mom-link" href="/reports/shop-vending-month-on-month">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"></path><path d="m11 18-6-6 6-6"></path></svg>
+            Month on month
+        </a>
+    </header>
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="mom-alert" role="alert">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5"></path><path d="M12 16h.01"></path></svg>
+            <span>@error</span>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="mom-ok" role="status">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg>
+            <span>@message</span>
+        </div>
+    }
+
+    @if (loading)
+    {
+        <div class="mom-empty"><span class="mom-spin" aria-hidden="true"></span><p>Loading…</p></div>
+    }
+    else
+    {
+        <div class="mom-split">
+            <nav class="mom-rail" aria-label="Product groups">
+                <button type="button" class="mom-new" @onclick="New">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+                    New group
+                </button>
+                @if (groups.Count == 0)
+                {
+                    <p class="mom-card-sub">No groups yet.</p>
+                }
+                @foreach (var group in groups)
+                {
+                    <button type="button" class="mom-group @(draft?.Id == group.Id ? "is-on" : null)" aria-pressed="@(draft?.Id == group.Id)" @onclick="() => Edit(group)">
+                        <span class="mom-group-top">
+                            <span class="mom-group-name">@group.Name</span>
+                            <span class="mom-state @(group.IsActive ? "is-live" : "is-off")">@(group.IsActive ? "In report" : "Retired")</span>
+                        </span>
+                        <span class="mom-group-sum">@Summary(group)</span>
+                        @if (!string.IsNullOrWhiteSpace(group.Description))
+                        {
+                            <span class="mom-group-desc">@group.Description</span>
+                        }
+                    </button>
+                }
+            </nav>
+
+            <section class="mom-card mom-editor" aria-label="Edit product group">
+                @if (draft is null)
+                {
+                    <div class="mom-empty is-inline">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 2 7l10 5 10-5-10-5Z"></path><path d="m2 17 10 5 10-5"></path><path d="m2 12 10 5 10-5"></path></svg>
+                        <p>Pick a group to change it, or start a new one.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="mom-editor-head">
+                        <h2>@(draft.Id is null ? "New group" : draft.Name)</h2>
+                        <label class="mom-check">
+                            <input type="checkbox" class="mom-checkbox" @bind="draft.IsActive" />
+                            <span>In the report</span>
+                        </label>
+                    </div>
+
+                    <div class="mom-form">
+                        <div class="mom-field">
+                            <label class="mom-label" for="pg-name">Name</label>
+                            <input id="pg-name" class="mom-input" maxlength="100" @bind="draft.Name" placeholder="e.g. Complimentary lines" />
+                        </div>
+                        <div class="mom-field">
+                            <label class="mom-label" for="pg-desc">Description</label>
+                            <input id="pg-desc" class="mom-input" maxlength="500" @bind="draft.Description" placeholder="What the group is, for whoever reads the report" />
+                        </div>
+                        <div class="mom-field is-short">
+                            <label class="mom-label" for="pg-order">Order</label>
+                            <input id="pg-order" class="mom-input" type="number" min="0" @bind="draft.SortOrder" />
+                        </div>
+                    </div>
+
+                    <div class="mom-products">
+                        <div class="mom-products-head">
+                            <h3>Products</h3>
+                            <span class="mom-card-sub">@ProductCount</span>
+                        </div>
+
+                        <div class="mom-adder">
+                            <NocturnePicker Class="npick-block" Options="itemOptions" @bind-Value="pickedItem" OnChanged="OnItemPicked"
+                                            Placeholder="Add an item or a whole SAP item group"
+                                            SearchPlaceholder="Search items, codes or item groups…" AriaLabel="Add an item or a whole SAP item group" />
+                            <div class="mom-paste">
+                                <input id="pg-bulk" class="mom-input" @bind="bulkCodes" @bind:event="oninput" aria-label="Paste several item codes" placeholder="or paste codes: ICS024, ICS025" />
+                                <button type="button" class="mom-btn" @onclick="AddBulk" disabled="@string.IsNullOrWhiteSpace(bulkCodes)">Add</button>
+                            </div>
+                        </div>
+
+                        @if (WholeGroups.Any())
+                        {
+                            <div class="mom-kind">
+                                <span class="mom-kind-cap">Whole SAP item groups · keep up by themselves</span>
+                                @foreach (var member in WholeGroups.ToList())
+                                {
+                                    <div class="mom-whole">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 2 7l10 5 10-5-10-5Z"></path><path d="m2 17 10 5 10-5"></path><path d="m2 12 10 5 10-5"></path></svg>
+                                        <span class="mom-whole-text">
+                                            <span class="mom-name">@MemberName(member) · SAP group @member.Code</span>
+                                            <span class="mom-card-sub">Every item SAP has in this group, including ones added later</span>
+                                        </span>
+                                        <button type="button" class="mom-icon-btn" title="Remove" aria-label="Remove item group @member.Code" @onclick="() => Remove(member)">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @if (NamedItems.Any())
+                        {
+                            <div class="mom-kind">
+                                <span class="mom-kind-cap">Named items</span>
+                                <div class="mom-chips">
+                                    @foreach (var member in NamedItems.ToList())
+                                    {
+                                        <span class="mom-item-chip">
+                                            <span class="mom-code">@member.Code</span>
+                                            <span class="mom-item-name">@MemberName(member)</span>
+                                            <button type="button" class="mom-icon-btn is-sm" title="Remove" aria-label="Remove @member.Code" @onclick="() => Remove(member)">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                                            </button>
+                                        </span>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        @if (!draft.Members.Any())
+                        {
+                            <p class="mom-card-sub">No products yet. Search above, or paste a list of codes.</p>
+                        }
+                    </div>
+
+                    <div class="mom-editor-actions">
+                        @if (draft.Id is not null)
+                        {
+                            <button type="button" class="mom-btn is-danger" @onclick="DeleteAsync" disabled="@saving">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path></svg>
+                                <span>@(confirmDelete ? "Click again to delete" : "Delete")</span>
+                            </button>
+                        }
+                        <span class="mom-grow"></span>
+                        <button type="button" class="mom-btn" @onclick="Cancel" disabled="@saving">Cancel</button>
+                        <button type="button" class="mom-btn is-primary" @onclick="SaveAsync" disabled="@saving">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg>
+                            <span>@(saving ? "Saving…" : "Save group")</span>
+                        </button>
+                    </div>
+                }
+            </section>
+        </div>
+    }
+</div>

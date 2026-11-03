@@ -272,6 +272,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Item volume reporting
   public DbSet<ItemVolumeConversionEntity> ItemVolumeConversions { get; set; }
 
+  // Product groups a report follows on its own (complimentary lines, a new range, ...)
+  public DbSet<ReportProductGroupEntity> ReportProductGroups { get; set; }
+  public DbSet<ReportProductGroupMemberEntity> ReportProductGroupMembers { get; set; }
+
   // Which handset may sign offline on a fiscal device — one chain, one signer.
   public DbSet<FiscalDeviceOfflineLeaseEntity> FiscalDeviceOfflineLeases { get; set; }
 
@@ -1862,6 +1866,30 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(e => e.VolumeFactor).HasPrecision(18, 6);
 
       entity.HasIndex(e => e.IsActive);
+    });
+
+    // Report product groups
+    modelBuilder.Entity<ReportProductGroupEntity>(entity =>
+    {
+      entity.ToTable("ReportProductGroups");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Name).HasMaxLength(100).IsRequired();
+      entity.Property(e => e.Description).HasMaxLength(500);
+      entity.Property(e => e.UpdatedBy).HasMaxLength(100);
+      entity.HasIndex(e => e.Name).IsUnique();
+      entity.HasMany(e => e.Members)
+            .WithOne(m => m.Group)
+            .HasForeignKey(m => m.GroupId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<ReportProductGroupMemberEntity>(entity =>
+    {
+      entity.ToTable("ReportProductGroupMembers");
+      entity.HasKey(e => e.Id);
+      entity.Property(e => e.Code).HasMaxLength(50).IsRequired();
+      entity.Property(e => e.Name).HasMaxLength(200);
+      entity.HasIndex(e => new { e.GroupId, e.Kind, e.Code }).IsUnique();
     });
 
     // Timesheet Entry configuration

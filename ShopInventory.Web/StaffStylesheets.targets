@@ -136,6 +136,9 @@
          are one page reached by two routes. Aliases the palette in nocturne-tokens.css rather than
          restating it. -->
     <StaffStylesheetLate Include="wwwroot/css/sales-analysis.css" />
+    <!-- Shop & Vending month on month and the product groups it follows. Every colour is a
+         nocturne-tokens.css token, so the sheet has no dark block of its own. -->
+    <StaffStylesheetLate Include="wwwroot/css/month-on-month.css" />
     <!-- Sibling of business-partners.css, sharing its palette: the audit trail is the same page
          shape. See that file's header for what the sharing costs. -->
     <StaffStylesheetLate Include="wwwroot/css/audit-trail.css" />
