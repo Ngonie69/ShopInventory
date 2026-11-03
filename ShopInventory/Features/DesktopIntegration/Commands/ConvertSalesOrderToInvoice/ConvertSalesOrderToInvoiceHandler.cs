@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Sales;
+using ShopInventory.Common.Stock;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -254,6 +255,39 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                     AutoAllocateBatches = l.AutoAllocateBatches
                 }).ToList()
             };
+
+            // A resend of a conversion the fiscal device refused. Its stock was let go when it was refused,
+            // so it is checked again and held again before the reservation below hands it back.
+            if (command.SignBeforeAnswering)
+            {
+                var resumed = await UnsignedHold.ResumeAsync(
+                    db, reservationService, externalRef, TimeSpan.FromMinutes(reservationRequest.ReservationDurationMinutes));
+
+                if (resumed.IsShort)
+                {
+                    var shortfall = string.Join("; ", resumed.Shortfall!
+                        .Select(error => error.Message)
+                        .Where(message => !string.IsNullOrWhiteSpace(message)));
+
+                    logger.LogWarning(
+                        "Sales order {OrderNumber} conversion {ExternalRef} was resent after the fiscal device refused it, " +
+                        "and the van no longer holds the goods: {Shortfall}",
+                        order.OrderNumber, externalRef, shortfall);
+
+                    return Errors.DesktopIntegration.ReservationFailed(
+                        string.IsNullOrWhiteSpace(shortfall)
+                            ? "The van no longer holds the stock for this invoice."
+                            : shortfall);
+                }
+
+                if (resumed.Resumed)
+                {
+                    logger.LogInformation(
+                        "Sales order {OrderNumber} conversion {ExternalRef} was resent after the fiscal device refused it; " +
+                        "its stock was checked again and is held again",
+                        order.OrderNumber, externalRef);
+                }
+            }
 
             var reservationResult = await reservationService.CreateReservationAsync(
                 reservationRequest, command.CreatedBy, unstoppable);
@@ -559,8 +593,8 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
     /// </summary>
     /// <remarks>
     /// <para><b>What the rep is told</b> follows <c>CreateVanSalesDirectInvoiceHandler</c>. Until the device
-    /// signs, the conversion can still be refused, and the reservation is left holding so the same conversion
-    /// sent again finds it. Once it signs it is never refused: the receipt is answered, and the queue posts
+    /// signs, the conversion can still be refused. A refusal releases the reservation (<see cref="UnsignedHold"/>),
+    /// and the same conversion sent again checks the stock and holds it again. Once it signs it is never refused: the receipt is answered, and the queue posts
     /// the invoice on the order's base. A device that cannot say whether it signed is queued for a person
     /// and the rep is told not to convert again.</para>
     ///
@@ -642,13 +676,39 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                 return Errors.DesktopIntegration.ConversionFiscalOutcomeUnknown;
 
             case VanSaleFiscalFirstStatus.FiscalUnchecked:
+                await ReleaseUnsignedAsync(order, externalRef, reservationId, outcome.Error);
                 return Errors.DesktopIntegration.ConversionFiscalDeviceUnavailable;
 
             case VanSaleFiscalFirstStatus.FiscalFailed:
+                await ReleaseUnsignedAsync(order, externalRef, reservationId, outcome.Error);
                 return Errors.DesktopIntegration.ConversionFiscalisationFailed(outcome.Error);
 
             default:
                 return Errors.DesktopIntegration.ValidationFailed(outcome.Error ?? "This invoice cannot be raised.");
+        }
+    }
+
+    /// <summary>
+    /// Lets go of a refused conversion's stock, so the van does not read it as sold. See <see cref="UnsignedHold"/>.
+    /// </summary>
+    private async Task ReleaseUnsignedAsync(SalesOrderDto order, string externalRef, string reservationId, string? why)
+    {
+        try
+        {
+            if (await UnsignedHold.ReleaseAsync(db, reservationId, why))
+            {
+                logger.LogInformation(
+                    "Sales order {OrderNumber} conversion {ExternalRef} was not signed; released reservation {ReservationId}. " +
+                    "A resend under the same reference checks the stock again and holds it again",
+                    order.OrderNumber, externalRef, reservationId);
+            }
+        }
+        catch (Exception ex)
+        {
+            // The refusal still stands. The hold lapses on its own hour, as it did before this release existed.
+            logger.LogWarning(ex,
+                "Could not release reservation {ReservationId} after conversion {ExternalRef} was not signed",
+                reservationId, externalRef);
         }
     }
 
