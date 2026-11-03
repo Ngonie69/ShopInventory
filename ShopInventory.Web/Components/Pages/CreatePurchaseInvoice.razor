@@ -6,12 +6,10 @@
 
 @* Nocturne. wwwroot/css/purchase-forms.css (linked from App.razor) carries the
    design and its light counterpart, and follows the app's theme toggle like
-   every other page. See CreatePurchaseQuotation for the notes on the line grid
-   and the inline icons, which this page repeats.
-
-   This page previously carried its own 300-line <style> block plus several
-   hundred inline `style=` attributes, which is why its dark mode was whatever
-   app.css happened to say. Both are gone.
+   every other page. The "copy the paper" layout below (supplier and their
+   invoice number side by side, the lines straight under them, the totals where
+   a printed invoice has them and the Post button in a bar along the bottom) is
+   this page's own; its rules sit under "A/P invoice" in that sheet.
 
    The item cell keeps its own picker rather than a <datalist> like the
    quotation form's: this form completes the code as it is typed and takes
@@ -28,29 +26,11 @@
             <span class="pfm-crumb-now">New</span>
         </nav>
 
-        <header class="pfm-head">
-            <div class="pfm-head-main">
-                <div class="pfm-kicker">Purchasing</div>
-                <h1>New A/P invoice</h1>
-                <p>
-                    Post a supplier invoice straight to SAP &#8212; what was billed, against which
-                    items, and what the document comes to once discounts are applied.
-                </p>
-            </div>
-            <div class="pfm-stats">
-                <div class="pfm-stat">
-                    <div class="pfm-stat-k">Lines</div>
-                    <div class="pfm-stat-v">@purchaseInvoice.Lines.Count</div>
-                </div>
-                <div class="pfm-stat">
-                    <div class="pfm-stat-k">Subtotal</div>
-                    <div class="pfm-stat-v">@SubTotal.ToString("N2")</div>
-                </div>
-                <div class="pfm-stat">
-                    <div class="pfm-stat-k">Estimated</div>
-                    <div class="pfm-stat-v is-total">@EstimatedTotal.ToString("N2")</div>
-                </div>
-            </div>
+        <header class="pfm-ap-head">
+            <h1>New A/P invoice</h1>
+            <span class="pfm-ap-pill">Draft · not in SAP yet</span>
+            <span class="pfm-spacer"></span>
+            <p>Copy the supplier's invoice in, then post it straight to SAP.</p>
         </header>
 
         @if (!string.IsNullOrWhiteSpace(errorMessage))
@@ -93,234 +73,250 @@
         }
         else
         {
-            <div class="pfm-grid">
-                <div class="pfm-main">
+            <div class="pfm-ap-body">
 
-                    <section class="pfm-card">
-                        <div class="pfm-card-hd">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                 stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M4 21V6l7-3v18"></path>
-                                <path d="M11 9h6a2 2 0 0 1 2 2v10"></path>
-                                <path d="M2 21h20M7 8v.01M7 12v.01M7 16v.01"></path>
-                            </svg>
-                            <h2>Supplier</h2>
-                        </div>
-                        <div class="pfm-card-bd">
-                            @if (selectedSupplier is not null)
-                            {
-                                <div class="pfm-party">
-                                    <div>
-                                        <div class="pfm-party-code">
-                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                                                 stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
-                                                 stroke-linejoin="round" aria-hidden="true">
-                                                <path d="M5 12.5l4.5 4.5L19 7"></path>
-                                            </svg>
-                                            @selectedSupplier.CardCode
-                                        </div>
-                                        <div class="pfm-party-name">@selectedSupplier.CardName</div>
-                                        <div class="pfm-party-meta">
-                                            @if (!string.IsNullOrWhiteSpace(selectedSupplier.Phone1))
-                                            {
-                                                <span>@selectedSupplier.Phone1</span>
-                                            }
-                                            @if (!string.IsNullOrWhiteSpace(selectedSupplier.Address))
-                                            {
-                                                <span>@TruncateName(selectedSupplier.Address, 60)</span>
-                                            }
-                                            @if (!string.IsNullOrWhiteSpace(selectedSupplier.Currency)
-                                                && !string.Equals(selectedSupplier.Currency, "##", StringComparison.OrdinalIgnoreCase))
-                                            {
-                                                <span>@selectedSupplier.Currency</span>
-                                            }
-                                        </div>
+                @* ── Who billed, and their reference ─────────────────────── *@
+                <section class="pfm-card pfm-ap-band" aria-label="Supplier and invoice">
+                    <div class="pfm-ap-who">
+                        @if (selectedSupplier is not null)
+                        {
+                            <span class="pfm-ap-lab">Supplier</span>
+                            <div class="pfm-ap-sup">
+                                <span class="pfm-ap-avatar" aria-hidden="true">@SupplierInitials(selectedSupplier.CardName)</span>
+                                <div class="pfm-ap-sup-bd">
+                                    <div class="pfm-ap-sup-name">@selectedSupplier.CardName</div>
+                                    <div class="pfm-ap-sup-sub">
+                                        @selectedSupplier.CardCode
+                                        @if (!string.IsNullOrWhiteSpace(selectedSupplier.Phone1))
+                                        {
+                                            <span> · @selectedSupplier.Phone1</span>
+                                        }
                                     </div>
-                                    <button type="button" class="pfm-btn-x" aria-label="Clear the supplier"
-                                            @onclick="ClearSupplier">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-                                             stroke-linecap="round" aria-hidden="true">
-                                            <path d="M6 6l12 12M18 6L6 18"></path>
-                                        </svg>
-                                    </button>
-                                </div>
-                            }
-                            else
-                            {
-                                @* Not a <label>: it wraps a popup whose clicks a label would
-                                   swallow by refocusing the input behind it. *@
-                                <div class="pfm-lab">
-                                    <span class="pfm-lab-t" id="apinv-c-supplier-label">
-                                        Supplier <span class="pfm-req">*</span>
-                                    </span>
-                                    <span class="pfm-combo">
-                                        <input class="pfm-input @(HasError("CardCode") ? "is-bad" : "")" type="text"
-                                               aria-labelledby="apinv-c-supplier-label" autocomplete="off"
-                                               placeholder="Search a supplier code or name, or type an exact code…"
-                                               value="@supplierSearchTerm" @oninput="OnSupplierInput"
-                                               @onfocus="ShowSupplierResults" @onblur="HandleSupplierBlur" />
-                                        @if (showSupplierResults && FilteredSuppliers.Any())
+                                    <div class="pfm-ap-tags">
+                                        @if (HasRealCurrency(selectedSupplier.Currency))
                                         {
-                                            <span class="pfm-drop is-wide" @onmousedown:preventDefault>
-                                                @foreach (var supplier in FilteredSuppliers)
+                                            <span class="pfm-ap-tag">@selectedSupplier.Currency account</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(selectedSupplier.Address))
+                                        {
+                                            <span class="pfm-ap-tag">@TruncateName(selectedSupplier.Address, 60)</span>
+                                        }
+                                    </div>
+                                </div>
+                                <button type="button" class="pfm-btn pfm-ap-link" @onclick="ClearSupplier">Change</button>
+                            </div>
+                        }
+                        else
+                        {
+                            @* Not a <label>: it wraps a popup whose clicks a label would
+                               swallow by refocusing the input behind it. *@
+                            <span class="pfm-ap-lab" id="apinv-c-supplier-label">
+                                Supplier <span class="pfm-req">*</span>
+                            </span>
+                            <span class="pfm-combo pfm-ap-search">
+                                <svg class="pfm-ap-search-ic" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                     stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+                                    <circle cx="11" cy="11" r="7"></circle>
+                                    <path d="M20 20l-3.5-3.5"></path>
+                                </svg>
+                                <input @ref="supplierInput"
+                                       class="pfm-input pfm-ap-big @(HasError("CardCode") ? "is-bad" : "")" type="text"
+                                       aria-labelledby="apinv-c-supplier-label" autocomplete="off"
+                                       placeholder="Search by name or code, or type an exact code"
+                                       value="@supplierSearchTerm" @oninput="OnSupplierInput"
+                                       @onfocus="ShowSupplierResults" @onblur="HandleSupplierBlur" />
+                                @if (showSupplierResults && FilteredSuppliers.Any())
+                                {
+                                    <span class="pfm-drop is-wide" @onmousedown:preventDefault>
+                                        @foreach (var supplier in FilteredSuppliers)
+                                        {
+                                            <button type="button" class="pfm-drop-i"
+                                                    @onmousedown="() => SelectSupplier(supplier)">
+                                                <span>
+                                                    <span class="pfm-drop-code">@supplier.CardName</span>
+                                                    <span class="pfm-drop-sub">@supplier.CardCode</span>
+                                                </span>
+                                                @if (HasRealCurrency(supplier.Currency))
                                                 {
-                                                    <button type="button" class="pfm-drop-i"
-                                                            @onmousedown="() => SelectSupplier(supplier)">
-                                                        <span>
-                                                            <span class="pfm-drop-code">@supplier.CardCode</span>
-                                                            <span class="pfm-drop-sub">@supplier.CardName</span>
-                                                        </span>
-                                                        @if (!string.IsNullOrWhiteSpace(supplier.Currency)
-                                                            && !string.Equals(supplier.Currency, "##", StringComparison.OrdinalIgnoreCase))
-                                                        {
-                                                            <span class="pfm-drop-price">@supplier.Currency</span>
-                                                        }
-                                                    </button>
+                                                    <span class="pfm-drop-price">@supplier.Currency</span>
                                                 }
-                                            </span>
-                                        }
-                                        else if (showSupplierResults && !string.IsNullOrWhiteSpace(supplierSearchTerm))
-                                        {
-                                            <span class="pfm-drop">
-                                                <span class="pfm-drop-empty">No supplier in the cache matches that.</span>
-                                            </span>
+                                            </button>
                                         }
                                     </span>
-                                    @if (HasError("CardCode"))
-                                    {
-                                        <span class="pfm-field-err">@GetError("CardCode")</span>
-                                    }
-                                </div>
+                                }
+                                else if (showSupplierResults && !string.IsNullOrWhiteSpace(supplierSearchTerm))
+                                {
+                                    <span class="pfm-drop">
+                                        <span class="pfm-drop-empty">No supplier in the cache matches that.</span>
+                                    </span>
+                                }
+                            </span>
+                            @if (HasError("CardCode"))
+                            {
+                                <span class="pfm-field-err">@GetError("CardCode")</span>
                             }
-                        </div>
-                    </section>
+                        }
 
-                    <section class="pfm-card">
-                        <div class="pfm-card-hd">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                 stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                        <div class="pfm-ap-note">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
                                 <circle cx="12" cy="12" r="9"></circle>
                                 <path d="M12 11v5M12 7.8v.1"></path>
                             </svg>
-                            <h2>Invoice details</h2>
+                            @if (editingCurrency)
+                            {
+                                <label class="pfm-ap-inline">
+                                    <span>Currency</span>
+                                    <input class="pfm-input pfm-ap-cur" type="text" placeholder="USD"
+                                           @bind="purchaseInvoice.DocCurrency" @bind:event="oninput" />
+                                </label>
+                                <button type="button" class="pfm-btn pfm-ap-link" @onclick="() => editingCurrency = false">Done</button>
+                            }
+                            else
+                            {
+                                <span>
+                                    @(selectedSupplier is not null && HasRealCurrency(selectedSupplier.Currency)
+                                        ? "Currency follows the supplier:" : "Currency:")
+                                    <strong>@(string.IsNullOrWhiteSpace(purchaseInvoice.DocCurrency) ? "none set" : purchaseInvoice.DocCurrency)</strong>
+                                </span>
+                                <button type="button" class="pfm-btn pfm-ap-link" @onclick="() => editingCurrency = true">Use another</button>
+                            }
                         </div>
-                        <div class="pfm-card-bd">
-                            <div class="pfm-fields">
-                                <div class="pfm-lab">
-                                    <span class="pfm-lab-t">Posting date</span>
-                                    @* The posting date is not nullable on the request — an invoice has
-                                       to be dated. Clearing it therefore puts the previous date back
-                                       rather than leaving the model holding a date the box no longer
-                                       shows. *@
-                                    <NocturneDateField Id="apinv-c-doc-date" Date="purchaseInvoice.DocDate"
-                                                       DateChanged="d => purchaseInvoice.DocDate = d ?? purchaseInvoice.DocDate"
-                                                       AriaLabel="Posting date" />
-                                </div>
-                                <div class="pfm-lab">
-                                    <span class="pfm-lab-t">Due date</span>
-                                    <NocturneDateField Id="apinv-c-due-date" @bind-Date="purchaseInvoice.DocDueDate"
-                                                       AriaLabel="Due date" />
-                                </div>
-                                <div class="pfm-lab">
-                                    <span class="pfm-lab-t">Tax date</span>
-                                    <NocturneDateField Id="apinv-c-tax-date" @bind-Date="purchaseInvoice.TaxDate"
-                                                       AriaLabel="Tax date" />
-                                </div>
-                                <label class="pfm-lab">
-                                    <span class="pfm-lab-t">Currency</span>
-                                    <input class="pfm-input" type="text" placeholder="USD"
-                                           @bind="purchaseInvoice.DocCurrency" />
-                                </label>
-                                <label class="pfm-lab">
-                                    <span class="pfm-lab-t">Supplier reference</span>
-                                    <input class="pfm-input" type="text" placeholder="The supplier's invoice number"
-                                           @bind="purchaseInvoice.NumAtCard" />
-                                </label>
-                                <label class="pfm-lab">
-                                    <span class="pfm-lab-t">Header discount %</span>
-                                    <input class="pfm-input" type="number" min="0" max="100" step="0.01"
-                                           @bind="purchaseInvoice.DiscountPercent" />
-                                </label>
-                                <label class="pfm-lab pfm-span3">
-                                    <span class="pfm-lab-t">Comments</span>
-                                    <textarea class="pfm-area" rows="2" placeholder="Optional comments for SAP"
-                                              @bind="purchaseInvoice.Comments"></textarea>
-                                </label>
+                    </div>
+
+                    <div class="pfm-ap-terms">
+                        <label class="pfm-ap-field pfm-ap-wide">
+                            <span class="pfm-ap-lab">Supplier's invoice number <span class="pfm-req">*</span></span>
+                            <input @ref="numAtCardInput"
+                                   class="pfm-input pfm-ap-big pfm-ap-strong @(HasError("NumAtCard") ? "is-bad" : "")"
+                                   type="text" autocomplete="off" placeholder="e.g. INV-10293"
+                                   value="@purchaseInvoice.NumAtCard" @oninput="OnNumAtCardInput" />
+                            @if (HasError("NumAtCard"))
+                            {
+                                <span class="pfm-field-err">@GetError("NumAtCard")</span>
+                            }
+                            else
+                            {
+                                <span class="pfm-ap-hint">As printed on their invoice. It is what you search by when they chase payment.</span>
+                            }
+                        </label>
+
+                        <div class="pfm-ap-field">
+                            <span class="pfm-ap-lab">Invoice date</span>
+                            <NocturneDateField Id="apinv-c-doc-date" Date="purchaseInvoice.DocDate"
+                                               DateChanged="OnPostingDateChanged" AriaLabel="Invoice date" />
+                        </div>
+
+                        <div class="pfm-ap-field">
+                            <span class="pfm-ap-lab">Due date</span>
+                            <NocturneDateField Id="apinv-c-due-date" Date="purchaseInvoice.DocDueDate"
+                                               DateChanged="OnDueDateChanged" AriaLabel="Due date" />
+                            <div class="pfm-ap-chips" role="group" aria-label="Set the due date">
+                                <button type="button" class="pfm-ap-chip @(IsDueTerm(30) ? "is-on" : "")"
+                                        aria-pressed="@(IsDueTerm(30) ? "true" : "false")" @onclick="() => SetDueTerm(30)">+30 days</button>
+                                <button type="button" class="pfm-ap-chip @(IsDueTerm(60) ? "is-on" : "")"
+                                        aria-pressed="@(IsDueTerm(60) ? "true" : "false")" @onclick="() => SetDueTerm(60)">+60 days</button>
+                                <button type="button" class="pfm-ap-chip @(IsDueTerm(0) ? "is-on" : "")"
+                                        aria-pressed="@(IsDueTerm(0) ? "true" : "false")" @onclick="() => SetDueTerm(0)">On receipt</button>
                             </div>
                         </div>
-                    </section>
 
-                    <section class="pfm-card">
-                        <div class="pfm-card-hd">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                 stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
-                                <path d="M8 6h12M8 12h12M8 18h12M4 6v.01M4 12v.01M4 18v.01"></path>
-                            </svg>
-                            <h2>Invoice lines</h2>
-                            <span class="pfm-count">@purchaseInvoice.Lines.Count</span>
-                            <span class="pfm-spacer"></span>
-                            <button type="button" class="pfm-btn pfm-btn-accent" @onclick="AddLine">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                     stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                                    <path d="M12 5v14M5 12h14"></path>
-                                </svg>
-                                <span>Add line</span>
-                            </button>
-                        </div>
-
-                        @if (HasError("Lines"))
+                        @if (taxDateSeparate)
                         {
-                            <div class="pfm-card-bd" style="padding-bottom:0">
-                                <div class="pfm-err-panel">
-                                    <div class="pfm-err-panel-t">@GetError("Lines")</div>
-                                </div>
-                            </div>
-                        }
-
-                        @if (purchaseInvoice.Lines.Count == 0)
-                        {
-                            <div class="pfm-card-bd">
-                                <button type="button" class="pfm-addline" @onclick="AddLine">
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                         stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                                        <path d="M12 5v14M5 12h14"></path>
-                                    </svg>
-                                    <span>Add the first line</span>
+                            <div class="pfm-ap-field">
+                                <span class="pfm-ap-lab">Tax date</span>
+                                <NocturneDateField Id="apinv-c-tax-date" @bind-Date="purchaseInvoice.TaxDate"
+                                                   AriaLabel="Tax date" />
+                                <button type="button" class="pfm-btn pfm-ap-link pfm-ap-start" @onclick="UseInvoiceDateForTax">
+                                    Same as invoice date
                                 </button>
                             </div>
                         }
                         else
                         {
-                            var picking = Enumerable.Range(0, purchaseInvoice.Lines.Count)
-                                .Any(i => GetLineState(i).ShowProductDropdown);
+                            <div class="pfm-ap-note pfm-ap-wide">
+                                <span>Tax date: <strong>same as invoice date</strong></span>
+                                <button type="button" class="pfm-btn pfm-ap-link" @onclick="SetTaxDateSeparately">Set separately</button>
+                            </div>
+                        }
+                    </div>
+                </section>
 
-                            <div class="pfm-lines @(picking ? "is-picking" : "")">
-                                <div class="pfm-lines-inner">
-                                    <div class="pfm-row is-head">
-                                        <span>#</span>
-                                        <span>Item</span>
-                                        <span>Description</span>
-                                        <span class="pfm-r">Qty</span>
-                                        <span class="pfm-r">Unit price</span>
-                                        <span>Warehouse</span>
-                                        <span>Tax</span>
-                                        <span class="pfm-r">Disc %</span>
-                                        <span class="pfm-r">Total</span>
-                                        <span></span>
-                                    </div>
+                @* ── What was billed ─────────────────────────────────────── *@
+                <section class="pfm-card" aria-labelledby="apinv-lines-h">
+                    <div class="pfm-card-hd pfm-ap-lines-hd">
+                        <h2 id="apinv-lines-h">What was billed</h2>
+                        <span class="pfm-count">@ItemLineCount @(ItemLineCount == 1 ? "line" : "lines")</span>
+                        <span class="pfm-spacer"></span>
+                        <span class="pfm-ap-lab pfm-ap-lab-inline" id="apinv-c-wh-label">Receive into</span>
+                        <NocturneSelect TValue="string" Class="pfm-ap-wh"
+                                        Options="DefaultWarehouseOptions" Value="@(defaultWarehouseCode ?? string.Empty)"
+                                        ValueChanged="@(code => OnDefaultWarehouseChanged(code))"
+                                        AriaLabel="Default warehouse for new lines" Placeholder="Each line chooses" />
+                        <button type="button" class="pfm-btn pfm-btn-accent" @onclick="AddLine">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                <path d="M12 5v14M5 12h14"></path>
+                            </svg>
+                            <span>Add line</span>
+                        </button>
+                    </div>
 
-                                    @for (var i = 0; i < purchaseInvoice.Lines.Count; i++)
-                                    {
-                                        var index = i;
-                                        var line = purchaseInvoice.Lines[index];
-                                        var lineState = GetLineState(index);
+                    @if (HasError("Lines"))
+                    {
+                        <div class="pfm-card-bd" style="padding-bottom:0">
+                            <div class="pfm-err-panel">
+                                <div class="pfm-err-panel-t">@GetError("Lines")</div>
+                            </div>
+                        </div>
+                    }
 
-                                        <div class="pfm-row">
-                                            <span class="pfm-n">@(index + 1)</span>
+                    @if (purchaseInvoice.Lines.Count == 0)
+                    {
+                        <div class="pfm-card-bd">
+                            <button type="button" class="pfm-addline" @onclick="AddLine">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                    <path d="M12 5v14M5 12h14"></path>
+                                </svg>
+                                <span>Add the first line</span>
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        var picking = Enumerable.Range(0, purchaseInvoice.Lines.Count)
+                            .Any(i => GetLineState(i).ShowProductDropdown);
 
+                        <div class="pfm-lines @(picking ? "is-picking" : "")">
+                            <div class="pfm-lines-inner">
+                                <div class="pfm-row is-head">
+                                    <span>#</span>
+                                    <span>Item</span>
+                                    <span class="pfm-r">Qty</span>
+                                    <span class="pfm-r">Unit price</span>
+                                    <span class="pfm-r">Disc %</span>
+                                    <span>Tax</span>
+                                    <span>Warehouse</span>
+                                    <span class="pfm-r">Line total</span>
+                                    <span></span>
+                                </div>
+
+                                @for (var i = 0; i < purchaseInvoice.Lines.Count; i++)
+                                {
+                                    var index = i;
+                                    var line = purchaseInvoice.Lines[index];
+                                    var lineState = GetLineState(index);
+
+                                    <div class="pfm-row">
+                                        <span class="pfm-n">@(index + 1)</span>
+
+                                        <span class="pfm-ap-item">
                                             <span class="pfm-combo">
-                                                <input class="pfm-input pfm-cell @(HasError($"Lines[{index}].ItemCode") ? "is-bad" : "")"
-                                                       type="text" autocomplete="off" placeholder="Item code"
+                                                <input @ref="itemInputs[index]"
+                                                       class="pfm-input pfm-cell pfm-ap-strong @(HasError($"Lines[{index}].ItemCode") ? "is-bad" : "")"
+                                                       type="text" autocomplete="off" placeholder="Type an item code or name"
+                                                       aria-label="@($"Item, line {index + 1}")"
                                                        value="@line.ItemCode"
                                                        @oninput="e => OnItemCodeInput(index, e.Value?.ToString())"
                                                        @onkeydown="e => OnItemCodeKeyDown(index, e)"
@@ -336,172 +332,255 @@
                                                                     @onmousedown="() => SelectProduct(index, product)">
                                                                 <span>
                                                                     <span class="pfm-drop-code">@product.ItemCode</span>
-                                                                    <span class="pfm-drop-sub">@TruncateName(product.ItemName, 32)</span>
+                                                                    <span class="pfm-drop-sub">@TruncateName(product.ItemName, 40)</span>
                                                                 </span>
                                                                 <span class="pfm-drop-price">@product.Price.ToString("N2")</span>
                                                             </button>
                                                         }
-                                                        @if (lineState.FilteredProducts.Count > 10)
-                                                        {
-                                                            <span class="pfm-drop-empty">
-                                                                @(lineState.FilteredProducts.Count - 10) more &#8212; keep typing to narrow it.
-                                                            </span>
-                                                        }
+                                                        <span class="pfm-ap-keys">
+                                                            @if (lineState.FilteredProducts.Count > 10)
+                                                            {
+                                                                <span>@(lineState.FilteredProducts.Count - 10) more, keep typing</span>
+                                                            }
+                                                            <span>&#8593; &#8595; to move</span>
+                                                            <span>Enter or Tab to pick</span>
+                                                            <span>Esc to close</span>
+                                                        </span>
                                                     </span>
                                                 }
                                             </span>
-
                                             @* Set from the item, not typed: the description SAP posts is
                                                the product's own. *@
-                                            <input class="pfm-input pfm-desc" type="text" readonly
-                                                   placeholder="Choose an item"
-                                                   value="@TruncateName(line.ItemDescription ?? string.Empty, 45)" />
-
-                                            <input class="pfm-input pfm-num @(HasError($"Lines[{index}].Quantity") ? "is-bad" : "")"
-                                                   type="number" min="0.01" step="0.01" value="@line.Quantity"
-                                                   @onchange="e => OnQuantityChange(index, e.Value?.ToString())" />
-
-                                            <input class="pfm-input pfm-num @(HasError($"Lines[{index}].UnitPrice") ? "is-bad" : "")"
-                                                   type="number" min="0.01" step="0.01" value="@line.UnitPrice"
-                                                   @onchange="e => OnUnitPriceChange(index, e.Value?.ToString())" />
-
-                                            <select class="pfm-select pfm-cell" @bind="line.WarehouseCode">
-                                                <option value="">Warehouse</option>
-                                                @foreach (var warehouse in warehouses)
-                                                {
-                                                    <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
-                                                }
-                                            </select>
-
-                                            <input class="pfm-input pfm-cell" type="text" placeholder="A15"
-                                                   @bind="line.TaxCode" />
-
-                                            <input class="pfm-input pfm-num" type="number" min="0" max="100" step="0.01"
-                                                   @bind="line.DiscountPercent" />
-
-                                            <span class="pfm-amt-v pfm-r">@CalculateLineTotal(line).ToString("N2")</span>
-
-                                            <button type="button" class="pfm-btn-x" aria-label="Remove this line"
-                                                    @onclick="() => RemoveLine(index)">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                     stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-                                                    <path d="M6 6l12 12M18 6L6 18"></path>
-                                                </svg>
-                                            </button>
-
-                                            @if (HasError($"Lines[{index}].ItemCode") || HasError($"Lines[{index}].Quantity")
-                                                || HasError($"Lines[{index}].UnitPrice"))
+                                            @if (!string.IsNullOrWhiteSpace(line.ItemDescription))
                                             {
-                                                <span class="pfm-row-err">
-                                                    @(HasError($"Lines[{index}].ItemCode")
-                                                        ? GetError($"Lines[{index}].ItemCode")
-                                                        : HasError($"Lines[{index}].Quantity")
-                                                            ? GetError($"Lines[{index}].Quantity")
-                                                            : GetError($"Lines[{index}].UnitPrice"))
-                                                </span>
+                                                <span class="pfm-ap-desc" title="@line.ItemDescription">@line.ItemDescription</span>
                                             }
-                                        </div>
+                                        </span>
+
+                                        <input class="pfm-input pfm-num @(HasError($"Lines[{index}].Quantity") ? "is-bad" : "")"
+                                               type="number" min="0.01" step="0.01" value="@line.Quantity"
+                                               aria-label="@($"Quantity, line {index + 1}")"
+                                               @onchange="e => OnQuantityChange(index, e.Value?.ToString())" />
+
+                                        <input class="pfm-input pfm-num @(HasError($"Lines[{index}].UnitPrice") ? "is-bad" : "")"
+                                               type="number" min="0.01" step="0.01" value="@line.UnitPrice"
+                                               aria-label="@($"Unit price, line {index + 1}")"
+                                               @onchange="e => OnUnitPriceChange(index, e.Value?.ToString())" />
+
+                                        <input class="pfm-input pfm-num" type="number" min="0" max="100" step="0.01"
+                                               aria-label="@($"Discount percent, line {index + 1}")"
+                                               @bind="line.DiscountPercent" />
+
+                                        <input class="pfm-input pfm-cell" type="text" placeholder="A15"
+                                               aria-label="@($"Tax code, line {index + 1}")"
+                                               @bind="line.TaxCode" />
+
+                                        @* Fixed: the line scroller's overflow-x computes overflow-y to
+                                           auto, which would clip the menu to this row. *@
+                                        <NocturneSelect TValue="string"
+                                                        Class="@($"nsel-block pfm-ap-line-wh {(FollowsDefaultWarehouse(line) ? "is-default" : "")}")"
+                                                        Fixed="true"
+                                                        Options="LineWarehouseOptions" Value="@(line.WarehouseCode ?? string.Empty)"
+                                                        ValueChanged="@(code => OnLineWarehouseChanged(index, code))"
+                                                        AriaLabel="@($"Warehouse, line {index + 1}")" Placeholder="Warehouse" />
+
+                                        <span class="pfm-amt-v pfm-r">@CalculateLineTotal(line).ToString("N2")</span>
+
+                                        <button type="button" class="pfm-btn-x" aria-label="@($"Remove line {index + 1}")"
+                                                @onclick="() => RemoveLine(index)">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                 stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                                                <path d="M6 6l12 12M18 6L6 18"></path>
+                                            </svg>
+                                        </button>
+
+                                        @if (HasError($"Lines[{index}].ItemCode") || HasError($"Lines[{index}].Quantity")
+                                            || HasError($"Lines[{index}].UnitPrice"))
+                                        {
+                                            <span class="pfm-row-err">
+                                                @(HasError($"Lines[{index}].ItemCode")
+                                                    ? GetError($"Lines[{index}].ItemCode")
+                                                    : HasError($"Lines[{index}].Quantity")
+                                                        ? GetError($"Lines[{index}].Quantity")
+                                                        : GetError($"Lines[{index}].UnitPrice"))
+                                            </span>
+                                        }
+                                    </div>
+                                }
+
+                                <button type="button" class="pfm-addline" @onclick="AddLine">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                        <path d="M12 5v14M5 12h14"></path>
+                                    </svg>
+                                    <span>Add another line</span>
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    @* ── Totals, where a printed invoice has them ──────────── *@
+                    <div class="pfm-ap-foot">
+                        <div class="pfm-ap-foot-l">
+                            <div class="pfm-ap-ctrl">
+                                <label class="pfm-ap-lab" for="apinv-c-control">Their total before VAT</label>
+                                <div class="pfm-ap-ctrl-row">
+                                    <input id="apinv-c-control" class="pfm-input pfm-num pfm-ap-ctrl-in" type="number"
+                                           min="0" step="0.01" placeholder="0.00"
+                                           @bind="controlTotal" @bind:event="oninput" />
+                                    @if (ControlDifference is decimal difference)
+                                    {
+                                        @if (ControlMatches)
+                                        {
+                                            <span class="pfm-ap-status is-good" role="status">
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                     stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M5 12.5l4.5 4.5L19 7"></path>
+                                                </svg>
+                                                Matches your lines
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="pfm-ap-status is-warn" role="status">
+                                                Your lines are @Math.Abs(difference).ToString("N2") @(difference > 0 ? "short" : "over")
+                                            </span>
+                                        }
                                     }
-
-                                    <button type="button" class="pfm-addline" @onclick="AddLine">
-                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                             stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                                            <path d="M12 5v14M5 12h14"></path>
-                                        </svg>
-                                        <span>Add another line</span>
-                                    </button>
                                 </div>
+                                <span class="pfm-ap-hint">Optional. Type the before-VAT total from their paper to catch a typo before it reaches SAP.</span>
                             </div>
-                        }
-                    </section>
-                </div>
 
-                <aside class="pfm-aside">
-                    <section class="pfm-card pfm-total-card">
-                        <div class="pfm-total-hd">
-                            <span class="pfm-total-k">Estimated total</span>
-                            <span class="pfm-total-cur">
-                                @(string.IsNullOrWhiteSpace(purchaseInvoice.DocCurrency)
-                                    ? "No currency" : purchaseInvoice.DocCurrency)
-                            </span>
-                        </div>
-                        <div class="pfm-total-v">@EstimatedTotal.ToString("N2")</div>
-
-                        <div class="pfm-gap-md">
-                            <div class="pfm-sum">
-                                <span>Subtotal</span>
-                                <span class="pfm-sum-v">@SubTotal.ToString("N2")</span>
-                            </div>
-                            <div class="pfm-sum">
-                                <span>Header discount</span>
-                                <span class="pfm-sum-v">@HeaderDiscountAmount.ToString("N2")</span>
-                            </div>
-                            <div class="pfm-sum-rule" aria-hidden="true"></div>
-                            <div class="pfm-sum">
-                                <span>Lines</span>
-                                <span class="pfm-sum-v">@purchaseInvoice.Lines.Count</span>
-                            </div>
-                        </div>
-
-                        <div class="pfm-gap-md">
-                            <button type="button" class="pfm-btn-solid" @onclick="SubmitAsync" disabled="@isSubmitting">
-                                @if (isSubmitting)
-                                {
-                                    <span class="pfm-spin on-solid" aria-hidden="true"></span>
-                                    <span>Posting&#8230;</span>
-                                }
-                                else
-                                {
-                                    <span>Post A/P invoice</span>
-                                }
-                            </button>
-                            <a class="pfm-btn pfm-btn-wide" style="margin-top:8px" href="/purchase-invoices">Cancel</a>
-                        </div>
-                    </section>
-
-                    <section class="pfm-card pfm-panel">
-                        <div class="pfm-panel-hd">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                 stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M5 12.5l4.5 4.5L19 7"></path>
-                            </svg>
-                            <span>Before posting</span>
-                        </div>
-                        <div class="pfm-checks">
-                            <div class="pfm-checks-i @(selectedSupplier is null ? "is-no" : "")">
-                                <span class="pfm-checks-ic">
-                                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                         stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
-                                         aria-hidden="true">
-                                        <path d="M5 12.5l4.5 4.5L19 7"></path>
+                            @if (showComments || !string.IsNullOrWhiteSpace(purchaseInvoice.Comments))
+                            {
+                                <label class="pfm-ap-field">
+                                    <span class="pfm-ap-lab">Comment for SAP</span>
+                                    <textarea class="pfm-area" rows="2" placeholder="Optional comments for SAP"
+                                              @bind="purchaseInvoice.Comments"></textarea>
+                                </label>
+                            }
+                            else
+                            {
+                                <button type="button" class="pfm-btn pfm-ap-link pfm-ap-start" @onclick="() => showComments = true">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                        <path d="M12 5v14M5 12h14"></path>
                                     </svg>
-                                </span>
-                                <span>A supplier is chosen</span>
-                            </div>
-                            <div class="pfm-checks-i @(purchaseInvoice.Lines.Any(l => !string.IsNullOrWhiteSpace(l.ItemCode)) ? "" : "is-no")">
-                                <span class="pfm-checks-ic">
-                                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                         stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
-                                         aria-hidden="true">
-                                        <path d="M5 12.5l4.5 4.5L19 7"></path>
-                                    </svg>
-                                </span>
-                                <span>At least one line has an item</span>
-                            </div>
-                            <div class="pfm-checks-i @(string.IsNullOrWhiteSpace(purchaseInvoice.DocCurrency) ? "is-no" : "")">
-                                <span class="pfm-checks-ic">
-                                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                         stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
-                                         aria-hidden="true">
-                                        <path d="M5 12.5l4.5 4.5L19 7"></path>
-                                    </svg>
-                                </span>
-                                <span>A currency is set</span>
-                            </div>
+                                    Add a comment for SAP
+                                </button>
+                            }
                         </div>
-                    </section>
-                </aside>
+
+                        <dl class="pfm-ap-tally">
+                            <div>
+                                <dt>Subtotal · @ItemLineCount @(ItemLineCount == 1 ? "line" : "lines")</dt>
+                                <dd>@SubTotal.ToString("N2")</dd>
+                            </div>
+                            <div>
+                                <dt>
+                                    <label for="apinv-c-disc">Discount</label>
+                                    <input id="apinv-c-disc" class="pfm-input pfm-num pfm-ap-disc" type="number"
+                                           min="0" max="100" step="0.01"
+                                           @bind="purchaseInvoice.DiscountPercent" @bind:event="oninput" />
+                                    <span>%</span>
+                                </dt>
+                                <dd>@(HeaderDiscountAmount > 0 ? "−" : "")@HeaderDiscountAmount.ToString("N2")</dd>
+                            </div>
+                            <div>
+                                <dt>VAT</dt>
+                                <dd class="pfm-ap-quiet">Added by SAP from the tax codes</dd>
+                            </div>
+                            <div class="pfm-ap-tally-rule" aria-hidden="true"></div>
+                            <div class="pfm-ap-tally-total">
+                                <dt>Total before VAT</dt>
+                                <dd>
+                                    <span class="pfm-ap-cur-tag">@purchaseInvoice.DocCurrency</span>
+                                    @EstimatedTotal.ToString("N2")
+                                </dd>
+                            </div>
+                        </dl>
+                    </div>
+                </section>
             </div>
         }
     </div>
+
+    @if (!isLoadingLookups)
+    {
+        var missing = MissingBeforePosting;
+
+        <div class="pfm-ap-bar">
+            <div class="pfm-ap-bar-in">
+                @if (missing.Count == 0)
+                {
+                    <div class="pfm-ap-ready">
+                        <span class="pfm-ap-ready-ic @(ControlMatches || ControlDifference is null ? "" : "is-warn")" aria-hidden="true">
+                            @if (ControlMatches || ControlDifference is null)
+                            {
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M5 12.5l4.5 4.5L19 7"></path>
+                                </svg>
+                            }
+                            else
+                            {
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="2.4" stroke-linecap="round">
+                                    <path d="M12 7v6M12 16.5v.1"></path>
+                                </svg>
+                            }
+                        </span>
+                        <div class="pfm-ap-ready-bd">
+                            <span class="pfm-ap-ready-t">
+                                @(ControlMatches || ControlDifference is null
+                                    ? "Ready to post"
+                                    : "Ready to post, but the total differs from their paper")
+                            </span>
+                            <span class="pfm-ap-ready-s">
+                                @(selectedSupplier?.CardName ?? purchaseInvoice.CardCode)
+                                · @purchaseInvoice.NumAtCard
+                                · @ItemLineCount @(ItemLineCount == 1 ? "line" : "lines")
+                                @if (purchaseInvoice.DocDueDate is DateTime due)
+                                {
+                                    <span> · due @due.ToString("dd MMM")</span>
+                                }
+                            </span>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="pfm-ap-todo">
+                        <span class="pfm-ap-todo-t">
+                            @(missing.Count == 1 ? "1 thing" : $"{missing.Count} things") before you can post:
+                        </span>
+                        @foreach (var item in missing)
+                        {
+                            <button type="button" class="pfm-ap-todo-i" @onclick="() => GoToMissingAsync(item)">
+                                <span class="pfm-ap-dot" aria-hidden="true"></span>@item.Label
+                            </button>
+                        }
+                    </div>
+                }
+
+                <a class="pfm-btn pfm-ap-bar-btn" href="/purchase-invoices">Cancel</a>
+                <button type="button" class="pfm-btn-solid pfm-ap-post" @onclick="SubmitAsync"
+                        disabled="@(isSubmitting || missing.Count > 0)">
+                    @if (isSubmitting)
+                    {
+                        <span class="pfm-spin on-solid" aria-hidden="true"></span>
+                        <span>Posting&#8230;</span>
+                    }
+                    else if (missing.Count == 0)
+                    {
+                        <span>Post to SAP · @purchaseInvoice.DocCurrency @EstimatedTotal.ToString("N2")</span>
+                    }
+                    else
+                    {
+                        <span>Post to SAP</span>
+                    }
+                </button>
+            </div>
+        </div>
+    }
 </div>
