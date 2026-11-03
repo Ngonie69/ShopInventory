@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Sales;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -231,6 +232,34 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
                 "This sale carries no van order reference, so it cannot be fiscalised.");
         }
 
+        // A resend of a sale the fiscal device refused. Its stock was let go when it was refused, so it is
+        // checked again and held again before the existing reservation is reused below.
+        var resumed = await UnsignedHold.ResumeAsync(db, reservations, reference, VanSaleFiscalFirstPoster.PostingHold);
+
+        if (resumed.IsShort)
+        {
+            var shortfall = string.Join("; ", resumed.Shortfall!
+                .Select(error => error.Message)
+                .Where(message => !string.IsNullOrWhiteSpace(message)));
+
+            logger.LogWarning(
+                "Van sale {Reference} was resent after the fiscal device refused it, and the van no longer holds " +
+                "the goods: {Shortfall}",
+                reference,
+                shortfall);
+
+            return Errors.DesktopIntegration.ReservationFailed(
+                string.IsNullOrWhiteSpace(shortfall) ? "The van no longer holds the stock for this sale." : shortfall);
+        }
+
+        if (resumed.Resumed)
+        {
+            logger.LogInformation(
+                "Van sale {Reference} was resent after the fiscal device refused it; its stock was checked again " +
+                "and is held again",
+                reference);
+        }
+
         var existing = await reservations.GetReservationByExternalReferenceAsync(reference, persist);
 
         if (existing is { SAPDocNum: null } &&
@@ -338,13 +367,16 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
                     "goods again — the office will check the device and confirm the sale.");
 
             case VanSaleFiscalFirstStatus.FiscalUnchecked:
+                await ReleaseUnsignedAsync(reference, reservationId, outcome.Error);
                 return Error.Failure(
                     "VanSalesCompatibility.FiscalDeviceUnavailable",
                     "The fiscal device could not be reached, so this sale was not completed and nothing was " +
                     "charged. Submit the same basket again in a moment.");
 
             case VanSaleFiscalFirstStatus.FiscalFailed:
-                // The reservation is left holding for PostingHold, so resubmitting the same basket finds it.
+                // Nothing was sold, so the stock is let go. Resubmitting the same basket checks it again and
+                // holds it again (UnsignedHold).
+                await ReleaseUnsignedAsync(reference, reservationId, outcome.Error);
                 return Error.Failure(
                     "VanSalesCompatibility.FiscalisationFailed",
                     $"The sale could not be fiscalised, so it was not completed and nothing was charged: {outcome.Error}");
@@ -367,6 +399,33 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
                 }
 
                 return Error.Validation("VanSalesCompatibility.SaleNotPostable", outcome.Error ?? "This sale cannot be posted.");
+        }
+    }
+
+    /// <summary>
+    /// Lets go of a refused sale's stock, so the van does not read it as sold. See <see cref="UnsignedHold"/>.
+    /// </summary>
+    private async Task ReleaseUnsignedAsync(string reference, string reservationId, string? why)
+    {
+        try
+        {
+            if (await UnsignedHold.ReleaseAsync(db, reservationId, why))
+            {
+                logger.LogInformation(
+                    "Van sale {Reference} was not signed; released reservation {ReservationId}. A resend under the " +
+                    "same reference checks the stock again and holds it again",
+                    reference,
+                    reservationId);
+            }
+        }
+        catch (Exception ex)
+        {
+            // The refusal still stands. The hold lapses on its own, as it did before this release existed.
+            logger.LogWarning(
+                ex,
+                "Could not release reservation {ReservationId} after van sale {Reference} was not signed",
+                reservationId,
+                reference);
         }
     }
 
