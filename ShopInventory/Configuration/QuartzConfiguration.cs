@@ -467,6 +467,11 @@ public static class QuartzConfiguration
             // half an hour after the review so the two never read SAP's margins at once.
             AddCronJob<SalesPerformanceEmailJob>(q, SalesPerformanceEmailJob.JobName, "0 30 7 * * ?");
 
+            // Yesterday's van and shop sales on WhatsApp. Declared on every node for the same reason as the
+            // emails, and off until an admin saves it on. A pass on a node without the gateway sends nothing
+            // and leaves the numbers for the next quarter hour.
+            AddCronJob<DailySalesWhatsAppJob>(q, DailySalesWhatsAppJob.JobName, DailySalesWhatsAppJob.Schedule);
+
             // Nightly at 04:15, clear of the telematics passes (02:30, 03:15, Sunday 03:45) and long
             // before trading. What each table keeps is listed in the job.
             AddCronJob<DatabaseRetentionJob>(q, DatabaseRetentionJob.JobName, "0 15 4 * * ?");

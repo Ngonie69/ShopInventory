@@ -255,7 +255,19 @@ internal sealed class FakeOpenWAClient : IOpenWAClient
     public Task<WhatsAppSessionDto> StartSessionAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<WhatsAppSessionDto> StopSessionAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<WhatsAppQrCodeDto> GetSessionQrCodeAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    public Task<WhatsAppMessageDispatchDto> SendTextAsync(string sessionId, WhatsAppSendTextRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    /// <summary>Every text sent, in order.</summary>
+    public List<WhatsAppSendTextRequestDto> Texts { get; } = [];
+
+    /// <summary>How a text send answers; accepted with a message id when null.</summary>
+    public Func<WhatsAppSendTextRequestDto, Task<WhatsAppMessageDispatchDto>>? OnSendText { get; set; }
+
+    public Task<WhatsAppMessageDispatchDto> SendTextAsync(string sessionId, WhatsAppSendTextRequestDto request, CancellationToken cancellationToken = default)
+    {
+        Texts.Add(request);
+        return OnSendText?.Invoke(request)
+            ?? Task.FromResult(new WhatsAppMessageDispatchDto { MessageId = $"true_{request.ChatId}_text{Texts.Count}", Timestamp = 1 });
+    }
+
     public Task<WhatsAppMessageDispatchDto> ReplyAsync(string sessionId, WhatsAppReplyRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<List<WhatsAppWebhookRegistrationDto>> GetSessionWebhooksAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<WhatsAppWebhookRegistrationDto> CreateSessionWebhookAsync(string sessionId, WhatsAppWebhookRegistrationRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Data;
@@ -423,6 +424,75 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         Assert.Equal(ReservationStatus.Pending, rows[1].Status);
         Assert.Equal(rows[1].ReservationId, (await _context.InvoiceQueue.SingleAsync()).ReservationId);
         Assert.Equal(reference, (await _context.DesktopSales.SingleAsync()).ExternalReferenceId);
+    }
+
+    /// <summary>
+    /// 2026-11-03, 09:00–09:32: the fiscal platform answered "The service is unavailable". Every refused van
+    /// sale kept its stock reserved for an hour, so the van read those goods as sold and its own count refused
+    /// other sales of them. Nothing was sold, so nothing is held, and the same basket goes through once the
+    /// device signs.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_the_device_refuses_holds_no_stock_and_the_same_basket_goes_through_once_it_signs()
+    {
+        const string reference = "VAN006-INV-20260810-EEE555";
+        _fiscal.Refuse = true;
+
+        var refused = await BuildHandler().Handle(
+            new CreateVanSalesDirectInvoiceCommand(Unstamped(reference), VanUser), CancellationToken.None);
+
+        Assert.True(refused.IsError);
+        Assert.Equal("VanSalesCompatibility.FiscalisationFailed", refused.FirstError.Code);
+        await AssertReleasedAsync(reference);
+
+        _fiscal.Refuse = false;
+        var response = await SellAsync(Unstamped(reference));
+
+        Assert.True(response.Success);
+        Assert.Equal("vc-server", response.VerificationCode);
+        Assert.Equal(["sign", "sign"], _calls);
+
+        // The same row, holding again; the same receipt row, now signed.
+        var reservation = await _context.StockReservations.AsNoTracking().SingleAsync();
+        Assert.Equal(reference, reservation.ExternalReferenceId);
+        Assert.Equal(ReservationStatus.Pending, reservation.Status);
+        Assert.Equal(reservation.ReservationId, (await _context.InvoiceQueue.SingleAsync()).ReservationId);
+        Assert.Single(await _context.DesktopSales.ToListAsync());
+        Assert.Equal(2m, (await AwaitingSapAsync())["CHE011"]);
+    }
+
+    [Fact]
+    public async Task A_refused_sale_resent_after_its_goods_have_gone_is_refused_before_the_device_is_asked()
+    {
+        const string reference = "VAN006-INV-20260810-EEE555";
+        _fiscal.Refuse = true;
+        await BuildHandler().Handle(
+            new CreateVanSalesDirectInvoiceCommand(Unstamped(reference), VanUser), CancellationToken.None);
+
+        _fiscal.Refuse = false;
+        _reservations.RefuseStock = true;
+        var resent = await BuildHandler().Handle(
+            new CreateVanSalesDirectInvoiceCommand(Unstamped(reference), VanUser), CancellationToken.None);
+
+        Assert.True(resent.IsError);
+        Assert.Equal("DesktopIntegration.ReservationFailed", resent.FirstError.Code);
+        Assert.Contains("Insufficient stock for CHE011", resent.FirstError.Description);
+        Assert.Equal(["sign"], _calls);
+        Assert.Empty(await _context.InvoiceQueue.ToListAsync());
+        await AssertReleasedAsync(reference);
+    }
+
+    private Task<Dictionary<string, decimal>> AwaitingSapAsync() =>
+        VanSalesAwaitingSap.ByItemAsync(_context, "VAN006", ["CHE011"], DateTime.UtcNow, 30, CancellationToken.None);
+
+    private async Task AssertReleasedAsync(string reference)
+    {
+        var reservation = await _context.StockReservations.AsNoTracking().SingleAsync();
+        Assert.Equal(reference, reservation.ExternalReferenceId);
+        Assert.Equal(ReservationStatus.Expired, reservation.Status);
+        Assert.StartsWith(UnsignedHold.ReleasedPrefix, reservation.CancellationReason);
+        Assert.Empty(await ReservationHolds.LiveAsOf(_context, DateTime.UtcNow).ToListAsync());
+        Assert.Empty(await AwaitingSapAsync());
     }
 
     /// <summary>A person ended a Cancelled reservation, and a resend is not theirs to overrule.</summary>
@@ -1141,6 +1211,9 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
 
         public bool Unresolved { get; set; }
 
+        /// <summary>The platform answers "The service is unavailable", as it did on 2026-11-03.</summary>
+        public bool Refuse { get; set; }
+
         public IFiscalizationService Service => StubProxy.For<IFiscalizationService>((method, _) => method.Name switch
         {
             nameof(IFiscalizationService.FindPreSapReceiptAsync) => (object)Task.FromResult(_issued),
@@ -1151,6 +1224,11 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         private FiscalizationResult Sign()
         {
             calls.Add("sign");
+
+            if (Refuse)
+            {
+                return new FiscalizationResult { Success = false, Message = "The service is unavailable." };
+            }
 
             if (Unresolved)
             {
@@ -1202,8 +1280,14 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
                 CreateAsync((CreateStockReservationRequest)args![0]!, (CancellationToken)args[2]!),
             nameof(IStockReservationService.ConfirmReservationAsync) =>
                 Task.FromResult(Confirm((ConfirmReservationRequest)args![0]!)),
+            nameof(IStockReservationService.ValidateStockAvailabilityAsync) => Task.FromResult(Check()),
             _ => throw new InvalidOperationException($"IStockReservationService.{method.Name} was not expected.")
         });
+
+        private (bool IsValid, List<StockReservationErrorDto> Errors) Check() =>
+            RefuseStock
+                ? (false, [new StockReservationErrorDto { Message = "Insufficient stock for CHE011 in VAN006" }])
+                : (true, []);
 
         private StockReservationDto? Find(string reference) =>
             context.StockReservations.AsNoTracking()

@@ -83,6 +83,7 @@ Examples:
   - [Sync & SAP Connection](#39-sync--sap-connection)
   - [WhatsApp](#40-whatsapp)
   - [Customer Documents on WhatsApp](#40a-customer-documents-on-whatsapp)
+  - [Daily Sales on WhatsApp](#40b-daily-sales-on-whatsapp)
   - [Email](#41-email)
   - [Push Notifications](#42-push-notifications)
   - [Exception Center](#43-exception-center)
@@ -5186,6 +5187,38 @@ final. A send that may already have arrived is never repeated by the job.
 day, per number per day, and per person per day for typed numbers. Automatic sends also keep to the
 window in `CustomerDocuments` and to the cap set on `/whatsapp-deliveries`. Choosing *None* there
 (`stopSending`) stops every send; the job then waits without claiming anything.
+
+---
+
+### 40b. Daily Sales on WhatsApp
+
+**Base route:** `/api/daily-sales-whatsapp` · **Admin** only
+
+Yesterday's sales as one WhatsApp message, the two tables of the office's daily sheet: van takings per
+route (US dollars, VAT included — the daily truck report's figures) and one shop's units sold for a
+fixed list of products, with the shop's dollar total. Sent from the customer documents session. Off
+until an admin saves it on in Settings → Email Reports.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/daily-sales-whatsapp/settings` | `enabled`, `recipients` (E.164), `shopWarehouseCode`/`shopName`/`shopHeading`, `vanRows` and `productRows` (each `label`, `codes`, `showArea`), who saved it, and `lastSentFor`/`lastSentTo` |
+| PUT | `/api/daily-sales-whatsapp/settings` | Save them. Local numbers take `CustomerDocuments:DefaultCountryCode`; an unknown shop or a number that is not one is a `400`. Empty `vanRows` lists every route under its own name |
+| GET | `/api/daily-sales-whatsapp/preview` | The report for `date` (yesterday when omitted) laid out by the saved settings, with the exact `message` text. Sends nothing |
+| POST | `/api/daily-sales-whatsapp/send` | Send now: `tradingDate` (yesterday when null) to `recipients`, or the saved numbers when empty. Answers `sentTo`, `unconfirmed` and `failed` per number |
+
+**The van table.** Each row adds up the route codes it lists; `showArea` appends where the truck
+worked that day ("UPC 1 - Zaka"). A route no row lists is counted on an "Other routes" line, and van
+sales by a login on no route on "No route", so the total is always the whole fleet. Takings in other
+currencies are stated under the total, not in it.
+
+**The shop table.** Units sold per row's item codes at the chosen shop's warehouse that day, shop tills
+only (vending and van sales excluded), before credit notes and in any currency. The total is every
+dollar sale at the shop, not only the listed products.
+
+**The schedule.** `daily-sales-whatsapp` fires every quarter hour from 07:15 to 09:45 CAT and sends
+yesterday only to the saved numbers that do not have it yet, so a gateway that is down at 07:15 is
+caught up later and nobody is sent it twice. A send WhatsApp did not confirm (no answer in time, or
+no message id) counts as sent and is not repeated.
 
 ---
 

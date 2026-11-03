@@ -1,0 +1,411 @@
+@using MediatR
+@using ShopInventory.Web.Features.DailySalesWhatsApp
+@using ShopInventory.Web.Features.DailySalesWhatsApp.Commands.SendDailySalesWhatsApp
+@using ShopInventory.Web.Features.DailySalesWhatsApp.Commands.UpdateDailySalesWhatsAppSettings
+@using ShopInventory.Web.Features.DailySalesWhatsApp.Queries.GetDailySalesWhatsAppSettings
+@using ShopInventory.Web.Features.DailySalesWhatsApp.Queries.PreviewDailySalesWhatsApp
+@inject IMediator Mediator
+@inject IShopService ShopService
+@inject IVanSalesReportService VanSalesReports
+
+@* The daily sales report on WhatsApp: yesterday's van takings by route and one shop's product
+   quantities, the two tables of the office's daily sheet. Kept in the API; styled by settings.css
+   under the dsw- prefix, inside the page's .stg root. *@
+<section class="stg-card dsw">
+    <div class="stg-section-head">
+        <span class="stg-section-icon"><i class="ph ph-whatsapp-logo"></i></span>
+        <div class="stg-section-text">
+            <h2>Daily Sales on WhatsApp</h2>
+            <p>Yesterday's van sales by route and one shop's product quantities, sent as a WhatsApp message from the number customer invoices go out on.</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="stg-alert @(messageSuccess ? "stg-alert-success" : "stg-alert-error")">
+            <i class="ph @(messageSuccess ? "ph-check-circle" : "ph-warning-circle")"></i>
+            <span>@message</span>
+            <button type="button" class="stg-alert-close" @onclick="() => message = null"><i class="ph ph-x"></i></button>
+        </div>
+    }
+
+    <div class="stg-row">
+        <div class="stg-row-info">
+            <div class="stg-row-label"><span>Every morning</span></div>
+            <span class="stg-row-desc">From <strong>07:15</strong>, for the day before. Tried again every quarter hour until 09:45 for anyone it has not reached.</span>
+            @if (settings?.LastSentFor is DateTime lastDay)
+            {
+                <span class="stg-row-meta"><i class="ph ph-clock-counter-clockwise"></i>Last sent for @lastDay.ToString("ddd dd MMM yyyy") to @Plural(settings.LastSentTo.Count, "number")</span>
+            }
+        </div>
+        <div class="stg-row-control">
+            <label class="stg-switch">
+                <input type="checkbox" checked="@enabled" disabled="@(settings is null)" @onchange="e => enabled = e.Value is true" />
+                <span class="stg-switch-track"></span>
+                <span class="stg-switch-text">@(enabled ? "On" : "Off")</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="stg-row">
+        <div class="stg-row-info">
+            <div class="stg-row-label"><label for="dsw-recipients">WhatsApp numbers</label></div>
+            <span class="stg-row-desc">Separated by commas. Local numbers like 0771 234 567 are read as Zimbabwean.</span>
+            @if (settings is null)
+            {
+                <span class="stg-row-meta"><i class="ph ph-warning"></i>Couldn't read the settings from the API</span>
+            }
+            else if (settings.UpdatedBy is string owner)
+            {
+                <span class="stg-row-meta"><i class="ph ph-user"></i>Last saved by @owner</span>
+            }
+        </div>
+        <div class="stg-row-control">
+            <input id="dsw-recipients" class="stg-input" placeholder="0771 234 567, +263 77 765 4321"
+                   @bind="recipients" disabled="@(settings is null)" />
+        </div>
+    </div>
+
+    <div class="stg-row">
+        <div class="stg-row-info">
+            <div class="stg-row-label"><span>Shop</span></div>
+            <span class="stg-row-desc">The one shop whose till sales make the second table. None leaves the table out.</span>
+        </div>
+        <div class="stg-row-control">
+            <NocturneSelect Class="nsel-block nsel-end" TValue="string" Options="ShopOptions" @bind-Value="shopWarehouse"
+                            AriaLabel="Shop" Placeholder="No shop" Disabled="@(settings is null)" />
+        </div>
+    </div>
+
+    <div class="stg-row">
+        <div class="stg-row-info">
+            <div class="stg-row-label"><label for="dsw-heading">Shop table heading</label></div>
+            <span class="stg-row-desc">Blank uses the shop's name, e.g. "@(ShopName ?? "Kefalos Shop") Sales".</span>
+        </div>
+        <div class="stg-row-control">
+            <input id="dsw-heading" class="stg-input" placeholder="@($"{ShopName ?? "Shop"} Sales")"
+                   @bind="shopHeading" disabled="@(settings is null || string.IsNullOrEmpty(shopWarehouse))" />
+        </div>
+    </div>
+
+    <div class="stg-row stg-row-stack">
+        <div class="stg-row-info">
+            <div class="stg-row-label"><span>Van rows</span></div>
+            <span class="stg-row-desc">
+                Each row adds up the routes you list, so two trucks can share one line. Tick <strong>Area</strong> to add where the truck worked, as in "UPC 1 - Zaka".
+                Left empty, every route is listed under its own name. Routes no row lists still count, on an "Other routes" line.
+            </span>
+            @if (routes.Count > 0)
+            {
+                <span class="stg-row-meta"><i class="ph ph-signpost"></i>Route codes: @string.Join(" · ", routes.Select(route => $"{route.Code} ({route.Name})"))</span>
+            }
+        </div>
+        @RowsEditor(vanRows, "Route codes, e.g. EAST1, EAST2", showArea: true)
+        <div class="dsw-row-actions">
+            <button type="button" class="stg-btn stg-btn-ghost stg-btn-sm" @onclick="() => vanRows.Add(new EditRow())" disabled="@(settings is null)">
+                <i class="ph ph-plus"></i><span>Add row</span>
+            </button>
+            @if (vanRows.Count == 0 && routes.Count > 0)
+            {
+                <button type="button" class="stg-btn stg-btn-ghost stg-btn-sm" @onclick="StartFromRoutes" disabled="@(settings is null)">
+                    <i class="ph ph-list-plus"></i><span>Start from every route</span>
+                </button>
+            }
+        </div>
+    </div>
+
+    <div class="stg-row stg-row-stack">
+        <div class="stg-row-info">
+            <div class="stg-row-label"><span>Shop products</span></div>
+            <span class="stg-row-desc">Each row is the units sold of the item codes you list, in the order shown. A product that sold nothing shows 0.</span>
+        </div>
+        @RowsEditor(productRows, "Item codes, e.g. CORT5L", showArea: false)
+        <div class="dsw-row-actions">
+            <button type="button" class="stg-btn stg-btn-ghost stg-btn-sm" @onclick="() => productRows.Add(new EditRow())" disabled="@(settings is null)">
+                <i class="ph ph-plus"></i><span>Add product</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="stg-sched-actions">
+        <button type="button" class="stg-btn stg-btn-primary stg-btn-sm" @onclick="SaveAsync" disabled="@(settings is null || busy)">
+            <i class="ph ph-floppy-disk"></i><span>Save</span>
+        </button>
+        <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" @onclick="PreviewAsync" disabled="@(settings is null || busy)">
+            <i class="ph ph-eye"></i><span>Preview yesterday</span>
+        </button>
+        <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" @onclick="SendNowAsync"
+                disabled="@(settings is null || busy || string.IsNullOrWhiteSpace(recipients))">
+            @if (sending)
+            {
+                <span class="stg-spin"></span><span>Sending…</span>
+            }
+            else
+            {
+                <i class="ph ph-paper-plane-tilt"></i><span>Send yesterday now</span>
+            }
+        </button>
+    </div>
+
+    @if (preview is not null)
+    {
+        <div class="dsw-preview">
+            <div class="dsw-preview-head">
+                <span>What the message says</span>
+                <span class="dsw-preview-note">Saved settings · @preview.TradingDate.ToString("ddd dd MMM yyyy")</span>
+            </div>
+            <pre>@preview.Message</pre>
+        </div>
+    }
+</section>
+
+@code {
+    private DailySalesWhatsAppSettings? settings;
+    private bool enabled;
+    private string recipients = "";
+    private string shopWarehouse = "";
+    private string shopHeading = "";
+    private List<EditRow> vanRows = [];
+    private List<EditRow> productRows = [];
+    private List<ShopDto> shops = [];
+    private List<RouteDto> routes = [];
+    private DailySalesWhatsAppPreview? preview;
+    private bool busy;
+    private bool sending;
+    private string? message;
+    private bool messageSuccess;
+
+    /// <summary>A row as the card edits it: the codes as typed, split only on save.</summary>
+    private sealed class EditRow
+    {
+        public string Label { get; set; } = "";
+        public string Codes { get; set; } = "";
+        public bool ShowArea { get; set; }
+    }
+
+    private IEnumerable<NocturneSelectOption<string>> ShopOptions =>
+        new[] { new NocturneSelectOption<string>(string.Empty, "No shop") { IsUnset = true, RuleAfter = true } }
+            .Concat(shops
+                .OrderBy(shop => shop.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(shop => new NocturneSelectOption<string>(shop.WarehouseCode, shop.Name) { Hint = shop.WarehouseCode }));
+
+    private string? ShopName =>
+        shops.FirstOrDefault(shop => string.Equals(shop.WarehouseCode, shopWarehouse, StringComparison.OrdinalIgnoreCase))?.Name
+        ?? settings?.ShopName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var load = Mediator.Send(new GetDailySalesWhatsAppSettingsQuery());
+        var shopList = ShopService.GetShopsAsync(includeInactive: false);
+        var routeList = VanSalesReports.GetRoutesAsync();
+
+        var result = await load;
+        shops = await shopList;
+        routes = (await routeList).OrderBy(route => route.Territory).ThenBy(route => route.Name).ToList();
+
+        if (result.IsError)
+        {
+            Show(result.FirstError.Description, false);
+            return;
+        }
+
+        Apply(result.Value);
+
+        // A saved shop that has since closed still has to read as itself, not as "No shop".
+        if (settings!.ShopWarehouseCode is { } saved && shops.All(shop => !string.Equals(shop.WarehouseCode, saved, StringComparison.OrdinalIgnoreCase)))
+        {
+            shops.Add(new ShopDto { WarehouseCode = saved, Name = settings.ShopName ?? saved });
+        }
+    }
+
+    private void Apply(DailySalesWhatsAppSettings saved)
+    {
+        settings = saved;
+        enabled = saved.Enabled;
+        recipients = string.Join(", ", saved.Recipients);
+        shopWarehouse = saved.ShopWarehouseCode ?? "";
+        shopHeading = saved.ShopHeading ?? "";
+        vanRows = saved.VanRows.Select(ToEdit).ToList();
+        productRows = saved.ProductRows.Select(ToEdit).ToList();
+    }
+
+    private static EditRow ToEdit(DailySalesWhatsAppRow row) =>
+        new() { Label = row.Label, Codes = string.Join(", ", row.Codes), ShowArea = row.ShowArea };
+
+    private static List<DailySalesWhatsAppRow> FromEdit(IEnumerable<EditRow> rows, bool keepArea) =>
+        rows.Where(row => !string.IsNullOrWhiteSpace(row.Label) || !string.IsNullOrWhiteSpace(row.Codes))
+            .Select(row => new DailySalesWhatsAppRow
+            {
+                Label = row.Label.Trim(),
+                Codes = row.Codes.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(),
+                ShowArea = keepArea && row.ShowArea
+            })
+            .ToList();
+
+    private void StartFromRoutes() =>
+        vanRows = routes
+            .Select(route => new EditRow
+            {
+                Label = route.Name,
+                Codes = route.Code,
+                ShowArea = route.Territory?.Contains("UPC", StringComparison.OrdinalIgnoreCase) == true
+            })
+            .ToList();
+
+    private static void Move(List<EditRow> rows, EditRow row, int by)
+    {
+        var from = rows.IndexOf(row);
+        var to = from + by;
+        if (from < 0 || to < 0 || to >= rows.Count)
+        {
+            return;
+        }
+
+        rows.RemoveAt(from);
+        rows.Insert(to, row);
+    }
+
+    private List<string> RecipientList =>
+        recipients.Split([',', ';', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private async Task SaveAsync()
+    {
+        busy = true;
+        message = null;
+        try
+        {
+            var result = await Mediator.Send(new UpdateDailySalesWhatsAppSettingsCommand(
+                enabled,
+                RecipientList,
+                string.IsNullOrWhiteSpace(shopWarehouse) ? null : shopWarehouse,
+                string.IsNullOrWhiteSpace(shopHeading) ? null : shopHeading.Trim(),
+                FromEdit(vanRows, keepArea: true),
+                FromEdit(productRows, keepArea: false)));
+
+            if (result.IsError)
+            {
+                Show(result.FirstError.Description, false);
+                return;
+            }
+
+            Apply(result.Value);
+            Show(enabled
+                    ? $"Saved. Yesterday's sales go to {Plural(result.Value.Recipients.Count, "number")} every morning from 07:15."
+                    : "Saved. The report is off; it can still be sent from here.",
+                true);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task PreviewAsync()
+    {
+        busy = true;
+        message = null;
+        try
+        {
+            var result = await Mediator.Send(new PreviewDailySalesWhatsAppQuery(null));
+            if (result.IsError)
+            {
+                Show(result.FirstError.Description, false);
+                return;
+            }
+
+            preview = result.Value;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task SendNowAsync()
+    {
+        busy = true;
+        sending = true;
+        message = null;
+        try
+        {
+            var result = await Mediator.Send(new SendDailySalesWhatsAppCommand(null, RecipientList));
+            if (result.IsError)
+            {
+                Show(result.FirstError.Description, false);
+                return;
+            }
+
+            var sent = result.Value;
+            var reached = sent.SentTo.Concat(sent.Unconfirmed).ToList();
+            var text = reached.Count == 0
+                ? "WhatsApp did not send it."
+                : $"Sent {sent.TradingDate:ddd dd MMM} to {string.Join(", ", reached)}.";
+            if (sent.Unconfirmed.Count > 0)
+            {
+                text += $" WhatsApp did not confirm {string.Join(", ", sent.Unconfirmed)}, which very likely arrived anyway.";
+            }
+
+            if (sent.Failed.Count > 0)
+            {
+                text += " Not sent to " + string.Join("; ", sent.Failed.Select(failure => $"{failure.Number}: {failure.Reason}")) + ".";
+            }
+
+            if (sent.Message is { } body)
+            {
+                preview = new DailySalesWhatsAppPreview { TradingDate = sent.TradingDate, Message = body };
+            }
+
+            Show(text, sent.Failed.Count == 0 && reached.Count > 0);
+        }
+        finally
+        {
+            busy = false;
+            sending = false;
+        }
+    }
+
+    private void Show(string text, bool success)
+    {
+        message = text;
+        messageSuccess = success;
+    }
+
+    private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+
+    private RenderFragment RowsEditor(List<EditRow> rows, string codesPlaceholder, bool showArea) => __builder =>
+    {
+        if (rows.Count == 0)
+        {
+            <div class="dsw-empty">No rows yet.</div>
+        }
+        else
+        {
+            <div class="dsw-rows @(showArea ? "dsw-rows-area" : null)">
+                @foreach (var row in rows)
+                {
+                    var current = row;
+                    var index = rows.IndexOf(row);
+                    <div class="dsw-row" @key="current">
+                        <input class="stg-input dsw-label" placeholder="Label" aria-label="Row label" maxlength="60" @bind="current.Label" />
+                        <input class="stg-input dsw-codes" placeholder="@codesPlaceholder" aria-label="Codes" @bind="current.Codes" />
+                        @if (showArea)
+                        {
+                            <label class="stg-check dsw-area" title="Add where the truck worked that day">
+                                <input type="checkbox" checked="@current.ShowArea" @onchange="e => current.ShowArea = e.Value is true" />
+                                <span>Area</span>
+                            </label>
+                        }
+                        <span class="dsw-row-tools">
+                            <button type="button" class="stg-btn stg-btn-ghost stg-btn-icon" title="Move up" aria-label="Move up"
+                                    disabled="@(index == 0)" @onclick="() => Move(rows, current, -1)"><i class="ph ph-arrow-up"></i></button>
+                            <button type="button" class="stg-btn stg-btn-ghost stg-btn-icon" title="Move down" aria-label="Move down"
+                                    disabled="@(index == rows.Count - 1)" @onclick="() => Move(rows, current, 1)"><i class="ph ph-arrow-down"></i></button>
+                            <button type="button" class="stg-btn stg-btn-ghost stg-btn-icon" title="Remove" aria-label="Remove row"
+                                    @onclick="() => rows.Remove(current)"><i class="ph ph-trash"></i></button>
+                        </span>
+                    </div>
+                }
+            </div>
+        }
+    };
+}
