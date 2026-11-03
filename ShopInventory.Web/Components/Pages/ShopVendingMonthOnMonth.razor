@@ -1,0 +1,326 @@
+@page "/reports/shop-vending-month-on-month"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.Reports.MonthOnMonth
+@attribute [Authorize(Roles = "Admin,Manager,Cashier")]
+@rendermode InteractiveServer
+
+<PageTitle>Shop &amp; Vending Month on Month - Shop Inventory</PageTitle>
+
+@* Two months of shop and vending sales side by side, laid out from the "Month on Month redesign" canvas:
+   every figure is a pair of bars (earlier month grey, later month accent). Product groups are kept on
+   /reports/product-groups; the workbook carries every item. Styled by month-on-month.css (`mom-`). *@
+
+<div class="mom">
+    <header class="mom-head">
+        <div class="mom-title">
+            <span class="mom-kicker">Shop &amp; vending sales · Reports</span>
+            <h1>Month on month</h1>
+            <p class="mom-sub">Every shop and vending point, two months side by side.</p>
+        </div>
+
+        <div class="mom-tools">
+            <div class="mom-months" role="group" aria-label="Months to compare">
+                <div class="mom-month">
+                    <span class="mom-month-cap">Earlier</span>
+                    <NocturneSelect Id="mom-previous" TValue="string" Class="nsel-block" Options="monthOptions"
+                                    @bind-Value="previousMonth" OnChanged="RunAsync"
+                                    Caption="Earlier month" AriaLabel="Earlier month" />
+                </div>
+                <svg class="mom-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"></path><path d="m13 6 6 6-6 6"></path></svg>
+                <div class="mom-month is-later">
+                    <span class="mom-month-cap">Later</span>
+                    <NocturneSelect Id="mom-current" TValue="string" Class="nsel-block" Options="monthOptions"
+                                    @bind-Value="currentMonth" OnChanged="RunAsync"
+                                    Caption="Later month" AriaLabel="Later month" />
+                </div>
+            </div>
+            <button type="button" class="mom-btn" @onclick="DownloadAsync" disabled="@(report is null || exporting || loading)">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+                <span>@(exporting ? "Writing…" : "Excel")</span>
+            </button>
+            <AuthorizeView Roles="Admin">
+                <a class="mom-link" href="/reports/product-groups">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 2 7l10 5 10-5-10-5Z"></path><path d="m2 17 10 5 10-5"></path><path d="m2 12 10 5 10-5"></path></svg>
+                    Product groups
+                </a>
+            </AuthorizeView>
+        </div>
+    </header>
+
+    @if (SameMonth)
+    {
+        <div class="mom-alert" role="status"><span>Choose two different months.</span></div>
+    }
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="mom-alert" role="alert">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5"></path><path d="M12 16h.01"></path></svg>
+            <span>@error</span>
+        </div>
+    }
+
+    @if (needsZigRate && data is not null)
+    {
+        <section class="mom-zig">
+            <div class="mom-field">
+                <label class="mom-label" for="mom-zig">ZiG per US dollar</label>
+                <input id="mom-zig" class="mom-input" inputmode="decimal" placeholder="e.g. 30" @bind="zigRateText" @bind:event="oninput" />
+            </div>
+            <p class="mom-zig-text">These months include ZiG sales. Enter the rate to show them in USD; without it they are left out.</p>
+            <button type="button" class="mom-btn" @onclick="ApplyZigRateAsync">Apply rate</button>
+        </section>
+    }
+
+    @if (loading && report is null)
+    {
+        <div class="mom-empty"><span class="mom-spin" aria-hidden="true"></span><p>Reading @MonthName(previousMonth) and @MonthName(currentMonth)…</p></div>
+    }
+
+    @if (report is not null)
+    {
+        var p = report.PreviousLabel;
+        var c = report.CurrentLabel;
+        var pm = report.PreviousMonth.ToString("MMMM", System.Globalization.CultureInfo.InvariantCulture);
+        var cm = report.CurrentMonth.ToString("MMMM", System.Globalization.CultureInfo.InvariantCulture);
+        var shops = report.Places.Where(x => x.Business == CounterMonthOnMonthReportBuilder.Shops).ToList();
+        var vending = report.Places.Where(x => x.Business == CounterMonthOnMonthReportBuilder.Vending).ToList();
+        var shopsNet = shops.Aggregate(default(MonthPair), (s, x) => s + x.NetTakings);
+        var vendingNet = vending.Aggregate(default(MonthPair), (s, x) => s + x.NetTakings);
+        var shopTenders = report.Tenders.Where(t => t.Place.Business == CounterMonthOnMonthReportBuilder.Shops).ToList();
+        var plasticShops = shopTenders.Aggregate(default(MonthPair), (s, t) => s + t.Plastic);
+        var totalShops = shopTenders.Aggregate(default(MonthPair), (s, t) => s + t.Total);
+        var plasticShare = new MonthPair(totalShops.Previous == 0 ? 0 : plasticShops.Previous / totalShops.Previous,
+                                         totalShops.Current == 0 ? 0 : plasticShops.Current / totalShops.Current);
+        var kpis = new (string Label, MonthPair Pair, string Value, string Foot)[]
+        {
+            ("Net takings · all", report.TotalNetTakings, Whole(report.TotalNetTakings.Current), $"from {Whole(report.TotalNetTakings.Previous)} in {pm}"),
+            ("Shops", shopsNet, Whole(shopsNet.Current), $"from {Whole(shopsNet.Previous)} · {shops.Count} shop(s)"),
+            ("Vending", vendingNet, Whole(vendingNet.Current), $"from {Whole(vendingNet.Previous)} · {vending.Count} point(s)"),
+            ("Plastic share · shops", plasticShare, Pct(plasticShare.Current), $"from {Pct(plasticShare.Previous)} in {pm}"),
+        };
+        var shown = report.Places.Select(x => (Place: x, Pair: Shown(x))).ToList();
+        var placeMax = shown.Count == 0 ? 0 : shown.Max(x => Max(x.Pair));
+
+        <div class="mom-body @(loading ? "is-loading" : null)">
+            @if (report.Notes.Count > 0)
+            {
+                <aside class="mom-notice" aria-label="Before comparing">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5"></path><path d="M12 16h.01"></path></svg>
+                    <div class="mom-notice-text">
+                        @if (HasPartMonth)
+                        {
+                            <p><strong>Some places traded only part of a month.</strong> Compare per trading day for a fair view.</p>
+                        }
+                        <ul>
+                            @foreach (var note in report.Notes)
+                            {
+                                <li>@note</li>
+                            }
+                        </ul>
+                    </div>
+                    @if (HasPartMonth && !perDay)
+                    {
+                        <button type="button" class="mom-notice-btn" @onclick="() => perDay = true">Show per trading day</button>
+                    }
+                </aside>
+            }
+
+            <section class="mom-kpis" aria-label="Headline figures">
+                @foreach (var k in kpis)
+                {
+                    var m = Max(k.Pair);
+                    <div class="mom-kpi">
+                        <span class="mom-kpi-label">@k.Label</span>
+                        <div class="mom-kpi-line">
+                            <span class="mom-kpi-value">@k.Value</span>
+                            <span class="mom-pill @Tone(k.Pair)">@Change(k.Pair)</span>
+                        </div>
+                        <div class="mom-bars">
+                            <div class="mom-track"><div class="mom-bar is-prev" style="width: @Width(k.Pair.Previous, m)"></div></div>
+                            <div class="mom-track"><div class="mom-bar is-cur" style="width: @Width(k.Pair.Current, m)"></div></div>
+                        </div>
+                        <span class="mom-kpi-foot">@k.Foot</span>
+                    </div>
+                }
+            </section>
+
+            <section class="mom-card" aria-label="Takings by place">
+                <div class="mom-card-head">
+                    <div class="mom-card-title">
+                        <h2>Where the money came from</h2>
+                        <span class="mom-card-sub">@(perDay ? "Net takings per trading day, incl. VAT · the fair comparison when a month is part-traded" : "Net takings for the month, incl. VAT, less till credit notes")</span>
+                    </div>
+                    <div class="mom-seg" role="group" aria-label="Measure">
+                        <button type="button" class="mom-seg-btn @(perDay ? null : "is-on")" aria-pressed="@(!perDay)" @onclick="() => perDay = false">Month totals</button>
+                        <button type="button" class="mom-seg-btn @(perDay ? "is-on" : null)" aria-pressed="@perDay" @onclick="() => perDay = true">Per trading day</button>
+                    </div>
+                </div>
+                <div class="mom-legend">
+                    <span><i class="mom-key is-prev"></i>@pm</span>
+                    <span><i class="mom-key is-cur"></i>@cm</span>
+                </div>
+                <div class="mom-scroll">
+                    <div class="mom-rows">
+                        @foreach (var (place, pair) in shown)
+                        {
+                            <div class="mom-row">
+                                <div class="mom-who">
+                                    <span class="mom-name">@place.Name</span>
+                                    <span class="mom-meta">
+                                        <span class="mom-tag @(place.Business == CounterMonthOnMonthReportBuilder.Vending ? "is-vend" : "is-shop")">@place.BusinessLabel</span>
+                                        @place.PreviousTradingDays → @place.CurrentTradingDays trading days
+                                    </span>
+                                </div>
+                                <div class="mom-bars">
+                                    <div class="mom-track is-lg"><div class="mom-bar is-prev" style="width: @Width(pair.Previous, placeMax)"></div></div>
+                                    <div class="mom-track is-lg"><div class="mom-bar is-cur" style="width: @Width(pair.Current, placeMax)"></div></div>
+                                </div>
+                                <span class="mom-val is-prev">@ShownMoney(pair.Previous)</span>
+                                <span class="mom-val">@ShownMoney(pair.Current)</span>
+                                <span class="mom-pill @Tone(pair)">@Change(pair)</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </section>
+
+            <section class="mom-section" aria-label="Product groups">
+                <div class="mom-section-head">
+                    <h2>Product groups</h2>
+                    <span class="mom-card-sub">USD before VAT · share = of the place's item sales in @cm</span>
+                </div>
+                @if (report.Groups.Count == 0)
+                {
+                    <div class="mom-card mom-quiet">
+                        <p>No active product groups. <AuthorizeView Roles="Admin"><a href="/reports/product-groups">Add one</a> to follow a range of products.</AuthorizeView></p>
+                    </div>
+                }
+                <div class="mom-grid">
+                    @foreach (var group in report.Groups)
+                    {
+                        var gmax = group.Places.Count == 0 ? 0 : group.Places.Max(r => Max(r.Value));
+                        <article class="mom-card mom-group-card">
+                            <div class="mom-group-head">
+                                <div class="mom-group-title">
+                                    <h3>@group.Name</h3>
+                                    <span class="mom-chip">@group.MembersSummary</span>
+                                </div>
+                                <div class="mom-group-total">
+                                    <span class="mom-group-amount">$@Money(group.TotalValue.Current)</span>
+                                    <span class="mom-group-from">from $@Money(group.TotalValue.Previous) <b class="mom-tone @Tone(group.TotalValue)">@Change(group.TotalValue)</b></span>
+                                </div>
+                            </div>
+                            <div class="mom-mini-rows">
+                                @foreach (var row in group.Places)
+                                {
+                                    <div class="mom-mini">
+                                        <span class="mom-mini-name">@row.Place.Name</span>
+                                        <div class="mom-bars">
+                                            <div class="mom-track is-sm"><div class="mom-bar is-prev" style="width: @Width(row.Value.Previous, gmax)"></div></div>
+                                            <div class="mom-track is-sm"><div class="mom-bar is-cur" style="width: @Width(row.Value.Current, gmax)"></div></div>
+                                        </div>
+                                        <span class="mom-val">$@Money(row.Value.Current)</span>
+                                        <span class="mom-share">@Pct(row.Share.Current)</span>
+                                    </div>
+                                }
+                            </div>
+                            <p class="mom-card-foot">@group.Items.Select(i => i.ItemCode).Distinct().Count() item(s) sold · item by item in the Excel download</p>
+                        </article>
+                    }
+                </div>
+            </section>
+
+            <section class="mom-card" aria-label="Cash vs plastic">
+                <div class="mom-card-head">
+                    <div class="mom-card-title">
+                        <h2>Cash vs plastic money</h2>
+                        <span class="mom-card-sub">Share of each place's takings incl. VAT · plastic = Swipe (card) · mobile = Ecocash + Innbucks</span>
+                    </div>
+                    <div class="mom-legend is-inline">
+                        <span><i class="mom-key is-cash"></i>Cash</span>
+                        <span><i class="mom-key is-cur"></i>Plastic</span>
+                        <span><i class="mom-key is-mobile"></i>Mobile</span>
+                    </div>
+                </div>
+                <div class="mom-tiles">
+                    @foreach (var t in shopTenders)
+                    {
+                        <div class="mom-tile">
+                            <div class="mom-tile-head">
+                                <span class="mom-name">@t.Place.Name</span>
+                                <span class="mom-tile-meta">plastic @Pct(t.PlasticShare.Previous) → <b class="mom-tone @Tone(t.PlasticShare)">@Pct(t.PlasticShare.Current)</b></span>
+                            </div>
+                            <div class="mom-stack-rows">
+                                <span>@p[..3]</span>
+                                <div class="mom-stack">
+                                    <div class="is-cash" style="width: @Percent(t.CashShare.Previous)"></div>
+                                    <div class="is-cur" style="width: @Percent(t.PlasticShare.Previous)"></div>
+                                    <div class="is-mobile" style="width: @Percent(t.MobileShare.Previous)"></div>
+                                </div>
+                                <span>@c[..3]</span>
+                                <div class="mom-stack">
+                                    <div class="is-cash" style="width: @Percent(t.CashShare.Current)"></div>
+                                    <div class="is-cur" style="width: @Percent(t.PlasticShare.Current)"></div>
+                                    <div class="is-mobile" style="width: @Percent(t.MobileShare.Current)"></div>
+                                </div>
+                            </div>
+                            <span class="mom-tile-note">Card $@Money(t.Plastic.Previous) → $@Money(t.Plastic.Current) · mobile $@Money(t.Mobile.Current) in @cm</span>
+                        </div>
+                    }
+                </div>
+                @if (vending.Count > 0)
+                {
+                    <p class="mom-card-foot">Vending takes cash only, so its @vending.Count point(s) are left off here.</p>
+                }
+                @if (report.OtherTenders.Count > 0)
+                {
+                    <p class="mom-card-foot">Also recorded: @string.Join(", ", report.OtherTenders) (in the workbook's Other columns).</p>
+                }
+            </section>
+
+            <section class="mom-grid is-wide" aria-label="Product lines">
+                @foreach (var business in new[] { CounterMonthOnMonthReportBuilder.Shops, CounterMonthOnMonthReportBuilder.Vending })
+                {
+                    var lines = report.ProductLines.Where(l => l.Business == business && l.Place is null).ToList();
+                    if (lines.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var lmax = lines.Max(l => Max(l.Share));
+                    <article class="mom-card">
+                        <div class="mom-card-head">
+                            <div class="mom-card-title">
+                                <h2>Product lines · @(business == CounterMonthOnMonthReportBuilder.Vending ? "vending" : "shops")</h2>
+                                <span class="mom-card-sub">Share of item sales in @cm · the tick is @pm</span>
+                            </div>
+                        </div>
+                        <div class="mom-lines">
+                            @foreach (var line in lines)
+                            {
+                                <div class="mom-line">
+                                    <span class="mom-line-name">@line.ProductLine</span>
+                                    <div class="mom-share-bar">
+                                        <div class="mom-bar is-cur" style="width: @Width(line.Share.Current, lmax)"></div>
+                                        @if (line.Share.Previous > 0)
+                                        {
+                                            <div class="mom-tick" style="left: @Width(line.Share.Previous, lmax)"></div>
+                                        }
+                                    </div>
+                                    <span class="mom-val">@Whole(line.Value.Current)</span>
+                                    <span class="mom-share">@Pct(line.Share.Current)</span>
+                                </div>
+                            }
+                        </div>
+                    </article>
+                }
+            </section>
+
+            <footer class="mom-foot">
+                <span>Till and vending sales in ShopInventory · van sales are reported under Van Sales</span>
+                <span>Item by item for every group and place: Excel download</span>
+            </footer>
+        </div>
+    }
+</div>

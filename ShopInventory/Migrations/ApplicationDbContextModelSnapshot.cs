@@ -5915,6 +5915,78 @@ namespace ShopInventory.Migrations
                     b.ToTable("QuotationLines", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.ReportProductGroupEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("ReportProductGroups", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.ReportProductGroupMemberEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("GroupId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId", "Kind", "Code")
+                        .IsUnique();
+
+                    b.ToTable("ReportProductGroupMembers", (string)null);
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.RoleEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -10022,6 +10094,17 @@ namespace ShopInventory.Migrations
                     b.Navigation("Quotation");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.ReportProductGroupMemberEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.ReportProductGroupEntity", "Group")
+                        .WithMany("Members")
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Group");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.RolePermissionEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.Entities.RoleEntity", "Role")
@@ -10537,6 +10620,11 @@ namespace ShopInventory.Migrations
             modelBuilder.Entity("ShopInventory.Models.Entities.QuotationEntity", b =>
                 {
                     b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.ReportProductGroupEntity", b =>
+                {
+                    b.Navigation("Members");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.RoleEntity", b =>

@@ -73,6 +73,7 @@ public interface IReportExportService
     /// </summary>
     byte[] ExportVanSalesCreditNotesToExcel(IReadOnlyList<VanSalesCreditNoteRowModel> rows, DateTime fromDate, DateTime toDate, string? filters = null);
     byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report);
+    byte[] ExportCounterMonthOnMonthToExcel(ShopInventory.Web.Features.Reports.MonthOnMonth.CounterMonthOnMonthReport report);
     byte[] ExportManagementSalesReportToExcel(ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementSalesReportResult report, IReadOnlyDictionary<int, string>? itemGroupNames = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title);
