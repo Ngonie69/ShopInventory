@@ -159,3 +159,12 @@ jobs:
         run: |
           ./scripts/Test-DeployCutoverProbe.ps1
           exit $LASTEXITCODE
+
+      # The watchdog on the IIS box recycles production app pools on its own. Its value is in what it
+      # leaves alone - a normal recycle, a deploy's stopped slot, an app_offline - so an edit that
+      # loosens one of those checks must fail here, not on a live pool during trading hours.
+      - name: Check the stranded-app watchdog only recycles stranded apps
+        shell: pwsh
+        run: |
+          ./scripts/Test-StrandedIisAppWatchdog.ps1
+          exit $LASTEXITCODE
