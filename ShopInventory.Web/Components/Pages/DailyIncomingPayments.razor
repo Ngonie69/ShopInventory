@@ -252,14 +252,28 @@
                 }
                 else
                 {
+                    @* Fixed columns, so a day's and a run's totals sit under the same figures as the payments
+                       beneath them. Money and counts align right under right-aligned headings; G/L codes and
+                       SAP numbers are identifiers and align left. *@
                     <table class="dpy-table dpy-ledger">
+                        <colgroup>
+                            <col />
+                            <col class="dpy-col-money" />
+                            <col class="dpy-col-money" />
+                            <col class="dpy-col-total" />
+                            <col class="dpy-col-gl" />
+                            <col class="dpy-col-sap" />
+                            <col class="dpy-col-count" />
+                            <col class="dpy-col-status" />
+                            <col class="dpy-col-mail" />
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th>Partner</th>
                                 <th class="dpy-num">Cash</th>
                                 <th class="dpy-num">Electronic</th>
                                 <th class="dpy-num">Total</th>
-                                <th>G/L cash · electronic</th>
+                                <th title="Cash account · electronic account">G/L accounts</th>
                                 <th>SAP payment</th>
                                 <th class="dpy-num">Invoices</th>
                                 <th>Status</th>
@@ -270,31 +284,47 @@
                         {
                             var open = openDays.Contains(day.Date);
                             <tbody @key="day.Date">
-                                <tr class="dpy-day-row">
-                                    <td colspan="9">
-                                        <button type="button" class="dpy-day" aria-expanded="@open" @onclick="() => ToggleDay(day.Date)">
+                                <tr class="dpy-day-row" @onclick="() => ToggleDay(day.Date)">
+                                    <td class="dpy-day-cell">
+                                        <button type="button" class="dpy-day" aria-expanded="@open"
+                                                @onclick="() => ToggleDay(day.Date)" @onclick:stopPropagation="true">
                                             <i class="bi bi-chevron-right dpy-day-caret @(open ? "is-open" : null)" aria-hidden="true"></i>
                                             <span class="dpy-day-label">@Day(day.Date)</span>
                                             <span class="dpy-day-count">@Plural(day.Count, "payment")</span>
-                                            @if (day.NotPosted > 0)
-                                            {
-                                                <span class="dpy-chip dpy-chip-bad">@day.NotPosted not posted</span>
-                                            }
-                                            <span class="dpy-day-fill"></span>
-                                            <span class="dpy-day-inv">@day.Invoices.ToString("N0", Invariant) invoices</span>
-                                            <span class="dpy-day-total">@Money(day.Total)</span>
                                         </button>
                                     </td>
+                                    <td class="dpy-num">@Money(day.Cash)</td>
+                                    <td class="dpy-num @(day.Electronic == 0 ? "dpy-faint" : null)">@(day.Electronic == 0 ? "—" : Money(day.Electronic))</td>
+                                    <td class="dpy-num dpy-day-total">@Money(day.Total)</td>
+                                    <td></td>
+                                    <td></td>
+                                    <td class="dpy-num">@day.Invoices.ToString("N0", Invariant)</td>
+                                    <td>
+                                        @if (day.NotPosted > 0)
+                                        {
+                                            <span class="dpy-chip dpy-chip-bad">@day.NotPosted not posted</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="dpy-day-posted">@day.Posted of @day.Count posted</span>
+                                        }
+                                    </td>
+                                    <td></td>
                                 </tr>
                                 @if (open)
                                 {
                                     @foreach (var run in day.Runs)
                                     {
                                         <tr class="dpy-run-row">
-                                            <td colspan="9">
-                                                <span class="dpy-run-row-label">@RunLabel(run.Run)</span>
-                                                <span>@run.Posted of @run.Payments.Count posted · @Money(run.Total)</span>
-                                            </td>
+                                            <td><span class="dpy-run-row-label">@RunLabel(run.Run)</span></td>
+                                            <td class="dpy-num">@Money(run.Cash)</td>
+                                            <td class="dpy-num">@(run.Electronic == 0 ? "—" : Money(run.Electronic))</td>
+                                            <td class="dpy-num">@Money(run.Total)</td>
+                                            <td></td>
+                                            <td></td>
+                                            <td class="dpy-num">@run.Invoices.ToString("N0", Invariant)</td>
+                                            <td>@run.Posted of @run.Payments.Count posted</td>
+                                            <td></td>
                                         </tr>
                                         @foreach (var payment in run.Payments)
                                         {
@@ -304,15 +334,14 @@
                                                 <td class="dpy-wrap">
                                                     <button type="button" class="dpy-pay-open" aria-label="Open @payment.Reference"
                                                             @onclick="() => OpenAsync(payment)" @onclick:stopPropagation="true">
-                                                        <span class="dpy-primary">@(payment.CardName ?? payment.CardCode)</span>
-                                                        <span class="dpy-sub">@payment.CardCode</span>
+                                                        <span class="dpy-primary">@PartnerName(payment)</span>
                                                     </button>
                                                 </td>
                                                 <td class="dpy-num">@Money(payment.CashSum)</td>
                                                 <td class="dpy-num @(payment.ElectronicSum == 0 ? "dpy-faint" : null)">@(payment.ElectronicSum == 0 ? "—" : Money(payment.ElectronicSum))</td>
                                                 <td class="dpy-num dpy-strong">@Money(payment.Total)</td>
-                                                <td><span class="dpy-acct">@AccountsCell(payment, mapping)</span></td>
-                                                <td class="dpy-num @(payment.SapDocNum is null ? "dpy-faint" : null)">@(payment.SapDocNum?.ToString(Invariant) ?? "—")</td>
+                                                <td class="dpy-ident">@AccountsCell(payment, mapping)</td>
+                                                <td class="dpy-ident @(payment.SapDocNum is null ? "dpy-faint" : null)">@(payment.SapDocNum?.ToString(Invariant) ?? "—")</td>
                                                 <td class="dpy-num">@payment.InvoiceCount</td>
                                                 <td><span class="dpy-chip @StatusChip(payment)">@StatusLabel(payment)</span></td>
                                                 <td>

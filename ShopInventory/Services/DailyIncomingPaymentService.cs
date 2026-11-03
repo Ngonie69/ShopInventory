@@ -915,8 +915,15 @@ public sealed class DailyIncomingPaymentService(
             }
 
             var lines = await EmailLinesAsync(payment, cancellationToken);
-            var subject = DailyIncomingPaymentEmailBody.Subject(payment);
-            var body = DailyIncomingPaymentEmailBody.Render(payment, lines);
+            var partnerName = DailyIncomingPaymentEmailBody.PartnerName(payment, mapping?.CardName);
+            var subject = DailyIncomingPaymentEmailBody.Subject(payment, partnerName, lines);
+            var body = DailyIncomingPaymentEmailBody.Render(payment, partnerName, lines);
+            List<(byte[] content, string fileName, string mimeType)> attachments =
+            [
+                (DailyIncomingPaymentWorkbook.Build(payment, partnerName, lines),
+                 DailyIncomingPaymentWorkbook.FileName(payment, partnerName),
+                 DailyIncomingPaymentWorkbook.ContentType)
+            ];
 
             var failed = new List<string>();
             var sent = 0;
@@ -926,7 +933,7 @@ public sealed class DailyIncomingPaymentService(
                 bool delivered;
                 try
                 {
-                    delivered = await emailService.SendEmailAsync(recipient, subject, body, null, null, cancellationToken);
+                    delivered = await emailService.SendEmailAsync(recipient, subject, body, attachments, null, cancellationToken);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -968,27 +975,54 @@ public sealed class DailyIncomingPaymentService(
 
         var sales = await context.DesktopSales.AsNoTracking()
             .Where(sale => saleIds.Contains(sale.Id))
-            .ToDictionaryAsync(sale => sale.Id, sale => sale.ExternalReferenceId, cancellationToken);
+            .Select(sale => new { sale.Id, sale.ExternalReferenceId, sale.DocDate, sale.SourceSystem })
+            .ToDictionaryAsync(
+                sale => sale.Id,
+                sale => new LinkedSale(sale.ExternalReferenceId, sale.DocDate, DailyPaymentLineSources.OfSale(sale.SourceSystem)),
+                cancellationToken);
         var consolidations = await context.SaleConsolidations.AsNoTracking()
             .Where(consolidation => consolidationIds.Contains(consolidation.Id))
-            .ToDictionaryAsync(consolidation => consolidation.Id, consolidation => "Consolidated day " + consolidation.ConsolidationDate.ToString("yyyy-MM-dd"), cancellationToken);
+            .Select(consolidation => new { consolidation.Id, consolidation.ConsolidationDate })
+            .ToDictionaryAsync(
+                consolidation => consolidation.Id,
+                consolidation => new LinkedSale(
+                    "Consolidated day " + consolidation.ConsolidationDate.ToString("yyyy-MM-dd"),
+                    consolidation.ConsolidationDate,
+                    DailyPaymentLineSources.ConsolidatedDay),
+                cancellationToken);
         var reservations = await context.StockReservations.AsNoTracking()
             .Where(reservation => reservationIds.Contains(reservation.Id))
-            .ToDictionaryAsync(reservation => reservation.Id, reservation => reservation.ExternalReferenceId, cancellationToken);
+            .Select(reservation => new { reservation.Id, reservation.ExternalReferenceId, reservation.CreatedAt })
+            .ToDictionaryAsync(
+                reservation => reservation.Id,
+                reservation => new LinkedSale(
+                    reservation.ExternalReferenceId,
+                    TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(reservation.CreatedAt, DateTimeKind.Utc), QuartzConfiguration.CatTimeZone).Date,
+                    DailyPaymentLineSources.VanOnline),
+                cancellationToken);
 
         return payment.Lines
             .OrderBy(line => line.InvoiceDocNum ?? line.InvoiceDocEntry)
-            .Select(line => new DailyPaymentEmailLine(
-                line.InvoiceDocNum,
-                line.InvoiceDocEntry,
-                line.DesktopSaleId is { } saleId ? sales.GetValueOrDefault(saleId)
-                : line.SaleConsolidationId is { } consolidationId ? consolidations.GetValueOrDefault(consolidationId)
-                : line.StockReservationId is { } reservationId ? reservations.GetValueOrDefault(reservationId)
-                : null,
-                line.CashAmount,
-                line.TransferAmount + line.CreditAmount))
+            .Select(line =>
+            {
+                var sale = line.DesktopSaleId is { } saleId ? sales.GetValueOrDefault(saleId)
+                    : line.SaleConsolidationId is { } consolidationId ? consolidations.GetValueOrDefault(consolidationId)
+                    : line.StockReservationId is { } reservationId ? reservations.GetValueOrDefault(reservationId)
+                    : null;
+
+                return new DailyPaymentEmailLine(
+                    line.InvoiceDocNum,
+                    line.InvoiceDocEntry,
+                    sale?.Reference,
+                    line.CashAmount,
+                    line.TransferAmount + line.CreditAmount,
+                    sale?.Date,
+                    sale?.Source);
+            })
             .ToList();
     }
+
+    private sealed record LinkedSale(string Reference, DateTime Date, string Source);
 
     private static void RecomputeSums(DailyIncomingPaymentEntity payment)
     {

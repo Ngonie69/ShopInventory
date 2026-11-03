@@ -55,17 +55,17 @@ public sealed class GetDailyIncomingPaymentHandler(ApplicationDbContext db)
         {
             if (line.DesktopSaleId is { } saleId && sales.TryGetValue(saleId, out var sale))
             {
-                return Line(line, SourceName(sale.SourceSystem), saleId, sale.ExternalReferenceId, sale.DocDate, sale.PaymentMethod);
+                return Line(line, Common.Sales.DailyPaymentLineSources.OfSale(sale.SourceSystem), saleId, sale.ExternalReferenceId, sale.DocDate, sale.PaymentMethod);
             }
 
             if (line.SaleConsolidationId is { } consolidationId && consolidations.TryGetValue(consolidationId, out var consolidation))
             {
-                return Line(line, "Consolidated day", null, $"{consolidation.SaleCount} sale(s)", consolidation.ConsolidationDate, null);
+                return Line(line, Common.Sales.DailyPaymentLineSources.ConsolidatedDay, null, $"{consolidation.SaleCount} sale(s)", consolidation.ConsolidationDate, null);
             }
 
             if (line.StockReservationId is { } reservationId && reservations.TryGetValue(reservationId, out var reservation))
             {
-                return Line(line, "Van (online)", null, reservation.ExternalReferenceId, reservation.CreatedAt, reservation.PaymentMethod);
+                return Line(line, Common.Sales.DailyPaymentLineSources.VanOnline, null, reservation.ExternalReferenceId, reservation.CreatedAt, reservation.PaymentMethod);
             }
 
             return Line(line, "Unknown", line.DesktopSaleId, null, null, null);
@@ -91,12 +91,4 @@ public sealed class GetDailyIncomingPaymentHandler(ApplicationDbContext db)
             paymentMethod,
             line.CashAmount,
             line.TransferAmount + line.CreditAmount);
-
-    private static string SourceName(string? sourceSystem) => sourceSystem switch
-    {
-        Common.Sales.SaleSourceSystems.ShopTill => "Shop till",
-        Common.Sales.SaleSourceSystems.Vending => "Vending",
-        Common.Sales.SaleSourceSystems.VanSales => "Van",
-        _ => sourceSystem ?? "Sale"
-    };
 }
