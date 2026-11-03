@@ -329,14 +329,17 @@ FOOTER = """
     min-width: 22px;
 }
 
-/* Turning a partner on settles up to a week of invoices, so it asks first. */
+/* Turning a partner on starts paying its invoices that day, so it asks first. */
 .dpy .dpy-switch-confirm {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: var(--dpy-s1);
+    max-width: 210px;
     font-size: 12px;
     color: var(--dpy-mute);
+    /* The table's cells do not wrap; the question may, so it never widens the column. */
+    white-space: normal;
 }
 
 .dpy .dpy-switch-confirm-actions {
@@ -683,11 +686,75 @@ FOOTER = """
     border-top: 1px solid var(--dpy-divider);
 }
 
-.dpy .dpy-table .dpy-day-row td {
+/* The ledger's columns are fixed, so a day's and a run's totals sit in the same columns as the
+   payments beneath them, and every heading lines up with its figures. Money and counts align
+   right; G/L codes and SAP numbers are identifiers and align left. The partner takes the rest,
+   and the table scrolls sideways in its box rather than squeezing a column. */
+.dpy .dpy-ledger {
+    table-layout: fixed;
+    min-width: 960px;
+}
+
+.dpy .dpy-ledger .dpy-col-money { width: 112px; }
+.dpy .dpy-ledger .dpy-col-total { width: 112px; }
+.dpy .dpy-ledger .dpy-col-gl { width: 136px; }
+.dpy .dpy-ledger .dpy-col-sap { width: 112px; }
+.dpy .dpy-ledger .dpy-col-count { width: 92px; }
+.dpy .dpy-ledger .dpy-col-status { width: 128px; }
+.dpy .dpy-ledger .dpy-col-mail { width: 44px; }
+
+/* As specific as `.dpy .dpy-table thead th` and `tbody td` above, and later, so every row of the
+   ledger, headings included, has the same 12px gutters. Unequal gutters put a figure off its heading. */
+.dpy .dpy-ledger thead th,
+.dpy .dpy-ledger tbody td {
+    padding-left: 12px;
+    padding-right: 12px;
+}
+
+.dpy .dpy-ledger td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* A long status ("Held: switched off") wraps inside its chip rather than being cut off. */
+.dpy .dpy-ledger td .dpy-chip {
+    white-space: normal;
+}
+
+.dpy .dpy-ledger td.dpy-wrap {
+    min-width: 0;
+    max-width: none;
+}
+
+.dpy .dpy-ledger .dpy-ident {
+    font-variant-numeric: tabular-nums;
+    color: var(--dpy-ink-2);
+}
+
+/* A day is one row of the same columns: the toggle in the first cell, its totals under the
+   payments' totals. The whole row opens it; the button is there for the keyboard. */
+.dpy .dpy-ledger .dpy-day-row {
+    cursor: pointer;
+}
+
+.dpy .dpy-ledger .dpy-day-row td {
+    padding-top: 14px;
+    padding-bottom: 14px;
+    color: var(--dpy-mute);
+}
+
+.dpy .dpy-ledger .dpy-day-row td.dpy-day-cell {
     padding: 0;
 }
 
-.dpy .dpy-table .dpy-day-row:hover td,
+.dpy .dpy-ledger .dpy-day {
+    padding: 0 12px;
+}
+
+.dpy .dpy-ledger .dpy-day-row:hover td {
+    background: var(--dpy-hover);
+}
+
 .dpy .dpy-table .dpy-run-row:hover td {
     background: transparent;
 }
@@ -707,10 +774,6 @@ FOOTER = """
     cursor: pointer;
 }
 
-.dpy .dpy-day:hover {
-    background: var(--dpy-hover);
-}
-
 .dpy .dpy-day-caret {
     width: 16px;
     color: var(--dpy-mute-3);
@@ -722,27 +785,24 @@ FOOTER = """
 }
 
 .dpy .dpy-day-label {
-    min-width: 110px;
     font-size: 15px;
     font-weight: 600;
 }
 
-.dpy .dpy-day-count,
-.dpy .dpy-day-inv {
+.dpy .dpy-day-count {
     font-size: 13px;
     color: var(--dpy-mute-2);
     font-variant-numeric: tabular-nums;
 }
 
-.dpy .dpy-day-fill {
-    flex: 1;
+.dpy .dpy-ledger .dpy-day-row td.dpy-day-total {
+    font-weight: 600;
+    color: var(--dpy-ink);
 }
 
-.dpy .dpy-day-total {
-    min-width: 110px;
-    text-align: right;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
+.dpy .dpy-day-posted {
+    font-size: 12.5px;
+    color: var(--dpy-mute-2);
 }
 
 .dpy .dpy-table .dpy-run-row td {
@@ -750,6 +810,19 @@ FOOTER = """
     font-size: 12px;
     color: var(--dpy-mute-3);
     background: var(--dpy-hover);
+}
+
+/* In the ledger a run row has the payments' columns too: only its label is indented. */
+.dpy .dpy-ledger .dpy-run-row td {
+    padding: 8px 12px;
+    font-size: 12.5px;
+    color: var(--dpy-mute);
+}
+
+/* The run label and the partner start where the day's label does: past the 12px gutter, the
+   16px caret and its 12px gap. */
+.dpy .dpy-ledger .dpy-run-row td:first-child {
+    padding-left: 40px;
 }
 
 .dpy .dpy-run-row-label {
@@ -765,7 +838,7 @@ FOOTER = """
 }
 
 .dpy .dpy-ledger .dpy-pay-row td:first-child {
-    padding-left: 44px;
+    padding-left: 40px;
 }
 
 .dpy .dpy-table tr.is-selected td,

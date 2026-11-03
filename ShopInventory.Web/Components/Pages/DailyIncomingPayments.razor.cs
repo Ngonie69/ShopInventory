@@ -553,11 +553,17 @@ public partial class DailyIncomingPayments
                         RunOf(list[0]),
                         list,
                         list.Count(payment => payment.Status == "Posted"),
+                        list.Sum(payment => payment.InvoiceCount),
+                        list.Sum(payment => payment.CashSum),
+                        list.Sum(payment => payment.ElectronicSum),
                         list.Sum(payment => payment.Total)))
                     .ToList(),
                 day.Count(),
+                day.Count(payment => payment.Status == "Posted"),
                 day.Count(IsNotPosted),
                 day.Sum(payment => payment.InvoiceCount),
+                day.Sum(payment => payment.CashSum),
+                day.Sum(payment => payment.ElectronicSum),
                 day.Sum(payment => payment.Total)));
 
     /// <summary>What a person has to act on: a payment not in SAP, or one in SAP whose cash holders were not told.</summary>
@@ -700,6 +706,28 @@ public partial class DailyIncomingPayments
             : $"{cash ?? "—"} · {electronic ?? "—"}";
     }
 
+    /// <summary>
+    /// The partner's name as the ledger shows it, never its code. A payment claimed from sales that carried
+    /// no name has none of its own, so the name it was mapped under stands in; the code only when neither
+    /// holds one.
+    /// </summary>
+    private string PartnerName(DailyIncomingPaymentSummary payment) =>
+        NameOrNull(payment.CardName, payment.CardCode)
+        ?? NameOrNull(MappingFor(payment.CardCode)?.CardName, payment.CardCode)
+        ?? payment.CardCode;
+
+    /// <summary>A name with its runs of spaces closed up, or null when it is blank or only the code again.</summary>
+    private static string? NameOrNull(string? name, string cardCode)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        var tidy = string.Join(' ', name.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return string.Equals(tidy, cardCode, StringComparison.OrdinalIgnoreCase) ? null : tidy;
+    }
+
     private static string RunLabel(string run) => run == VansRun
         ? $"Vans · {VansRunTime:hh\\:mm}"
         : $"Shops · {ShopsRunTime:hh\\:mm}";
@@ -803,9 +831,13 @@ public partial class DailyIncomingPayments
     private static DateTime Today() =>
         IAuditService.ToCAT(DateTime.UtcNow).Date;
 
-    private sealed record DayGroup(DateTime Date, IReadOnlyList<RunGroup> Runs, int Count, int NotPosted, int Invoices, decimal Total);
+    private sealed record DayGroup(
+        DateTime Date, IReadOnlyList<RunGroup> Runs, int Count, int Posted, int NotPosted, int Invoices,
+        decimal Cash, decimal Electronic, decimal Total);
 
-    private sealed record RunGroup(string Run, IReadOnlyList<DailyIncomingPaymentSummary> Payments, int Posted, decimal Total);
+    private sealed record RunGroup(
+        string Run, IReadOnlyList<DailyIncomingPaymentSummary> Payments, int Posted, int Invoices,
+        decimal Cash, decimal Electronic, decimal Total);
 
     private sealed record HeldPartner(string CardCode, string? CardName, int Invoices, decimal Total, DateTime Since);
 

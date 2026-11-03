@@ -1,4 +1,5 @@
 using System.Net;
+using ClosedXML.Excel;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -28,7 +29,7 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
     private readonly FakeSap _sap = new();
-    private readonly List<(string To, string Subject, string Body)> _emails = [];
+    private readonly List<(string To, string Subject, string Body, List<(byte[] Content, string FileName, string MimeType)> Attachments)> _emails = [];
     private bool _emailDelivers = true;
     private int _nextReference = 1;
 
@@ -340,6 +341,62 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task The_email_names_the_partner_and_carries_every_invoice_in_a_workbook()
+    {
+        // Till sales carry no customer name, so the name comes from the partner's mapping, its double
+        // space closed up. The code itself is never shown as the name.
+        GivenMapping("BP-1", "700300", "701100", emails: "shop@example.com", cardName: "Factory Kefalos shop POS  USD");
+        for (var docEntry = 101; docEntry <= 110; docEntry++)
+        {
+            await GivenSaleAsync("BP-1", docEntry, TenderTypes.Cash, 10m, postedAt: Cat(Day, 9, docEntry - 100));
+        }
+
+        var vending = await GivenSaleAsync("BP-1", docEntry: 111, TenderTypes.Ecocash, 2.5m, postedAt: Cat(Day, 12, 0), source: SaleSourceSystems.Vending);
+
+        await Run(Cat(Day, 17, 0));
+
+        var email = Assert.Single(_emails);
+        Assert.Equal("Daily takings posted: Factory Kefalos shop POS USD, Mon 14 Sep 2026 · 102.50 (DAYPAY-20260914-BP-1)", email.Subject);
+        Assert.Contains("Factory Kefalos shop POS USD", email.Body);
+        Assert.DoesNotContain(">BP-1<", email.Body);
+
+        // The email lists the first eight invoices and points at the workbook for the rest.
+        Assert.Contains(">108<", email.Body);
+        Assert.DoesNotContain(">109<", email.Body);
+        Assert.Contains("+ 3 more invoices in the attached workbook", email.Body);
+        Assert.Contains("All 11 invoices", email.Body);
+
+        var attachment = Assert.Single(email.Attachments);
+        Assert.Equal("Daily takings 14 Sep 2026 - Factory Kefalos shop POS USD.xlsx", attachment.FileName);
+        Assert.Equal(DailyIncomingPaymentWorkbook.ContentType, attachment.MimeType);
+
+        using var workbook = new XLWorkbook(new MemoryStream(attachment.Content));
+        var sheet = workbook.Worksheet("Invoices");
+        const int header = DailyIncomingPaymentWorkbook.HeaderRow;
+        Assert.Equal("Daily incoming payment · Factory Kefalos shop POS USD", sheet.Cell(1, 1).GetString());
+        Assert.Equal("DAYPAY-20260914-BP-1", sheet.Cell(4, 3).GetString());
+        Assert.Equal(
+            ["#", "Invoice no.", "SAP DocEntry", "Invoice date", "Sale reference", "Source", "Cash", "Electronic", "Total"],
+            Enumerable.Range(1, 9).Select(column => sheet.Cell(header, column).GetString()));
+
+        // One row per invoice, in invoice order; the vending sale is the last.
+        var last = header + 11;
+        Assert.Equal(111, sheet.Cell(last, 2).GetValue<int>());
+        Assert.Equal(vending.ExternalReferenceId, sheet.Cell(last, 5).GetString());
+        Assert.Equal("Vending", sheet.Cell(last, 6).GetString());
+        Assert.Equal(Day, sheet.Cell(last, 4).GetDateTime());
+        Assert.Equal(0m, sheet.Cell(last, 7).GetValue<decimal>());
+        Assert.Equal(2.5m, sheet.Cell(last, 8).GetValue<decimal>());
+        Assert.Equal("Shop till", sheet.Cell(header + 1, 6).GetString());
+
+        // Totals follow the filter, and add up to the payment.
+        Assert.Equal($"SUBTOTAL(109,I{header + 1}:I{last})", sheet.Cell(last + 1, 9).FormulaA1);
+        Assert.Equal(102.5m, sheet.Cell(last + 1, 9).GetValue<decimal>());
+        Assert.Equal(100m, sheet.Cell(last + 1, 7).GetValue<decimal>());
+        Assert.Equal(header, sheet.SheetView.SplitRow);
+    }
+
+    [Fact]
     public async Task An_email_that_did_not_go_is_tried_again_on_the_next_pass()
     {
         GivenMapping("BP-1", "700300", "701100", emails: "shop@example.com");
@@ -598,7 +655,8 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
         {
             if (_emailDelivers)
             {
-                _emails.Add(((string)args[0]!, (string)args[1]!, (string)args[2]!));
+                _emails.Add(((string)args[0]!, (string)args[1]!, (string)args[2]!,
+                    ((List<(byte[], string, string)>?)args[3] ?? []).Select(a => (a.Item1, a.Item2, a.Item3)).ToList()));
             }
 
             return Task.FromResult(_emailDelivers);
@@ -614,7 +672,8 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
         DailyPaymentRun run = DailyPaymentRun.Shops,
         string? emails = null,
         bool isActive = true,
-        DateTime? paysFrom = null)
+        DateTime? paysFrom = null,
+        string? cardName = null)
     {
         using var context = NewContext();
         var mapping = context.IncomingPaymentGlMappings.Find(cardCode);
@@ -630,6 +689,7 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
         mapping.NotifyEmails = emails;
         mapping.IsActive = isActive;
         mapping.PaysFrom = paysFrom;
+        mapping.CardName = cardName;
         context.SaveChanges();
     }
 
