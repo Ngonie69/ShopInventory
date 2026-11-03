@@ -720,9 +720,9 @@
     padding: 0 18px 18px;
 }
 
-/* #, code, description, qty, price, warehouse, tax, disc %, total, remove */
+/* #, code, description, qty, price, warehouse, tax, disc %, total, remove.
+   The invoice sets its own columns under "A/P invoice" below. */
 .is-quotation .pfm-lines,
-.is-invoice .pfm-lines,
 .is-order .pfm-lines {
     --pfm-cols: 24px 132px minmax(150px, 1fr) 84px 96px 110px 84px 64px 100px 28px;
     --pfm-lines-min: 980px;
@@ -1218,5 +1218,695 @@
     .pfm .pfm-select,
     .pfm .pfm-area {
         font-size: 16px;
+    }
+}
+
+/* ==========================================================================
+   A/P invoice — "copy the paper"
+
+   The invoice is typed from a document the operator is holding, so the page is
+   laid out in that document's order: who billed and their reference side by
+   side at the top, the lines straight under them, and the totals at the foot
+   of the lines where a printed invoice keeps them. The total used to appear
+   three times (head stats, aside, summary); it now appears once, plus on the
+   Post button. The commitment moved from a sticky aside to a bar along the
+   bottom that names what is still missing, so the button is never pressed only
+   to be told.
+
+   Everything here is `.pfm-ap-*` and only CreatePurchaseInvoice uses it; the
+   other four forms keep the grid-and-aside layout above. Tokens are the same
+   `--pfm-*` aliases, so light and dark follow the root like the rest of the
+   sheet. Control selectors stay two classes deep for the reason the header
+   gives (app.css's `.dark-theme input` at (0,1,1)).
+   ========================================================================== */
+
+.pfm.is-invoice {
+    /* NocturneSelect's trigger, fitted to a .pfm-input (37px, 13.5px type). */
+    --nsel-h: 37px;
+    --nsel-pad-y: 8px;
+    --nsel-pad-x: 11px;
+    --nsel-fs: 13.5px;
+    --nsel-fill: var(--pfm-field);
+    --nsel-edge: var(--pfm-field-edge);
+    --nsel-edge-hi: var(--pfm-field-edge-hi);
+    --nsel-radius: var(--pfm-r-md);
+
+    display: flex;
+    flex-direction: column;
+}
+
+.is-invoice .pfm-shell {
+    width: 100%;
+    flex: 1 0 auto;
+    max-width: 1280px;
+    padding-bottom: 32px;
+}
+
+/* ── Head ──────────────────────────────────────────────────────────────── */
+
+.pfm-ap-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+}
+
+.pfm-ap-head h1 {
+    font-size: 26px;
+    line-height: 1.25;
+    letter-spacing: -.01em;
+}
+
+.pfm-ap-head p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--pfm-muted-2);
+}
+
+.pfm-ap-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: rgba(var(--pfm-accent-rgb), .12);
+    color: var(--pfm-accent-text);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.pfm-ap-body {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin-top: 20px;
+}
+
+/* ── Labels, hints, quiet links ────────────────────────────────────────── */
+/* Sentence-case labels rather than the sheet's tracked capitals: this form is
+   read field by field against a paper document, and capitals slow that. */
+
+.pfm-ap-lab {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--pfm-muted-2);
+}
+
+.pfm-ap-lab-inline {
+    font-weight: 500;
+}
+
+.pfm-ap-hint {
+    font-size: 12px;
+    color: var(--pfm-muted-2);
+    text-wrap: pretty;
+}
+
+.pfm-ap-field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+}
+
+.pfm-ap-wide {
+    grid-column: 1 / -1;
+}
+
+.pfm .pfm-ap-link {
+    padding: 4px 6px;
+    border-color: transparent;
+    color: var(--pfm-accent-text);
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.pfm .pfm-ap-link:hover:not(:disabled) {
+    border-color: transparent;
+    background: rgba(var(--pfm-accent-rgb), .1);
+    color: var(--pfm-accent-text);
+}
+
+.pfm-ap-start {
+    align-self: flex-start;
+}
+
+.pfm .pfm-input.pfm-ap-big {
+    padding-top: 11px;
+    padding-bottom: 11px;
+    font-size: 15px;
+}
+
+.pfm .pfm-input.pfm-ap-strong {
+    font-weight: 600;
+}
+
+.pfm-ap-quiet {
+    color: var(--pfm-muted-2);
+    font-size: 12.5px;
+}
+
+/* ── Supplier and invoice band ─────────────────────────────────────────── */
+
+.pfm-ap-band {
+    display: flex;
+    flex-wrap: wrap;
+    position: relative;
+    z-index: 3;          /* the supplier drop must clear the lines card */
+}
+
+.pfm-ap-who {
+    flex: 1 1 360px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    padding: 20px 22px;
+    border-right: 1px solid var(--pfm-edge);
+}
+
+.pfm-ap-terms {
+    flex: 1.3 1 440px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    gap: 16px;
+    min-width: 0;
+    padding: 20px 22px;
+}
+
+.pfm-ap-sup {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px;
+    border: 1px solid var(--pfm-hairline);
+    border-radius: var(--pfm-r-md);
+    background: var(--pfm-hover);
+}
+
+.pfm-ap-avatar {
+    flex: none;
+    width: 42px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: rgba(var(--pfm-accent-rgb), .14);
+    color: var(--pfm-accent-text);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.pfm-ap-sup-bd {
+    flex: 1;
+    min-width: 0;
+}
+
+.pfm-ap-sup-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--pfm-ink);
+}
+
+.pfm-ap-sup-sub {
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--pfm-muted-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.pfm-ap-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.pfm-ap-tag {
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--pfm-press);
+    color: var(--pfm-muted);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.pfm-ap-search {
+    display: block;
+}
+
+.pfm-ap-search-ic {
+    position: absolute;
+    left: 13px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--pfm-muted-2);
+    pointer-events: none;
+}
+
+.pfm .pfm-ap-search .pfm-input {
+    padding-left: 38px;
+}
+
+.pfm-ap-search .pfm-drop {
+    max-height: 340px;
+}
+
+.pfm-ap-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    font-size: 13px;
+    color: var(--pfm-muted-2);
+}
+
+.pfm-ap-note > svg {
+    flex: none;
+}
+
+.pfm-ap-note strong {
+    color: var(--pfm-ink-2);
+    font-weight: 600;
+}
+
+.pfm-ap-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pfm .pfm-input.pfm-ap-cur {
+    width: 90px;
+    padding: 6px 9px;
+    text-transform: uppercase;
+}
+
+.pfm-ap-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.pfm .pfm-ap-chip {
+    height: 28px;
+    padding: 0 11px;
+    border: 1px solid var(--pfm-field-edge);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--pfm-muted);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+}
+
+.pfm .pfm-ap-chip:hover {
+    border-color: var(--pfm-accent);
+    color: var(--pfm-accent-text);
+}
+
+.pfm .pfm-ap-chip.is-on {
+    border-color: var(--pfm-accent);
+    background: rgba(var(--pfm-accent-rgb), .12);
+    color: var(--pfm-accent-text);
+}
+
+/* ── Lines ─────────────────────────────────────────────────────────────── */
+
+.pfm-ap-lines-hd {
+    flex-wrap: wrap;
+    row-gap: 10px;
+}
+
+.pfm-ap-lines-hd h2 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+.pfm .pfm-ap-wh {
+    --nsel-h: 32px;
+    --nsel-pad-y: 6px;
+    --nsel-fs: 13px;
+    --nsel-min-w: 200px;
+    width: auto;
+}
+
+/* #, item (code over description), qty, price, disc %, tax, warehouse, total,
+   remove. The description sits under the code instead of in a read-only column
+   of its own, which gives the warehouse room to show its name. */
+.is-invoice .pfm-lines {
+    --pfm-cols: 24px minmax(230px, 1fr) 84px 100px 70px 76px 180px 104px 28px;
+    --pfm-lines-min: 990px;
+}
+
+.is-invoice .pfm-row:not(.is-head) {
+    align-items: start;
+
+    --nsel-h: 33px;
+    --nsel-pad-y: 6px;
+    --nsel-pad-x: 9px;
+    --nsel-fs: 13px;
+    --nsel-min-w: 0;
+}
+
+.is-invoice .pfm-row:not(.is-head) .pfm-n {
+    padding-top: 9px;
+}
+
+.is-invoice .pfm-row:not(.is-head) .pfm-amt-v {
+    line-height: 33px;
+}
+
+.is-invoice .pfm-row:not(.is-head) .pfm-btn-x {
+    margin-top: 4px;
+}
+
+.pfm-ap-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.pfm-ap-desc {
+    padding-left: 2px;
+    font-size: 12.5px;
+    color: var(--pfm-muted-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* A line following the "Receive into" default is drawn dashed and quiet, so a
+   line someone pointed elsewhere stands out without being read. */
+.pfm .nsel.pfm-ap-line-wh.is-default .nsel-btn {
+    border-style: dashed;
+    color: var(--pfm-muted-2);
+}
+
+.pfm-ap-keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 4px;
+    padding: 8px 10px 4px;
+    border-top: 1px solid var(--pfm-hairline);
+    font-size: 11.5px;
+    color: var(--pfm-muted-2);
+}
+
+/* ── Totals, at the foot of the lines ──────────────────────────────────── */
+
+.pfm-ap-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    padding: 20px 22px 22px;
+    border-top: 1px solid var(--pfm-edge);
+}
+
+.pfm-ap-foot-l {
+    flex: 1 1 360px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+}
+
+.pfm-ap-ctrl {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 16px;
+    border: 1px solid var(--pfm-hairline);
+    border-radius: var(--pfm-r-md);
+    background: var(--pfm-hover);
+}
+
+.pfm-ap-ctrl-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+.pfm .pfm-input.pfm-ap-ctrl-in {
+    width: 180px;
+    padding: 9px 11px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.pfm-ap-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 2px 11px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pfm-ap-status.is-good {
+    background: rgba(var(--pfm-good-rgb), .13);
+    color: var(--pfm-good);
+}
+
+.pfm-ap-status.is-warn {
+    background: rgba(var(--pfm-warn-rgb), .14);
+    color: var(--pfm-warn);
+}
+
+.pfm-ap-tally {
+    flex: 0 1 360px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 0;
+    font-size: 14px;
+}
+
+.pfm-ap-tally > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.pfm-ap-tally dt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 400;
+    color: var(--pfm-muted-2);
+}
+
+.pfm-ap-tally dd {
+    margin: 0;
+    color: var(--pfm-ink-2);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.pfm .pfm-input.pfm-ap-disc {
+    width: 68px;
+    padding: 5px 8px;
+    font-size: 13px;
+}
+
+.pfm-ap-tally-rule {
+    height: 1px;
+    background: var(--pfm-edge);
+}
+
+.pfm-ap-tally > .pfm-ap-tally-total {
+    align-items: baseline;
+}
+
+.pfm-ap-tally-total dt {
+    font-weight: 600;
+    color: var(--pfm-ink);
+}
+
+.pfm-ap-tally-total dd {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--pfm-accent-text);
+}
+
+.pfm-ap-cur-tag {
+    margin-right: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--pfm-muted-2);
+}
+
+/* ── The Post bar ──────────────────────────────────────────────────────── */
+/* Pinned to the bottom of the viewport while the form is longer than it, and
+   resting under the form once it is not. */
+
+.pfm-ap-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    background: var(--pfm-surface);
+    border-top: 1px solid var(--pfm-edge);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, .12);
+}
+
+.pfm-ap-bar-in {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 12px 32px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+}
+
+.pfm-ap-ready,
+.pfm-ap-todo {
+    flex: 1 1 360px;
+    min-width: 0;
+}
+
+.pfm-ap-ready {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pfm-ap-ready-ic {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(var(--pfm-good-rgb), .14);
+    color: var(--pfm-good);
+}
+
+.pfm-ap-ready-ic.is-warn {
+    background: rgba(var(--pfm-warn-rgb), .16);
+    color: var(--pfm-warn);
+}
+
+.pfm-ap-ready-bd {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.pfm-ap-ready-t {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.pfm-ap-ready-s {
+    font-size: 12.5px;
+    color: var(--pfm-muted-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pfm-ap-todo {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.pfm-ap-todo-t {
+    margin-right: 2px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.pfm .pfm-ap-todo-i {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 30px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 999px;
+    background: rgba(var(--pfm-warn-rgb), .14);
+    color: var(--pfm-warn);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pfm .pfm-ap-todo-i:hover {
+    background: rgba(var(--pfm-warn-rgb), .22);
+}
+
+.pfm-ap-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.pfm .pfm-ap-bar-btn {
+    padding: 10px 16px;
+    font-size: 13px;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.pfm .pfm-btn-solid.pfm-ap-post {
+    width: auto;
+    padding: 11px 22px;
+    font-size: 14px;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+/* The disabled Post reads as a plain grey control, not a faded violet one
+   that looks pressable. */
+.pfm .pfm-btn-solid.pfm-ap-post:disabled {
+    opacity: 1;
+    background: var(--pfm-press);
+    color: var(--pfm-muted-2);
+}
+
+@media (max-width: 900px) {
+    .pfm-ap-who {
+        border-right: none;
+        border-bottom: 1px solid var(--pfm-edge);
+    }
+}
+
+@media (max-width: 720px) {
+    .pfm-ap-terms {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pfm-ap-who,
+    .pfm-ap-terms,
+    .pfm-ap-foot {
+        padding: 16px;
+    }
+
+    .pfm-ap-bar-in {
+        padding: 12px 16px;
+    }
+
+    .pfm .pfm-btn-solid.pfm-ap-post {
+        flex: 1;
     }
 }

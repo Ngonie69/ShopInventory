@@ -31,6 +31,20 @@ public partial class CreatePurchaseInvoice
     private bool isSubmitting;
     private bool showSupplierResults;
 
+    // The redesign's conveniences. Each one only fills in the request; none of
+    // them is sent to the API as a field of its own.
+    private string? defaultWarehouseCode;
+    private bool taxDateSeparate;
+    private int? dueTermDays;
+    private bool editingCurrency;
+    private bool showComments;
+    private decimal? controlTotal;
+    private int? pendingFocusLine;
+
+    private ElementReference supplierInput;
+    private ElementReference numAtCardInput;
+    private readonly Dictionary<int, ElementReference> itemInputs = new();
+
     private sealed class LineState
     {
         public string SearchTerm { get; set; } = string.Empty;
@@ -52,6 +66,131 @@ public partial class CreatePurchaseInvoice
     private decimal SubTotal => purchaseInvoice.Lines.Sum(CalculateLineTotal);
     private decimal HeaderDiscountAmount => SubTotal * (purchaseInvoice.DiscountPercent / 100m);
     private decimal EstimatedTotal => Math.Max(0, SubTotal - HeaderDiscountAmount);
+
+    private int ItemLineCount => purchaseInvoice.Lines.Count(line => !string.IsNullOrWhiteSpace(line.ItemCode));
+
+    /// <summary>
+    /// The difference between the before-VAT total the operator copied from the
+    /// supplier's paper and the total of the lines, or null when nothing was typed.
+    /// Rounded to cents so a match is not missed on a fraction the page never shows.
+    /// </summary>
+    private decimal? ControlDifference => controlTotal is null
+        ? null
+        : Math.Round(controlTotal.Value - Math.Round(EstimatedTotal, 2), 2);
+
+    private bool ControlMatches => ControlDifference == 0m;
+
+    /// <summary>What still stands between the form and the Post button, in the
+    /// order the operator meets the fields.</summary>
+    private IReadOnlyList<MissingItem> MissingBeforePosting
+    {
+        get
+        {
+            var missing = new List<MissingItem>();
+
+            if (string.IsNullOrWhiteSpace(purchaseInvoice.CardCode))
+            {
+                missing.Add(new MissingItem("Choose a supplier", MissingTarget.Supplier));
+            }
+
+            if (string.IsNullOrWhiteSpace(purchaseInvoice.NumAtCard))
+            {
+                missing.Add(new MissingItem("Their invoice number", MissingTarget.InvoiceNumber));
+            }
+
+            if (string.IsNullOrWhiteSpace(purchaseInvoice.DocCurrency))
+            {
+                missing.Add(new MissingItem("A currency", MissingTarget.Currency));
+            }
+
+            if (ItemLineCount == 0)
+            {
+                missing.Add(new MissingItem("At least one item", MissingTarget.Line,
+                    purchaseInvoice.Lines.Count > 0 ? 0 : null));
+            }
+
+            for (var index = 0; index < purchaseInvoice.Lines.Count; index++)
+            {
+                var line = purchaseInvoice.Lines[index];
+                if (string.IsNullOrWhiteSpace(line.ItemCode))
+                {
+                    continue;
+                }
+
+                if (line.Quantity <= 0)
+                {
+                    missing.Add(new MissingItem($"Line {index + 1} needs a quantity", MissingTarget.Line, index));
+                }
+                else if (line.UnitPrice <= 0)
+                {
+                    missing.Add(new MissingItem($"Line {index + 1} needs a price", MissingTarget.Line, index));
+                }
+            }
+
+            return missing;
+        }
+    }
+
+    private enum MissingTarget
+    {
+        Supplier,
+        InvoiceNumber,
+        Currency,
+        Line
+    }
+
+    private sealed record MissingItem(string Label, MissingTarget Target, int? LineIndex = null);
+
+    private IReadOnlyList<NocturneSelectOption<string>> DefaultWarehouseOptions =>
+    [
+        new(string.Empty, "Each line chooses") { IsUnset = true, RuleAfter = true },
+        .. WarehouseRows()
+    ];
+
+    private IReadOnlyList<NocturneSelectOption<string>> LineWarehouseOptions =>
+    [
+        new(string.Empty, "No warehouse") { IsUnset = true, RuleAfter = true },
+        .. WarehouseRows()
+    ];
+
+    private IEnumerable<NocturneSelectOption<string>> WarehouseRows() => warehouses
+        .Where(warehouse => !string.IsNullOrWhiteSpace(warehouse.WarehouseCode))
+        .Select(warehouse => new NocturneSelectOption<string>(
+            warehouse.WarehouseCode!,
+            string.IsNullOrWhiteSpace(warehouse.WarehouseName) ? warehouse.WarehouseCode! : warehouse.WarehouseName!)
+        {
+            Hint = string.Equals(warehouse.WarehouseCode, defaultWarehouseCode, StringComparison.OrdinalIgnoreCase)
+                ? $"{warehouse.WarehouseCode} · default"
+                : warehouse.WarehouseCode
+        });
+
+    private bool FollowsDefaultWarehouse(CreatePurchaseInvoiceLineRequest line) =>
+        !string.IsNullOrWhiteSpace(defaultWarehouseCode)
+        && string.Equals(line.WarehouseCode, defaultWarehouseCode, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The name to lead with. Some cached partners carry a code and no name, and
+    /// the card and the picker both lead with the name, so fall back to the code.
+    /// </summary>
+    private static string SupplierName(BusinessPartnerDto supplier) =>
+        string.IsNullOrWhiteSpace(supplier.CardName) ? supplier.CardCode ?? string.Empty : supplier.CardName;
+
+    private static bool HasOwnName(BusinessPartnerDto supplier) => !string.IsNullOrWhiteSpace(supplier.CardName);
+
+    private static string SupplierInitials(string? name)
+    {
+        var letters = (name ?? string.Empty)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(word => word.FirstOrDefault(char.IsLetterOrDigit))
+            .Where(letter => letter != default)
+            .Take(2)
+            .ToArray();
+
+        return letters.Length == 0 ? "?" : new string(letters).ToUpperInvariant();
+    }
+
+    private static bool HasRealCurrency(string? currency) =>
+        !string.IsNullOrWhiteSpace(currency) && !string.Equals(currency, "##", StringComparison.OrdinalIgnoreCase);
 
     protected override async Task OnInitializedAsync()
     {
@@ -181,9 +320,157 @@ public partial class CreatePurchaseInvoice
     {
         purchaseInvoice.Lines.Add(new CreatePurchaseInvoiceLineRequest
         {
-            Quantity = 1
+            Quantity = 1,
+            WarehouseCode = defaultWarehouseCode
         });
         validationErrors.Remove("Lines");
+        pendingFocusLine = purchaseInvoice.Lines.Count - 1;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (pendingFocusLine is int line && itemInputs.TryGetValue(line, out var input))
+        {
+            pendingFocusLine = null;
+            try
+            {
+                await input.FocusAsync();
+            }
+            catch (InvalidOperationException)
+            {
+                // The row went away before it rendered; nothing to focus.
+            }
+        }
+    }
+
+    private async Task GoToMissingAsync(MissingItem item)
+    {
+        try
+        {
+            switch (item.Target)
+            {
+                case MissingTarget.Supplier:
+                    if (selectedSupplier is null)
+                    {
+                        await supplierInput.FocusAsync();
+                    }
+                    break;
+                case MissingTarget.InvoiceNumber:
+                    await numAtCardInput.FocusAsync();
+                    break;
+                case MissingTarget.Currency:
+                    editingCurrency = true;
+                    break;
+                case MissingTarget.Line:
+                    if (item.LineIndex is int index)
+                    {
+                        pendingFocusLine = index;
+                    }
+                    else
+                    {
+                        AddLine();
+                    }
+                    break;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // The field is not on screen in this state; the chip still names it.
+        }
+    }
+
+    private void OnPostingDateChanged(DateTime? date)
+    {
+        // The posting date is not nullable on the request — an invoice has to be
+        // dated — so clearing the box puts the previous date back.
+        purchaseInvoice.DocDate = date ?? purchaseInvoice.DocDate;
+
+        if (!taxDateSeparate)
+        {
+            purchaseInvoice.TaxDate = purchaseInvoice.DocDate;
+        }
+
+        if (dueTermDays is int days && purchaseInvoice.DocDate is DateTime posted)
+        {
+            purchaseInvoice.DocDueDate = posted.AddDays(days);
+        }
+    }
+
+    private void OnDueDateChanged(DateTime? date)
+    {
+        purchaseInvoice.DocDueDate = date;
+        dueTermDays = null;
+    }
+
+    private void SetDueTerm(int days)
+    {
+        dueTermDays = days;
+        if (purchaseInvoice.DocDate is DateTime posted)
+        {
+            purchaseInvoice.DocDueDate = posted.AddDays(days);
+        }
+    }
+
+    private bool IsDueTerm(int days) =>
+        purchaseInvoice.DocDate is DateTime posted
+        && purchaseInvoice.DocDueDate?.Date == posted.Date.AddDays(days);
+
+    private void SetTaxDateSeparately() => taxDateSeparate = true;
+
+    private void UseInvoiceDateForTax()
+    {
+        taxDateSeparate = false;
+        purchaseInvoice.TaxDate = purchaseInvoice.DocDate;
+    }
+
+    private void OnDefaultWarehouseChanged(string? code)
+    {
+        var previous = defaultWarehouseCode;
+        defaultWarehouseCode = string.IsNullOrWhiteSpace(code) ? null : code;
+
+        // Lines that were following the old default follow the new one; a line
+        // someone pointed somewhere else keeps its own warehouse.
+        foreach (var line in purchaseInvoice.Lines)
+        {
+            if (string.IsNullOrWhiteSpace(line.WarehouseCode)
+                || string.Equals(line.WarehouseCode, previous, StringComparison.OrdinalIgnoreCase))
+            {
+                line.WarehouseCode = defaultWarehouseCode;
+            }
+        }
+    }
+
+    private void OnLineWarehouseChanged(int index, string? code)
+    {
+        if (index < 0 || index >= purchaseInvoice.Lines.Count)
+        {
+            return;
+        }
+
+        purchaseInvoice.Lines[index].WarehouseCode = string.IsNullOrWhiteSpace(code) ? null : code;
+    }
+
+    private void OnNumAtCardInput(ChangeEventArgs e)
+    {
+        purchaseInvoice.NumAtCard = e.Value?.ToString();
+        validationErrors.Remove("NumAtCard");
+    }
+
+    /// <summary>
+    /// Lines nobody started — no item and no price — are a spare row, not an
+    /// attempt at a line, so they are dropped before validation rather than
+    /// refused as "item code is required".
+    /// </summary>
+    private void DropUntouchedLines()
+    {
+        for (var index = purchaseInvoice.Lines.Count - 1; index >= 0; index--)
+        {
+            var line = purchaseInvoice.Lines[index];
+            if (string.IsNullOrWhiteSpace(line.ItemCode) && line.UnitPrice <= 0)
+            {
+                RemoveLine(index);
+            }
+        }
     }
 
     private void RemoveLine(int index)
@@ -195,6 +482,7 @@ public partial class CreatePurchaseInvoice
 
         purchaseInvoice.Lines.RemoveAt(index);
         lineStates.Remove(index);
+        itemInputs.Clear();
 
         ReindexLineStates(index);
         ReindexLineValidation(index);
@@ -531,6 +819,11 @@ public partial class CreatePurchaseInvoice
             validationErrors["CardCode"] = "Supplier code is required.";
         }
 
+        if (string.IsNullOrWhiteSpace(purchaseInvoice.NumAtCard))
+        {
+            validationErrors["NumAtCard"] = "Type the invoice number printed on the supplier's invoice.";
+        }
+
         if (purchaseInvoice.Lines.Count == 0)
         {
             validationErrors["Lines"] = "At least one invoice line is required.";
@@ -558,12 +851,20 @@ public partial class CreatePurchaseInvoice
 
     private async Task SubmitAsync()
     {
+        DropUntouchedLines();
+
+        if (!taxDateSeparate)
+        {
+            purchaseInvoice.TaxDate = purchaseInvoice.DocDate;
+        }
+
         if (!Validate())
         {
             return;
         }
 
         purchaseInvoice.CardCode = purchaseInvoice.CardCode.Trim();
+        purchaseInvoice.NumAtCard = purchaseInvoice.NumAtCard?.Trim();
         purchaseInvoice.DocCurrency = string.IsNullOrWhiteSpace(purchaseInvoice.DocCurrency)
             ? null
             : purchaseInvoice.DocCurrency.Trim().ToUpperInvariant();
