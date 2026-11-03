@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Sales;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -37,6 +38,7 @@ public sealed class VanSalesConversionSignsFirstTests : IDisposable
     private readonly FakeSalesOrders _orders = new();
     private readonly FiscalStub _fiscal = new();
     private Action? _reservationStarted;
+    private bool _stockGone;
 
     public VanSalesConversionSignsFirstTests()
     {
@@ -168,7 +170,11 @@ public sealed class VanSalesConversionSignsFirstTests : IDisposable
         Assert.Empty(await _context.InvoiceQueue.ToListAsync());
         Assert.Equal(0, _orders.FulfilledCount(OrderId));
 
-        // The stock is still held under the reference, so the resend finds it rather than reserving again.
+        // Nothing was sold, so the van's stock is not held for it. 2026-11-03: SO6710 on VAN011 was refused
+        // at 09:25 and the handset showed its 24 lines as gone for the next hour.
+        await AssertHoldsNothingAsync();
+
+        // The resend carries the same reference, checks the stock again and holds it again under the same row.
         _fiscal.Refuse = false;
         var resent = await Handler().Handle(Command(), CancellationToken.None);
 
@@ -177,6 +183,71 @@ public sealed class VanSalesConversionSignsFirstTests : IDisposable
         Assert.Equal(1, await _context.StockReservations.CountAsync());
         Assert.Equal(1, await _context.DesktopSales.CountAsync());
         Assert.Equal(1, await _context.InvoiceQueue.CountAsync());
+
+        var reservation = await _context.StockReservations.AsNoTracking().SingleAsync();
+        Assert.Equal(ReservationStatus.Pending, reservation.Status);
+        Assert.Null(reservation.CancellationReason);
+        Assert.Equal(2m, (await AwaitingSapAsync())["CHE011"]);
+    }
+
+    [Fact]
+    public async Task A_resend_after_the_goods_have_gone_is_refused_and_signs_nothing()
+    {
+        _fiscal.Refuse = true;
+        await Handler().Handle(Command(), CancellationToken.None);
+
+        // The released stock was sold in the meantime.
+        _fiscal.Refuse = false;
+        _stockGone = true;
+        var resent = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(resent.IsError);
+        Assert.Equal("DesktopIntegration.ReservationFailed", resent.FirstError.Code);
+        Assert.Contains("Insufficient stock for CHE011", resent.FirstError.Description);
+        Assert.Equal(1, _fiscal.Signed);
+        Assert.Empty(await _context.InvoiceQueue.ToListAsync());
+        Assert.Equal(0, _orders.FulfilledCount(OrderId));
+        await AssertHoldsNothingAsync();
+    }
+
+    [Fact]
+    public async Task A_resend_the_fiscal_device_cannot_be_asked_about_lets_go_of_the_stock_again()
+    {
+        _fiscal.Refuse = true;
+        await Handler().Handle(Command(), CancellationToken.None);
+
+        // The resend takes the stock back, then cannot ask the platform whether it already signed.
+        _fiscal.Refuse = false;
+        _fiscal.Unreachable = true;
+        var resent = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(resent.IsError);
+        Assert.Equal("DesktopIntegration.ConversionFiscalDeviceUnavailable", resent.FirstError.Code);
+        Assert.Equal(1, _fiscal.Signed);
+        await AssertHoldsNothingAsync();
+
+        // And once it can be asked, the same reference goes through.
+        _fiscal.Unreachable = false;
+        var third = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.False(third.IsError, Describe(third));
+        Assert.Equal(1, await _context.StockReservations.CountAsync());
+        Assert.Equal(2m, (await AwaitingSapAsync())["CHE011"]);
+    }
+
+    private Task<Dictionary<string, decimal>> AwaitingSapAsync() =>
+        VanSalesAwaitingSap.ByItemAsync(_context, "VAN006", ["CHE011"], DateTime.UtcNow, 30, CancellationToken.None);
+
+    /// <summary>The refused attempt's reservation is kept, released, and counted nowhere.</summary>
+    private async Task AssertHoldsNothingAsync()
+    {
+        var reservation = await _context.StockReservations.AsNoTracking().SingleAsync();
+        Assert.Equal(VanOrder, reservation.ExternalReferenceId);
+        Assert.Equal(ReservationStatus.Expired, reservation.Status);
+        Assert.StartsWith(UnsignedHold.ReleasedPrefix, reservation.CancellationReason);
+
+        Assert.Empty(await ReservationHolds.LiveAsOf(_context, DateTime.UtcNow).ToListAsync());
+        Assert.Empty(await AwaitingSapAsync());
     }
 
     [Fact]
@@ -282,7 +353,7 @@ public sealed class VanSalesConversionSignsFirstTests : IDisposable
 
     private ConvertSalesOrderToInvoiceHandler Handler()
     {
-        var reservations = new ReservationStub(_context, () => _reservationStarted?.Invoke()).Service;
+        var reservations = new ReservationStub(_context, () => _reservationStarted?.Invoke(), () => _stockGone).Service;
 
         return new ConvertSalesOrderToInvoiceHandler(
             _orders.AsService(),
@@ -348,9 +419,14 @@ public sealed class VanSalesConversionSignsFirstTests : IDisposable
         public bool Refuse { get; set; }
         public bool Unresolved { get; set; }
 
+        /// <summary>The platform cannot be asked whether it holds a receipt, as on 2026-11-03.</summary>
+        public bool Unreachable { get; set; }
+
         public IFiscalizationService Service => StubProxy.For<IFiscalizationService>((method, _) => method.Name switch
         {
-            nameof(IFiscalizationService.FindPreSapReceiptAsync) => (object)Task.FromResult(_issued),
+            nameof(IFiscalizationService.FindPreSapReceiptAsync) => Unreachable
+                ? Task.FromException<FiscalizationResult?>(new InvalidOperationException("The service is unavailable."))
+                : (object)Task.FromResult(_issued),
             nameof(IFiscalizationService.FiscalizePreSapInvoiceAsync) => Task.FromResult(Sign()),
             _ => throw new InvalidOperationException($"IFiscalizationService.{method.Name} was not expected.")
         });
@@ -394,14 +470,20 @@ public sealed class VanSalesConversionSignsFirstTests : IDisposable
     /// It honours the token it is handed, as the real service's SAP and database reads do. A stub that
     /// ignored it would let the hang-up test pass against the very code it was written to catch.
     /// </remarks>
-    private sealed class ReservationStub(ApplicationDbContext context, Action started)
+    private sealed class ReservationStub(ApplicationDbContext context, Action started, Func<bool> stockGone)
     {
         public IStockReservationService Service => StubProxy.For<IStockReservationService>((method, args) => method.Name switch
         {
             nameof(IStockReservationService.CreateReservationAsync) =>
                 (object)CreateAsync((CreateStockReservationRequest)args![0]!, (CancellationToken)args[2]!),
+            nameof(IStockReservationService.ValidateStockAvailabilityAsync) => Task.FromResult(Check()),
             _ => throw new InvalidOperationException($"IStockReservationService.{method.Name} was not expected.")
         });
+
+        private (bool IsValid, List<StockReservationErrorDto> Errors) Check() =>
+            stockGone()
+                ? (false, [new StockReservationErrorDto { Message = "Insufficient stock for CHE011 in VAN006: 0 available, 2 asked" }])
+                : (true, []);
 
         private Task<StockReservationResponseDto> CreateAsync(CreateStockReservationRequest request, CancellationToken cancellationToken)
         {
