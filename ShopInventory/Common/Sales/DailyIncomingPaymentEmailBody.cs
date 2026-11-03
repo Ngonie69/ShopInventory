@@ -105,7 +105,7 @@ public static class DailyIncomingPaymentEmailBody
         html.Append("<tr><td style=\"padding:12px 32px 0\">");
         html.Append(CultureInfo.InvariantCulture, $"<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid {Edge};border-radius:8px;border-collapse:separate\"><tr>");
         html.Append(CultureInfo.InvariantCulture, $"<td style=\"padding:14px 18px;border-right:1px solid {Edge}\">{Label("Quote to finance")}<div style=\"margin-top:4px;font-size:15px;font-weight:700;font-family:Consolas,'Courier New',monospace;color:{Ink}\">{E(payment.Reference)}</div></td>");
-        html.Append(CultureInfo.InvariantCulture, $"<td width=\"170\" style=\"padding:14px 18px\">{Label("SAP payment")}<div style=\"margin-top:4px;font-size:15px;font-weight:700;color:{Ink}\">{payment.SapDocNum?.ToString(Money) ?? "-"}</div></td>");
+        html.Append(CultureInfo.InvariantCulture, $"<td width=\"120\" style=\"padding:14px 18px\">{Label("SAP payment")}<div style=\"margin-top:4px;font-size:15px;font-weight:700;color:{Ink}\">{payment.SapDocNum?.ToString(Money) ?? "-"}</div></td>");
         html.Append("</tr></table></td></tr>");
 
         // The first invoices; the workbook has them all.
@@ -117,18 +117,20 @@ public static class DailyIncomingPaymentEmailBody
 
         html.Append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse\">");
         html.Append("<tr>");
-        html.Append(Heading("Invoice", "left", "72"));
-        html.Append(Heading("Sale", "left", null));
-        html.Append(Heading("Cash", "right", "84"));
-        html.Append(Heading("Electronic", "right", "92"));
-        html.Append(Heading("Total", "right", "84"));
+        // Only the sale column gives way on a narrow screen: the others are no wider than their figures,
+        // and a sale reference breaks only at its hyphens, never mid-code.
+        html.Append(Heading("Invoice", "left", null));
+        html.Append(Heading("Sale", "left", "100%"));
+        html.Append(Heading("Cash", "right", null));
+        html.Append(Heading("Electronic", "right", null));
+        html.Append(Heading("Total", "right", null));
         html.Append("</tr>");
 
         foreach (var line in lines.Take(ListedInvoices))
         {
             html.Append("<tr>");
             html.Append(Cell(line.InvoiceDocNum?.ToString(Money) ?? $"entry {line.InvoiceDocEntry.ToString(Money)}", "left"));
-            html.Append(CultureInfo.InvariantCulture, $"<td style=\"padding:9px 10px;border-bottom:1px solid {Rule};font-size:12px;font-family:Consolas,'Courier New',monospace;color:{Mute};word-break:break-all\">{E(line.SaleReference ?? "-")}</td>");
+            html.Append(CultureInfo.InvariantCulture, $"<td style=\"padding:9px 10px;border-bottom:1px solid {Rule};font-size:12px;font-family:Consolas,'Courier New',monospace;color:{Mute}\">{E(line.SaleReference ?? "-")}</td>");
             html.Append(Cell(Amount(line.Cash), "right"));
             html.Append(line.Electronic == 0 ? Cell("&ndash;", "right", Mute2, encoded: true) : Cell(Amount(line.Electronic), "right"));
             html.Append(Cell(Amount(line.Total), "right"));

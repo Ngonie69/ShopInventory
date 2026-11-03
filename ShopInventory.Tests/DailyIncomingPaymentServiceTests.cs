@@ -375,6 +375,8 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
         const int header = DailyIncomingPaymentWorkbook.HeaderRow;
         Assert.Equal("Daily incoming payment · Factory Kefalos shop POS USD", sheet.Cell(1, 1).GetString());
         Assert.Equal("DAYPAY-20260914-BP-1", sheet.Cell(4, 3).GetString());
+        Assert.Equal(700300d, sheet.Cell(5, 3).GetDouble());
+        Assert.Equal(2, sheet.Cell(header, 7).Style.Alignment.Indent);
         Assert.Equal(
             ["#", "Invoice no.", "SAP DocEntry", "Invoice date", "Sale reference", "Source", "Cash", "Electronic", "Total"],
             Enumerable.Range(1, 9).Select(column => sheet.Cell(header, column).GetString()));

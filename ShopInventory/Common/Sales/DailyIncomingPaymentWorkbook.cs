@@ -21,6 +21,7 @@ public static class DailyIncomingPaymentWorkbook
     internal const int HeaderRow = 8;
 
     private const string MoneyFormat = "#,##0.00";
+    private const string MoneyOrDashFormat = "#,##0.00;-#,##0.00;\"–\"";
     private const string DateFormat = "dd mmm yyyy";
 
     private static readonly XLColor HeaderFill = XLColor.FromHtml("#35374A");
@@ -57,8 +58,8 @@ public static class DailyIncomingPaymentWorkbook
 
         Pair(sheet, 4, 1, "Reference", payment.Reference, bold: true);
         Pair(sheet, 4, 7, "SAP payment", payment.SapDocNum is { } docNum ? docNum : Blank.Value, bold: true);
-        Pair(sheet, 5, 1, "Cash G/L", payment.CashAccount ?? "-");
-        Pair(sheet, 5, 7, "Electronic G/L", payment.TransferAccount ?? "-");
+        Pair(sheet, 5, 1, "Cash G/L", Account(payment.CashAccount));
+        Pair(sheet, 5, 7, "Electronic G/L", Account(payment.TransferAccount));
         Pair(sheet, 6, 1, "Cash to hand in", cash, bold: true, money: true);
         Pair(sheet, 6, 7, "Ecocash, Innbucks & swipe", electronic, bold: true, money: true);
 
@@ -70,8 +71,14 @@ public static class DailyIncomingPaymentWorkbook
 
         var header = sheet.Range(HeaderRow, 1, HeaderRow, headings.Length);
         header.Style.Font.SetBold().Font.SetFontColor(XLColor.White).Fill.SetBackgroundColor(HeaderFill);
-        sheet.Range(HeaderRow, 1, HeaderRow, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-        sheet.Range(HeaderRow, 7, HeaderRow, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+        // A right-aligned heading sits under its column's filter button; the indent keeps the words clear
+        // of it while they still line up over the figures.
+        foreach (var column in new[] { 1, 7, 8, 9 })
+        {
+            sheet.Cell(HeaderRow, column).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            sheet.Cell(HeaderRow, column).Style.Alignment.Indent = 2;
+        }
 
         var row = HeaderRow + 1;
         for (var index = 0; index < lines.Count; index++, row++)
@@ -120,9 +127,14 @@ public static class DailyIncomingPaymentWorkbook
         totals.Style.Border.TopBorderColor = HeaderFill;
 
         sheet.Range(HeaderRow + 1, 7, row, 9).Style.NumberFormat.Format = MoneyFormat;
+        if (lines.Count > 0)
+        {
+            // Nothing paid one way reads as a dash, as in the email; the cell still holds 0 and still adds up.
+            sheet.Range(HeaderRow + 1, 7, lastData, 9).Style.NumberFormat.Format = MoneyOrDashFormat;
+        }
         sheet.Range(HeaderRow, 1, Math.Max(lastData, HeaderRow), headings.Length).SetAutoFilter();
 
-        double[] widths = [6, 13, 14, 14, 36, 14, 13, 13, 14];
+        double[] widths = [7, 13, 14, 14, 36, 14, 13, 15, 14];
         for (var column = 0; column < widths.Length; column++)
         {
             sheet.Column(column + 1).Width = widths[column];
@@ -137,6 +149,15 @@ public static class DailyIncomingPaymentWorkbook
         workbook.SaveAs(stream);
         return stream.ToArray();
     }
+
+    /// <summary>
+    /// A G/L code as a number when it is all digits, so Excel does not flag it as a number stored as text;
+    /// any other code as it is.
+    /// </summary>
+    private static XLCellValue Account(string? code) =>
+        code is null ? "-"
+        : code.Length > 0 && code[0] != '0' && long.TryParse(code, NumberStyles.None, CultureInfo.InvariantCulture, out var number) ? number
+        : code;
 
     /// <summary>A label in one column and its value two columns on, as the header block lays them out.</summary>
     private static void Pair(IXLWorksheet sheet, int row, int column, string label, XLCellValue value, bool bold = false, bool money = false)
