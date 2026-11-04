@@ -50,6 +50,9 @@ public sealed class DailySalesWhatsAppTests : IDisposable
     private OpenWASettings _openWa = CustomerDocumentTestKit.Gateway();
     private int _reference;
 
+    // The vending accounts' names as SAP holds them; null means SAP cannot be reached.
+    private Dictionary<string, string>? _sapNames = new(StringComparer.OrdinalIgnoreCase);
+
     public DailySalesWhatsAppTests(ITestOutputHelper output)
     {
         _output = output;
@@ -389,6 +392,39 @@ public sealed class DailySalesWhatsAppTests : IDisposable
             report.Message);
     }
 
+    [Fact]
+    public async Task Vending_partners_are_named_as_SAP_names_them()
+    {
+        // Carts write the account code as the name; SAP knows the depot. VND003 has never sold.
+        AddShopSale(Wednesday, "CORVEND", 1748.94m, source: SaleSourceSystems.Vending, cardCode: "COR006", cardName: "COR006");
+        AddShopSale(Wednesday, "MACVEND", 1797.73m, source: SaleSourceSystems.Vending, cardCode: "MAC006", cardName: "MAC006");
+        AddCartVendor("VND003", isActive: true);
+        _context.SaveChanges();
+        _sapNames!["cor006"] = " Corner Vending Depot ";
+        _sapNames["VND003"] = "Avondale Vending";
+        _sapNames["VND001"] = "Mbare Depot (SAP)";
+
+        var report = await ReportAsync();
+        _output.WriteLine(report.Message);
+
+        // SAP's name wins over the sale's; a code SAP does not know keeps the sale's name.
+        Assert.Equal(
+            [("Avondale Vending", "VND003"), ("Corner Vending Depot", "COR006"), ("MAC006", "MAC006"), ("Mbare Depot (SAP)", "VND001")],
+            report.Counters.VendingPartners.Select(partner => (partner.Label, partner.BusinessPartnerCode)));
+        Assert.Contains("*Vending - Corner Vending Depot: $1,748.94*", report.Message);
+    }
+
+    [Fact]
+    public async Task Vending_partners_keep_the_names_on_their_sales_when_SAP_is_down()
+    {
+        _sapNames = null;
+
+        var report = await ReportAsync();
+
+        Assert.Equal(["Mbare Vending Depot"], report.Counters.VendingPartners.Select(partner => partner.Label));
+        Assert.Contains("*Vending - Mbare Vending Depot: $999.00*", report.Message);
+    }
+
     // ---- Settings ---------------------------------------------------------------------------------
 
     [Fact]
@@ -583,7 +619,7 @@ public sealed class DailySalesWhatsAppTests : IDisposable
 
     private async Task<DailySalesWhatsAppReport> ReportAsync()
     {
-        var result = await new GetDailySalesWhatsAppReportHandler(_context, Mediator(), _clock)
+        var result = await new GetDailySalesWhatsAppReportHandler(_context, Mediator(), Sap(), NullLogger<GetDailySalesWhatsAppReportHandler>.Instance, _clock)
             .Handle(new GetDailySalesWhatsAppReportQuery(Wednesday), CancellationToken.None);
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         return result.Value;
@@ -610,6 +646,19 @@ public sealed class DailySalesWhatsAppTests : IDisposable
     private GetVanDailyTruckReportHandler TruckHandler() =>
         new(_context, Options.Create(new TaxSettings()), new StoredSaleInvoiceCostReader(_context));
 
+    /// <summary>SAP as the report asks it: each vending account's name, or a failure when it is down.</summary>
+    private ISAPServiceLayerClient Sap() =>
+        StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
+        {
+            nameof(ISAPServiceLayerClient.GetBusinessPartnersByCodesAsync) => _sapNames is { } names
+                ? Task.FromResult(((IReadOnlyCollection<string>)args![0]!)
+                    .Where(names.ContainsKey)
+                    .Select(code => new BusinessPartnerDto { CardCode = code, CardName = names[code] })
+                    .ToList())
+                : Task.FromException<List<BusinessPartnerDto>>(new HttpRequestException("SAP is down")),
+            _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
+        });
+
     /// <summary>Every query the report reads, run for real against the test database.</summary>
     private IMediator Mediator()
     {
@@ -619,7 +668,7 @@ public sealed class DailySalesWhatsAppTests : IDisposable
             GetDailySalesWhatsAppSettingsQuery settings =>
                 new GetDailySalesWhatsAppSettingsHandler(_context).Handle(settings, CancellationToken.None),
             GetDailySalesWhatsAppReportQuery report =>
-                new GetDailySalesWhatsAppReportHandler(_context, mediator, _clock).Handle(report, CancellationToken.None),
+                new GetDailySalesWhatsAppReportHandler(_context, mediator, Sap(), NullLogger<GetDailySalesWhatsAppReportHandler>.Instance, _clock).Handle(report, CancellationToken.None),
             GetVanDailyTruckReportQuery trucks =>
                 TruckHandler().Handle(trucks, CancellationToken.None),
             _ => null
