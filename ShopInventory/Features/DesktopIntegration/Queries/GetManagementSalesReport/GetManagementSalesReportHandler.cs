@@ -500,7 +500,7 @@ public sealed class GetManagementSalesReportHandler(
         var byDepot = Breakdown(current, previous, total, c => c.WarehouseCode,
             key => DepotLabel(key, labels, everyCell
                 .Where(c => string.Equals(c.WarehouseCode, key, StringComparison.OrdinalIgnoreCase))
-                .Select(c => c.CardCode)),
+                .Select(c => c.CardCode), partners),
             key => margin.For(currency, Dimension.Depot, key));
 
         var byPartner = Breakdown(current, previous, total, c => c.CardCode,

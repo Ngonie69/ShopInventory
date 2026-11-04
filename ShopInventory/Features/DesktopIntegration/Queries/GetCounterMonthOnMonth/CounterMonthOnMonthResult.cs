@@ -15,7 +15,8 @@ public sealed record CounterMonthOnMonthResult(
 
 /// <summary>A shop or vending point that sold in either month.</summary>
 /// <param name="Business">shops or vending (<c>SaleBusinesses</c>).</param>
-/// <param name="ShopName">The shop's name from the Shops table, when it is a shop on file.</param>
+/// <param name="ShopName">The place's name: a shop's from the Shops table, when it is a shop on file; a vending
+/// point's from its depot's business partner in SAP (KEFBYC → "Cortina Bulawayo Vending").</param>
 /// <param name="FirstSaleDate">The first day this place ever sold on a till, so a month before it can be flagged as partial.</param>
 public sealed record CounterPlaceRow(
     string Business,

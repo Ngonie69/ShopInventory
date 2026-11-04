@@ -42,7 +42,7 @@ public static class VendorImportWorkbook
     // ── Writing ────────────────────────────────────────────────────────────
 
     /// <param name="depots">The depots to offer, each with its code prefix and next free code.</param>
-    /// <param name="depotNames">Business partner names by code, for the Depots sheet; a missing name shows the code.</param>
+    /// <param name="depotNames">Business partner names by code, for the Depots and Guide sheets; a missing name shows the code.</param>
     public static byte[] BuildTemplate(
         IReadOnlyList<VendingDepotModel> depots,
         IReadOnlyDictionary<string, string> depotNames)
@@ -58,7 +58,7 @@ public static class VendorImportWorkbook
 
         WriteVendorsSheet(vendors, depots.Count);
         WriteDepotsSheet(depotSheet, depots, depotNames);
-        WriteGuideSheet(guide, depots);
+        WriteGuideSheet(guide, depots, depotNames);
 
         vendors.SetTabActive();
         vendors.Cell(2, 1).SetActive();
@@ -153,11 +153,22 @@ public static class VendorImportWorkbook
         }
     }
 
-    private static void WriteGuideSheet(IXLWorksheet sheet, IReadOnlyList<VendingDepotModel> depots)
+    private static void WriteGuideSheet(
+        IXLWorksheet sheet,
+        IReadOnlyList<VendingDepotModel> depots,
+        IReadOnlyDictionary<string, string> depotNames)
     {
+        // Each prefix by the depot's business partner name, the warehouse after it: "VMB — Cortina
+        // Bulawayo Vending (KEFBYC)". The partner is the vending point people know.
         var prefixes = depots
             .Where(depot => depot.VendorCodePrefix is not null)
-            .Select(depot => $"{depot.VendorCodePrefix} — {string.Join(", ", depot.WarehouseCodes)}")
+            .Select(depot =>
+            {
+                var name = depotNames.TryGetValue(depot.BusinessPartnerCode, out var known) ? known : depot.BusinessPartnerCode;
+                return depot.WarehouseCodes.Count == 0
+                    ? $"{depot.VendorCodePrefix} — {name}"
+                    : $"{depot.VendorCodePrefix} — {name} ({string.Join(", ", depot.WarehouseCodes)})";
+            })
             .Distinct()
             .ToList();
 

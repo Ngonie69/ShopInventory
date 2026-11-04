@@ -247,7 +247,7 @@ public sealed class GetManagementItemAnalysisHandler(
             Breakdown(current, previous, net, c => c.WarehouseCode,
                 key => DepotLabel(key, labels, everyCell
                     .Where(c => string.Equals(c.WarehouseCode, key, StringComparison.OrdinalIgnoreCase))
-                    .Select(c => c.CardCode)),
+                    .Select(c => c.CardCode), partners),
                 key => margin.For(currency, Dimension.Depot, key)),
             Breakdown(current, previous, net, c => c.CardCode,
                 key => PartnerLabel(key, partners, everyCell

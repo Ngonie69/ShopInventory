@@ -122,7 +122,11 @@ public sealed class GetDesktopSalesAnalysisHandler(
     /// </remarks>
     private async Task NameRowsAsync(DesktopSalesAnalysisResult result, CancellationToken cancellationToken)
     {
-        var warehouseRows = result.Currencies.SelectMany(section => section.ByWarehouse).ToList();
+        // A vending depot's row already carries its business partner's SAP name; its warehouse's name
+        // would put "Kefalos Bulawayo Centre" back where "Cortina Bulawayo Vending" belongs.
+        var warehouseRows = result.Currencies.SelectMany(section => section.ByWarehouse)
+            .Where(row => row.BusinessPartnerCode is null)
+            .ToList();
         var accountRows = result.Currencies.SelectMany(section => section.ByVanAccount).ToList();
         var warehouseCodes = Codes(warehouseRows);
         var accountCodes = Codes(accountRows);

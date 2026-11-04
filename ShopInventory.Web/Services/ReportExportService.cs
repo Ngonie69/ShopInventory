@@ -8302,6 +8302,18 @@ public partial class ReportExportService : IReportExportService
     /// the two workbooks read as one family. Every KPI and totals row is stated per currency; see
     /// the per-sheet writers for how each keeps USD and ZWG apart.
     /// </remarks>
+    /// <summary>
+    /// A filter's code with the name its row carries — "Cortina Bulawayo Vending (KEFBYC)" for a vending
+    /// depot — or the bare code when no row names it.
+    /// </summary>
+    private static string DesktopAnalysisScopeName(string code, IEnumerable<DesktopSalesBreakdownRow> rows)
+    {
+        var label = rows.FirstOrDefault(row => string.Equals(row.Key, code, StringComparison.OrdinalIgnoreCase))?.Label;
+        return string.IsNullOrWhiteSpace(label) || string.Equals(label, code, StringComparison.OrdinalIgnoreCase)
+            ? code
+            : $"{label} ({code})";
+    }
+
     public byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report)
     {
         var vans = report.SourceSystem == DesktopAnalysisVanSource;
@@ -8313,9 +8325,11 @@ public partial class ReportExportService : IReportExportService
                 : $"{report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}",
             (string.IsNullOrWhiteSpace(report.WarehouseCode)
                 ? (vans ? "All vans" : "All shops")
-                : $"{(vans ? "Van" : "Shop")}: {report.WarehouseCode}")
+                : $"{(vans ? "Van" : "Shop")}: {DesktopAnalysisScopeName(report.WarehouseCode, report.Currencies.SelectMany(section => section.ByWarehouse))}")
                 // A workbook confined to one partner or tender says so, or its takings read as everyone's.
-                + (string.IsNullOrWhiteSpace(report.CardCode) ? "" : $" · Business partner: {report.CardCode}")
+                + (string.IsNullOrWhiteSpace(report.CardCode)
+                    ? ""
+                    : $" · Business partner: {DesktopAnalysisScopeName(report.CardCode, report.Currencies.SelectMany(section => section.ByBusinessPartner))}")
                 + (string.IsNullOrWhiteSpace(report.PaymentMethod)
                     ? ""
                     : $" · Paid by {DesktopAnalysisTenderName(report.PaymentMethod)} only"),

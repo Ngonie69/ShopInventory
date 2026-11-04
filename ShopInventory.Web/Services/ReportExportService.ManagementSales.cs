@@ -131,12 +131,18 @@ public partial class ReportExportService
                     cell => cell.CreditedQuantity, cell => cell.QuantityAfterCredits, cell => cell.CreditedNetAmount, cell => cell.NetAmountAfterCredits),
             ]);
 
+        // Each warehouse as the By Warehouse sheet names it: a vending depot by its partner's SAP name.
+        var depotNames = report.Currencies
+            .SelectMany(section => section.ByDepot)
+            .GroupBy(row => row.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().Label, StringComparer.OrdinalIgnoreCase);
         WriteManagementTable(workbook, "Item x Warehouse", "Item Sales by Warehouse", scope, report,
             section => section.ItemDepotMatrix,
             [
                 new("Channel", cell => SaleBusinessLabels.Label(cell.Business)),
                 new("Item Code", cell => cell.ItemCode),
                 new("Warehouse", cell => cell.WarehouseCode),
+                new("Name", cell => depotNames.GetValueOrDefault(cell.WarehouseCode)),
                 new("Quantity", cell => cell.Quantity, FormatQuantity),
                 new("Value before VAT", cell => cell.NetAmount, FormatMoney),
                 .. ItemCreditColumns<ManagementItemDepotCell>(

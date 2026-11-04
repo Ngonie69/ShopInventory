@@ -1330,7 +1330,7 @@ else if (dialog is not DialogMode.None)
         {
             var prefixes = (overview?.Depots ?? [])
                 .Where(depot => depot.VendorCodePrefix is not null)
-                .Select(depot => $"{depot.VendorCodePrefix} for {string.Join(", ", depot.WarehouseCodes)}")
+                .Select(depot => $"{depot.VendorCodePrefix} for {DepotName(depot.BusinessPartnerCode)}")
                 .Distinct()
                 .ToList();
 

@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
+using ShopInventory.Features.Vending;
 using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -324,6 +325,7 @@ public sealed class GetDesktopSalesAnalysisHandler(
         }
 
         var operators = await OperatorNamesAsync(cells, cancellationToken);
+        var depots = await DepotsAsync(cells, cancellationToken);
         var paymentMethods = PaymentMethodColumns(cells.Select(c => c.PaymentMethod));
 
         var currencies = cells
@@ -335,6 +337,7 @@ public sealed class GetDesktopSalesAnalysisHandler(
                 items.Where(i => i.Currency == group.Key).ToList(),
                 paymentMethods,
                 operators,
+                depots,
                 previous.GetValueOrDefault(group.Key),
                 margin,
                 invoices.Where(i => i.Currency == group.Key).ToList()))
@@ -391,6 +394,7 @@ public sealed class GetDesktopSalesAnalysisHandler(
         List<ItemCell> items,
         IReadOnlyList<string> paymentMethods,
         IReadOnlyDictionary<Guid, string> operators,
+        VendingDepotNames depots,
         (int SalesCount, decimal TotalAmount) previous,
         ManagementSalesRollup.MarginBook? margin,
         List<PostedInvoice> invoices)
@@ -505,8 +509,10 @@ public sealed class GetDesktopSalesAnalysisHandler(
             byPaymentMethod,
             byDay,
             byHour,
-            Breakdown(cells, c => c.WarehouseCode, code => string.IsNullOrEmpty(code) ? "Not recorded" : code, total, paymentMethods,
-                code => margin?.MarginOf(currency, ManagementSalesRollup.Dimension.Depot, code)),
+            Breakdown(cells, c => c.WarehouseCode, code => WarehouseLabel(code, depots, partnerNames), total, paymentMethods,
+                    code => margin?.MarginOf(currency, ManagementSalesRollup.Dimension.Depot, code))
+                .Select(row => depots.PartnerByWarehouse.TryGetValue(row.Key, out var depot) ? row with { BusinessPartnerCode = depot } : row)
+                .ToList(),
             Breakdown(cells, c => c.CardCode, code => PartnerLabel(code, partnerNames), total, paymentMethods,
                 code => margin?.MarginOf(currency, ManagementSalesRollup.Dimension.Partner, code)),
             Breakdown(cells, c => c.SourceSystem, SourceLabel, total, paymentMethods,
@@ -680,6 +686,42 @@ public sealed class GetDesktopSalesAnalysisHandler(
                     .ThenBy(name => name.Key, StringComparer.OrdinalIgnoreCase)
                     .First().Key,
                 StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The vending depots among the period's warehouses (KEFBYC → COR008) and their partners' SAP names,
+    /// so a depot row reads as the vending point rather than the warehouse its stock sits in.
+    /// </summary>
+    private async Task<VendingDepotNames> DepotsAsync(List<Cell> cells, CancellationToken cancellationToken)
+    {
+        var warehouses = cells.Select(c => c.WarehouseCode).Where(code => code.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var depots = (await VendingDepots.PartnerByWarehouseAsync(db, cancellationToken))
+            .Where(pair => warehouses.Contains(pair.Key))
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+        var names = await VendingDepots.PartnerNamesAsync(db, depots.Values, cancellationToken);
+        return new VendingDepotNames(depots, names);
+    }
+
+    /// <summary>A warehouse by its code, or a vending depot's by its partner's name — this period's first, then its latest.</summary>
+    private static string WarehouseLabel(string code, VendingDepotNames depots, IReadOnlyDictionary<string, string> partnerNames)
+    {
+        if (string.IsNullOrEmpty(code))
+        {
+            return "Not recorded";
+        }
+
+        if (!depots.PartnerByWarehouse.TryGetValue(code, out var depot))
+        {
+            return code;
+        }
+
+        return partnerNames.TryGetValue(depot, out var name) ? name
+            : depots.Names.TryGetValue(depot, out var latest) ? latest
+            : depot;
+    }
+
+    private sealed record VendingDepotNames(
+        IReadOnlyDictionary<string, string> PartnerByWarehouse,
+        IReadOnlyDictionary<string, string> Names);
 
     /// <summary>
     /// A business partner by its name, or by its code where none of its sales carried one — the code

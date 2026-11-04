@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
+using ShopInventory.Features.Vending;
 using ShopInventory.Models;
 using ShopInventory.Services;
 using static ShopInventory.Features.TradingCutoff.TradingCutoffKeys;
@@ -50,6 +51,11 @@ public sealed class GetTradingCutoffSettingsHandler(ApplicationDbContext db, Tim
             })
             .ToListAsync(cancellationToken);
 
+        // A vending cashier by its depot's business partner name ("Cortina Bulawayo Vending"), not the bare
+        // COR008 its account holds; a partner that has never sold keeps its code.
+        var partnerNames = await VendingDepots.PartnerNamesAsync(
+            db, users.Select(user => user.AssignedBusinessPartnerCode ?? string.Empty), cancellationToken);
+
         var accounts = users
             .Select(user =>
             {
@@ -72,7 +78,7 @@ public sealed class GetTradingCutoffSettingsHandler(ApplicationDbContext db, Tim
                     string.IsNullOrWhiteSpace(name) ? null : name,
                     entry.User.Role,
                     entry.Channel,
-                    entry.User.ShopName ?? entry.User.AssignedBusinessPartnerCode,
+                    entry.User.ShopName ?? PartnerDetail(entry.Channel, entry.User.AssignedBusinessPartnerCode, partnerNames),
                     entry.User.IsActive,
                     (entry.Exception?.Mode ?? TradingCutoffAccountMode.FollowChannel).ToString(),
                     entry.Exception?.CutoffTime is { } own ? Format(own) : null,
@@ -102,6 +108,10 @@ public sealed class GetTradingCutoffSettingsHandler(ApplicationDbContext db, Tim
             changedBy?.UpdatedAt,
             changedBy?.Value);
     }
+
+    /// <summary>A vending account's partner by its SAP name; any other account's partner by its code, as before.</summary>
+    private static string? PartnerDetail(string? channel, string? code, IReadOnlyDictionary<string, string> names) =>
+        code is { Length: > 0 } && channel == SaleBusinesses.Vending && names.TryGetValue(code.Trim(), out var name) ? name : code;
 
     /// <summary>Shops, vending, vans, then accounts that sell in none of them.</summary>
     private static int ChannelOrder(string? channel)

@@ -123,17 +123,40 @@ public sealed class ManagementSalesReportTests : IDisposable
     // ---- The breakdowns ---------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_shop_is_named_and_a_vending_depot_is_its_warehouse_under_its_partner()
+    public async Task A_shop_is_named_and_a_vending_depot_is_named_by_its_business_partner()
     {
-        Add(Vend(100m, From));
+        AssignCashierToDepot();
+        var vend = Vend(100m, From);
+        vend.CardName = "Cortina Graniteside Vending";
+        Add(vend);
         Add(Sale(40m, From, SaleSourceSystems.ShopTill, ShopWarehouse, "FARM-BP"));
 
         var depots = Dollars(await RunAsync()).ByDepot.ToDictionary(row => row.Key);
 
         Assert.Equal("Farm", depots[ShopWarehouse].Label);
         Assert.Equal($"FARM · {ShopWarehouse}", depots[ShopWarehouse].Hint);
+        Assert.Equal("Cortina Graniteside Vending", depots[DepotWarehouse].Label);
+        Assert.Equal($"{Depot} · {DepotWarehouse}", depots[DepotWarehouse].Hint);
+    }
+
+    [Fact]
+    public async Task A_vending_warehouse_no_cashier_draws_on_keeps_its_warehouse_under_its_partner()
+    {
+        Add(Vend(100m, From));
+
+        var depots = Dollars(await RunAsync()).ByDepot.ToDictionary(row => row.Key);
+
         Assert.Equal(DepotWarehouse, depots[DepotWarehouse].Label);
         Assert.Equal(Depot, depots[DepotWarehouse].Hint);
+    }
+
+    /// <summary>The depot cashier sells on the depot's partner from its warehouse, as a real one does.</summary>
+    private void AssignCashierToDepot()
+    {
+        var cashier = _context.Users.Single(user => user.Id == _cashierId);
+        cashier.AssignedBusinessPartnerCode = Depot;
+        cashier.AssignedWarehouseCodes = System.Text.Json.JsonSerializer.Serialize(new[] { DepotWarehouse });
+        _context.SaveChanges();
     }
 
     [Fact]
@@ -922,7 +945,8 @@ public sealed class ManagementSalesReportTests : IDisposable
         var breadAtDepot = matrixSheet.RowsUsed().First(row => row.Cell(3).GetString() == "BREAD");
         Assert.Equal("Vending", breadAtDepot.Cell(2).GetString());
         Assert.Equal(DepotWarehouse, breadAtDepot.Cell(4).GetString());
-        Assert.Equal(10m, breadAtDepot.Cell(5).GetValue<decimal>());
+        Assert.Equal(DepotWarehouse, breadAtDepot.Cell(5).GetString()); // named as the By Warehouse sheet names it
+        Assert.Equal(10m, breadAtDepot.Cell(6).GetValue<decimal>());
 
         // The drill-down's contract, the same way: every property the web reads is one the API sends.
         var analysis = await AnalyseItemAsync("BREAD");

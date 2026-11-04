@@ -71,6 +71,60 @@ public static class VendingDepots
     }
 
     /// <summary>
+    /// Each depot warehouse with the business partner it is the depot of: KEFBYC → COR008. A report
+    /// names a depot by that partner, because the partner is what the business calls the vending point
+    /// and the warehouse is only where its stock sits. A warehouse two depots draw on belongs to
+    /// neither, so it is left out and keeps its warehouse label.
+    /// </summary>
+    public static Dictionary<string, string> PartnerByWarehouse(IEnumerable<VendingDepotCodeRule> depots) =>
+        depots
+            .SelectMany(depot => depot.WarehouseCodes.Select(warehouse => (Warehouse: warehouse, depot.BusinessPartnerCode)))
+            .GroupBy(pair => pair.Warehouse, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Select(pair => pair.BusinessPartnerCode).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1)
+            .ToDictionary(group => group.Key, group => group.First().BusinessPartnerCode, StringComparer.OrdinalIgnoreCase);
+
+    /// <inheritdoc cref="PartnerByWarehouse(IEnumerable{VendingDepotCodeRule})"/>
+    public static async Task<Dictionary<string, string>> PartnerByWarehouseAsync(
+        ApplicationDbContext context,
+        CancellationToken cancellationToken) =>
+        PartnerByWarehouse(await LoadAsync(context, cancellationToken));
+
+    /// <summary>
+    /// The SAP name of each partner, as its latest named till sale carries it (the API keeps no
+    /// partner table), so a renamed depot reads as it does now. A partner that has never sold is
+    /// missing from the result and callers fall back to its code.
+    /// </summary>
+    public static async Task<Dictionary<string, string>> PartnerNamesAsync(
+        ApplicationDbContext context,
+        IEnumerable<string> businessPartnerCodes,
+        CancellationToken cancellationToken)
+    {
+        var codes = businessPartnerCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (codes.Count == 0)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var named = await context.DesktopSales
+            .AsNoTracking()
+            .Where(sale => codes.Contains(sale.CardCode) && sale.CardName != null && sale.CardName != "")
+            .GroupBy(sale => new { sale.CardCode, sale.CardName })
+            .Select(group => new { group.Key.CardCode, group.Key.CardName, LastSale = group.Max(sale => sale.Id) })
+            .ToListAsync(cancellationToken);
+
+        return named
+            .GroupBy(sale => sale.CardCode.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderByDescending(sale => sale.LastSale).First().CardName!.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The highest number issued under each prefix, across every business partner — a code is unique
     /// company-wide, so two depots on the same warehouse draw from one sequence. Removed vendors count:
     /// their codes stay on their sales and are never handed to somebody else.
