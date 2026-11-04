@@ -12,6 +12,7 @@ using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateInvoiceDirect;
 using ShopInventory.Features.ExceptionCenter;
+using ShopInventory.Features.TradingCutoff;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -46,7 +47,8 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
     ILogger<CreateVanSalesDirectInvoiceHandler> logger,
     IStockReservationService reservations,
     VanSaleFiscalFirstPoster poster,
-    IInvoiceQueueService queue
+    IInvoiceQueueService queue,
+    TradingCutoffGate tradingCutoff
 ) : IRequestHandler<CreateVanSalesDirectInvoiceCommand, ErrorOr<VanSalesDirectInvoiceResponse>>
 {
     public async Task<ErrorOr<VanSalesDirectInvoiceResponse>> Handle(
@@ -92,6 +94,24 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
                 "VanSalesCompatibility.UnstampedSale",
                 "This sale carries no fiscal receipt. Stamped receipts are now required, so it cannot be " +
                 "accepted — update the handset to a build that signs receipts.");
+        }
+
+        // Today's trading cut-off, before anything is reserved or signed. A sale the handset already stamped
+        // holds its receipt and is never refused for the hour; a resend of a sale already begun is let
+        // through to find its own reservation and receipt below.
+        if (!command.Request.ClaimsReceiptSequence())
+        {
+            var cutoff = await tradingCutoff.CheckAsync(
+                SaleBusinesses.Vans,
+                user.Id,
+                TradingCutoffGate.Sale,
+                command.Request.VanOrder,
+                cancellationToken,
+                token => TradingCutoffResends.IsKnownVanSaleAsync(db, command.Request.VanOrder, token));
+            if (cutoff.IsError)
+            {
+                return cutoff.Errors;
+            }
         }
 
         var warehouseCode = VanSalesCompatibilityMapper.ResolveAssignedWarehouseCode(user);

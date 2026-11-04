@@ -245,6 +245,7 @@ public sealed class VanSalesOrderReplySapCallsTests : IDisposable
                 Service(),
                 StubProxy.For<IAuditService>((_, _) => Task.CompletedTask),
                 NullLogger<CreateSalesOrderHandler>.Instance)),
+            new ShopInventory.Features.TradingCutoff.TradingCutoffGate(_context, TimeProvider.System, NullLogger<ShopInventory.Features.TradingCutoff.TradingCutoffGate>.Instance),
             NullLogger<CreateVanSalesSalesOrderHandler>.Instance);
 
     /// <summary>

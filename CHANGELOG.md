@@ -18,6 +18,16 @@ otherwise be surprised.
 
 ### Changed
 
+- **New: a daily trading cut-off, off until an admin turns it on** (Web → Settings → Trading Cut-off,
+  `GET`/`PUT /api/trading-cutoff`). Per channel — shops, vending, vans — a time (CAT) from which no new
+  transaction is taken until midnight, with per-account exceptions: never cut off, or an own time. Once a
+  channel is closed, `POST /api/DesktopIntegration/sales`, `POST /api/vansales/order`,
+  `POST /api/vansales/order/with-batches`, `POST /api/vansales/sales-order` and
+  `POST /api/vansales/order/convert-to-invoice` answer `400` `TradingCutoff.Closed`, "Trading closed at
+  17:00 today for …", with nothing reserved, signed or posted. A resend of a transaction already held, a
+  van sale carrying a handset-signed receipt, and the offline upload `POST /api/vansales/sales` are never
+  refused. The till and the van handset already show a 400's reason as written.
+
 - **A sales order is converted to an invoice once, whatever reference it arrives under.**
   `POST /api/vansales/order/convert-to-invoice` (and the desktop conversion it shares a handler with) was
   idempotent per reference only, so a second attempt under a new reference — a handset that retired its

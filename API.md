@@ -71,6 +71,7 @@ Examples:
   - [SAP Settings](#29-sap-settings)
   - [SAP User Accounts](#29a-sap-user-accounts)
   - [Desktop Integration](#30-desktop-integration)
+  - [Trading Cut-off](#30a-trading-cut-off)
   - [Customer Portal](#31-customer-portal)
   - [Fiscalisation](#32-fiscalisation)
   - [REVMax](#32a-revmax)
@@ -3377,6 +3378,31 @@ reprinted for an item the shop no longer carries still has to state the VAT char
 empty `items` list means the Item Tax Groups sync (Web → Settings → Data Sync) has never completed; it is answered rather than
 refused, and a client should keep whatever rates it already holds rather than fall back to the
 standard rate for everything.
+
+---
+
+### 30a. Trading Cut-off
+
+**Base route:** `/api/trading-cutoff`
+**Auth:** Bearer, Admin
+
+The time of day from which a channel stops taking new transactions, until midnight CAT; the next day
+opens on its own. Set per channel — `shops` (till sales), `vending` (cart vendor invoices) and `vans`
+(van sales, van sales orders and order conversions) — with exceptions per sign-in account. Off for every
+channel until an admin saves it. Changed from Web → Settings → Trading Cut-off.
+
+Enforced where each transaction is taken, not here: `POST /api/DesktopIntegration/sales`,
+`POST /api/vansales/order`, `POST /api/vansales/order/with-batches`, `POST /api/vansales/sales-order` and
+`POST /api/vansales/order/convert-to-invoice`. A refused transaction is a `400` with the code
+`TradingCutoff.Closed` and a message naming the time, and nothing is reserved, signed or posted. Three
+things are never refused: a resend of a transaction already held (the same reference, or a conversion
+already queued), a van sale that already carries a handset-signed receipt, and the offline van upload
+(`POST /api/vansales/sales`), whose receipts already exist.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/trading-cutoff` | Each channel's `enabled`, `cutoffTime` (`HH:mm`, CAT) and `isClosedNow`; every account that sells in a channel (by role: TillOperator → shops, CartVendor → vending, Sales/ADR → vans) and any other account with an exception, with its `mode` (`FollowChannel`, `Exempt` or `CutOff`), own `cutoffTime` and `isClosedNow`; the server's `nowCat`; and who last saved it and when |
+| PUT | `/api/trading-cutoff` | Save `channels` (`channel`, `enabled`, `cutoffTime` `HH:mm` after 00:00) and the complete list of account exceptions in `accounts` (`userId`, `mode`, optional `cutoffTime`; a `CutOff` with no time uses its channel's). An account left out follows its channel again. Audited. Answers as the GET does |
 
 ---
 

@@ -1,0 +1,179 @@
+@using ShopInventory.Web.Features.TradingCutoff
+
+@* The daily trading cut-off: the time from which shops, vending and vans take no new transactions, per
+   channel, with exceptions per account. Enforced by the API at each sale; this only edits the setting.
+   Styled by settings.css under the tco- prefix, inside the page's .stg root. *@
+<section class="stg-card tco">
+    <div class="stg-section-head">
+        <span class="stg-section-icon"><i class="ph ph-clock-countdown"></i></span>
+        <div class="stg-section-text">
+            <h2>Trading Cut-off</h2>
+            <p>From its cut-off time until midnight, a channel takes no new sales or orders. It opens again on its own the next day.</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="stg-alert @(messageSuccess ? "stg-alert-success" : "stg-alert-error")">
+            <i class="ph @(messageSuccess ? "ph-check-circle" : "ph-warning-circle")"></i>
+            <span>@message</span>
+            <button type="button" class="stg-alert-close" @onclick="() => message = null"><i class="ph ph-x"></i></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="stg-pane-loading"><span class="stg-spin"></span><span>Loading the trading cut-off…</span></div>
+    }
+    else if (settings is null)
+    {
+        <div class="stg-alert stg-alert-warn">
+            <i class="ph ph-warning"></i>
+            <span>Couldn't read the trading cut-off from the API.</span>
+            <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" @onclick="LoadAsync">Try again</button>
+        </div>
+    }
+    else
+    {
+        @foreach (var channel in channels)
+        {
+            var saved = settings.Channels.FirstOrDefault(c => c.Channel == channel.Channel);
+            <div class="stg-row">
+                <div class="stg-row-info">
+                    <div class="stg-row-label">
+                        <span>@channel.Label</span>
+                        @if (saved?.IsClosedNow == true)
+                        {
+                            <span class="stg-tag stg-tag-danger">Closed now</span>
+                        }
+                    </div>
+                    <span class="stg-row-desc">@ChannelDescription(channel.Channel)</span>
+                    @if (TimeError(channel.CutoffTime) is string channelError)
+                    {
+                        <span class="tco-error"><i class="ph ph-warning-circle"></i>@channelError</span>
+                    }
+                </div>
+                <div class="stg-row-control">
+                    <input class="stg-input tco-time @(TimeError(channel.CutoffTime) is null ? "" : "tco-time-bad")"
+                           type="text" inputmode="numeric" maxlength="5" placeholder="17:00"
+                           aria-label="@($"{channel.Label} cut-off time")"
+                           value="@channel.CutoffTime"
+                           @onchange="e => channel.CutoffTime = e.Value?.ToString()?.Trim() ?? string.Empty" />
+                    <label class="stg-switch">
+                        <input type="checkbox" checked="@channel.Enabled"
+                               aria-label="@($"Cut off {channel.Label}")"
+                               @onchange="e => channel.Enabled = e.Value is true" />
+                        <span class="stg-switch-track"></span>
+                        <span class="stg-switch-text">@(channel.Enabled ? "On" : "Off")</span>
+                    </label>
+                </div>
+            </div>
+        }
+
+        <div class="stg-row stg-row-stack tco-accounts">
+            <div class="stg-row-info">
+                <div class="stg-row-label"><span>Account exceptions</span></div>
+                <span class="stg-row-desc">
+                    An account <strong>follows its channel</strong> unless you change it here: <strong>never cut off</strong>
+                    keeps it trading after its channel closes, and <strong>own cut-off</strong> closes it at its own time,
+                    even while its channel's switch is off. Blank own time uses the channel's.
+                </span>
+            </div>
+
+            <div class="tco-filters">
+                <div class="stg-chips" role="group" aria-label="Show accounts for">
+                    @foreach (var (key, label) in Filters)
+                    {
+                        <button type="button" class="stg-chip tco-chip @(filter == key ? "stg-chip-on" : "")"
+                                aria-pressed="@(filter == key ? "true" : "false")"
+                                @onclick="() => filter = key">
+                            <span>@label</span>
+                            <span class="tco-count">@CountFor(key)</span>
+                        </button>
+                    }
+                </div>
+                <input class="stg-input tco-search" type="search" placeholder="Search accounts"
+                       aria-label="Search accounts" @bind="search" @bind:event="oninput" />
+            </div>
+
+            @if (VisibleAccounts.Count == 0)
+            {
+                <p class="tco-empty">No accounts match.</p>
+            }
+            else
+            {
+                <ul class="tco-list">
+                    @foreach (var account in VisibleAccounts)
+                    {
+                        var saved = settings.Accounts.FirstOrDefault(a => a.UserId == account.UserId);
+                        <li class="tco-account @(account.IsActive ? "" : "tco-inactive")" @key="account.UserId">
+                            <div class="tco-who">
+                                <span class="tco-name">
+                                    @(account.DisplayName ?? account.Username)
+                                    @if (!account.IsActive)
+                                    {
+                                        <span class="stg-tag stg-tag-neutral">Inactive</span>
+                                    }
+                                    @if (saved?.IsClosedNow == true)
+                                    {
+                                        <span class="stg-tag stg-tag-danger">Closed now</span>
+                                    }
+                                </span>
+                                <span class="tco-sub">
+                                    @account.Username · @ChannelLabel(account.Channel)@(string.IsNullOrWhiteSpace(account.Detail) ? "" : $" · {account.Detail}")
+                                </span>
+                                @if (account.Mode == TradingCutoffModes.CutOff && TimeError(account.CutoffTime, allowBlank: true) is string accountError)
+                                {
+                                    <span class="tco-error"><i class="ph ph-warning-circle"></i>@accountError</span>
+                                }
+                            </div>
+                            <div class="tco-choice">
+                                <NocturneSelect Class="nsel-end tco-mode" TValue="string"
+                                                Options="ModeOptions" Value="account.Mode"
+                                                ValueChanged="@(mode => account.Mode = mode ?? TradingCutoffModes.FollowChannel)"
+                                                AriaLabel="@($"Cut-off for {account.Username}")" />
+                                @if (account.Mode == TradingCutoffModes.CutOff)
+                                {
+                                    <input class="stg-input tco-time @(TimeError(account.CutoffTime, allowBlank: true) is null ? "" : "tco-time-bad")"
+                                           type="text" inputmode="numeric" maxlength="5"
+                                           placeholder="@ChannelTime(account.Channel)"
+                                           aria-label="@($"Own cut-off time for {account.Username}")"
+                                           value="@account.CutoffTime"
+                                           @onchange="e => account.CutoffTime = e.Value?.ToString()?.Trim()" />
+                                }
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+
+        <div class="tco-footer">
+            <span class="stg-row-meta">
+                @if (settings.UpdatedAtUtc is DateTime changedAt)
+                {
+                    <i class="ph ph-clock-counter-clockwise"></i>
+                    <span>Last changed @changedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")@(string.IsNullOrWhiteSpace(settings.UpdatedBy) ? "" : $" by {settings.UpdatedBy}")</span>
+                }
+                else
+                {
+                    <i class="ph ph-gear"></i><span>Never saved: every channel trades until midnight</span>
+                }
+            </span>
+            <div class="tco-actions">
+                @if (IsDirty)
+                {
+                    <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" disabled="@isSaving" @onclick="Reset">Discard</button>
+                }
+                <button type="button" class="stg-btn stg-btn-primary stg-btn-sm"
+                        disabled="@(!IsDirty || HasErrors || isSaving)" @onclick="SaveAsync">
+                    @if (isSaving)
+                    {
+                        <span class="stg-spin"></span>
+                    }
+                    Save cut-off
+                </button>
+            </div>
+        </div>
+    }
+</section>

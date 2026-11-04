@@ -99,6 +99,10 @@
                         @onclick="() => SelectCategory(SettingCategories.Printing)">
                     <i class="ph ph-printer"></i><span>Printing</span>
                 </button>
+                <button type="button" class="stg-nav-item @Active(TradingCutoffCategory)"
+                        @onclick="() => SelectCategory(TradingCutoffCategory)">
+                    <i class="ph ph-clock-countdown"></i><span>Trading Cut-off</span>
+                </button>
 
                 <div class="stg-nav-label">Integration</div>
                 <button type="button" class="stg-nav-item @Active(PaymentsCategory)"
@@ -796,6 +800,12 @@
                             </span>
                         </div>
                     </section>
+                }
+
+                @* ── Trading cut-off ─────────────────────────────────── *@
+                else if (selectedCategory == TradingCutoffCategory)
+                {
+                    <TradingCutoffCard />
                 }
 
                 @* ── Payments ────────────────────────────────────────── *@
@@ -2204,6 +2214,7 @@
     private const string SAPCategory = "SAP Connection";
     private const string FiscalisationCategory = "Fiscalisation";
     private const string MobileAppCategory = "Mobile App";
+    private const string TradingCutoffCategory = "Trading Cut-off";
 
     /// <summary>Default send time for a brand-new POD schedule: 06:00 local.</summary>
     private const int DefaultSendMinuteOfDay = 6 * 60;
