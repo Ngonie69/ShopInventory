@@ -7,6 +7,7 @@ using ShopInventory.Features.DailySalesWhatsApp.Queries.GetDailySalesWhatsAppSet
 using ShopInventory.Features.VanSalesReports.Queries.GetVanDailyTruckReport;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.DailySalesWhatsApp.Queries.GetDailySalesWhatsAppReport;
 
@@ -35,6 +36,8 @@ namespace ShopInventory.Features.DailySalesWhatsApp.Queries.GetDailySalesWhatsAp
 public sealed class GetDailySalesWhatsAppReportHandler(
     ApplicationDbContext db,
     IMediator mediator,
+    ISAPServiceLayerClient sap,
+    ILogger<GetDailySalesWhatsAppReportHandler> logger,
     TimeProvider? clock = null)
     : IRequestHandler<GetDailySalesWhatsAppReportQuery, ErrorOr<DailySalesWhatsAppReport>>
 {
@@ -267,7 +270,8 @@ public sealed class GetDailySalesWhatsAppReportHandler(
     /// <remarks>
     /// Every depot with an active vending cashier is listed, a day without sales included, as an active
     /// shop is — so a depot that did not trade, or whose carts did not sync, shows as such. A depot is
-    /// named as its latest vending sale names it; one that has never sold is named by its code.
+    /// named as SAP names the account. When SAP cannot be asked, or does not know the code, it is named as
+    /// its latest vending sale names it, and one that has never sold by its code — the report still goes out.
     /// </remarks>
     private async Task<List<DailySalesWhatsAppCounter>> VendingPartnersAsync(
         List<Takings> vendingTakings,
@@ -300,9 +304,13 @@ public sealed class GetDailySalesWhatsAppReportHandler(
                 group => group.OrderByDescending(sale => sale.LastSale).First().CardName!.Trim(),
                 StringComparer.Ordinal);
 
+        var sapNames = await SapNamesAsync(partners.Where(code => code.Length > 0).ToList(), cancellationToken);
+
         var labels = partners.ToDictionary(
             code => code,
-            code => names.TryGetValue(code, out var name) && name.Length > 0 ? name : NoPartnerName(code),
+            code => sapNames.TryGetValue(code, out var sapName) ? sapName
+                : names.TryGetValue(code, out var name) && name.Length > 0 ? name
+                : NoPartnerName(code),
             StringComparer.Ordinal);
 
         // Two accounts under one name would read as one depot twice; the code tells them apart.
@@ -326,6 +334,35 @@ public sealed class GetDailySalesWhatsAppReportHandler(
             })
             .OrderBy(counter => counter.Label, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>
+    /// Each vending account's name as SAP holds it, keyed by its upper-cased code; empty when SAP could not
+    /// be asked. The name a cart writes on its sales is often just the account code.
+    /// </summary>
+    private async Task<Dictionary<string, string>> SapNamesAsync(List<string> codes, CancellationToken cancellationToken)
+    {
+        if (codes.Count == 0)
+        {
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        try
+        {
+            return (await sap.GetBusinessPartnersByCodesAsync(codes, cancellationToken))
+                .Where(partner => !string.IsNullOrWhiteSpace(partner.CardCode) && !string.IsNullOrWhiteSpace(partner.CardName))
+                .GroupBy(partner => PartnerKey(partner.CardCode), StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First().CardName!.Trim(), StringComparer.Ordinal);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read the SAP names of {Count} vending business partner(s) for the daily sales report; using the names on the sales", codes.Count);
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+        }
     }
 
     public const string VendingLabel = "Vending";
