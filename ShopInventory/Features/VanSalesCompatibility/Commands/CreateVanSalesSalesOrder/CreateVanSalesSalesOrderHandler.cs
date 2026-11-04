@@ -5,13 +5,16 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Common.Sales;
 using ShopInventory.Features.SalesOrders.Commands.CreateSalesOrder;
+using ShopInventory.Features.TradingCutoff;
 
 namespace ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesSalesOrder;
 
 public sealed class CreateVanSalesSalesOrderHandler(
     ApplicationDbContext db,
     IMediator mediator,
+    TradingCutoffGate tradingCutoff,
     ILogger<CreateVanSalesSalesOrderHandler> logger
 ) : IRequestHandler<CreateVanSalesSalesOrderCommand, ErrorOr<VanSalesLegacyOrderDto>>
 {
@@ -36,6 +39,20 @@ public sealed class CreateVanSalesSalesOrderHandler(
         if (user is null || !user.IsActive)
         {
             return Error.Unauthorized("VanSalesCompatibility.Unauthenticated", "User is not authenticated.");
+        }
+
+        // Today's trading cut-off. A resend of an order already captured under this van order is let
+        // through, to be handed that order by its ClientRequestId as before.
+        var cutoff = await tradingCutoff.CheckAsync(
+            SaleBusinesses.Vans,
+            user.Id,
+            TradingCutoffGate.Order,
+            command.Request.VanOrder,
+            cancellationToken,
+            token => TradingCutoffResends.IsKnownSalesOrderAsync(db, command.Request.VanOrder, token));
+        if (cutoff.IsError)
+        {
+            return cutoff.Errors;
         }
 
         var warehouseCode = VanSalesCompatibilityMapper.ResolveAssignedWarehouseCode(user);

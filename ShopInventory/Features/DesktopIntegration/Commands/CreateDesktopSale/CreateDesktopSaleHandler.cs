@@ -11,6 +11,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Queries.GetPostingDatePolicy;
 using ShopInventory.Features.Notifications;
+using ShopInventory.Features.TradingCutoff;
 using ShopInventory.Hubs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -29,6 +30,7 @@ public sealed class CreateDesktopSaleHandler(
     IIdempotencyRequestStore idempotencyRequestStore,
     IOptions<TaxSettings> taxSettings,
     IAuditService auditService,
+    TradingCutoffGate tradingCutoff,
     ILogger<CreateDesktopSaleHandler> logger
 ) : IRequestHandler<CreateDesktopSaleCommand, ErrorOr<CreateDesktopSaleResult>>
 {
@@ -240,6 +242,16 @@ public sealed class CreateDesktopSaleHandler(
                 }
 
                 return new CreateDesktopSaleResult(existingResponse, WasExisting: true);
+            }
+
+            // Today's trading cut-off. Asked only now, once a resend has been answered with its sale: a sale
+            // rung up at 16:59 whose answer was lost must still be handed back at 17:01. Before any stock is
+            // locked or receipt signed, so a refusal leaves nothing to undo.
+            var cutoff = await tradingCutoff.CheckAsync(
+                SaleBusinesses.Of(declaredSource), command.UserId, TradingCutoffGate.Sale, externalRef, cancellationToken);
+            if (cutoff.IsError)
+            {
+                return cutoff.Errors;
             }
 
             // The document's accounting date, not a snapshot lookup — the stock ledger resolves its

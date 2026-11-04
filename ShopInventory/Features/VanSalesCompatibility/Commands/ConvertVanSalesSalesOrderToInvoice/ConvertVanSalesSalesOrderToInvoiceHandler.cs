@@ -4,13 +4,16 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Common.Sales;
 using ShopInventory.Features.DesktopIntegration.Commands.ConvertSalesOrderToInvoice;
+using ShopInventory.Features.TradingCutoff;
 
 namespace ShopInventory.Features.VanSalesCompatibility.Commands.ConvertVanSalesSalesOrderToInvoice;
 
 public sealed class ConvertVanSalesSalesOrderToInvoiceHandler(
     ApplicationDbContext db,
     IMediator mediator,
+    TradingCutoffGate tradingCutoff,
     ILogger<ConvertVanSalesSalesOrderToInvoiceHandler> logger
 ) : IRequestHandler<ConvertVanSalesSalesOrderToInvoiceCommand, ErrorOr<VanSalesConvertSalesOrderToInvoiceResponse>>
 {
@@ -86,6 +89,20 @@ public sealed class ConvertVanSalesSalesOrderToInvoiceHandler(
             return Error.Validation(
                 "VanSalesCompatibility.SalesOrderNotFound",
                 $"Sales order {salesOrderId.Value} was not found for this account.");
+        }
+
+        // Today's trading cut-off: converting an order is a sale. A resend of a conversion already queued is
+        // let through, to be answered as before.
+        var cutoff = await tradingCutoff.CheckAsync(
+            SaleBusinesses.Vans,
+            user.Id,
+            TradingCutoffGate.Sale,
+            command.Request.VanOrder,
+            cancellationToken,
+            token => TradingCutoffResends.IsKnownConversionAsync(db, salesOrderId.Value, token));
+        if (cutoff.IsError)
+        {
+            return cutoff.Errors;
         }
 
         var warehouseCode = VanSalesCompatibilityMapper.ResolveAssignedWarehouseCode(user);

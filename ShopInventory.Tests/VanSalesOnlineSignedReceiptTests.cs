@@ -849,6 +849,7 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         var result = await new ConvertVanSalesSalesOrderToInvoiceHandler(
                 _context,
                 _mediator,
+                new ShopInventory.Features.TradingCutoff.TradingCutoffGate(_context, TimeProvider.System, NullLogger<ShopInventory.Features.TradingCutoff.TradingCutoffGate>.Instance),
                 NullLogger<ConvertVanSalesSalesOrderToInvoiceHandler>.Instance)
             .Handle(
                 new ConvertVanSalesSalesOrderToInvoiceCommand(request, VanUser), CancellationToken.None);
@@ -950,7 +951,8 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
                 DesktopCreditPosters.Idle(poisoned),
                 Options.Create(new TaxSettings()),
                 NullLogger<VanSaleFiscalFirstPoster>.Instance),
-            BuildQueue(poisoned))
+            BuildQueue(poisoned),
+            new ShopInventory.Features.TradingCutoff.TradingCutoffGate(poisoned, TimeProvider.System, NullLogger<ShopInventory.Features.TradingCutoff.TradingCutoffGate>.Instance))
             .Handle(
                 new CreateVanSalesDirectInvoiceCommand(
                     Stamped("VAN006-INV-20260810-AAA111", globalNo: 501, counter: 4), VanUser),
@@ -1189,7 +1191,8 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
                 DesktopCreditPosters.Idle(_context),
                 Options.Create(new TaxSettings()),
                 NullLogger<VanSaleFiscalFirstPoster>.Instance),
-            BuildQueue(_context));
+            BuildQueue(_context),
+            new ShopInventory.Features.TradingCutoff.TradingCutoffGate(_context, TimeProvider.System, NullLogger<ShopInventory.Features.TradingCutoff.TradingCutoffGate>.Instance));
 
     private static InvoiceQueueService BuildQueue(ApplicationDbContext context) =>
         new(context, StubProxy.Unused<IStockLedger>(), NullLogger<InvoiceQueueService>.Instance);

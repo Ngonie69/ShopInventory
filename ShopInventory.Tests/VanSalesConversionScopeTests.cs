@@ -41,6 +41,9 @@ public sealed class VanSalesConversionScopeTests : IDisposable
     private readonly ApplicationDbContext _context;
     private readonly RecordingMediator _mediator;
 
+    /// <summary>The clock the trading cut-off reads. Real unless a test is about the cut-off.</summary>
+    private TimeProvider _clock = TimeProvider.System;
+
     public VanSalesConversionScopeTests()
     {
         _connection = new SqliteConnection("DataSource=:memory:");
@@ -152,6 +155,70 @@ public sealed class VanSalesConversionScopeTests : IDisposable
         Assert.Single(_mediator.Sent);
     }
 
+    // ── Trading cut-off ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Converting an order is a van sale. After the vans' cut-off it is refused before anything is asked
+    /// of the conversion, so nothing is signed or posted.
+    /// </summary>
+    [Fact]
+    public async Task A_conversion_after_the_vans_cut_off_is_refused_before_it_is_sent()
+    {
+        GivenSalesOrder(id: 7101, cardCode: VanBusinessPartner);
+        await GivenVansCutOffAt1700Async();
+        _clock = new FixedClock(new DateTimeOffset(2026, 11, 3, 15, 1, 0, TimeSpan.Zero)); // 17:01 CAT
+
+        var result = await WhenConversionIsAsked(salesOrderId: 7101);
+
+        Assert.Equal("TradingCutoff.Closed", result.FirstError.Code);
+        Assert.Contains("for van sales", result.FirstError.Description);
+        Assert.Empty(_mediator.Sent);
+    }
+
+    /// <summary>
+    /// A conversion already queued at 16:59 and resent at 17:01 is let through, to be answered as before.
+    /// </summary>
+    [Fact]
+    public async Task A_resent_conversion_is_let_through_after_the_cut_off()
+    {
+        GivenSalesOrder(id: 7102, cardCode: VanBusinessPartner);
+        _context.InvoiceQueue.Add(new InvoiceQueueEntity
+        {
+            ReservationId = "RES-7102",
+            ExternalReference = "VAN-7102",
+            CustomerCode = VanBusinessPartner,
+            InvoicePayload = "{}",
+            SalesOrderId = 7102
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        await GivenVansCutOffAt1700Async();
+        _clock = new FixedClock(new DateTimeOffset(2026, 11, 3, 15, 1, 0, TimeSpan.Zero)); // 17:01 CAT
+
+        var result = await WhenConversionIsAsked(salesOrderId: 7102);
+
+        Assert.False(result.IsError, result.IsError ? string.Join("; ", result.Errors) : string.Empty);
+        Assert.Single(_mediator.Sent);
+    }
+
+    private async Task GivenVansCutOffAt1700Async()
+    {
+        await ShopInventory.Features.TradingCutoff.TradingCutoffKeys.StageAsync(
+            _context,
+            ShopInventory.Features.TradingCutoff.TradingCutoffKeys.ChannelKey(ShopInventory.Common.Sales.SaleBusinesses.Vans),
+            "json",
+            ShopInventory.Features.TradingCutoff.TradingCutoffKeys.SerializeChannel(new(true, new TimeOnly(17, 0))),
+            "test",
+            CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
     // ── Given ───────────────────────────────────────────────────────────────
 
     private void GivenRepHasNoScope()
@@ -197,6 +264,7 @@ public sealed class VanSalesConversionScopeTests : IDisposable
         var handler = new ConvertVanSalesSalesOrderToInvoiceHandler(
             _context,
             _mediator,
+            new ShopInventory.Features.TradingCutoff.TradingCutoffGate(_context, _clock, NullLogger<ShopInventory.Features.TradingCutoff.TradingCutoffGate>.Instance),
             NullLogger<ConvertVanSalesSalesOrderToInvoiceHandler>.Instance);
 
         return await handler.Handle(

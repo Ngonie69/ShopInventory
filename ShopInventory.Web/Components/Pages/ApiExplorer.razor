@@ -1900,6 +1900,20 @@ new("POST", "/api/stock-write-offs", "Create")
 },
 new ApiModule
 {
+Name = "Trading Cut-off",
+BasePath = "/api/trading-cutoff",
+Description = "The daily time shops, vending and vans stop taking transactions, with exceptions per account.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Secondary,
+Methods = new[] { "GET", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/trading-cutoff", "Each channel's cut-off and every selling account's exception"),
+new("PUT", "/api/trading-cutoff", "Save the channels' cut-off times and the account exceptions")
+}
+},
+new ApiModule
+{
 Name = "Van Sales Customer Accounts",
 BasePath = "/api/van-sales-customer-accounts",
 Description = "3 endpoints under /api/van-sales-customer-accounts.",

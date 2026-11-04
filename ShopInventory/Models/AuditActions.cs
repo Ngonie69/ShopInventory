@@ -207,6 +207,7 @@ public static class AuditActions
     public const string UpdateFiscalPrintForm = "UpdateFiscalPrintForm";
     public const string UpdateDesktopSalesReviewSchedule = "UpdateDesktopSalesReviewSchedule";
     public const string UpdatePostingDatePolicy = "UpdatePostingDatePolicy";
+    public const string UpdateTradingCutoff = "UpdateTradingCutoff";
     public const string UpdateMonitoredWarehouses = "UpdateMonitoredWarehouses";
     public const string SendDesktopSalesReview = "SendDesktopSalesReview";
     public const string UpdateSalesPerformanceEmailSchedule = "UpdateSalesPerformanceEmailSchedule";

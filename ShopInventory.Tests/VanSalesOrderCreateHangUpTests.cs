@@ -151,7 +151,7 @@ public sealed class VanSalesOrderCreateHangUpTests : IDisposable
         DeviceInfo: null);
 
     private CreateVanSalesSalesOrderHandler Handler() =>
-        new(_context, new SalesOrderMediator(CreateSalesOrderHandler()), NullLogger<CreateVanSalesSalesOrderHandler>.Instance);
+        new(_context, new SalesOrderMediator(CreateSalesOrderHandler()), new ShopInventory.Features.TradingCutoff.TradingCutoffGate(_context, TimeProvider.System, NullLogger<ShopInventory.Features.TradingCutoff.TradingCutoffGate>.Instance), NullLogger<CreateVanSalesSalesOrderHandler>.Instance);
 
     private CreateSalesOrderHandler CreateSalesOrderHandler() =>
         new(

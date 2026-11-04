@@ -65,6 +65,9 @@ public sealed class CounterSapStockCheckTests : IDisposable
     /// <summary>The posting date the next <see cref="SellAsync"/> asks for; null asks for none.</summary>
     private string? _postingDate;
 
+    /// <summary>The clock the trading cut-off reads. Real unless a test is about the cut-off.</summary>
+    private TimeProvider _clock = TimeProvider.System;
+
     public CounterSapStockCheckTests()
     {
         _connection = new SqliteConnection("Data Source=:memory:");
@@ -415,6 +418,103 @@ public sealed class CounterSapStockCheckTests : IDisposable
     }
 
     // ---------------------------------------------------------------
+    // Trading cut-off (the admin's switch, end to end)
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// After the shops' cut-off a new till sale is refused before stock is touched or a receipt signed:
+    /// no sale row, the ledger as it was, and a 400 so the till shows the cashier why.
+    /// </summary>
+    [Fact]
+    public async Task A_till_sale_after_the_shops_cut_off_is_refused_before_anything_is_taken()
+    {
+        await SeedLedgerAsync(Cheese, 30m);
+        _sapBatches.Add(("B1", 21m));
+        await CutOffAsync(SaleBusinesses.Shops);
+        _clock = new FixedClock(new DateTimeOffset(2026, 11, 3, 15, 5, 0, TimeSpan.Zero)); // 17:05 CAT
+
+        var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 1m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("TradingCutoff.Closed", result.FirstError.Code);
+        Assert.Equal(ErrorType.Validation, result.FirstError.Type);
+        Assert.Contains("Trading closed at 17:00 today for shops", result.FirstError.Description);
+        Assert.Equal(0, await _context.DesktopSales.CountAsync());
+        Assert.Equal(30m, await LedgerAsync(Cheese));
+    }
+
+    [Fact]
+    public async Task A_till_sale_before_the_cut_off_still_sells()
+    {
+        await SeedLedgerAsync(Cheese, 30m);
+        _sapBatches.Add(("B1", 21m));
+        await CutOffAsync(SaleBusinesses.Shops);
+        _clock = new FixedClock(new DateTimeOffset(2026, 11, 3, 14, 55, 0, TimeSpan.Zero)); // 16:55 CAT
+
+        var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 1m));
+
+        Assert.False(result.IsError);
+        Assert.Equal(1, await _context.DesktopSales.CountAsync());
+    }
+
+    /// <summary>The channel is the sale's, not the account's: vending closing leaves the shops trading.</summary>
+    [Fact]
+    public async Task Closing_vending_leaves_a_shop_till_trading()
+    {
+        await SeedLedgerAsync(Cheese, 30m);
+        _sapBatches.Add(("B1", 21m));
+        await CutOffAsync(SaleBusinesses.Vending);
+        _clock = new FixedClock(new DateTimeOffset(2026, 11, 3, 16, 0, 0, TimeSpan.Zero)); // 18:00 CAT
+
+        var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 1m));
+
+        Assert.False(result.IsError);
+    }
+
+    /// <summary>An account exempted from its channel's cut-off keeps trading after it.</summary>
+    [Fact]
+    public async Task An_exempt_account_sells_after_its_channel_has_closed()
+    {
+        await SeedLedgerAsync(Cheese, 30m);
+        _sapBatches.Add(("B1", 21m));
+        await CutOffAsync(SaleBusinesses.Shops);
+        await ShopInventory.Features.TradingCutoff.TradingCutoffKeys.StageAsync(
+            _context,
+            ShopInventory.Features.TradingCutoff.TradingCutoffKeys.AccountKey(TillUserId),
+            "json",
+            ShopInventory.Features.TradingCutoff.TradingCutoffKeys.SerializeAccount(
+                new(ShopInventory.Features.TradingCutoff.TradingCutoffAccountMode.Exempt, null)),
+            "test",
+            CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        _clock = new FixedClock(new DateTimeOffset(2026, 11, 3, 15, 30, 0, TimeSpan.Zero)); // 17:30 CAT
+
+        var result = await SellAsync(fiscalize: true, lines: Line(Cheese, 1m));
+
+        Assert.False(result.IsError);
+    }
+
+    private async Task CutOffAsync(string channel)
+    {
+        await ShopInventory.Features.TradingCutoff.TradingCutoffKeys.StageAsync(
+            _context,
+            ShopInventory.Features.TradingCutoff.TradingCutoffKeys.ChannelKey(channel),
+            "json",
+            ShopInventory.Features.TradingCutoff.TradingCutoffKeys.SerializeChannel(
+                new(true, new TimeOnly(17, 0))),
+            "test",
+            CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    // ---------------------------------------------------------------
     // Posting date (the admin's switch, end to end)
     // ---------------------------------------------------------------
 
@@ -742,6 +842,7 @@ public sealed class CounterSapStockCheckTests : IDisposable
             StubProxy.Unused<IIdempotencyRequestStore>(),
             Options.Create(new TaxSettings()),
             StubProxy.For<IAuditService>((_, _) => Task.CompletedTask),
+            new ShopInventory.Features.TradingCutoff.TradingCutoffGate(_context, _clock, NullLogger<ShopInventory.Features.TradingCutoff.TradingCutoffGate>.Instance),
             NullLogger<CreateDesktopSaleHandler>.Instance);
 
         var request = new CreateDesktopSaleRequest
