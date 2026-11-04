@@ -36,6 +36,19 @@ public sealed class FetchDailyStockHandler(
     /// </remarks>
     private static readonly TimeSpan MovementOverlap = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// The note earlier builds wrote when TransferEventListener answered with no unbatched stock and
+    /// the snapshot was finished as whole anyway.
+    /// </summary>
+    /// <remarks>
+    /// Those snapshots were never flagged <c>UnbatchedStockMissing</c>, so neither the retry nor a
+    /// manual fetch read their unbatched half again. Matching the note lets both repair them.
+    /// </remarks>
+    internal const string EmptyListenerReadingNote = "read through TransferEventListener instead (0 item(s))";
+
+    internal static bool HoldsEmptyListenerReading(string? lastError) =>
+        lastError?.Contains(EmptyListenerReadingNote, StringComparison.Ordinal) == true;
+
     public async Task<ErrorOr<FetchDailyStockResult>> Handle(
         FetchDailyStockCommand command,
         CancellationToken cancellationToken)
@@ -141,7 +154,7 @@ public sealed class FetchDailyStockHandler(
             // rest of the day. Only that half is re-read: the batch rows are what tills have been
             // selling against since the morning, and rebuilding them from SAP would hand back stock
             // already sold, since desktop sales do not reach SAP until end-of-day consolidation.
-            if (existing.UnbatchedStockMissing)
+            if (existing.UnbatchedStockMissing || HoldsEmptyListenerReading(existing.LastError))
             {
                 return await TopUpUnbatchedStockAsync(existing, warehouseCode, cancellationToken);
             }
@@ -663,6 +676,23 @@ public sealed class FetchDailyStockHandler(
                 $"Unbatched stock could not be read from SAP: {primaryFailure.Message}. "
                 + "TransferEventListener answered from its degraded item scan, which is configured "
                 + "as not good enough to build a till catalogue from.");
+        }
+
+        // An empty answer is not taken as an empty warehouse. Our own read has just failed, so nothing
+        // confirms it, and a shop that sells unbatched lines every day does not run out of all of
+        // them overnight. Accepting it used to finish the snapshot as whole: the till lost every
+        // unbatched item and, with the snapshot not flagged, the retry never read that half again.
+        if (!reading.Items.Any(item => !string.IsNullOrWhiteSpace(item.ItemCode) && item.InStock > 0))
+        {
+            logger.LogWarning(
+                "TransferEventListener answered with no unbatched stock for {Warehouse} (source {Source}); "
+                + "treating that as unread so it is fetched from SAP again",
+                warehouseCode, reading.Source);
+
+            return (null,
+                $"Unbatched stock could not be read from SAP: {primaryFailure.Message}. "
+                + "TransferEventListener answered with no unbatched stock at all, which is not trusted "
+                + "as an empty warehouse; it will be read from SAP again.");
         }
 
         // InStock, never the listener's Available: that one is InStock - Committed + Ordered, so it
