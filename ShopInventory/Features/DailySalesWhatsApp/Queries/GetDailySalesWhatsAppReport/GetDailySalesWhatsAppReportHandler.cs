@@ -5,6 +5,7 @@ using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.Features.DailySalesWhatsApp.Queries.GetDailySalesWhatsAppSettings;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanDailyTruckReport;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.DailySalesWhatsApp.Queries.GetDailySalesWhatsAppReport;
@@ -26,8 +27,8 @@ namespace ShopInventory.Features.DailySalesWhatsApp.Queries.GetDailySalesWhatsAp
 /// It is scoped as the analysis scopes shops — the warehouse, the day, and the shop sources only.
 /// </para>
 /// <para>
-/// The counter section is every shop and vending under the same scope rules, each split by the tender the
-/// till recorded. Every active shop is listed, a day without sales included, so a shop that did not trade
+/// The counter section is every shop and every vending business partner under the same scope rules, each
+/// split by the tender the till recorded. Every active shop is listed, a day without sales included, so a shop that did not trade
 /// — or whose till did not sync — shows as such rather than going missing.
 /// </para>
 /// </remarks>
@@ -58,7 +59,7 @@ public sealed class GetDailySalesWhatsAppReportHandler(
         }
 
         var days = trucks.Value.Days.Where(row => row.TradingDate.Date == day).ToList();
-        var vanLines = VanLines(days, settings.Value.VanRows, trucks.Value.SalesOutsideRoutes);
+        var vanLines = VanLines(days, settings.Value.VanRows, trucks.Value.SalesOutsideRoutes, trucks.Value.SalesOutsideRoutesByTender);
         var vanOther = days
             .Where(row => row.OtherCurrencySales is { } amount && amount != 0m)
             .GroupBy(row => row.OtherCurrencyCodes ?? "Other")
@@ -73,17 +74,19 @@ public sealed class GetDailySalesWhatsAppReportHandler(
         var counters = await CountersAsync(day, cancellationToken);
 
         var vanTotal = vanLines.Sum(line => line.Sales);
-        var message = DailySalesWhatsAppMessage.Build(day, vanLines, vanTotal, vanOther, shop, counters);
+        var vanTenders = VanTotalTenders(vanLines);
+        var message = DailySalesWhatsAppMessage.Build(day, vanLines, vanTotal, vanTenders, vanOther, shop, counters);
 
         return new DailySalesWhatsAppReport(
-            day, vanLines, vanTotal, vanOther, shop, counters, message, (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime);
+            day, vanLines, vanTotal, vanTenders, vanOther, shop, counters, message, (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime);
     }
 
     /// <summary>The van table's lines for one day's rows of the daily truck report.</summary>
     internal static List<DailySalesWhatsAppVanLine> VanLines(
         IReadOnlyList<VanDailyTruckDayDto> days,
         IReadOnlyList<DailySalesWhatsAppRow> rows,
-        decimal salesOutsideRoutes)
+        decimal salesOutsideRoutes,
+        VanDailyTruckTenders? outsideRoutesByTender = null)
     {
         var lines = new List<DailySalesWhatsAppVanLine>();
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -95,7 +98,7 @@ public sealed class GetDailySalesWhatsAppReportHandler(
             foreach (var route in days)
             {
                 var label = IsUpcountry(route.Territory) ? WithArea(route.RouteName, [route]) : route.RouteName;
-                lines.Add(new DailySalesWhatsAppVanLine(label, route.Sales, [route.RouteCode]));
+                lines.Add(new DailySalesWhatsAppVanLine(label, route.Sales, [route.RouteCode], VanTenders([route])));
                 claimed.Add(route.RouteCode);
             }
         }
@@ -110,7 +113,7 @@ public sealed class GetDailySalesWhatsAppReportHandler(
                 }
 
                 var label = row.ShowArea ? WithArea(row.Label, matched) : row.Label;
-                lines.Add(new DailySalesWhatsAppVanLine(label, matched.Sum(route => route.Sales), row.Codes));
+                lines.Add(new DailySalesWhatsAppVanLine(label, matched.Sum(route => route.Sales), row.Codes, VanTenders(matched)));
             }
         }
 
@@ -118,16 +121,56 @@ public sealed class GetDailySalesWhatsAppReportHandler(
         if (unclaimed.Count > 0)
         {
             lines.Add(new DailySalesWhatsAppVanLine(
-                OtherRoutesLabel, unclaimed.Sum(route => route.Sales), unclaimed.Select(route => route.RouteCode).ToList()));
+                OtherRoutesLabel, unclaimed.Sum(route => route.Sales), unclaimed.Select(route => route.RouteCode).ToList(), VanTenders(unclaimed)));
         }
 
         if (salesOutsideRoutes != 0m)
         {
-            lines.Add(new DailySalesWhatsAppVanLine(NoRouteLabel, salesOutsideRoutes, []));
+            var split = outsideRoutesByTender ?? VanDailyTruckTenders.None;
+            lines.Add(new DailySalesWhatsAppVanLine(
+                NoRouteLabel, salesOutsideRoutes, [],
+                VanTenders(split.Cash, split.Ecocash, split.Innbucks, split.OtherTender, split.Untendered)));
         }
 
         return lines;
     }
+
+    /// <summary>The van tenders as the message names them and in the order it lists them.</summary>
+    public static readonly string[] VanTenderNames = ["Cash", "EcoCash", "InnBucks", CardOrTransferLabel, NotRecordedLabel];
+
+    /// <summary>
+    /// The van app's Card and Transfer, and anything else that is not one of the three named tenders —
+    /// the truck report's "other" column. Not "Swipe": a van takes bank transfers as well as cards.
+    /// </summary>
+    public const string CardOrTransferLabel = "Card / transfer";
+
+    public const string NotRecordedLabel = "Not recorded";
+
+    private static List<DailySalesWhatsAppTenderAmount> VanTenders(IReadOnlyCollection<VanDailyTruckDayDto> routes) =>
+        VanTenders(
+            routes.Sum(route => route.Cash),
+            routes.Sum(route => route.Ecocash),
+            routes.Sum(route => route.Innbucks),
+            routes.Sum(route => route.OtherTender),
+            routes.Sum(route => route.Untendered));
+
+    private static List<DailySalesWhatsAppTenderAmount> VanTenders(
+        decimal cash, decimal ecocash, decimal innbucks, decimal other, decimal untendered) =>
+        [
+            new("Cash", cash),
+            new("EcoCash", ecocash),
+            new("InnBucks", innbucks),
+            new(CardOrTransferLabel, other),
+            new(NotRecordedLabel, untendered)
+        ];
+
+    /// <summary>Every van line's tenders added up, one per tender in the usual order.</summary>
+    internal static List<DailySalesWhatsAppTenderAmount> VanTotalTenders(IReadOnlyList<DailySalesWhatsAppVanLine> lines) =>
+        VanTenderNames
+            .Select(name => new DailySalesWhatsAppTenderAmount(
+                name,
+                lines.SelectMany(line => line.Tenders).Where(tender => tender.Tender == name).Sum(tender => tender.Amount)))
+            .ToList();
 
     private async Task<DailySalesWhatsAppShop> ShopAsync(
         string warehouse,
@@ -211,9 +254,78 @@ public sealed class GetDailySalesWhatsAppReportHandler(
                 .OrderBy(code => code, StringComparer.Ordinal).ToList(),
             vendingTakings);
 
+        var vendingPartners = await VendingPartnersAsync(vendingTakings, cancellationToken);
+
         var total = Counter(CountersTotalLabel, [], [.. shopTakings, .. vendingTakings]);
 
-        return new DailySalesWhatsAppCounters(shops, vending, total);
+        return new DailySalesWhatsAppCounters(shops, vendingPartners, vending, total);
+    }
+
+    /// <summary>
+    /// Vending one business partner at a time: the depot's SAP account each sale was billed to.
+    /// </summary>
+    /// <remarks>
+    /// Every depot with an active vending cashier is listed, a day without sales included, as an active
+    /// shop is — so a depot that did not trade, or whose carts did not sync, shows as such. A depot is
+    /// named as its latest vending sale names it; one that has never sold is named by its code.
+    /// </remarks>
+    private async Task<List<DailySalesWhatsAppCounter>> VendingPartnersAsync(
+        List<Takings> vendingTakings,
+        CancellationToken cancellationToken)
+    {
+        var activeDepots = (await db.Users.AsNoTracking()
+                .Where(user => user.Role == ApplicationRoles.CartVendor && user.IsActive && user.AssignedBusinessPartnerCode != null)
+                .Select(user => user.AssignedBusinessPartnerCode!)
+                .ToListAsync(cancellationToken))
+            .Select(PartnerKey)
+            .Where(code => code.Length > 0);
+
+        var partners = vendingTakings.Select(cell => cell.Partner)
+            .Concat(activeDepots)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        // Each account's name from its latest named vending sale, so a renamed depot reads as it does now.
+        var named = await db.DesktopSales.AsNoTracking()
+            .InBusiness(SaleBusinesses.Vending)
+            .Where(sale => sale.CardName != null && sale.CardName != "")
+            .GroupBy(sale => new { sale.CardCode, sale.CardName })
+            .Select(group => new { group.Key.CardCode, group.Key.CardName, LastSale = group.Max(sale => sale.Id) })
+            .ToListAsync(cancellationToken);
+
+        var names = named
+            .GroupBy(sale => PartnerKey(sale.CardCode), StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderByDescending(sale => sale.LastSale).First().CardName!.Trim(),
+                StringComparer.Ordinal);
+
+        var labels = partners.ToDictionary(
+            code => code,
+            code => names.TryGetValue(code, out var name) && name.Length > 0 ? name : NoPartnerName(code),
+            StringComparer.Ordinal);
+
+        // Two accounts under one name would read as one depot twice; the code tells them apart.
+        var shared = labels.Values
+            .GroupBy(label => label, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return partners
+            .Select(code =>
+            {
+                var takings = vendingTakings.Where(cell => cell.Partner == code).ToList();
+                var label = shared.Contains(labels[code]) && code.Length > 0 ? $"{labels[code]} ({code})" : labels[code];
+                return Counter(
+                    label,
+                    takings.Select(cell => cell.Warehouse).Where(warehouse => warehouse.Length > 0)
+                        .Distinct(StringComparer.Ordinal).OrderBy(warehouse => warehouse, StringComparer.Ordinal).ToList(),
+                    takings,
+                    code.Length == 0 ? null : code);
+            })
+            .OrderBy(counter => counter.Label, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     public const string VendingLabel = "Vending";
@@ -222,23 +334,24 @@ public sealed class GetDailySalesWhatsAppReportHandler(
     /// <summary>The till's four tenders, as the message names them and in the order it lists them.</summary>
     public static readonly string[] Tenders = ["Cash", "EcoCash", "InnBucks", "Swipe"];
 
-    /// <summary>One warehouse, currency and tender's sales for the day.</summary>
-    internal sealed record Takings(string Warehouse, string? Currency, string? PaymentMethod, int SalesCount, decimal Total);
+    /// <summary>One warehouse, business partner, currency and tender's sales for the day.</summary>
+    internal sealed record Takings(string Warehouse, string Partner, string? Currency, string? PaymentMethod, int SalesCount, decimal Total);
 
     private static async Task<List<Takings>> TakingsAsync(
         IQueryable<DesktopSaleEntity> sales, CancellationToken cancellationToken) =>
         (await sales
-            .GroupBy(sale => new { sale.WarehouseCode, sale.Currency, sale.PaymentMethod })
+            .GroupBy(sale => new { sale.WarehouseCode, sale.CardCode, sale.Currency, sale.PaymentMethod })
             .Select(group => new
             {
                 group.Key.WarehouseCode,
+                group.Key.CardCode,
                 group.Key.Currency,
                 group.Key.PaymentMethod,
                 Count = group.Count(),
                 Total = group.Sum(sale => sale.TotalAmount)
             })
             .ToListAsync(cancellationToken))
-        .Select(group => new Takings(WarehouseKey(group.WarehouseCode), group.Currency, group.PaymentMethod, group.Count, group.Total))
+        .Select(group => new Takings(WarehouseKey(group.WarehouseCode), PartnerKey(group.CardCode), group.Currency, group.PaymentMethod, group.Count, group.Total))
         .ToList();
 
     /// <summary>
@@ -246,7 +359,8 @@ public sealed class GetDailySalesWhatsAppReportHandler(
     /// reader sees that nothing came in by EcoCash rather than wondering whether it was left out; any other
     /// tender — a sale with none recorded, a legacy "Transfer" — is listed only when it has money on it.
     /// </summary>
-    internal static DailySalesWhatsAppCounter Counter(string label, List<string> warehouses, IReadOnlyCollection<Takings> takings)
+    internal static DailySalesWhatsAppCounter Counter(
+        string label, List<string> warehouses, IReadOnlyCollection<Takings> takings, string? businessPartnerCode = null)
     {
         var dollars = takings.Where(cell => IsDollars(cell.Currency)).ToList();
         var byTender = dollars
@@ -267,7 +381,8 @@ public sealed class GetDailySalesWhatsAppReportHandler(
             dollars.Sum(cell => cell.Total),
             takings.Sum(cell => cell.SalesCount),
             tenders,
-            OtherCurrencies(takings.Select(cell => (cell.Currency, cell.Total))));
+            OtherCurrencies(takings.Select(cell => (cell.Currency, cell.Total))),
+            businessPartnerCode);
     }
 
     /// <summary>
@@ -291,6 +406,10 @@ public sealed class GetDailySalesWhatsAppReportHandler(
             .ToList();
 
     private static string WarehouseKey(string? warehouse) => warehouse?.Trim().ToUpperInvariant() ?? string.Empty;
+
+    private static string PartnerKey(string? cardCode) => cardCode?.Trim().ToUpperInvariant() ?? string.Empty;
+
+    private static string NoPartnerName(string cardCode) => cardCode.Length == 0 ? "No business partner" : cardCode;
 
     private static string NoName(string warehouse) => warehouse.Length == 0 ? "No warehouse" : warehouse;
 

@@ -4,6 +4,7 @@ namespace ShopInventory.Features.DailySalesWhatsApp.Queries.GetDailySalesWhatsAp
 /// <remarks><list type="table">
 /// <item><term>VanLines</term><description>Van takings in US dollars, VAT included, per row of the van table — the daily truck report's figures.</description></item>
 /// <item><term>VanTotal</term><description>Every line added up, including "Other routes" and "No route", so it is the whole fleet's dollars.</description></item>
+/// <item><term>VanTenders</term><description><c>VanTotal</c> by how it was paid: Cash, EcoCash, InnBucks and Card / transfer always, then "Not recorded" when a sale names no tender.</description></item>
 /// <item><term>VanOtherCurrencies</term><description>Van takings in any other currency, in none of the dollar figures.</description></item>
 /// <item><term>Shop</term><description>The chosen shop's table; null when no shop is chosen.</description></item>
 /// <item><term>Counters</term><description>Every shop and vending, each split by how it was paid.</description></item>
@@ -13,6 +14,7 @@ public sealed record DailySalesWhatsAppReport(
     DateTime TradingDate,
     List<DailySalesWhatsAppVanLine> VanLines,
     decimal VanTotal,
+    List<DailySalesWhatsAppTenderAmount> VanTenders,
     List<DailySalesWhatsAppCurrencyAmount> VanOtherCurrencies,
     DailySalesWhatsAppShop? Shop,
     DailySalesWhatsAppCounters Counters,
@@ -22,7 +24,9 @@ public sealed record DailySalesWhatsAppReport(
 /// <param name="Label">The row's label, with the day's area when the row asks for it.</param>
 /// <param name="Sales">US dollars, VAT included.</param>
 /// <param name="Routes">The route codes the line adds up; empty for "No route".</param>
-public sealed record DailySalesWhatsAppVanLine(string Label, decimal Sales, List<string> Routes);
+/// <param name="Tenders"><c>Sales</c> by how it was paid, in the order <c>VanTenders</c> lists them; they add up to it.</param>
+public sealed record DailySalesWhatsAppVanLine(
+    string Label, decimal Sales, List<string> Routes, List<DailySalesWhatsAppTenderAmount> Tenders);
 
 /// <summary>The shop's till sales for the day.</summary>
 /// <remarks><list type="table">
@@ -42,21 +46,24 @@ public sealed record DailySalesWhatsAppProductLine(string Label, decimal Quantit
 
 public sealed record DailySalesWhatsAppCurrencyAmount(string Currency, decimal Amount);
 
-/// <summary>The day's counter takings — every shop, then vending, then the two together.</summary>
+/// <summary>The day's counter takings — every shop, then vending by business partner, then the two together.</summary>
 /// <param name="Shops">One per shop: every active shop, and any other warehouse a shop sale was rung up at.</param>
-/// <param name="Vending">Every vending sale, wherever it was made.</param>
+/// <param name="VendingPartners">One per vending business partner — the depot's SAP account a sale is billed to: every depot with an active vending cashier, and any other account a vending sale was billed to.</param>
+/// <param name="Vending">Every vending sale, wherever it was made: the partners added up.</param>
 /// <param name="Total">The shops and vending added up.</param>
 public sealed record DailySalesWhatsAppCounters(
     List<DailySalesWhatsAppCounter> Shops,
+    List<DailySalesWhatsAppCounter> VendingPartners,
     DailySalesWhatsAppCounter Vending,
     DailySalesWhatsAppCounter Total);
 
-/// <summary>One block of the counter section: a shop, vending, or the total.</summary>
+/// <summary>One block of the counter section: a shop, a vending business partner, all vending, or the total.</summary>
 /// <remarks><list type="table">
 /// <item><term>Total</term><description>Every dollar sale, VAT included, before any credit note — what the tills rang up.</description></item>
 /// <item><term>Tenders</term><description>That total by how it was paid: Cash, EcoCash, InnBucks and Swipe always, in that order, then any other tender with money on it, such as "Not recorded".</description></item>
 /// <item><term>SalesCount</term><description>Sales in any currency.</description></item>
 /// <item><term>OtherCurrencies</term><description>Takings in any other currency, in none of the dollar figures.</description></item>
+/// <item><term>BusinessPartnerCode</term><description>A vending partner block's SAP account; null on every other block.</description></item>
 /// </list></remarks>
 public sealed record DailySalesWhatsAppCounter(
     string Label,
@@ -64,7 +71,8 @@ public sealed record DailySalesWhatsAppCounter(
     decimal Total,
     int SalesCount,
     List<DailySalesWhatsAppTenderAmount> Tenders,
-    List<DailySalesWhatsAppCurrencyAmount> OtherCurrencies);
+    List<DailySalesWhatsAppCurrencyAmount> OtherCurrencies,
+    string? BusinessPartnerCode = null);
 
 /// <param name="Tender">As the message prints it: "Cash", "EcoCash", "InnBucks", "Swipe", or another recorded tender.</param>
 /// <param name="Amount">US dollars, VAT included.</param>
