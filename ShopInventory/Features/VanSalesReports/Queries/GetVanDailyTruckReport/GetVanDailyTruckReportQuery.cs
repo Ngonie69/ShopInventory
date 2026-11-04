@@ -49,6 +49,17 @@ public sealed record VanDailyTruckReportResult(
 {
     /// <summary>Whether SAP's booked gross profit could be read for the dollar sales, and what it means.</summary>
     public ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; init; }
+
+    /// <summary><c>SalesOutsideRoutes</c> by how it was paid, split as a day's row splits its <c>Sales</c>.</summary>
+    public VanDailyTruckTenders SalesOutsideRoutesByTender { get; init; } = VanDailyTruckTenders.None;
+}
+
+/// <summary>US dollars, VAT included, by tender: the same five columns a day's row carries.</summary>
+/// <param name="OtherTender">Card, transfer, or any tender that is none of the three named.</param>
+/// <param name="Untendered">Sales that name no tender at all.</param>
+public sealed record VanDailyTruckTenders(decimal Cash, decimal Ecocash, decimal Innbucks, decimal OtherTender, decimal Untendered)
+{
+    public static readonly VanDailyTruckTenders None = new(0m, 0m, 0m, 0m, 0m);
 }
 
 /// <summary>One truck on one day.</summary>

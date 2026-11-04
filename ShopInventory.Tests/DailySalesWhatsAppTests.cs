@@ -85,13 +85,13 @@ public sealed class DailySalesWhatsAppTests : IDisposable
         AddRouteDay(West1Rep, west1, null);
 
         AddVanSale(CbdRep, "VAN001", 600m);
-        AddVanSale(CbdRep, "VAN001", 400m);
+        AddVanSale(CbdRep, "VAN001", 400m, tender: "Innbucks");
         AddVanSale(CbdRep, "VAN001", 300m, currency: "ZiG");
         AddVanSale(East1Rep, "VAN002", 800m);
-        AddVanSale(East2Rep, "VAN003", 671m);
+        AddVanSale(East2Rep, "VAN003", 671m, tender: "Ecocash");
         AddVanSale(UpcRep, "VAN004", 2629m);
         AddVanSale(West1Rep, "VAN005", 1556m);
-        AddVanSale(LooseRep, "VAN099", 50m);
+        AddVanSale(LooseRep, "VAN099", 50m, tender: "Card");
 
         // The shop: 157 tubs of Cortina over two sales and 463 yoghurts, $5,446.16 in all with the other item.
         AddShopSale(Wednesday, "KEFSHOP", 2000m, ("CORT5L", 100m), ("YOG200", 463m));
@@ -101,7 +101,7 @@ public sealed class DailySalesWhatsAppTests : IDisposable
         AddShopSale(Tuesday, "KEFSHOP", 999m, ("CORT5L", 999m));
         AddShopSale(Wednesday, "OTHSHOP", 999m, tender: TenderTypes.Innbucks, lines: [("CORT5L", 999m)]);
         AddShopSale(Wednesday, "OTHSHOP", 1m, tender: null);
-        AddShopSale(Wednesday, "KEFSHOP", 999m, source: SaleSourceSystems.Vending, lines: [("CORT5L", 999m)]);
+        AddShopSale(Wednesday, "KEFSHOP", 999m, source: SaleSourceSystems.Vending, lines: [("CORT5L", 999m)], cardCode: "VND001", cardName: "Mbare Vending Depot");
         AddShopSale(Wednesday, "KEFSHOP", 3000m, currency: "ZiG", lines: [("YOG200", 10m)]);
         _context.SaveChanges();
 
@@ -155,6 +155,36 @@ public sealed class DailySalesWhatsAppTests : IDisposable
         // The total is every truck the truck report saw, whichever rows were set up.
         var trucks = await TruckReportAsync();
         Assert.Equal(trucks.Days.Sum(day => day.Sales) + trucks.SalesOutsideRoutes, report.VanTotal);
+
+        // Each line by tender: a merged row adds its routes' tenders, the no-route line has its own.
+        Assert.Equal(
+            [("Cash", 800m), ("EcoCash", 671m), ("InnBucks", 0m), ("Card / transfer", 0m), ("Not recorded", 0m)],
+            report.VanLines[1].Tenders.Select(tender => (tender.Tender, tender.Amount)));
+        Assert.Equal(50m, report.VanLines[^1].Tenders.Single(tender => tender.Tender == "Card / transfer").Amount);
+        foreach (var line in report.VanLines)
+        {
+            Assert.Equal(line.Sales, line.Tenders.Sum(tender => tender.Amount));
+        }
+
+        Assert.Equal(
+            [("Cash", 5585m), ("EcoCash", 671m), ("InnBucks", 400m), ("Card / transfer", 50m), ("Not recorded", 0m)],
+            report.VanTenders.Select(tender => (tender.Tender, tender.Amount)));
+        Assert.Equal(report.VanTotal, report.VanTenders.Sum(tender => tender.Amount));
+    }
+
+    [Fact]
+    public async Task A_van_sale_with_no_tender_is_not_recorded_rather_than_cash()
+    {
+        AddVanSale(West1Rep, "VAN005", 44m, tender: null);
+        _context.SaveChanges();
+
+        var report = await ReportAsync();
+
+        var west = report.VanLines.Single(line => line.Label == "West 1 Truck");
+        Assert.Equal(1600m, west.Sales);
+        Assert.Equal(44m, west.Tenders.Single(tender => tender.Tender == "Not recorded").Amount);
+        Assert.Contains("West 1 Truck: $1,600.00 (Not recorded $44.00)\n", report.Message);
+        Assert.Contains("Card / transfer: $50.00\nNot recorded: $44.00\n", report.Message);
     }
 
     // ---- The shop table ---------------------------------------------------------------------------
@@ -197,12 +227,16 @@ public sealed class DailySalesWhatsAppTests : IDisposable
         Assert.Equal(
             """
             *Van Daily Sales (Wednesday 28.10.2026)*
-            CBD / Chitungwiza: $1,000.00
-            East 1 & 2: $1,471.00
+            CBD / Chitungwiza: $1,000.00 (InnBucks $400.00)
+            East 1 & 2: $1,471.00 (EcoCash $671.00)
             West 1: $1,556.00
             UPC 1 - Zaka: $2,629.00
-            No route: $50.00
+            No route: $50.00 (Card / transfer $50.00)
             *TOTAL: $6,706.00*
+            Cash: $5,585.00
+            EcoCash: $671.00
+            InnBucks: $400.00
+            Card / transfer: $50.00
             _Plus ZIG 300.00, not in the total_
 
             *Kefalos Shop Sales (Wednesday 28.10.2026)*
@@ -230,7 +264,7 @@ public sealed class DailySalesWhatsAppTests : IDisposable
             *Quiet Shop: $0.00*
             No sales recorded.
 
-            *Vending: $999.00*
+            *Vending - Mbare Vending Depot: $999.00*
             Cash: $999.00
             EcoCash: $0.00
             InnBucks: $0.00
@@ -274,15 +308,85 @@ public sealed class DailySalesWhatsAppTests : IDisposable
         // Vending at a shop's warehouse is vending, not the shop.
         Assert.Equal(999m, counters.Vending.Total);
         Assert.Equal(["KEFSHOP"], counters.Vending.WarehouseCodes);
+        var depot = Assert.Single(counters.VendingPartners);
+        Assert.Equal(("Mbare Vending Depot", "VND001", 999m), (depot.Label, depot.BusinessPartnerCode, depot.Total));
 
         // Each block's tenders add up to its total, and the total is the shops and vending together.
-        foreach (var block in counters.Shops.Append(counters.Vending).Append(counters.Total))
+        foreach (var block in counters.Shops.Concat(counters.VendingPartners).Append(counters.Vending).Append(counters.Total))
         {
             Assert.Equal(block.Total, block.Tenders.Sum(tender => tender.Amount));
         }
 
         Assert.Equal(counters.Shops.Sum(shop => shop.Total) + counters.Vending.Total, counters.Total.Total);
         Assert.Equal(7445.16m, counters.Total.Total);
+    }
+
+    [Fact]
+    public async Task Vending_is_listed_one_business_partner_at_a_time()
+    {
+        // A second depot sells twice, one sale with no tender; its older sales carried a former name.
+        AddShopSale(Tuesday, "GLNVEND", 5m, source: SaleSourceSystems.Vending, cardCode: "VND002", cardName: "Glen View Old Name");
+        AddShopSale(Wednesday, "GLNVEND", 2000m, source: SaleSourceSystems.Vending, cardCode: "vnd002 ", cardName: "Glen View Vending");
+        AddShopSale(Wednesday, "GLNVEND", 3.5m, source: SaleSourceSystems.Vending, cardCode: "VND002", cardName: "Glen View Vending", tender: null);
+        AddShopSale(Wednesday, "GLNVEND", 100m, source: SaleSourceSystems.Vending, currency: "ZiG", cardCode: "VND002", cardName: "Glen View Vending");
+        // A depot with an active cashier that did not trade, one that sold last week, and a closed one.
+        AddCartVendor("VND003", isActive: true);
+        AddCartVendor("VND004", isActive: true);
+        AddShopSale(Wednesday.AddDays(-7), "CHTVEND", 10m, source: SaleSourceSystems.Vending, cardCode: "VND004", cardName: "Chitungwiza Vending");
+        AddCartVendor("VND009", isActive: false);
+        _context.SaveChanges();
+
+        var report = await ReportAsync();
+        var counters = report.Counters;
+        _output.WriteLine(report.Message);
+
+        Assert.Equal(
+            [
+                ("Chitungwiza Vending", "VND004", 0m, 0), ("Glen View Vending", "VND002", 2003.5m, 3),
+                ("Mbare Vending Depot", "VND001", 999m, 1), ("VND003", "VND003", 0m, 0)
+            ],
+            counters.VendingPartners.Select(partner => (partner.Label, partner.BusinessPartnerCode, partner.Total, partner.SalesCount)));
+
+        var glenView = counters.VendingPartners[1];
+        Assert.Equal(
+            [("Cash", 2000m), ("EcoCash", 0m), ("InnBucks", 0m), ("Swipe", 0m), ("Not recorded", 3.5m)],
+            glenView.Tenders.Select(tender => (tender.Tender, tender.Amount)));
+        Assert.Equal(["GLNVEND"], glenView.WarehouseCodes);
+        Assert.Equal([new DailySalesWhatsAppCurrencyAmount("ZIG", 100m)], glenView.OtherCurrencies);
+
+        // The partners add up to vending, and vending still adds into the grand total.
+        Assert.Equal(counters.Vending.Total, counters.VendingPartners.Sum(partner => partner.Total));
+        Assert.Equal(3002.5m, counters.Vending.Total);
+        Assert.Equal(counters.Shops.Sum(shop => shop.Total) + counters.Vending.Total, counters.Total.Total);
+
+        Assert.Contains(
+            """
+            *Vending - Chitungwiza Vending: $0.00*
+            No sales recorded.
+
+            *Vending - Glen View Vending: $2,003.50*
+            Cash: $2,000.00
+            EcoCash: $0.00
+            InnBucks: $0.00
+            Swipe: $0.00
+            Not recorded: $3.50
+            _Plus ZIG 100.00, not in the total_
+
+            *Vending - Mbare Vending Depot: $999.00*
+            Cash: $999.00
+            EcoCash: $0.00
+            InnBucks: $0.00
+            Swipe: $0.00
+
+            *Vending - VND003: $0.00*
+            No sales recorded.
+
+            *Vending total: $3,002.50*
+            _Plus ZIG 100.00, not in the total_
+
+            *SHOPS & VENDING TOTAL: $9,448.66*
+            """.ReplaceLineEndings("\n"),
+            report.Message);
     }
 
     // ---- Settings ---------------------------------------------------------------------------------
@@ -551,7 +655,7 @@ public sealed class DailySalesWhatsAppTests : IDisposable
             AreaName = area
         });
 
-    private void AddVanSale(Guid rep, string account, decimal total, string currency = "USD") =>
+    private void AddVanSale(Guid rep, string account, decimal total, string currency = "USD", string? tender = "Cash") =>
         _context.DesktopSales.Add(new DesktopSaleEntity
         {
             ExternalReferenceId = $"VAN-{++_reference}",
@@ -565,10 +669,22 @@ public sealed class DailySalesWhatsAppTests : IDisposable
             VatAmount = 0m,
             Currency = currency,
             WarehouseCode = account,
-            PaymentMethod = "Cash",
+            PaymentMethod = tender,
             AmountPaid = total,
             CreatedBy = rep.ToString(),
             Lines = [new DesktopSaleLineEntity { LineNum = 0, ItemCode = "CHE011", Quantity = 1, UnitPrice = total, LineTotal = total, WarehouseCode = account }]
+        });
+
+    private void AddCartVendor(string businessPartnerCode, bool isActive) =>
+        _context.Users.Add(new User
+        {
+            Id = Guid.NewGuid(),
+            Username = $"cart-{businessPartnerCode.ToLowerInvariant()}-{++_reference}",
+            Email = $"cart{_reference}@example.com",
+            PasswordHash = "x",
+            Role = ApplicationRoles.CartVendor,
+            IsActive = isActive,
+            AssignedBusinessPartnerCode = businessPartnerCode
         });
 
     private void AddShopSale(DateTime day, string warehouse, decimal total, params (string ItemCode, decimal Quantity)[] lines) =>
@@ -581,13 +697,15 @@ public sealed class DailySalesWhatsAppTests : IDisposable
         string source = SaleSourceSystems.ShopTill,
         string currency = "USD",
         (string ItemCode, decimal Quantity)[]? lines = null,
-        string? tender = TenderTypes.Cash) =>
+        string? tender = TenderTypes.Cash,
+        string cardCode = "CIS006",
+        string cardName = "Factory Kefalos shop POS USD") =>
         _context.DesktopSales.Add(new DesktopSaleEntity
         {
             ExternalReferenceId = $"TILL-{++_reference}",
             SourceSystem = source,
-            CardCode = "CIS006",
-            CardName = "Factory Kefalos shop POS USD",
+            CardCode = cardCode,
+            CardName = cardName,
             WarehouseCode = warehouse,
             DocDate = day,
             TotalAmount = total,

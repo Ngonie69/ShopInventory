@@ -4,8 +4,8 @@ using System.Text;
 namespace ShopInventory.Features.DailySalesWhatsApp.Queries.GetDailySalesWhatsAppReport;
 
 /// <summary>
-/// The report as WhatsApp text: the two tables of the office's daily sheet, then every shop and vending
-/// by tender — one "label: figure" line per row, headings and totals in bold.
+/// The report as WhatsApp text: the two tables of the office's daily sheet, then every shop and every
+/// vending business partner by tender — one "label: figure" line per row, headings and totals in bold.
 /// </summary>
 /// <remarks>
 /// Plain lines rather than a monospaced table. A phone wraps a padded table at its own width and the
@@ -19,6 +19,7 @@ public static class DailySalesWhatsAppMessage
         DateTime day,
         IReadOnlyList<DailySalesWhatsAppVanLine> vanLines,
         decimal vanTotal,
+        IReadOnlyList<DailySalesWhatsAppTenderAmount> vanTenders,
         IReadOnlyList<DailySalesWhatsAppCurrencyAmount> vanOther,
         DailySalesWhatsAppShop? shop,
         DailySalesWhatsAppCounters counters)
@@ -32,12 +33,34 @@ public static class DailySalesWhatsAppMessage
             text.Append("No van sales recorded.").Append('\n');
         }
 
+        // Each route's figure carries what was not paid in cash in brackets, so the reader sees which truck
+        // took the EcoCash without a block of zeros under every route.
         foreach (var line in vanLines)
         {
-            text.Append(Plain(line.Label)).Append(": ").Append(Money(line.Sales)).Append('\n');
+            text.Append(Plain(line.Label)).Append(": ").Append(Money(line.Sales));
+            var notCash = line.Tenders.Where(tender => tender.Tender != "Cash" && tender.Amount != 0m).ToList();
+            if (notCash.Count > 0)
+            {
+                text.Append(" (")
+                    .Append(string.Join(", ", notCash.Select(tender => $"{tender.Tender} {Money(tender.Amount)}")))
+                    .Append(')');
+            }
+
+            text.Append('\n');
         }
 
+        // The total by tender, as the shop blocks list it: the four named tenders always, a zero included,
+        // and "Not recorded" only when some sale named none.
         text.Append(Bold($"TOTAL: {Money(vanTotal)}")).Append('\n');
+        if (vanLines.Count > 0)
+        {
+            foreach (var tender in vanTenders.Where(tender =>
+                         tender.Tender != GetDailySalesWhatsAppReportHandler.NotRecordedLabel || tender.Amount != 0m))
+            {
+                text.Append(tender.Tender).Append(": ").Append(Money(tender.Amount)).Append('\n');
+            }
+        }
+
         AppendOther(text, vanOther);
 
         if (shop is not null)
@@ -61,8 +84,20 @@ public static class DailySalesWhatsAppMessage
             text.Append('\n');
         }
 
-        AppendCounter(text, counters.Vending.Label, counters.Vending);
-        text.Append('\n');
+        // Vending one business partner at a time. With more than one, their sum follows on one line: the
+        // tenders are already in each block and in the grand total below.
+        foreach (var partner in counters.VendingPartners)
+        {
+            AppendCounter(text, $"{counters.Vending.Label} - {partner.Label}", partner);
+            text.Append('\n');
+        }
+
+        if (counters.VendingPartners.Count != 1)
+        {
+            text.Append(Bold($"{Plain(counters.Vending.Label)} total: {Money(counters.Vending.Total)}")).Append('\n');
+            AppendOther(text, counters.Vending.OtherCurrencies);
+            text.Append('\n');
+        }
         AppendCounter(text, $"{counters.Total.Label.ToUpperInvariant()} TOTAL", counters.Total);
 
         return text.ToString().TrimEnd('\n');

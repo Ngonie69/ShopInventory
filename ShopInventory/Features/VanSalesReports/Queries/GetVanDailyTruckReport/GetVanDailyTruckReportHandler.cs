@@ -57,6 +57,7 @@ public sealed class GetVanDailyTruckReportHandler(
 
         var rows = new Dictionary<(int RouteId, DateTime Day), DayAccumulator>();
         var salesOutsideRoutes = 0m;
+        var outsideRoutes = new List<VanSaleFact>();
 
         DayAccumulator RowFor(int routeId, DateTime day)
         {
@@ -79,6 +80,7 @@ public sealed class GetVanDailyTruckReportHandler(
             if (routeId is not { } route)
             {
                 salesOutsideRoutes += truckDay.Sales.Where(IsDollars).Sum(sale => sale.TotalAmount);
+                outsideRoutes.AddRange(truckDay.Sales.Where(IsDollars));
                 continue;
             }
 
@@ -179,8 +181,17 @@ public sealed class GetVanDailyTruckReportHandler(
                 days.Count(day => day.ReturnedLate)),
             salesOutsideRoutes)
         {
-            Margin = margin.Status
+            Margin = margin.Status,
+            SalesOutsideRoutesByTender = new VanDailyTruckTenders(
+                OutsidePaid(VanSalesTender.Cash),
+                OutsidePaid(VanSalesTender.Ecocash),
+                OutsidePaid(VanSalesTender.Innbucks),
+                OutsidePaid(VanSalesTender.Other),
+                OutsidePaid(VanSalesTender.Untendered))
         };
+
+        decimal OutsidePaid(VanSalesTender tender) =>
+            outsideRoutes.Where(sale => sale.Tender == tender).Sum(sale => sale.TotalAmount);
     }
 
     /// <summary>
