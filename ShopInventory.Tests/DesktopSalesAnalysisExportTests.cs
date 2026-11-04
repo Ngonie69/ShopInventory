@@ -409,6 +409,27 @@ public sealed class DesktopSalesAnalysisExportTests
     private static int ColumnWhere(IXLWorksheet sheet, int row, string value) =>
         sheet.Row(row).CellsUsed().First(cell => cell.GetString() == value).Address.ColumnNumber;
 
+    [Fact]
+    public void A_vending_depot_is_written_by_its_business_partner_name_not_its_warehouse()
+    {
+        var report = Report();
+        report.WarehouseCode = "KEFBYC";
+        var depot = report.Currencies[0].ByWarehouse[0];
+        depot.Key = "KEFBYC";
+        depot.Label = "Cortina Bulawayo Vending";
+        depot.BusinessPartnerCode = "COR008";
+
+        using var workbook = Export(report);
+
+        var sheet = workbook.Worksheet("By Shop");
+        var row = RowWhere(sheet, column: 2, "KEFBYC");
+        Assert.Equal("Cortina Bulawayo Vending", sheet.Cell(row, 3).GetString());
+        Assert.Contains(sheet.CellsUsed(),
+            cell => cell.GetString().Contains("Shop: Cortina Bulawayo Vending (KEFBYC)", StringComparison.Ordinal));
+        Assert.DoesNotContain(workbook.Worksheets.SelectMany(s => s.CellsUsed()),
+            cell => cell.GetString().Contains("Kefalos Bulawayo Centre", StringComparison.Ordinal));
+    }
+
     private static DesktopSalesAnalysisResult Report()
     {
         string[] methods = ["Cash", "Swipe", "Ecocash", "Not recorded"];

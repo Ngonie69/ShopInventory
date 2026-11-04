@@ -3,6 +3,7 @@ using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
+using ShopInventory.Features.Vending;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -156,18 +157,31 @@ internal static class ManagementSalesRollup
                         string.IsNullOrWhiteSpace(customer.Surname) ? customer.Name : $"{customer.Name} {customer.Surname}",
                         customer.AssignedBusinessPartnerCode));
 
-        return new Labels(operators, shops, vendors);
+        var vendingDepots = await VendingDepots.PartnerByWarehouseAsync(db, cancellationToken);
+
+        return new Labels(operators, shops, vendors, vendingDepots);
     }
 
     /// <summary>
-    /// A shop by its name; a vending depot or a van, which has no shop row, by its warehouse with the
-    /// partner it sells under as the hint — the page swaps in the partner's name where it knows it.
+    /// A vending depot by its business partner's SAP name (COR008's, not KEFBYC's); a shop by its name;
+    /// a van, which has neither, by its warehouse with the partner it sells under as the hint — the page
+    /// swaps in the partner's name where it knows it.
     /// </summary>
-    public static (string Label, string? Hint) DepotLabel(string warehouse, Labels labels, IEnumerable<string> partners)
+    public static (string Label, string? Hint) DepotLabel(
+        string warehouse,
+        Labels labels,
+        IEnumerable<string> partners,
+        IReadOnlyDictionary<string, ManagementPartner> directory)
     {
         if (warehouse.Length == 0)
         {
             return (NotRecorded, null);
+        }
+
+        if (labels.VendingDepots.TryGetValue(warehouse, out var depot))
+        {
+            var name = directory.TryGetValue(depot, out var partner) ? partner.CardName : depot;
+            return (name, $"{depot} · {warehouse}");
         }
 
         if (labels.Shops.TryGetValue(warehouse, out var shop))
@@ -436,7 +450,8 @@ internal static class ManagementSalesRollup
     public sealed record Labels(
         IReadOnlyDictionary<Guid, string> Operators,
         Dictionary<string, (string Code, string Name)> Shops,
-        Dictionary<int, (string Code, string Name, string BusinessPartnerCode)> Vendors);
+        Dictionary<int, (string Code, string Name, string BusinessPartnerCode)> Vendors,
+        IReadOnlyDictionary<string, string> VendingDepots);
 
     public sealed record PostedSale(
         int DocEntry, string Currency, string WarehouseCode, string CardCode, string SourceSystem, string CreatedBy, string CostCentreCode, int? RouteCustomerId);

@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
+using ShopInventory.Features.Vending;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -185,6 +186,13 @@ public sealed class GetCounterMonthOnMonthHandler(ApplicationDbContext db, IAudi
             .GroupBy(s => s.WarehouseCode, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First().Name, StringComparer.OrdinalIgnoreCase);
 
+        // A vending point by its depot's business partner (KEFBYC → COR008 "Cortina Bulawayo Vending"):
+        // that is what the business calls it, and the warehouse is only where its stock sits.
+        var depots = await VendingDepots.PartnerByWarehouseAsync(db, cancellationToken);
+        var depotNames = await VendingDepots.PartnerNamesAsync(db, depots.Values, cancellationToken);
+        string? DepotName(string warehouse) =>
+            depots.TryGetValue(warehouse, out var depot) ? depotNames.GetValueOrDefault(depot, depot) : null;
+
         var places = tenders
             .Select(t => (t.Business, t.WarehouseCode))
             .Concat(items.Select(i => (i.Business, i.WarehouseCode)))
@@ -192,7 +200,7 @@ public sealed class GetCounterMonthOnMonthHandler(ApplicationDbContext db, IAudi
             .Select(p => new CounterPlaceRow(
                 p.Business,
                 p.WarehouseCode,
-                p.Business == SaleBusinesses.Shops ? shopNames.GetValueOrDefault(p.WarehouseCode) : null,
+                p.Business == SaleBusinesses.Shops ? shopNames.GetValueOrDefault(p.WarehouseCode) : DepotName(p.WarehouseCode),
                 firstSales.TryGetValue((p.Business, p.WarehouseCode), out var first) ? first.Date : null,
                 days.GetValueOrDefault((previous, p.Business, p.WarehouseCode)),
                 days.GetValueOrDefault((current, p.Business, p.WarehouseCode))))

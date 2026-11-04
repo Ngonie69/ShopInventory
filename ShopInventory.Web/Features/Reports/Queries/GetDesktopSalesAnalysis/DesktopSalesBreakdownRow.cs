@@ -35,6 +35,12 @@ public sealed class DesktopSalesBreakdownRow
     /// <summary>How many of this row's sales <see cref="GrossProfit"/> was measured on.</summary>
     public int CostedSalesCount { get; set; }
 
+    /// <summary>
+    /// On a warehouse row, the business partner this warehouse is the vending depot of (KEFBYC → COR008).
+    /// The API has already named the row by that partner's SAP name, so the warehouse name never replaces it.
+    /// </summary>
+    public string? BusinessPartnerCode { get; set; }
+
     /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>, as the API states it.</summary>
     public decimal? MarginPercent { get; set; }
 }

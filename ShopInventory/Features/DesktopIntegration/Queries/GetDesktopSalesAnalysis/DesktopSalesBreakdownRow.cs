@@ -38,6 +38,12 @@ public sealed record DesktopSalesBreakdownRow(
     /// <summary>How many of this row's sales <see cref="GrossProfit"/> was measured on.</summary>
     public int CostedSalesCount { get; init; }
 
+    /// <summary>
+    /// On a warehouse row, the business partner this warehouse is the vending depot of (KEFBYC → COR008),
+    /// whose SAP name is then the <c>Label</c>; null for a shop, a van or any other row.
+    /// </summary>
+    public string? BusinessPartnerCode { get; init; }
+
     /// <summary><see cref="GrossProfit"/> as a percentage of <see cref="CostedNetAmount"/>.</summary>
     public decimal? MarginPercent => GrossProfit is { } profit && CostedNetAmount is { } costed && costed != 0
         ? Math.Round(profit / costed * 100m, 1, MidpointRounding.AwayFromZero)

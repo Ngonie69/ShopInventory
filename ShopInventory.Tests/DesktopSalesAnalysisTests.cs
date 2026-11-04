@@ -456,6 +456,27 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
     }
 
     [Fact]
+    public async Task A_vending_depot_warehouse_is_named_by_its_business_partner()
+    {
+        _context.Users.Add(new User
+        {
+            Username = "byo-cart", PasswordHash = "x", Role = ApplicationRoles.CartVendor, IsActive = true,
+            AssignedBusinessPartnerCode = "COR008", AssignedWarehouseCodes = "[\"KEFBYC\"]"
+        });
+        _context.DesktopSales.Add(Sale("V-BYO-1", TenderTypes.Cash, 12m, Day1, 9,
+            warehouse: "KEFBYC", source: SaleSourceSystems.Vending, cardCode: "COR008", cardName: "Cortina Bulawayo Vending"));
+        await _context.SaveChangesAsync();
+
+        var usd = Dollars(await AnalyseAsAdmin());
+
+        var depot = usd.ByWarehouse.Single(row => row.Key == "KEFBYC");
+        Assert.Equal("Cortina Bulawayo Vending", depot.Label);
+        Assert.Equal("COR008", depot.BusinessPartnerCode);
+        // A shop is still its warehouse, with no depot partner.
+        Assert.Null(usd.ByWarehouse.Single(row => row.Key == "KEFSHOP").BusinessPartnerCode);
+    }
+
+    [Fact]
     public async Task Shops_sources_and_operators_are_each_broken_down()
     {
         var usd = Dollars(await AnalyseAsAdmin());

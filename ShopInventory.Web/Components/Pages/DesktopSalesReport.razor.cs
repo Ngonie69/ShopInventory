@@ -796,14 +796,16 @@ public partial class DesktopSalesReport : IDisposable
     private string BreakdownHeading => BreakdownOptions.First(option => option.Key == breakdown).Label;
 
     /// <summary>
-    /// A shop by its code, which is what the tills and the sale list call it; a business partner by the
-    /// name its sales carried, with the code beneath; anything else by name.
+    /// A shop by its code, which is what the tills and the sale list call it; a vending depot by its
+    /// business partner's SAP name, which the API has put on the row; a business partner by the name its
+    /// sales carried, with the code beneath; anything else by name.
     /// </summary>
     private string BreakdownLabel(DesktopSalesBreakdownRow row) =>
-        breakdown == BreakdownShop && row.Key != "" ? row.Key : row.Label;
+        breakdown == BreakdownShop && row.Key != "" && row.BusinessPartnerCode is null ? row.Key : row.Label;
 
     private string? BreakdownSub(DesktopSalesBreakdownRow row) => breakdown switch
     {
+        BreakdownShop when row.BusinessPartnerCode is { } depot => $"{depot} · {row.Key}",
         BreakdownShop => WarehouseName(row.Key),
         // The code whenever it is not the name itself: "POSETA" under "Poseta" is the code SAP is searched by.
         BreakdownPartner => row.Key != "" && row.Key != row.Label ? row.Key : null,
@@ -833,6 +835,17 @@ public partial class DesktopSalesReport : IDisposable
     private string? WarehouseName(string code) =>
         warehouses.FirstOrDefault(w => string.Equals(w.WarehouseCode, code, StringComparison.OrdinalIgnoreCase))?.WarehouseName;
 
+    /// <summary>
+    /// A vending depot's business partner name for its warehouse (KEFBYC → "Cortina Bulawayo Vending"),
+    /// from the rows the API named; null for a shop, a van, or before anything has loaded.
+    /// </summary>
+    private string? DepotName(string code) =>
+        code == "" || shown is null
+            ? null
+            : shown.Context.Currencies
+                .SelectMany(section => section.ByWarehouse)
+                .FirstOrDefault(row => row.BusinessPartnerCode is not null && Same(row.Key, code))?.Label;
+
     private string SortState(string key) => sort == key ? "descending" : "none";
 
     // ── Chips ────────────────────────────────────────────────────────────
@@ -845,10 +858,11 @@ public partial class DesktopSalesReport : IDisposable
 
         // The API's word on the shop, not the filter's: a shop-confined account is narrowed to its own
         // shop without choosing one.
-        return context.WarehouseCode is { Length: > 0 } shop ? $"{dates} · {shop}" : $"{dates} · all {Place}s";
+        return context.WarehouseCode is { Length: > 0 } shop ? $"{dates} · {DepotName(shop) ?? shop}" : $"{dates} · all {Place}s";
     }
 
-    private string ShopChip => WarehouseName(warehouse) is { Length: > 0 } name ? name : warehouse;
+    private string ShopChip =>
+        DepotName(warehouse) ?? (WarehouseName(warehouse) is { Length: > 0 } name ? name : warehouse);
 
     private bool HasChips => warehouse != "" || partner != "" || method != null || day != null;
 

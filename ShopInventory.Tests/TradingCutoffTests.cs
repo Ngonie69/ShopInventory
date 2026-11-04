@@ -9,6 +9,7 @@ using ShopInventory.Features.TradingCutoff;
 using ShopInventory.Features.TradingCutoff.Commands.UpdateTradingCutoffSettings;
 using ShopInventory.Features.TradingCutoff.Queries.GetTradingCutoffSettings;
 using ShopInventory.Models;
+using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
@@ -332,6 +333,34 @@ public sealed class TradingCutoffTests : IDisposable
             TradingCutoffKeys.SerializeChannel(new(enabled, time)), "test", CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
+    }
+
+    [Fact]
+    public async Task A_vending_account_is_described_by_its_depots_business_partner_name()
+    {
+        await SeedUsersAsync();
+        var cart = Guid.NewGuid();
+        _context.Users.Add(new User
+        {
+            Id = cart, Username = "byo-cart", PasswordHash = "x", Role = ApplicationRoles.CartVendor,
+            AssignedBusinessPartnerCode = "COR008", AssignedWarehouseCodes = "[\"KEFBYC\"]"
+        });
+        _context.DesktopSales.Add(new DesktopSaleEntity
+        {
+            ExternalReferenceId = "VEND-1", SourceSystem = SaleSourceSystems.Vending, CardCode = "COR008",
+            CardName = "Cortina Bulawayo Vending", WarehouseCode = "KEFBYC", DocDate = CatDay, Currency = "USD",
+            TotalAmount = 5m, AmountPaid = 5m, CreatedAt = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var settings = await new GetTradingCutoffSettingsHandler(_context, At(12, 0))
+            .Handle(new GetTradingCutoffSettingsQuery(), CancellationToken.None);
+
+        Assert.False(settings.IsError);
+        Assert.Equal("Cortina Bulawayo Vending", settings.Value.Accounts.Single(a => a.UserId == cart).Detail);
+        // A van account is not a vending depot and keeps its code.
+        Assert.Equal("VAN004", settings.Value.Accounts.Single(a => a.UserId == Rep).Detail);
     }
 
     private async Task SeedUsersAsync()

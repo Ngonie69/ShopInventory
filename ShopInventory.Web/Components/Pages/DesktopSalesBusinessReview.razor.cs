@@ -56,16 +56,37 @@ public partial class DesktopSalesBusinessReview : IDisposable
     private string? error;
     private CancellationTokenSource loadCts = new();
 
-    private IEnumerable<NocturneSelectOption<string>> WarehouseOptions =>
-        warehouses
-            .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
-            .Select(w => new NocturneSelectOption<string>(
-                w.WarehouseCode!,
-                string.IsNullOrWhiteSpace(w.WarehouseName) ? w.WarehouseCode! : w.WarehouseName!)
-            {
-                Hint = string.IsNullOrWhiteSpace(w.WarehouseName) ? null : w.WarehouseCode
-            })
-            .Prepend(NocturneSelectOption.All("All shops"));
+    /// <summary>
+    /// A vending depot's warehouse by its business partner's SAP name, as the review's vending outlets are
+    /// named (KEFBYC → "Cortina Bulawayo Vending"); any other warehouse by its SAP warehouse name.
+    /// </summary>
+    private IEnumerable<NocturneSelectOption<string>> WarehouseOptions
+    {
+        get
+        {
+            var depots = (review?.Businesses ?? [])
+                .Where(b => b.Business == "vending")
+                .SelectMany(b => b.Currencies)
+                .SelectMany(c => c.ByShop)
+                .Where(s => !string.IsNullOrWhiteSpace(s.WarehouseCode) && !string.IsNullOrWhiteSpace(s.Label))
+                .GroupBy(s => s.WarehouseCode, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().Label, StringComparer.OrdinalIgnoreCase);
+
+            return warehouses
+                .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
+                .Select(w =>
+                {
+                    var name = depots.TryGetValue(w.WarehouseCode!, out var depot) ? depot
+                        : string.IsNullOrWhiteSpace(w.WarehouseName) ? null
+                        : w.WarehouseName;
+                    return new NocturneSelectOption<string>(w.WarehouseCode!, name ?? w.WarehouseCode!)
+                    {
+                        Hint = name is null ? null : w.WarehouseCode
+                    };
+                })
+                .Prepend(NocturneSelectOption.All("All shops"));
+        }
+    }
 
     /// <summary>
     /// The line of business on screen: the one picked, else the first the review carries. Shops and

@@ -129,6 +129,30 @@ public sealed class CounterMonthOnMonthTests : IDisposable
     }
 
     [Fact]
+    public async Task A_vending_point_is_named_by_its_depots_business_partner_not_its_warehouse()
+    {
+        _context.Users.Add(new User
+        {
+            Username = "byo-cart",
+            PasswordHash = "x",
+            Role = ApplicationRoles.CartVendor,
+            IsActive = true,
+            AssignedBusinessPartnerCode = "COR008",
+            AssignedWarehouseCodes = "[\"KEFBYC\"]"
+        });
+        var named = Sale("VEND-NAME", "KEFBYC", new DateTime(2026, 10, 20), "Cash", 5m, ("YOG145", 1m, 4.35m), SaleSourceSystems.Vending);
+        named.CardCode = "COR008";
+        named.CardName = "Cortina Bulawayo Vending";
+        _context.DesktopSales.Add(named);
+        await _context.SaveChangesAsync();
+
+        var depot = (await Read()).Places.Single(p => p.WarehouseCode == "KEFBYC");
+
+        Assert.Equal("vending", depot.Business);
+        Assert.Equal("Cortina Bulawayo Vending", depot.ShopName);
+    }
+
+    [Fact]
     public async Task A_place_states_its_trading_days_and_the_first_day_it_ever_sold()
     {
         var farm = (await Read()).Places.Single(p => p.WarehouseCode == "KEFSHOP");
