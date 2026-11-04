@@ -230,6 +230,43 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
         Assert.Contains("could not reach SAP", (await SnapshotAsync()).LastError);
     }
 
+    /// <summary>
+    /// Our own read had just failed, so an empty answer from the listener is unconfirmed. Taking it
+    /// as an empty warehouse finished the snapshot as whole: the till lost every unbatched line and
+    /// the retry never read that half again.
+    /// </summary>
+    [Fact]
+    public async Task An_empty_listener_reading_leaves_the_unbatched_half_to_be_read_again()
+    {
+        var result = await Handler(Sap(unbatchedThrows: true), FakeListener.Empty())
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal("Complete", result.Status);
+
+        var snapshot = await SnapshotAsync();
+        Assert.True(snapshot.UnbatchedStockMissing);
+        Assert.Contains("no unbatched stock at all", snapshot.LastError);
+    }
+
+    [Fact]
+    public async Task A_snapshot_an_empty_listener_reading_left_unflagged_is_topped_up()
+    {
+        // The shape earlier builds left behind: finished, not flagged, and short of every unbatched line.
+        await Handler(Sap(unbatchedThrows: true)).FetchWarehouseStockAsync(Today, Warehouse, default);
+        var stuck = await _context.DailyStockSnapshots.AsTracking().SingleAsync();
+        stuck.UnbatchedStockMissing = false;
+        stuck.LastError = "Unbatched stock could not be read from SAP directly (SAP circuit breaker is open. "
+            + "Retry after 18 seconds.); it was read through TransferEventListener instead (0 item(s)).";
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var result = await Handler(Sap()).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal("ToppedUp", result.Status);
+        Assert.Equal(24m, (await RowAsync("BON001")).AvailableQuantity);
+        Assert.Null((await SnapshotAsync()).LastError);
+    }
+
     [Fact]
     public async Task A_listener_that_throws_leaves_the_batch_half_on_the_till()
     {
@@ -649,6 +686,18 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
                     Items = [item]
                 }
             };
+
+        /// <summary>Answered 200 with no items.</summary>
+        public static FakeListener Empty() => new()
+        {
+            _reading = new TransferListenerWarehouseStockDto
+            {
+                WarehouseCode = Warehouse,
+                ItemCount = 0,
+                Source = "sql-query",
+                Items = []
+            }
+        };
 
         /// <summary>Answered, and could not establish anything. Not an empty warehouse.</summary>
         public static FakeListener Unavailable() => new();

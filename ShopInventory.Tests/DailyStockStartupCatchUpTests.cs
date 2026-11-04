@@ -221,6 +221,23 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
         Assert.Empty(await DailyStockSnapshotJob.MissingUnbatchedAsync(_context, [Shop], Today, default));
     }
 
+    /// <summary>
+    /// Earlier builds finished a snapshot as whole when TransferEventListener answered with no
+    /// unbatched stock, and never flagged it. The retry has to find those by their note.
+    /// </summary>
+    [Fact]
+    public async Task The_retry_finds_a_snapshot_an_empty_listener_reading_left_unflagged()
+    {
+        await SeedAsync(Shop, StockSnapshotStatus.Complete, lastError:
+            "Unbatched stock could not be read from SAP directly (SAP circuit breaker is open. Retry after 18 seconds.); "
+            + "it was read through TransferEventListener instead (0 item(s)).");
+        await SeedAsync(Machine, StockSnapshotStatus.Complete, lastError:
+            "Unbatched stock could not be read from SAP directly (timeout); "
+            + "it was read through TransferEventListener instead (12 item(s)).");
+
+        Assert.Equal(new[] { Shop }, await DailyStockSnapshotJob.MissingUnbatchedAsync(_context, [Shop, Machine], Today, default));
+    }
+
     // ── The retry, for a shop whose fetch failed ────────
 
     /// <summary>
@@ -396,7 +413,8 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
         string warehouse,
         StockSnapshotStatus status,
         DateTime? day = null,
-        bool unbatchedMissing = false)
+        bool unbatchedMissing = false,
+        string? lastError = null)
     {
         var snapshot = new DailyStockSnapshotEntity
         {
@@ -404,6 +422,7 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
             WarehouseCode = warehouse,
             Status = status,
             UnbatchedStockMissing = unbatchedMissing,
+            LastError = lastError,
             CreatedAt = DateTime.UtcNow
         };
         _context.DailyStockSnapshots.Add(snapshot);

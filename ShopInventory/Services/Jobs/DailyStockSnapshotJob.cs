@@ -163,7 +163,9 @@ public sealed class DailyStockSnapshotJob : IJob
             .Where(snapshot => snapshot.SnapshotDate == day
                             && codes.Contains(snapshot.WarehouseCode)
                             && snapshot.Status == StockSnapshotStatus.Complete
-                            && snapshot.UnbatchedStockMissing)
+                            && (snapshot.UnbatchedStockMissing
+                                || (snapshot.LastError != null
+                                    && snapshot.LastError.Contains(FetchDailyStockHandler.EmptyListenerReadingNote))))
             .Select(snapshot => snapshot.WarehouseCode)
             .ToListAsync(cancellationToken);
 
