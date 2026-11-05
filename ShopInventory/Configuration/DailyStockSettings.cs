@@ -198,6 +198,26 @@ public class DailyStockSettings
     public int CounterSapCheckSeconds { get; set; } = 15;
 
     /// <summary>
+    /// How long a warehouse's tills stop asking SAP after one check there has run out of time.
+    /// Zero asks SAP on every sale, as before.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A check that runs out of time sells unchecked anyway, so the wait buys nothing. SAP's stock
+    /// reads do not fail one at a time either. They hang for minutes together, so the next sale's
+    /// read usually hangs too. On 2026-11-04 the factory shop (KEFSHOP) sold 11 of its 21 sales
+    /// between 15:00 and 16:00 this way, each after the full 15 seconds, with a queue at the
+    /// counter. None of that day's unchecked sales was later refused by SAP for short stock.
+    /// </para>
+    /// <para>
+    /// So, after a timeout, the warehouse's sales skip the check for this long and are logged as
+    /// unchecked. The first sale after the window asks SAP again. Any check at the warehouse that
+    /// gets an answer from SAP ends the window early. See <c>CounterSapCheckBackoff</c>.
+    /// </para>
+    /// </remarks>
+    public int CounterSapBackoffSeconds { get; set; } = 120;
+
+    /// <summary>
     /// Whether the hourly comparison also looks for stock that arrived in a warehouse the snapshot has
     /// no row for at all.
     /// </summary>
