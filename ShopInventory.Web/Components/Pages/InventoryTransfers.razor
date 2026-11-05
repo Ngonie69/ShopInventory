@@ -794,10 +794,16 @@ else if (pendingActionTitle is not null)
                                     <td><span class="itx-doc">@DraftReference(pending)</span></td>
                                     <td>
                                         <span class="itx-route">
-                                            <span class="itx-wh src">@pending.FromWarehouse</span>
+                                            @foreach (var source in SourcesOf(pending))
+                                            {
+                                                <span class="itx-wh src">@source</span>
+                                            }
                                             <i class="bi bi-arrow-right itx-arrow"></i>
-                                            <span class="itx-wh dst">@pending.ToWarehouse</span>
-                                            <span class="itx-dest">@WarehouseName(pending.ToWarehouse)</span>
+                                            @foreach (var destination in DestinationsOf(pending))
+                                            {
+                                                <span class="itx-wh dst">@destination</span>
+                                            }
+                                            <span class="itx-dest">@DestinationLabel(pending)</span>
                                         </span>
                                     </td>
                                     <td>
@@ -919,9 +925,15 @@ else if (pendingActionTitle is not null)
                 <div class="itx-kicker">@(IsPostedToSap(selectedPendingTransfer) ? "Posted transfer" : "Draft transfer")</div>
                 <h5>@DraftReference(selectedPendingTransfer)</h5>
                 <div class="itx-drawer-route">
-                    <span class="itx-wh src">@selectedPendingTransfer.FromWarehouse</span>
+                    @foreach (var source in SourcesOf(selectedPendingTransfer))
+                    {
+                        <span class="itx-wh src">@source</span>
+                    }
                     <i class="bi bi-arrow-right itx-arrow"></i>
-                    <span class="itx-wh dst">@selectedPendingTransfer.ToWarehouse</span>
+                    @foreach (var destination in DestinationsOf(selectedPendingTransfer))
+                    {
+                        <span class="itx-wh dst">@destination</span>
+                    }
                 </div>
             </div>
             <button type="button" class="itx-btn itx-btn-icon" title="Close" aria-label="Close details"
@@ -940,9 +952,16 @@ else if (pendingActionTitle is not null)
                     </div>
                 </div>
                 <div>
-                    <div class="k">Destination</div>
-                    <div class="v">@WarehouseName(selectedPendingTransfer.ToWarehouse)</div>
+                    <div class="k">Destination@(DestinationsOf(selectedPendingTransfer).Count > 1 ? "s" : "")</div>
+                    <div class="v">@DestinationLabel(selectedPendingTransfer)</div>
                 </div>
+                @if (SourcesOf(selectedPendingTransfer).Count > 1)
+                {
+                    <div>
+                        <div class="k">Sources</div>
+                        <div class="v">@SourcesOf(selectedPendingTransfer).Count warehouses</div>
+                    </div>
+                }
                 <div>
                     <div class="k">Submitted</div>
                     <div class="v">@selectedPendingTransfer.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</div>
@@ -1016,7 +1035,23 @@ else if (pendingActionTitle is not null)
                     <li>
                         <span>
                             <strong>@stage.StageName</strong>
-                            <span class="itx-stage-roles">@string.Join(", ", stage.AuthorizerRoles)</span>
+                            <span class="itx-stage-roles">
+                                @string.Join(", ", stage.AuthorizerRoles)@StageScopeText(stage)
+                            </span>
+                            @if (stage.WarehouseProgress.Count > 0)
+                            {
+                                @* A stage that needs each receiving warehouse's own approval says which
+                                   have given it, or the one still waiting is invisible. *@
+                                <span class="itx-stage-roles">
+                                    @foreach (var warehouse in stage.WarehouseProgress)
+                                    {
+                                        <span class="itx-wh @(warehouse.Status == "Approved" ? "dst" : "src")"
+                                              title="@($"{warehouse.WarehouseCode}: {GetFriendlyStatus(warehouse.Status)}")">
+                                            @warehouse.WarehouseCode @(warehouse.Status == "Approved" ? "✓" : "· waiting")
+                                        </span>
+                                    }
+                                </span>
+                            }
                         </span>
                         <span class="itx-status @GetStatusCssClass(stage.Status)">
                             @GetFriendlyStatus(stage.Status) (@stage.ApprovalCount/@stage.ApprovalsRequired)
@@ -1048,7 +1083,7 @@ else if (pendingActionTitle is not null)
                 {
                     <div class="itx-loading">
                         <span class="itx-spin itx-spin-sm"></span>
-                        <span>Checking stock in @selectedPendingTransfer.FromWarehouse…</span>
+                        <span>Checking stock in @string.Join(", ", SourcesOf(selectedPendingTransfer))…</span>
                     </div>
                 }
                 <div class="itx-lines-wrap">
@@ -2588,28 +2623,48 @@ else if (pendingActionTitle is not null)
     ];
 
     private IEnumerable<NocturneSelectOption<string>> PendingFromWarehouseSelectOptions =>
-        DistinctPendingValues(x => x.FromWarehouse)
+        DistinctPendingCodes(SourcesOf)
             .Select(warehouse => new NocturneSelectOption<string>(warehouse, warehouse, "accent"))
             .Prepend(NocturneSelectOption.All("Any source"));
 
     private IEnumerable<NocturneSelectOption<string>> PendingToWarehouseSelectOptions =>
-        DistinctPendingValues(x => x.ToWarehouse)
+        DistinctPendingCodes(DestinationsOf)
             .Select(warehouse => new NocturneSelectOption<string>(warehouse, warehouse, "accent"))
             .Prepend(NocturneSelectOption.All("Any destination"));
+
+    // A held transfer's lines can each name their own warehouses, so the header pair is only the
+    // first of them. An API older than these lists sends them empty, which reads as the header.
+    private static IReadOnlyList<string> SourcesOf(PendingInventoryTransferDto pending) =>
+        pending.FromWarehouses.Count > 0 ? pending.FromWarehouses
+        : string.IsNullOrWhiteSpace(pending.FromWarehouse) ? [] : [pending.FromWarehouse];
+
+    private static IReadOnlyList<string> DestinationsOf(PendingInventoryTransferDto pending) =>
+        pending.ToWarehouses.Count > 0 ? pending.ToWarehouses
+        : string.IsNullOrWhiteSpace(pending.ToWarehouse) ? [] : [pending.ToWarehouse];
+
+    private string DestinationLabel(PendingInventoryTransferDto pending)
+    {
+        var destinations = DestinationsOf(pending);
+        return destinations.Count == 1 ? WarehouseName(destinations[0]) : $"{destinations.Count} warehouses";
+    }
+
+    private static string StageScopeText(ApprovalStageProgressModel stage) =>
+        stage.WarehouseScope != ApprovalWarehouseScopes.Any && stage.ScopeWarehouses.Count > 0
+            ? $" · assigned to {string.Join(", ", stage.ScopeWarehouses)}"
+            : string.Empty;
+
+    /// <summary>The distinct codes across the loaded drafts on one end, for a filter list.</summary>
+    private IEnumerable<string> DistinctPendingCodes(Func<PendingInventoryTransferDto, IReadOnlyList<string>> codes) =>
+        pendingTransfers?
+            .SelectMany(codes)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x) ?? Enumerable.Empty<string>();
 
     private IEnumerable<NocturneSelectOption<string>> PendingStageSelectOptions =>
         PendingStageFilterOptions
             .Select(stage => new NocturneSelectOption<string>(stage, stage, "info"))
             .Prepend(NocturneSelectOption.All("Any stage"));
-
-    /// <summary>The distinct values one field takes across the loaded drafts, for a filter list.</summary>
-    private IEnumerable<string> DistinctPendingValues(Func<PendingInventoryTransferDto, string?> field) =>
-        pendingTransfers?
-            .Select(field)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(x => x) ?? Enumerable.Empty<string>();
 
     // Only the stages still waiting: a stage that has already signed off is not a queue
     // anyone needs to filter down to, and the column this mirrors lists the waiting ones.
@@ -2691,8 +2746,12 @@ else if (pendingActionTitle is not null)
 
     private Func<PendingInventoryTransferDto, bool> _pendingQuickFilter => x =>
     {
-        if (!MatchesFilterValue(x.FromWarehouse, _pendingFromWarehouseFilter)) return false;
-        if (!MatchesFilterValue(x.ToWarehouse, _pendingToWarehouseFilter)) return false;
+        // Any of the draft's warehouses on that end: a transfer from DISPCH and DISPYOG is one
+        // the DISPYOG filter should find, though its header names DISPCH.
+        if (!string.IsNullOrWhiteSpace(_pendingFromWarehouseFilter) &&
+            !SourcesOf(x).Any(code => MatchesFilterValue(code, _pendingFromWarehouseFilter))) return false;
+        if (!string.IsNullOrWhiteSpace(_pendingToWarehouseFilter) &&
+            !DestinationsOf(x).Any(code => MatchesFilterValue(code, _pendingToWarehouseFilter))) return false;
 
         if (!string.IsNullOrWhiteSpace(_pendingStageFilter) &&
             !x.ApprovalStages.Any(stage => stage.Status == PendingStageStatus &&
@@ -2722,8 +2781,8 @@ else if (pendingActionTitle is not null)
         if (string.IsNullOrWhiteSpace(_pendingSearchString)) return true;
         if (DraftReference(x).Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase)) return true;
         if (x.SapDocNum?.ToString().Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
-        if (x.FromWarehouse?.Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
-        if (x.ToWarehouse?.Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (SourcesOf(x).Any(code => code.Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase))) return true;
+        if (DestinationsOf(x).Any(code => code.Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase))) return true;
         if (WarehouseName(x.ToWarehouse).Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase)) return true;
         if (x.CreatedByName?.Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
         if (x.CreatedByRole?.Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;

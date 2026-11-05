@@ -12,6 +12,20 @@ public sealed class ApprovalStageDefinitionEntity
     public int RejectionsRequired { get; set; } = 1;
     public string AuthorizerUserIdsJson { get; set; } = "[]";
     public string AuthorizerRolesJson { get; set; } = "[]";
+
+    /// <summary>
+    /// Which end of the transfer an authorizer must be assigned to: <see cref="ApprovalWarehouseScopes.Any"/>,
+    /// the source, or the destination. A scoped stage only accepts authorizers whose account names one
+    /// of the document's warehouses on that end.
+    /// </summary>
+    public string WarehouseScope { get; set; } = ApprovalWarehouseScopes.Any;
+
+    /// <summary>
+    /// With a scoped stage, whether each warehouse on that end needs its own approvals. A return to
+    /// two dispatch warehouses then needs a stock officer from each, rather than from either.
+    /// </summary>
+    public bool ApprovalPerWarehouse { get; set; }
+
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAtUtc { get; set; }
@@ -27,8 +41,16 @@ public sealed class ApprovalTemplateDefinitionEntity
     public string OriginatorUserIdsJson { get; set; } = "[]";
     public string OriginatorRolesJson { get; set; } = "[]";
     public string StageIdsJson { get; set; } = "[]";
-    public string? FromWarehouse { get; set; }
-    public string? ToWarehouse { get; set; }
+
+    /// <summary>
+    /// JSON array of warehouse codes. The template holds a document only when every line's source is
+    /// one of them; an empty list matches any source.
+    /// </summary>
+    public string FromWarehousesJson { get; set; } = "[]";
+
+    /// <summary>JSON array of warehouse codes, matched against every line's destination.</summary>
+    public string ToWarehousesJson { get; set; } = "[]";
+
     public int Priority { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
@@ -82,7 +104,33 @@ public sealed class ApprovalDecisionEntity
     public string AuthorizerRole { get; set; } = string.Empty;
     public string Decision { get; set; } = ApprovalDecisionValues.Pending;
     public string? Remarks { get; set; }
+
+    /// <summary>
+    /// For a warehouse-scoped stage, the document's warehouses this decision speaks for: those the
+    /// authorizer was assigned to when they decided, or all of them for an administrator. Kept on the
+    /// decision so a later change to someone's assignments does not rewrite an approval already given.
+    /// Null on an unscoped stage.
+    /// </summary>
+    public string? WarehouseCodesJson { get; set; }
+
     public DateTime DecidedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
+public static class ApprovalWarehouseScopes
+{
+    /// <summary>Any authorizer holding the stage's role or name may decide.</summary>
+    public const string Any = "Any";
+
+    /// <summary>The authorizer must be assigned to a warehouse the stock leaves from.</summary>
+    public const string Source = "Source";
+
+    /// <summary>The authorizer must be assigned to a warehouse the stock is going to.</summary>
+    public const string Destination = "Destination";
+
+    public static readonly IReadOnlyList<string> All = [Any, Source, Destination];
+
+    public static string Normalize(string? scope) =>
+        All.FirstOrDefault(item => string.Equals(item, scope?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? Any;
 }
 
 public static class ApprovalDocumentTypes

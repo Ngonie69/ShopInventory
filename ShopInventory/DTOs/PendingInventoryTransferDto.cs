@@ -13,6 +13,16 @@ public class PendingInventoryTransferDto
     public string? FromWarehouse { get; set; }
     public string? ToWarehouse { get; set; }
 
+    /// <summary>
+    /// Every warehouse the transfer draws from, always populated. Each line can name its own source,
+    /// so one transfer can carry stock out of several dispatch warehouses; the header's
+    /// <see cref="FromWarehouse"/> is only the first of them.
+    /// </summary>
+    public List<string> FromWarehouses { get; set; } = [];
+
+    /// <summary>Every warehouse the transfer delivers to, always populated.</summary>
+    public List<string> ToWarehouses { get; set; } = [];
+
     /// <summary>AwaitingApproval, Approved, Rejected, Posted, PostFailed or Cancelled.</summary>
     public string Status { get; set; } = string.Empty;
 

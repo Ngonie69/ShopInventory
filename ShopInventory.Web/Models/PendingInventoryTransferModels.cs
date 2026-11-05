@@ -20,6 +20,17 @@ public class PendingInventoryTransferDto
     [JsonPropertyName("toWarehouse")]
     public string? ToWarehouse { get; set; }
 
+    /// <summary>
+    /// Every warehouse the transfer draws from. Lines can each name their own source, so the header's
+    /// <see cref="FromWarehouse"/> is only the first. Empty from an API older than this field.
+    /// </summary>
+    [JsonPropertyName("fromWarehouses")]
+    public List<string> FromWarehouses { get; set; } = [];
+
+    /// <summary>Every warehouse the transfer delivers to.</summary>
+    [JsonPropertyName("toWarehouses")]
+    public List<string> ToWarehouses { get; set; } = [];
+
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 

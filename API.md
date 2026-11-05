@@ -5377,6 +5377,33 @@ steps; a template is the sequence of stages a document type goes through.
 | DELETE | `/api/approval-process/templates/{id}` | **Admin** | Delete one |
 | POST | `/api/approval-process/transfer-requests/{docEntry}/decision` | `ApiAccess` | Decide a transfer request |
 | POST | `/api/approval-process/transfers/{pendingTransferId}/decision` | `ApiAccess` | Decide a held direct transfer |
+| GET | `/api/approval-process/transfers/route-preview` | `ApiAccess` | Who a direct transfer with these warehouses would wait on |
+
+**A template names lists of warehouses, and every line must fit them.** `fromWarehouses` and
+`toWarehouses` replaced the single `fromWarehouse`/`toWarehouse` codes (migration
+`TransferApprovalWarehouseLists` carried each code into a one-item list). An empty list matches any
+warehouse on that end. A transfer's lines can each name their own source and destination, so the
+template holds it only when every line's source is on its From list and every destination on its To
+list. One line from an unlisted warehouse passes the transfer to the next template by priority.
+
+**A stage can be limited to one end of the transfer.** `warehouseScope` is `Any` (the default),
+`Source` or `Destination`. On a scoped stage an authorizer must also be assigned to one of the
+document's warehouses on that end (`User.AssignedWarehouseCodes`); administrators always qualify.
+With `approvalPerWarehouse`, each of those warehouses needs its own `approvalsRequired`, so a
+return to DISPYOG and DISPCH waits for a stock officer from each. One rejection still stops the
+document. Every decision records the warehouses it spoke for (`warehouseCodes`), fixed when it was
+given. The stage progress carries `scopeWarehouses` and, per warehouse, `warehouseProgress`.
+
+Migration `SeedDispatchFactoryShopApprovals` added the **Receiving stock officer** stage (Stock
+Officer, `Destination`, per warehouse) and two direct-transfer templates at priority 200: **Dispatch
+to Factory Shop** (DISPCH, DISPYOG, DISPMILK, DISPICE → KEFSHOP) and **Factory Shop returns to
+Dispatch** (the reverse). They are ordinary rows: rename, retarget or delete them like any other.
+
+`GET /transfers/route-preview?from=DISPCH&from=DISPYOG&to=KEFSHOP` answers which template and stages a
+transfer would get, without opening anything. `matched: false` means no active template fits and the
+transfer cannot be submitted. For each stage, `warehousesWithoutAuthorizer` lists the scope warehouses
+nobody but an administrator could approve for, and `authorizerCount` counts the people who could,
+leaving out the caller (they cannot approve their own transfer).
 
 The two decision routes are not interchangeable: one keys on a SAP `docEntry` (a transfer *request*
 that exists in SAP), the other on a local `Guid` (a transfer held here before it ever reaches SAP).

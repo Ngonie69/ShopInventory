@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.InventoryTransfers;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
@@ -19,6 +20,13 @@ namespace ShopInventory.Services;
 /// It picks the approval template if no originator is passed in explicitly, so a decision
 /// arriving before the approval request exists still routes to the right stages rather than
 /// falling through to the catch-all template.
+/// <para>
+/// A transfer's lines can each name their own warehouses — one document can carry stock out of four
+/// dispatch warehouses into the factory shop — so the header pair is not the whole route.
+/// <c>LineFromWarehouses</c> and <c>LineToWarehouses</c> carry each line's own codes when the caller
+/// has the lines; <see cref="SourceWarehouses"/> and <see cref="DestinationWarehouses"/> are what
+/// templates and warehouse-scoped stages are matched against.
+/// </para>
 /// </remarks>
 public sealed record ApprovalDocumentContext(
     string DocumentType,
@@ -27,25 +35,88 @@ public sealed record ApprovalDocumentContext(
     string? FromWarehouse,
     string? ToWarehouse,
     bool AlreadyClosed = false,
-    Guid? OriginatorUserId = null)
+    Guid? OriginatorUserId = null,
+    IReadOnlyList<string?>? LineFromWarehouses = null,
+    IReadOnlyList<string?>? LineToWarehouses = null)
 {
+    /// <summary>Every warehouse the document draws from: each line's own, or the header's when no line names one.</summary>
+    public IReadOnlyList<string> SourceWarehouses => DistinctCodes(LineFromWarehouses, FromWarehouse);
+
+    /// <summary>Every warehouse the document delivers to: each line's own, or the header's when no line names one.</summary>
+    public IReadOnlyList<string> DestinationWarehouses => DistinctCodes(LineToWarehouses, ToWarehouse);
+
     public static ApprovalDocumentContext ForTransferRequest(InventoryTransferRequest document) => new(
         ApprovalDocumentTypes.InventoryTransferRequest,
         document.DocEntry.ToString(),
         document.DocNum.ToString(),
         document.FromWarehouse,
         document.ToWarehouse,
-        IsClosedStatus(document.DocumentStatus));
+        IsClosedStatus(document.DocumentStatus),
+        LineFromWarehouses: document.StockTransferLines?.Select(line => line.FromWarehouseCode ?? document.FromWarehouse).ToList(),
+        LineToWarehouses: document.StockTransferLines?.Select(line => line.WarehouseCode ?? document.ToWarehouse).ToList());
 
-    public static ApprovalDocumentContext ForPendingTransfer(PendingInventoryTransferEntity pending) => new(
-        ApprovalDocumentTypes.InventoryTransfer,
-        pending.Id.ToString(),
-        // The draft number is what an authorizer can quote until the transfer posts to SAP.
-        pending.SapDocNum?.ToString() ?? pending.DraftNumber,
-        pending.FromWarehouse,
-        pending.ToWarehouse,
-        AlreadyClosed: false,
-        OriginatorUserId: pending.CreatedByUserId);
+    public static ApprovalDocumentContext ForPendingTransfer(PendingInventoryTransferEntity pending)
+    {
+        var (lineFrom, lineTo) = PendingLineWarehouses(pending);
+        return new(
+            ApprovalDocumentTypes.InventoryTransfer,
+            pending.Id.ToString(),
+            // The draft number is what an authorizer can quote until the transfer posts to SAP.
+            pending.SapDocNum?.ToString() ?? pending.DraftNumber,
+            pending.FromWarehouse,
+            pending.ToWarehouse,
+            AlreadyClosed: false,
+            OriginatorUserId: pending.CreatedByUserId,
+            LineFromWarehouses: lineFrom,
+            LineToWarehouses: lineTo);
+    }
+
+    /// <summary>
+    /// A document not yet raised, described by its warehouses alone — what the transfer form asks
+    /// about to show who will be asked to approve it.
+    /// </summary>
+    public static ApprovalDocumentContext ForPreview(
+        string documentType,
+        IReadOnlyList<string> fromWarehouses,
+        IReadOnlyList<string> toWarehouses,
+        Guid? originatorUserId) => new(
+        documentType,
+        DocumentKey: "preview",
+        DocumentNumber: null,
+        fromWarehouses.FirstOrDefault(),
+        toWarehouses.FirstOrDefault(),
+        OriginatorUserId: originatorUserId,
+        LineFromWarehouses: fromWarehouses.ToList<string?>(),
+        LineToWarehouses: toWarehouses.ToList<string?>());
+
+    private static (IReadOnlyList<string?>? From, IReadOnlyList<string?>? To) PendingLineWarehouses(
+        PendingInventoryTransferEntity pending)
+    {
+        try
+        {
+            var payload = PendingInventoryTransferMapper.DeserializePayload(pending);
+            return (
+                payload.Lines!.Select(line => line.FromWarehouseCode ?? pending.FromWarehouse).ToList<string?>(),
+                payload.Lines!.Select(line => line.ToWarehouseCode ?? pending.ToWarehouse).ToList<string?>());
+        }
+        catch (InvalidOperationException)
+        {
+            // An unreadable payload cannot post either; route it on the header rather than not at all.
+            return (null, null);
+        }
+    }
+
+    private static IReadOnlyList<string> DistinctCodes(IReadOnlyList<string?>? lineCodes, string? headerCode)
+    {
+        var codes = (lineCodes ?? [])
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (codes.Count > 0)
+            return codes;
+        return string.IsNullOrWhiteSpace(headerCode) ? [] : [headerCode.Trim()];
+    }
 
     public static ApprovalDocumentContext ForRequestEdit(PendingTransferRequestEditEntity edit) => new(
         ApprovalDocumentTypes.InventoryTransferRequestEdit,
@@ -127,6 +198,12 @@ public interface IInventoryTransferApprovalService
     Task<List<ApprovalTemplateDefinitionDto>> GetTemplatesAsync(CancellationToken cancellationToken);
     Task<ErrorOr<ApprovalTemplateDefinitionDto>> SaveTemplateAsync(ApprovalTemplateDefinitionDto template, CancellationToken cancellationToken);
     Task<ErrorOr<Deleted>> DeleteTemplateAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Which template and stages a document with these warehouses would be routed to, and whether
+    /// each stage has anyone who could decide it. Opens nothing.
+    /// </summary>
+    Task<ApprovalRoutePreviewDto> PreviewRouteAsync(ApprovalDocumentContext document, CancellationToken cancellationToken);
 }
 
 public sealed class InventoryTransferApprovalService(
@@ -220,7 +297,7 @@ public sealed class InventoryTransferApprovalService(
         var orderedStages = stageIds
             .Select(stageId => stages.FirstOrDefault(stage => stage.Id == stageId))
             .Where(stage => stage is not null)
-            .Select(stage => ToSnapshot(stage!))
+            .Select(stage => ToSnapshot(stage!, document))
             .ToList();
         if (orderedStages.Count == 0)
             throw new InvalidOperationException($"Approval template '{template.Name}' has no active approval stages.");
@@ -235,8 +312,8 @@ public sealed class InventoryTransferApprovalService(
             OriginatorUserId = originator?.Id,
             OriginatorName = originator?.Username ?? UnknownOriginator,
             OriginatorRole = originator?.Role ?? UnknownOriginator,
-            FromWarehouse = document.FromWarehouse,
-            ToWarehouse = document.ToWarehouse,
+            FromWarehouse = RouteLabel(document.SourceWarehouses, document.FromWarehouse),
+            ToWarehouse = RouteLabel(document.DestinationWarehouses, document.ToWarehouse),
             StageSnapshotsJson = Serialize(orderedStages),
             Status = document.AlreadyClosed
                 ? ApprovalRequestStatuses.Generated
@@ -399,9 +476,15 @@ public sealed class InventoryTransferApprovalService(
 
         existingDecision.Decision = decision;
         existingDecision.Remarks = string.IsNullOrWhiteSpace(remarks) ? null : remarks.Trim();
+        // Which of the document's warehouses this decision speaks for, fixed now: someone moved to
+        // another warehouse later has still approved for the one they ran when they decided.
+        existingDecision.WarehouseCodesJson = IsScoped(selectedStage)
+            ? Serialize(CoveredWarehouses(authorizer, selectedStage))
+            : null;
         existingDecision.DecidedAtUtc = DateTime.UtcNow;
 
         progress = BuildProgress(request, snapshots);
+        var stageAfter = progress.First(stage => stage.StageId == selectedStage.StageId);
         request.Status = progress.Any(stage => stage.Status == ApprovalRequestStatuses.NotApproved)
             ? ApprovalRequestStatuses.NotApproved
             : progress.All(stage => stage.Status == ApprovalRequestStatuses.Approved)
@@ -443,6 +526,11 @@ public sealed class InventoryTransferApprovalService(
             {
                 ApprovalRequestStatuses.Approved => "All required approval stages are complete.",
                 ApprovalRequestStatuses.NotApproved => "The approval request has been rejected.",
+                _ when stageAfter.Status == ApprovalRequestStatuses.Pending && stageAfter.WarehouseProgress.Count > 0 =>
+                    $"Decision recorded for {selectedStage.StageName}; still waiting on " +
+                    string.Join(", ", stageAfter.WarehouseProgress
+                        .Where(item => item.Status == ApprovalRequestStatuses.Pending)
+                        .Select(item => item.WarehouseCode)) + ".",
                 _ => $"Decision recorded for {selectedStage.StageName}; other approvals are still pending."
             }
         };
@@ -505,6 +593,15 @@ public sealed class InventoryTransferApprovalService(
         request.CompletedAtUtc = null;
         request.ReopenedByUserId = reopenedByUserId;
         request.ReopenedAtUtc = DateTime.UtcNow;
+
+        // The change may have put stock on another warehouse, so a warehouse-scoped stage is aimed at
+        // the document as it now stands rather than as it was first raised.
+        var snapshots = Deserialize<ApprovalStageSnapshot>(request.StageSnapshotsJson);
+        foreach (var snapshot in snapshots)
+            snapshot.ScopeWarehouses = ScopeWarehousesFor(snapshot.WarehouseScope, document);
+        request.StageSnapshotsJson = Serialize(snapshots);
+        request.FromWarehouse = RouteLabel(document.SourceWarehouses, document.FromWarehouse);
+        request.ToWarehouse = RouteLabel(document.DestinationWarehouses, document.ToWarehouse);
         await context.SaveChangesAsync(cancellationToken);
 
         // The approvers' earlier alerts were cleared when the approval completed, and one alert per
@@ -518,7 +615,7 @@ public sealed class InventoryTransferApprovalService(
                            item.EntityId.StartsWith(prefix))
             .ExecuteDeleteAsync(cancellationToken);
         await MarkOriginatorOutcomesReadAsync(request, cancellationToken);
-        await NotifyPendingAuthorizersAsync(request, Deserialize<ApprovalStageSnapshot>(request.StageSnapshotsJson), cancellationToken);
+        await NotifyPendingAuthorizersAsync(request, snapshots, cancellationToken);
         return request;
     }
 
@@ -589,6 +686,9 @@ public sealed class InventoryTransferApprovalService(
         entity.RejectionsRequired = dto.RejectionsRequired;
         entity.AuthorizerUserIdsJson = Serialize(dto.AuthorizerUserIds.Distinct());
         entity.AuthorizerRolesJson = Serialize(dto.AuthorizerRoles.Where(role => !string.IsNullOrWhiteSpace(role)).Select(role => role.Trim()).Distinct(StringComparer.OrdinalIgnoreCase));
+        entity.WarehouseScope = ApprovalWarehouseScopes.Normalize(dto.WarehouseScope);
+        // Approvals per warehouse only mean something when the stage is tied to warehouses.
+        entity.ApprovalPerWarehouse = dto.ApprovalPerWarehouse && entity.WarehouseScope != ApprovalWarehouseScopes.Any;
         entity.IsActive = dto.IsActive;
         entity.UpdatedAtUtc = DateTime.UtcNow;
         if (dto.Id == Guid.Empty) context.ApprovalStageDefinitions.Add(entity);
@@ -642,8 +742,8 @@ public sealed class InventoryTransferApprovalService(
         entity.OriginatorUserIdsJson = Serialize(dto.OriginatorUserIds.Distinct());
         entity.OriginatorRolesJson = Serialize(dto.OriginatorRoles.Where(role => !string.IsNullOrWhiteSpace(role)).Select(role => role.Trim()).Distinct(StringComparer.OrdinalIgnoreCase));
         entity.StageIdsJson = Serialize(dto.StageIds.Distinct());
-        entity.FromWarehouse = Normalize(dto.FromWarehouse);
-        entity.ToWarehouse = Normalize(dto.ToWarehouse);
+        entity.FromWarehousesJson = Serialize(NormalizeCodes(dto.FromWarehouses));
+        entity.ToWarehousesJson = Serialize(NormalizeCodes(dto.ToWarehouses));
         entity.Priority = dto.Priority;
         entity.IsActive = dto.IsActive;
         entity.UpdatedAtUtc = DateTime.UtcNow;
@@ -661,6 +761,67 @@ public sealed class InventoryTransferApprovalService(
         context.ApprovalTemplateDefinitions.Remove(template);
         await context.SaveChangesAsync(cancellationToken);
         return Result.Deleted;
+    }
+
+    public async Task<ApprovalRoutePreviewDto> PreviewRouteAsync(
+        ApprovalDocumentContext document,
+        CancellationToken cancellationToken)
+    {
+        await EnsureDefaultsAsync(document.DocumentType, cancellationToken);
+        var originator = document.OriginatorUserId is { } originatorId
+            ? await context.Users.AsNoTracking().FirstOrDefaultAsync(user => user.Id == originatorId, cancellationToken)
+            : null;
+        var template = await SelectTemplateAsync(originator, document, cancellationToken);
+        if (template is null)
+            return new ApprovalRoutePreviewDto { Matched = false };
+
+        var stageIds = Deserialize<Guid>(template.StageIdsJson);
+        var stages = await context.ApprovalStageDefinitions.AsNoTracking()
+            .Where(stage => stage.IsActive && stageIds.Contains(stage.Id))
+            .ToListAsync(cancellationToken);
+        var snapshots = stageIds
+            .Select(stageId => stages.FirstOrDefault(stage => stage.Id == stageId))
+            .Where(stage => stage is not null)
+            .Select(stage => ToSnapshot(stage!, document))
+            .ToList();
+
+        // One read of the people who could be asked, filtered per stage below. Administrators are
+        // left out of the count: they can always decide, and counting them would hide a stage that
+        // otherwise has nobody.
+        var roles = snapshots.SelectMany(stage => stage.AuthorizerRoles).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var userIds = snapshots.SelectMany(stage => stage.AuthorizerUserIds).Distinct().ToList();
+        var candidates = await context.Users.AsNoTracking()
+            .Where(user => user.IsActive && user.Role != ApplicationRoles.Admin &&
+                           (userIds.Contains(user.Id) || roles.Contains(user.Role)))
+            .ToListAsync(cancellationToken);
+
+        var preview = new ApprovalRoutePreviewDto { Matched = true, TemplateId = template.Id, TemplateName = template.Name };
+        foreach (var snapshot in snapshots)
+        {
+            var stage = BuildProgress(new ApprovalRequestEntity(), [snapshot])[0];
+            // Whoever raises the document cannot approve it, so they are no help to this stage.
+            var eligible = candidates
+                .Where(user => user.Id != originator?.Id && IsAuthorizer(user, stage))
+                .ToList();
+            preview.Stages.Add(new ApprovalRoutePreviewStageDto
+            {
+                StageId = stage.StageId,
+                StageName = stage.StageName,
+                ApprovalsRequired = snapshot.ApprovalsRequired,
+                AuthorizerRoles = stage.AuthorizerRoles,
+                WarehouseScope = stage.WarehouseScope,
+                ApprovalPerWarehouse = stage.ApprovalPerWarehouse,
+                ScopeWarehouses = stage.ScopeWarehouses,
+                WarehousesWithoutAuthorizer = IsScoped(stage)
+                    ? stage.ScopeWarehouses
+                        .Where(code => !eligible.Any(user => CoveredWarehouses(user, stage).Contains(code, StringComparer.OrdinalIgnoreCase)))
+                        .ToList()
+                    : [],
+                AuthorizerCount = eligible.Count
+            });
+        }
+
+        return preview;
     }
 
     private async Task EnsureAllDefaultsAsync(CancellationToken cancellationToken)
@@ -806,9 +967,20 @@ public sealed class InventoryTransferApprovalService(
             var roles = Deserialize<string>(template.OriginatorRolesJson);
             var originatorMatches = users.Count == 0 && roles.Count == 0 || originator is not null &&
                 (users.Contains(originator.Id) || roles.Contains(originator.Role, StringComparer.OrdinalIgnoreCase));
-            return originatorMatches && Matches(template.FromWarehouse, document.FromWarehouse) && Matches(template.ToWarehouse, document.ToWarehouse);
+            return originatorMatches &&
+                   MatchesEvery(Deserialize<string>(template.FromWarehousesJson), document.SourceWarehouses) &&
+                   MatchesEvery(Deserialize<string>(template.ToWarehousesJson), document.DestinationWarehouses);
         });
     }
+
+    /// <summary>
+    /// A template's warehouse list holds a document only when every warehouse the document uses on
+    /// that end is on the list. Checking any one of them instead would let a line from an unlisted
+    /// warehouse ride through on the strength of another line's.
+    /// </summary>
+    private static bool MatchesEvery(IReadOnlyList<string> configured, IReadOnlyList<string> actual)
+        => configured.Count == 0 ||
+           actual.Count > 0 && actual.All(code => configured.Contains(code, StringComparer.OrdinalIgnoreCase));
 
     private async Task<User?> ResolveOriginatorAsync(InventoryTransferRequest document, Guid? userId, CancellationToken cancellationToken)
     {
@@ -849,28 +1021,118 @@ public sealed class InventoryTransferApprovalService(
             var decisions = request.Decisions.Where(decision => decision.StageId == stage.Id).ToList();
             var approvals = decisions.Count(decision => decision.Decision == ApprovalDecisionValues.Approved);
             var rejections = decisions.Count(decision => decision.Decision == ApprovalDecisionValues.NotApproved);
+            var scope = ApprovalWarehouseScopes.Normalize(stage.WarehouseScope);
+            List<string> scopeWarehouses = scope == ApprovalWarehouseScopes.Any ? [] : stage.ScopeWarehouses;
+
+            // Per-warehouse stages count each warehouse on its own: a return to DISPYOG and DISPCH is
+            // approved only once both have their approvals, however many come from one side.
+            List<ApprovalWarehouseProgressDto> warehouseProgress = stage.ApprovalPerWarehouse && scopeWarehouses.Count > 0
+                ? scopeWarehouses.Select(code =>
+                {
+                    var count = decisions.Count(decision =>
+                        decision.Decision == ApprovalDecisionValues.Approved &&
+                        Deserialize<string>(decision.WarehouseCodesJson).Contains(code, StringComparer.OrdinalIgnoreCase));
+                    return new ApprovalWarehouseProgressDto
+                    {
+                        WarehouseCode = code,
+                        ApprovalCount = count,
+                        ApprovalsRequired = stage.ApprovalsRequired,
+                        Status = count >= stage.ApprovalsRequired ? ApprovalRequestStatuses.Approved : ApprovalRequestStatuses.Pending
+                    };
+                }).ToList()
+                : [];
+
+            var approved = warehouseProgress.Count > 0
+                ? warehouseProgress.All(item => item.Status == ApprovalRequestStatuses.Approved)
+                : approvals >= stage.ApprovalsRequired;
             var status = rejections >= stage.RejectionsRequired ? ApprovalRequestStatuses.NotApproved
-                : approvals >= stage.ApprovalsRequired ? ApprovalRequestStatuses.Approved
+                : approved ? ApprovalRequestStatuses.Approved
                 : ApprovalRequestStatuses.Pending;
             return new ApprovalStageProgressDto
             {
                 StageId = stage.Id, StageName = stage.Name, Description = stage.Description,
-                ApprovalsRequired = stage.ApprovalsRequired, RejectionsRequired = stage.RejectionsRequired,
-                ApprovalCount = approvals, RejectionCount = rejections, Status = status,
+                // Read as "n of m" on screen, so a per-warehouse stage reports its warehouses' total.
+                ApprovalsRequired = warehouseProgress.Count > 0 ? warehouseProgress.Sum(item => item.ApprovalsRequired) : stage.ApprovalsRequired,
+                RejectionsRequired = stage.RejectionsRequired,
+                ApprovalCount = warehouseProgress.Count > 0 ? warehouseProgress.Sum(item => Math.Min(item.ApprovalCount, item.ApprovalsRequired)) : approvals,
+                RejectionCount = rejections, Status = status,
                 AuthorizerUserIds = stage.AuthorizerUserIds, AuthorizerRoles = stage.AuthorizerRoles,
+                WarehouseScope = scope,
+                ApprovalPerWarehouse = stage.ApprovalPerWarehouse,
+                ScopeWarehouses = scopeWarehouses,
+                WarehouseProgress = warehouseProgress,
                 Decisions = decisions.Select(decision => new ApprovalDecisionDto
                 {
                     StageId = decision.StageId, AuthorizerUserId = decision.AuthorizerUserId,
                     AuthorizerName = decision.AuthorizerName, AuthorizerRole = decision.AuthorizerRole,
-                    Decision = decision.Decision, Remarks = decision.Remarks, DecidedAtUtc = decision.DecidedAtUtc
+                    Decision = decision.Decision, Remarks = decision.Remarks,
+                    WarehouseCodes = Deserialize<string>(decision.WarehouseCodesJson),
+                    DecidedAtUtc = decision.DecidedAtUtc
                 }).ToList()
             };
         }).ToList();
 
-    private static bool IsAuthorizer(User user, ApprovalStageProgressDto stage)
-        => string.Equals(user.Role, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase) ||
-           stage.AuthorizerUserIds.Contains(user.Id) ||
-           stage.AuthorizerRoles.Contains(user.Role, StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Whether <paramref name="user"/> may decide <paramref name="stage"/>: an administrator always; anyone
+    /// else when the stage names them or their role and, on a warehouse-scoped stage, their account is
+    /// assigned to one of the document's warehouses on the stage's end.
+    /// </summary>
+    /// <remarks>
+    /// The one rule for this, used by the decision itself, the queue's "can decide" flag, the
+    /// notifications and the route preview. Those kept their own copies before, and a copy that missed
+    /// the warehouse check would offer an Approve button the decision then refuses.
+    /// </remarks>
+    public static bool IsAuthorizer(User user, ApprovalStageProgressDto stage)
+    {
+        if (IsAdministrator(user))
+            return true;
+
+        var holdsStage = stage.AuthorizerUserIds.Contains(user.Id) ||
+                         stage.AuthorizerRoles.Contains(user.Role, StringComparer.OrdinalIgnoreCase);
+        return holdsStage && (!IsScoped(stage) || CoveredWarehouses(user, stage).Count > 0);
+    }
+
+    /// <summary>
+    /// The document's warehouses on a scoped stage's end that <paramref name="user"/> speaks for: those
+    /// assigned to their account, or every one of them for an administrator.
+    /// </summary>
+    public static IReadOnlyList<string> CoveredWarehouses(User user, ApprovalStageProgressDto stage)
+    {
+        if (!IsScoped(stage))
+            return [];
+        if (IsAdministrator(user))
+            return stage.ScopeWarehouses;
+        var assigned = user.GetWarehouseCodes();
+        return stage.ScopeWarehouses
+            .Where(code => assigned.Contains(code, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    /// <remarks>
+    /// A scoped stage with no warehouses to scope to — a document whose end is unknown — falls back to
+    /// its role alone rather than to nobody, so it can still be decided.
+    /// </remarks>
+    private static bool IsScoped(ApprovalStageProgressDto stage)
+        => stage.WarehouseScope != ApprovalWarehouseScopes.Any && stage.ScopeWarehouses.Count > 0;
+
+    private static bool IsAdministrator(User user)
+        => string.Equals(user.Role, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether <paramref name="user"/> can still move <paramref name="stage"/> on: on a per-warehouse
+    /// stage, only someone covering a warehouse still waiting is worth asking.
+    /// </summary>
+    public static bool CanAdvance(User user, ApprovalStageProgressDto stage)
+    {
+        if (!IsAuthorizer(user, stage))
+            return false;
+        if (stage.WarehouseProgress.Count == 0)
+            return true;
+        var covered = CoveredWarehouses(user, stage);
+        return stage.WarehouseProgress.Any(item =>
+            item.Status == ApprovalRequestStatuses.Pending &&
+            covered.Contains(item.WarehouseCode, StringComparer.OrdinalIgnoreCase));
+    }
 
     private async Task NotifyPendingAuthorizersAsync(
         ApprovalRequestEntity request,
@@ -895,9 +1157,12 @@ public sealed class InventoryTransferApprovalService(
                 var isDirectTransfer = request.DocumentType == ApprovalDocumentTypes.InventoryTransfer;
                 var label = DocumentLabel(request.DocumentType);
 
-                // Nobody is asked for a decision they are not allowed to give.
+                // Nobody is asked for a decision they are not allowed to give — which, on a
+                // warehouse-scoped stage, includes every stock officer not assigned to the warehouse.
                 foreach (var recipient in recipients
-                             .Where(user => !decidedUserIds.Contains(user.Id) && MayApprove(request, user.Id))
+                             .Where(user => !decidedUserIds.Contains(user.Id) &&
+                                            MayApprove(request, user.Id) &&
+                                            CanAdvance(user, stage))
                              .DistinctBy(user => user.Id))
                 {
                     var entityId = ApprovalNotificationEntityId(request.DocumentType, request.DocumentKey, stage.StageId);
@@ -1155,16 +1420,37 @@ public sealed class InventoryTransferApprovalService(
     { Id = id, Name = name, Description = description, AuthorizerRolesJson = Serialize([role]) };
     private static ApprovalTemplateDefinitionEntity NewTemplate(Guid id, string name, string documentType, int priority, IEnumerable<string> roles, IEnumerable<Guid> stages) => new()
     { Id = id, Name = name, Description = name, DocumentType = documentType, Priority = priority, OriginatorRolesJson = Serialize(roles), StageIdsJson = Serialize(stages) };
-    private static ApprovalStageSnapshot ToSnapshot(ApprovalStageDefinitionEntity stage) => new()
-    { Id = stage.Id, Name = stage.Name, Description = stage.Description, ApprovalsRequired = stage.ApprovalsRequired, RejectionsRequired = stage.RejectionsRequired, AuthorizerUserIds = Deserialize<Guid>(stage.AuthorizerUserIdsJson), AuthorizerRoles = Deserialize<string>(stage.AuthorizerRolesJson) };
+    private static ApprovalStageSnapshot ToSnapshot(ApprovalStageDefinitionEntity stage, ApprovalDocumentContext document) => new()
+    {
+        Id = stage.Id, Name = stage.Name, Description = stage.Description, ApprovalsRequired = stage.ApprovalsRequired, RejectionsRequired = stage.RejectionsRequired,
+        AuthorizerUserIds = Deserialize<Guid>(stage.AuthorizerUserIdsJson), AuthorizerRoles = Deserialize<string>(stage.AuthorizerRolesJson),
+        WarehouseScope = ApprovalWarehouseScopes.Normalize(stage.WarehouseScope), ApprovalPerWarehouse = stage.ApprovalPerWarehouse,
+        ScopeWarehouses = ScopeWarehousesFor(stage.WarehouseScope, document)
+    };
+    private static List<string> ScopeWarehousesFor(string? scope, ApprovalDocumentContext document) => ApprovalWarehouseScopes.Normalize(scope) switch
+    {
+        ApprovalWarehouseScopes.Source => [.. document.SourceWarehouses],
+        ApprovalWarehouseScopes.Destination => [.. document.DestinationWarehouses],
+        _ => []
+    };
     private static ApprovalStageDefinitionDto ToDto(ApprovalStageDefinitionEntity stage) => new()
-    { Id = stage.Id, Name = stage.Name, Description = stage.Description, ApprovalsRequired = stage.ApprovalsRequired, RejectionsRequired = stage.RejectionsRequired, AuthorizerUserIds = Deserialize<Guid>(stage.AuthorizerUserIdsJson), AuthorizerRoles = Deserialize<string>(stage.AuthorizerRolesJson), IsActive = stage.IsActive };
+    { Id = stage.Id, Name = stage.Name, Description = stage.Description, ApprovalsRequired = stage.ApprovalsRequired, RejectionsRequired = stage.RejectionsRequired, AuthorizerUserIds = Deserialize<Guid>(stage.AuthorizerUserIdsJson), AuthorizerRoles = Deserialize<string>(stage.AuthorizerRolesJson), WarehouseScope = ApprovalWarehouseScopes.Normalize(stage.WarehouseScope), ApprovalPerWarehouse = stage.ApprovalPerWarehouse, IsActive = stage.IsActive };
     private static ApprovalTemplateDefinitionDto ToDto(ApprovalTemplateDefinitionEntity template) => new()
-    { Id = template.Id, Name = template.Name, Description = template.Description, DocumentType = template.DocumentType, OriginatorUserIds = Deserialize<Guid>(template.OriginatorUserIdsJson), OriginatorRoles = Deserialize<string>(template.OriginatorRolesJson), StageIds = Deserialize<Guid>(template.StageIdsJson), FromWarehouse = template.FromWarehouse, ToWarehouse = template.ToWarehouse, Priority = template.Priority, IsActive = template.IsActive };
+    { Id = template.Id, Name = template.Name, Description = template.Description, DocumentType = template.DocumentType, OriginatorUserIds = Deserialize<Guid>(template.OriginatorUserIdsJson), OriginatorRoles = Deserialize<string>(template.OriginatorRolesJson), StageIds = Deserialize<Guid>(template.StageIdsJson), FromWarehouses = Deserialize<string>(template.FromWarehousesJson), ToWarehouses = Deserialize<string>(template.ToWarehousesJson), Priority = template.Priority, IsActive = template.IsActive };
     private static string Serialize<T>(IEnumerable<T> values) => JsonSerializer.Serialize(values, JsonOptions);
     private static List<T> Deserialize<T>(string? json) { try { return string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<List<T>>(json, JsonOptions) ?? []; } catch { return []; } }
-    private static bool Matches(string? configured, string? actual) => string.IsNullOrWhiteSpace(configured) || string.Equals(configured.Trim(), actual?.Trim(), StringComparison.OrdinalIgnoreCase);
-    private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static List<string> NormalizeCodes(IEnumerable<string>? codes) => (codes ?? [])
+        .Where(code => !string.IsNullOrWhiteSpace(code))
+        .Select(code => code.Trim())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    /// <summary>The request's display route: one code, or several joined, within the column's 400 characters.</summary>
+    private static string? RouteLabel(IReadOnlyList<string> codes, string? header)
+    {
+        var label = codes.Count > 0 ? string.Join(", ", codes) : header;
+        return label is { Length: > 400 } ? label[..400] : label;
+    }
     private static string? ExtractCommentValue(string? comments, string label) { if (string.IsNullOrWhiteSpace(comments)) return null; var prefix = $"{label}:"; return comments.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault(part => part.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))?[prefix.Length..].Trim(); }
 
     private sealed class ApprovalStageSnapshot
@@ -1176,5 +1462,13 @@ public sealed class InventoryTransferApprovalService(
         public int RejectionsRequired { get; set; }
         public List<Guid> AuthorizerUserIds { get; set; } = [];
         public List<string> AuthorizerRoles { get; set; } = [];
+
+        // Snapshots written before stages could be scoped read back as Any with no warehouses, which
+        // is exactly how they were decided.
+        public string WarehouseScope { get; set; } = ApprovalWarehouseScopes.Any;
+        public bool ApprovalPerWarehouse { get; set; }
+
+        /// <summary>The document's warehouses on the stage's end, fixed when the approval opened or was reopened.</summary>
+        public List<string> ScopeWarehouses { get; set; } = [];
     }
 }

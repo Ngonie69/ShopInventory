@@ -76,7 +76,9 @@ public static class PendingInventoryTransferMapper
             PostedAtUtc = pending.PostedAtUtc,
             LastAttemptedAtUtc = pending.LastAttemptedAtUtc,
             LastError = pending.LastError,
-            ApprovalRequestId = pending.ApprovalRequestId
+            ApprovalRequestId = pending.ApprovalRequestId,
+            FromWarehouses = [pending.FromWarehouse],
+            ToWarehouses = [pending.ToWarehouse]
         };
 
         CreateInventoryTransferRequest payload;
@@ -89,6 +91,11 @@ public static class PendingInventoryTransferMapper
             // A summary without lines is still useful; the post itself will surface the problem.
             return dto;
         }
+
+        // Like the item codes, these come off the payload already in hand, so the list endpoint can
+        // show a several-warehouse route without its lines.
+        dto.FromWarehouses = DistinctCodes(payload.Lines!.Select(line => line.FromWarehouseCode), pending.FromWarehouse);
+        dto.ToWarehouses = DistinctCodes(payload.Lines!.Select(line => line.ToWarehouseCode), pending.ToWarehouse);
 
         // Codes travel even when the lines do not: they are what a caller filters a list by,
         // and the payload has already been read to get here.
@@ -116,4 +123,12 @@ public static class PendingInventoryTransferMapper
 
         return dto;
     }
+
+    /// <summary>Each line's code, or the header's for a line that names none, without repeats and in line order.</summary>
+    private static List<string> DistinctCodes(IEnumerable<string?> lineCodes, string headerCode)
+        => lineCodes
+            .Select(code => string.IsNullOrWhiteSpace(code) ? headerCode : code.Trim())
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 }

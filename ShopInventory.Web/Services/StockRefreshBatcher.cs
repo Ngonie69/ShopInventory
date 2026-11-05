@@ -37,6 +37,12 @@ public readonly record struct StockRefreshBatch(
 /// One of these belongs to one form (one circuit), created in OnInitialized and disposed with the
 /// component. The apply callback runs off the circuit's synchronisation context, so it must go
 /// through InvokeAsync before touching component state.
+///
+/// A form whose lines each draw from their own warehouse — Dispatch's four into the factory shop —
+/// constructs it with <c>multipleWarehouses: true</c>. Asking about a second warehouse then queues
+/// beside the first instead of replacing it, and the warehouses are read in turn: still one call in
+/// flight, so still one slot, however many warehouses the form names. Such a form drops a warehouse
+/// it no longer uses with <see cref="Cancel(string)"/>.
 /// </remarks>
 public sealed class StockRefreshBatcher : IDisposable
 {
@@ -55,8 +61,12 @@ public sealed class StockRefreshBatcher : IDisposable
     private readonly TimeProvider _timeProvider;
 
     private readonly object _gate = new();
-    private readonly HashSet<string> _pending = new(StringComparer.OrdinalIgnoreCase);
-    private string? _pendingWarehouse;
+
+    // Queued codes per warehouse, in the order the warehouses were first asked about. A single-warehouse
+    // batcher never holds more than one entry.
+    private readonly List<(string Warehouse, HashSet<string> Codes)> _pending = [];
+    private readonly bool _multipleWarehouses;
+    private string? _inFlightWarehouse;
     private CancellationTokenSource _cancellation = new();
     private bool _pumpRunning;
     private bool _disposed;
@@ -70,13 +80,15 @@ public sealed class StockRefreshBatcher : IDisposable
         ILogger logger,
         Func<StockRefreshBatch, Task> applyAsync,
         TimeSpan? window = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        bool multipleWarehouses = false)
     {
         _stockCache = stockCache;
         _logger = logger;
         _applyAsync = applyAsync;
         _window = window ?? DefaultWindow;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _multipleWarehouses = multipleWarehouses;
     }
 
     /// <summary>
@@ -95,17 +107,26 @@ public sealed class StockRefreshBatcher : IDisposable
             if (_disposed)
                 return;
 
-            if (!string.Equals(_pendingWarehouse, warehouseCode, StringComparison.OrdinalIgnoreCase))
+            var warehouse = warehouseCode.Trim();
+            var queue = QueueFor(warehouse);
+            if (queue is null)
             {
-                // The source moved. Nothing queued for the old warehouse is worth reading, and a
-                // call already in flight for it is holding a SAP slot to answer a question nobody
-                // is asking any more.
-                superseded = ReplaceCancellation();
-                _pending.Clear();
-                _pendingWarehouse = warehouseCode.Trim();
+                var current = _pending.Count > 0 ? _pending[0].Warehouse : _inFlightWarehouse;
+                if (!_multipleWarehouses && current is not null &&
+                    !string.Equals(current, warehouse, StringComparison.OrdinalIgnoreCase))
+                {
+                    // The source moved. Nothing queued for the old warehouse is worth reading, and a
+                    // call already in flight for it is holding a SAP slot to answer a question nobody
+                    // is asking any more.
+                    superseded = ReplaceCancellation();
+                    _pending.Clear();
+                }
+
+                queue = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                _pending.Add((warehouse, queue));
             }
 
-            _pending.Add(itemCode.Trim());
+            queue.Add(itemCode.Trim());
 
             if (!_pumpRunning)
             {
@@ -139,11 +160,35 @@ public sealed class StockRefreshBatcher : IDisposable
 
             superseded = ReplaceCancellation();
             _pending.Clear();
-            _pendingWarehouse = null;
         }
 
         superseded.Cancel();
     }
+
+    /// <summary>
+    /// Drops what is queued for one warehouse, and the call in flight if it is reading that
+    /// warehouse, leaving every other warehouse's work alone — for a form that has taken one of
+    /// several source warehouses off the transfer.
+    /// </summary>
+    public void Cancel(string warehouseCode)
+    {
+        CancellationTokenSource? superseded = null;
+
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            _pending.RemoveAll(entry => string.Equals(entry.Warehouse, warehouseCode, StringComparison.OrdinalIgnoreCase));
+            if (string.Equals(_inFlightWarehouse, warehouseCode, StringComparison.OrdinalIgnoreCase))
+                superseded = ReplaceCancellation();
+        }
+
+        superseded?.Cancel();
+    }
+
+    private HashSet<string>? QueueFor(string warehouse)
+        => _pending.FirstOrDefault(entry => string.Equals(entry.Warehouse, warehouse, StringComparison.OrdinalIgnoreCase)).Codes;
 
     public void Dispose()
     {
@@ -207,32 +252,46 @@ public sealed class StockRefreshBatcher : IDisposable
 
                 lock (_gate)
                 {
-                    if (_disposed || _pending.Count == 0 || _pendingWarehouse is null)
+                    if (_disposed || _pending.Count == 0)
                         continue;
 
-                    // The warehouse can only have changed by cancelling this token, so
-                    // _pendingWarehouse still names the batch that was waited for.
-                    warehouseCode = _pendingWarehouse;
-                    codes = _pending.Take(MaxItemsPerCall).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    _pending.ExceptWith(codes);
+                    // The oldest warehouse first. In single-warehouse mode the warehouse can only
+                    // have changed by cancelling this token, so this is the batch that was waited for.
+                    var (warehouse, queued) = _pending[0];
+                    warehouseCode = warehouse;
+                    codes = queued.Take(MaxItemsPerCall).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    queued.ExceptWith(codes);
+                    if (queued.Count == 0)
+                        _pending.RemoveAt(0);
+                    _inFlightWarehouse = warehouseCode;
                 }
 
-                IReadOnlyDictionary<string, ProductDto> stock;
                 try
                 {
-                    stock = await _stockCache.GetStockForItemsAsync(warehouseCode, codes, token);
-                }
-                catch (Exception ex) when (!token.IsCancellationRequested)
-                {
-                    // The lines keep whatever the warehouse-wide read gave them, but the batch is
-                    // still reported so their spinners stop.
-                    _logger.LogWarning(ex, "Failed to read stock for {Count} item(s) in {Warehouse}",
-                        codes.Count, warehouseCode);
-                    stock = new Dictionary<string, ProductDto>(StringComparer.OrdinalIgnoreCase);
-                }
+                    IReadOnlyDictionary<string, ProductDto> stock;
+                    try
+                    {
+                        stock = await _stockCache.GetStockForItemsAsync(warehouseCode, codes, token);
+                    }
+                    catch (Exception ex) when (!token.IsCancellationRequested)
+                    {
+                        // The lines keep whatever the warehouse-wide read gave them, but the batch is
+                        // still reported so their spinners stop.
+                        _logger.LogWarning(ex, "Failed to read stock for {Count} item(s) in {Warehouse}",
+                            codes.Count, warehouseCode);
+                        stock = new Dictionary<string, ProductDto>(StringComparer.OrdinalIgnoreCase);
+                    }
 
-                token.ThrowIfCancellationRequested();
-                await _applyAsync(new StockRefreshBatch(warehouseCode, codes, stock));
+                    token.ThrowIfCancellationRequested();
+                    await _applyAsync(new StockRefreshBatch(warehouseCode, codes, stock));
+                }
+                finally
+                {
+                    lock (_gate)
+                    {
+                        _inFlightWarehouse = null;
+                    }
+                }
             }
             catch (OperationCanceledException)
             {

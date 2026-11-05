@@ -896,6 +896,168 @@
     font-weight: 500;
 }
 
+/* ── Warehouse lists ───────────────────────────────────────────────────────
+   A template names warehouses on each end as a list, so the picks sit as chips
+   above the checkbox list: the list is filtered by the search, and a pick that
+   has scrolled or filtered out of view must still be visible and removable. */
+
+.apr-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--apr-s2);
+    margin-bottom: var(--apr-s3);
+}
+
+.apr-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 32px;
+    padding: 2px 3px 2px 10px;
+    border: 1px solid rgba(var(--apr-accent-rgb), .4);
+    border-radius: 7px;
+    background: rgba(var(--apr-accent-rgb), .12);
+    font-size: 12.5px;
+    color: var(--apr-ink);
+}
+
+.apr-chip-code {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.apr-chip-name {
+    max-width: 22ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--apr-mute-2);
+}
+
+.apr .apr-chip-x {
+    display: inline-grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--apr-mute-2);
+    cursor: pointer;
+}
+
+.apr .apr-chip-x:hover {
+    background: var(--apr-press);
+    color: var(--apr-ink);
+}
+
+.apr-block-hint {
+    margin: var(--apr-s2) 0 0;
+    font-size: 11.5px;
+    color: var(--apr-mute-3);
+    text-wrap: pretty;
+}
+
+/* ── Warehouse scope ───────────────────────────────────────────────────────
+   Radio cards rather than a select: each choice needs a sentence saying what it
+   does, and the three read side by side. The native radio stays in the DOM,
+   visually hidden by .apr-choice-check, so keyboard and screen readers keep it. */
+
+.apr-fieldset {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.apr-fieldset > legend {
+    float: none;
+    width: auto;
+    margin: 0 0 var(--apr-s3);
+    padding: 0;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.apr-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--apr-s3);
+}
+
+.apr-option {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-height: 44px;
+    margin: 0;
+    padding: 11px 12px;
+    border: 1px solid var(--apr-divider);
+    border-radius: var(--apr-r-md);
+    color: var(--apr-mute-2);
+    cursor: pointer;
+}
+
+.apr-option:hover {
+    border-color: var(--apr-field-edge-hi);
+}
+
+.apr-option-on {
+    border-color: rgba(var(--apr-accent-rgb), .55);
+    background: rgba(var(--apr-accent-rgb), .1);
+    color: var(--apr-ink);
+}
+
+.apr-option:has(input:focus-visible) {
+    outline: 2px solid var(--apr-accent);
+    outline-offset: 1px;
+}
+
+.apr-dot {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    margin-top: 1px;
+    border: 1px solid var(--apr-field-edge-hi);
+    border-radius: 50%;
+}
+
+.apr-dot-on {
+    border-color: var(--apr-accent);
+}
+
+.apr-dot-on::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--apr-box-on);
+}
+
+.apr-option-text {
+    min-width: 0;
+}
+
+.apr-option-name {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--apr-ink);
+}
+
+.apr-option-desc {
+    display: block;
+    margin-top: 3px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--apr-mute-2);
+    text-wrap: pretty;
+}
+
 /* ── Empty and loading ─────────────────────────────────────────────────── */
 
 .apr-rail-empty {

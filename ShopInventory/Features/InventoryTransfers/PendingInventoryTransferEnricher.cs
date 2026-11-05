@@ -58,7 +58,8 @@ public sealed class PendingInventoryTransferEnricher(
                 // Whoever raised the transfer, or changed it after approval, withdraws it instead.
                 InventoryTransferApprovalService.MayApprove(request, viewer.Id) &&
                 IsInScope(scope, pending.FromWarehouse) &&
-                stages.Any(stage => stage.Status == ApprovalRequestStatuses.Pending && IsAuthorizer(viewer, stage));
+                stages.Any(stage => stage.Status == ApprovalRequestStatuses.Pending &&
+                                    InventoryTransferApprovalService.CanAdvance(viewer, stage));
 
             results.Add(dto);
         }
@@ -74,9 +75,4 @@ public sealed class PendingInventoryTransferEnricher(
 
     private static bool IsInScope(IReadOnlyList<string>? scope, string fromWarehouse)
         => scope is null || scope.Contains(fromWarehouse, StringComparer.OrdinalIgnoreCase);
-
-    private static bool IsAuthorizer(User user, ApprovalStageProgressDto stage)
-        => string.Equals(user.Role, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase) ||
-           stage.AuthorizerUserIds.Contains(user.Id) ||
-           stage.AuthorizerRoles.Contains(user.Role, StringComparer.OrdinalIgnoreCase);
 }

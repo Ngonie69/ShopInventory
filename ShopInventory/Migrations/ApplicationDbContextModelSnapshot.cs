@@ -209,6 +209,9 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
+                    b.Property<string>("WarehouseCodesJson")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ApprovalRequestId", "StageId", "AuthorizerUserId")
@@ -247,8 +250,8 @@ namespace ShopInventory.Migrations
                         .HasColumnType("character varying(80)");
 
                     b.Property<string>("FromWarehouse")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
 
                     b.Property<DateTime?>("GeneratedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -296,8 +299,8 @@ namespace ShopInventory.Migrations
                         .HasColumnType("character varying(120)");
 
                     b.Property<string>("ToWarehouse")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
 
                     b.HasKey("Id");
 
@@ -314,6 +317,9 @@ namespace ShopInventory.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("ApprovalPerWarehouse")
+                        .HasColumnType("boolean");
 
                     b.Property<int>("ApprovalsRequired")
                         .HasColumnType("integer");
@@ -347,6 +353,11 @@ namespace ShopInventory.Migrations
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("WarehouseScope")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Name")
@@ -373,9 +384,9 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
 
-                    b.Property<string>("FromWarehouse")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                    b.Property<string>("FromWarehousesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -400,9 +411,9 @@ namespace ShopInventory.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("ToWarehouse")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                    b.Property<string>("ToWarehousesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");

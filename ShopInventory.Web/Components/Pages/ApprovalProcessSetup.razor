@@ -197,6 +197,58 @@
                         </div>
                     </div>
 
+                    <fieldset class="apr-fieldset">
+                        <legend class="apr-label">
+                            Authorizers must be assigned to
+                            <span class="apr-label-note">(administrators can always decide)</span>
+                        </legend>
+                        <div class="apr-options">
+                            @foreach (var option in ScopeOptions)
+                            {
+                                var on = editingStage.WarehouseScope == option.Value;
+                                <label class="apr-option @(on ? "apr-option-on" : "")">
+                                    <input type="radio" class="apr-choice-check" name="apr-stage-scope" checked="@on"
+                                           @onchange="() => SetScope(option.Value)" />
+                                    <span class="apr-dot @(on ? "apr-dot-on" : "")" aria-hidden="true"></span>
+                                    <span class="apr-option-text">
+                                        <span class="apr-option-name">@option.Name</span>
+                                        <span class="apr-option-desc">@option.Description</span>
+                                    </span>
+                                </label>
+                            }
+                        </div>
+                    </fieldset>
+
+                    @if (editingStage.WarehouseScope != ApprovalWarehouseScopes.Any)
+                    {
+                        var end = editingStage.WarehouseScope == ApprovalWarehouseScopes.Source ? "come from" : "go to";
+                        <fieldset class="apr-fieldset">
+                            <legend class="apr-label">When lines @end several warehouses</legend>
+                            <div class="apr-options">
+                                <label class="apr-option @(editingStage.ApprovalPerWarehouse ? "apr-option-on" : "")">
+                                    <input type="radio" class="apr-choice-check" name="apr-stage-per-warehouse"
+                                           checked="@editingStage.ApprovalPerWarehouse"
+                                           @onchange="() => editingStage.ApprovalPerWarehouse = true" />
+                                    <span class="apr-dot @(editingStage.ApprovalPerWarehouse ? "apr-dot-on" : "")" aria-hidden="true"></span>
+                                    <span class="apr-option-text">
+                                        <span class="apr-option-name">An approval from each warehouse</span>
+                                        <span class="apr-option-desc">A return to DISPYOG and DISPCH needs a stock officer from both.</span>
+                                    </span>
+                                </label>
+                                <label class="apr-option @(!editingStage.ApprovalPerWarehouse ? "apr-option-on" : "")">
+                                    <input type="radio" class="apr-choice-check" name="apr-stage-per-warehouse"
+                                           checked="@(!editingStage.ApprovalPerWarehouse)"
+                                           @onchange="() => editingStage.ApprovalPerWarehouse = false" />
+                                    <span class="apr-dot @(!editingStage.ApprovalPerWarehouse ? "apr-dot-on" : "")" aria-hidden="true"></span>
+                                    <span class="apr-option-text">
+                                        <span class="apr-option-name">An approval from any of them</span>
+                                        <span class="apr-option-desc">The first approval from any of those warehouses settles the stage.</span>
+                                    </span>
+                                </label>
+                            </div>
+                        </fieldset>
+                    }
+
                     <div>
                         <div class="apr-block-head">
                             <span class="apr-label">Specific authorizers</span>
@@ -353,45 +405,24 @@
                             </span>
                         </label>
                         <label class="apr-field">
-                            <span class="apr-label">Priority</span>
+                            <span class="apr-label">Priority <span class="apr-label-note">(higher wins)</span></span>
                             <input type="number" class="apr-input apr-input-num" @bind="editingTemplate.Priority" />
                         </label>
-                        <label class="apr-field">
-                            <span class="apr-label">From warehouse</span>
-                            <span class="apr-select">
-                                <select class="apr-input" @bind="editingTemplate.FromWarehouse">
-                                    <option value="">Any</option>
-                                    @foreach (var warehouse in warehouses)
-                                    {
-                                        <option value="@warehouse.WarehouseCode">
-                                            @warehouse.WarehouseCode &#8212; @warehouse.WarehouseName
-                                        </option>
-                                    }
-                                </select>
-                                <span class="apr-caret" aria-hidden="true"></span>
-                            </span>
-                        </label>
-                        <label class="apr-field">
-                            <span class="apr-label">To warehouse</span>
-                            <span class="apr-select">
-                                <select class="apr-input" @bind="editingTemplate.ToWarehouse">
-                                    <option value="">Any</option>
-                                    @foreach (var warehouse in warehouses)
-                                    {
-                                        <option value="@warehouse.WarehouseCode">
-                                            @warehouse.WarehouseCode &#8212; @warehouse.WarehouseName
-                                        </option>
-                                    }
-                                </select>
-                                <span class="apr-caret" aria-hidden="true"></span>
-                            </span>
-                        </label>
                     </div>
+
+                    @* A transfer's lines can each name their own warehouses, so a template holds a
+                       document only when every line's source and destination is on its lists. *@
+                    <ApprovalWarehouseChoices Label="From warehouses" Warehouses="warehouses"
+                                              Selected="editingTemplate.FromWarehouses"
+                                              Hint="Every line's source must be one of these. One line from anywhere else passes the document to the next template." />
+                    <ApprovalWarehouseChoices Label="To warehouses" Warehouses="warehouses"
+                                              Selected="editingTemplate.ToWarehouses"
+                                              Hint="Every line's destination must be one of these." />
 
                     <div>
                         <div class="apr-block-head">
                             <span class="apr-label">
-                                Approval stages <span class="apr-label-note">(in the order they run)</span>
+                                Approval stages <span class="apr-label-note">(each one must approve)</span>
                             </span>
                             <span class="apr-block-count">
                                 @editingTemplate.StageIds.Count of @SelectableStages.Count
@@ -632,14 +663,48 @@
     {
         var approvals = $"{stage.ApprovalsRequired} approval{(stage.ApprovalsRequired == 1 ? "" : "s")}";
         var rejections = $"{stage.RejectionsRequired} rejection{(stage.RejectionsRequired == 1 ? "" : "s")}";
-        return $"{approvals} · {rejections} · {StageUsageLabel(stage.Id)}";
+        var scope = stage.WarehouseScope switch
+        {
+            ApprovalWarehouseScopes.Destination => " · receiving warehouse",
+            ApprovalWarehouseScopes.Source => " · source warehouse",
+            _ => ""
+        };
+        return $"{approvals} · {rejections}{scope} · {StageUsageLabel(stage.Id)}";
     }
 
     private string TemplateMeta(ApprovalTemplateDefinitionModel template)
     {
         var count = template.StageIds.Count;
+        var route = template.FromWarehouses.Count == 0 && template.ToWarehouses.Count == 0
+            ? ""
+            : $" · {RouteEnd(template.FromWarehouses)} → {RouteEnd(template.ToWarehouses)}";
         return $"{FriendlyDocumentType(template.DocumentType)} · {count} stage{(count == 1 ? "" : "s")}"
-            + $" · priority {template.Priority}";
+            + $" · priority {template.Priority}{route}";
+    }
+
+    // A card has one short line for this, so a long list reads as its first code and a count.
+    private static string RouteEnd(List<string> codes) => codes.Count switch
+    {
+        0 => "any",
+        1 or 2 => string.Join(", ", codes),
+        _ => $"{codes[0]} +{codes.Count - 1}"
+    };
+
+    private sealed record ScopeOption(string Value, string Name, string Description);
+
+    private static readonly ScopeOption[] ScopeOptions =
+    [
+        new(ApprovalWarehouseScopes.Any, "Any warehouse", "Anyone holding the roles or names above can decide."),
+        new(ApprovalWarehouseScopes.Source, "The source warehouse", "Only those assigned to a warehouse the stock leaves from."),
+        new(ApprovalWarehouseScopes.Destination, "The receiving warehouse", "Only those assigned to a warehouse the stock is going to.")
+    ];
+
+    private void SetScope(string scope)
+    {
+        editingStage.WarehouseScope = scope;
+        // Per-warehouse counting means nothing on an unscoped stage, and the API refuses to store it.
+        if (scope == ApprovalWarehouseScopes.Any)
+            editingStage.ApprovalPerWarehouse = false;
     }
 
     private string StageUsageLabel(Guid stageId){var count=templates.Count(template=>template.StageIds.Contains(stageId));return count==0?"not used by a template":$"used by {count} template{(count==1?"":"s")}";}
@@ -653,8 +718,8 @@
         return ApiErrorResponse.NormalizeUserMessage(text) ?? text;
     }
     private static void Toggle<T>(List<T> list,T value,bool selected){if(selected){if(!list.Contains(value))list.Add(value);}else list.Remove(value);}
-    private static ApprovalStageDefinitionModel Clone(ApprovalStageDefinitionModel x)=>new(){Id=x.Id,Name=x.Name,Description=x.Description,ApprovalsRequired=x.ApprovalsRequired,RejectionsRequired=x.RejectionsRequired,AuthorizerUserIds=[..x.AuthorizerUserIds],AuthorizerRoles=[..x.AuthorizerRoles],IsActive=x.IsActive};
-    private static ApprovalTemplateDefinitionModel Clone(ApprovalTemplateDefinitionModel x)=>new(){Id=x.Id,Name=x.Name,Description=x.Description,DocumentType=x.DocumentType,OriginatorUserIds=[..x.OriginatorUserIds],OriginatorRoles=[..x.OriginatorRoles],StageIds=[..x.StageIds],FromWarehouse=x.FromWarehouse,ToWarehouse=x.ToWarehouse,Priority=x.Priority,IsActive=x.IsActive};
+    private static ApprovalStageDefinitionModel Clone(ApprovalStageDefinitionModel x)=>new(){Id=x.Id,Name=x.Name,Description=x.Description,ApprovalsRequired=x.ApprovalsRequired,RejectionsRequired=x.RejectionsRequired,AuthorizerUserIds=[..x.AuthorizerUserIds],AuthorizerRoles=[..x.AuthorizerRoles],WarehouseScope=x.WarehouseScope,ApprovalPerWarehouse=x.ApprovalPerWarehouse,IsActive=x.IsActive};
+    private static ApprovalTemplateDefinitionModel Clone(ApprovalTemplateDefinitionModel x)=>new(){Id=x.Id,Name=x.Name,Description=x.Description,DocumentType=x.DocumentType,OriginatorUserIds=[..x.OriginatorUserIds],OriginatorRoles=[..x.OriginatorRoles],StageIds=[..x.StageIds],FromWarehouses=[..x.FromWarehouses],ToWarehouses=[..x.ToWarehouses],Priority=x.Priority,IsActive=x.IsActive};
     private static string FriendlyRole(string role)=>role switch{"StockController"=>"Stock Officer","DepotController"=>"Depot Controller","WashBay"=>"Wash Bay",_=>role};
     private static string FriendlyDocumentType(string? documentType)=>documentType switch{"InventoryTransferRequest"=>"Transfer requests","InventoryTransfer"=>"Direct transfers",_=>documentType ?? "Unknown"};
 

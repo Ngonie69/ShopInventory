@@ -138,6 +138,18 @@ public sealed class CreateInventoryTransferHandler(
         if (string.IsNullOrWhiteSpace(request.ToWarehouse))
             return Errors.InventoryTransfer.ValidationFailed("A destination warehouse is required.");
 
+        // Lines can each name their own warehouses, so the header pair differing is not enough: a
+        // line from DISPYOG on a transfer whose header reads DISPCH to DISPYOG would move nothing.
+        var lines = request.Lines ?? [];
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var source = (lines[index].FromWarehouseCode ?? request.FromWarehouse)?.Trim();
+            var destination = (lines[index].ToWarehouseCode ?? request.ToWarehouse)?.Trim();
+            if (string.Equals(source, destination, StringComparison.OrdinalIgnoreCase))
+                return Errors.InventoryTransfer.ValidationFailed(
+                    $"Line {index + 1} moves stock from {source} to {destination}. A line's source and destination must differ.");
+        }
+
         // Catch obviously bad submissions now so an approver is not asked to sign off on a
         // transfer that could never post. Both checks run again at post time, which is
         // authoritative — stock can move while the transfer waits for approval.

@@ -398,4 +398,83 @@ public sealed class StockRefreshBatcherTests
         Assert.Contains("a1", batch.RequestedItemCodes);
         Assert.Equal(7m, batch.Stock["A1"].QuantityInStock);
     }
+
+    // ── A transfer drawing from several warehouses ──────────────────────────────────────────
+
+    [Fact]
+    public async Task Several_warehouses_are_each_read_one_call_at_a_time()
+    {
+        // Dispatch's four warehouses into the factory shop: each line reads its own source, and the
+        // form must still hold no more than one SAP slot.
+        var cache = new RecordingStockCache();
+        var batches = new List<StockRefreshBatch>();
+
+        using var batcher = new StockRefreshBatcher(
+            cache, NullLogger.Instance,
+            batch => { lock (batches) { batches.Add(batch); } return Task.CompletedTask; },
+            Window, clock, multipleWarehouses: true);
+
+        batcher.Request("DISPCH", "CHE011");
+        batcher.Request("DISPYOG", "YOG004");
+        batcher.Request("DISPCH", "CHE002");
+
+        await WaitFor(() => batches.Count == 2, "both warehouses to be read");
+
+        Assert.Equal(1, cache.PeakConcurrency);
+        Assert.False(cache.ObservedCancellation);
+        var cheese = Assert.Single(batches, batch => batch.WarehouseCode == "DISPCH");
+        Assert.Equal(["CHE002", "CHE011"], cheese.RequestedItemCodes.OrderBy(c => c, StringComparer.Ordinal));
+        var yoghurt = Assert.Single(batches, batch => batch.WarehouseCode == "DISPYOG");
+        Assert.Equal(["YOG004"], yoghurt.RequestedItemCodes);
+    }
+
+    [Fact]
+    public async Task Asking_about_a_second_warehouse_keeps_the_first_when_both_are_on_the_transfer()
+    {
+        var release = new TaskCompletionSource();
+        var cache = new RecordingStockCache(() => release.Task);
+        var batches = new List<StockRefreshBatch>();
+
+        using var batcher = new StockRefreshBatcher(
+            cache, NullLogger.Instance,
+            batch => { lock (batches) { batches.Add(batch); } return Task.CompletedTask; },
+            Window, clock, multipleWarehouses: true);
+
+        batcher.Request("DISPCH", "CHE011");
+        await WaitFor(() => cache.Calls.Count == 1, "the first call to start");
+
+        batcher.Request("DISPYOG", "YOG004");
+        release.SetResult();
+
+        await WaitFor(() => batches.Count == 2, "both batches to be applied");
+        Assert.False(cache.ObservedCancellation, "the first warehouse's read is still wanted");
+        Assert.Equal(["DISPCH", "DISPYOG"], batches.Select(batch => batch.WarehouseCode));
+    }
+
+    [Fact]
+    public async Task Taking_one_warehouse_off_cancels_only_its_read()
+    {
+        var release = new TaskCompletionSource();
+        var cache = new RecordingStockCache(() => release.Task);
+        var batches = new List<StockRefreshBatch>();
+
+        using var batcher = new StockRefreshBatcher(
+            cache, NullLogger.Instance,
+            batch => { lock (batches) { batches.Add(batch); } return Task.CompletedTask; },
+            Window, clock, multipleWarehouses: true);
+
+        batcher.Request("DISPCH", "CHE011");
+        await WaitFor(() => cache.Calls.Count == 1, "the first call to start");
+        batcher.Request("DISPYOG", "YOG004");
+
+        batcher.Cancel("DISPCH");
+        release.SetResult();
+
+        await WaitFor(() => batches.Count > 0, "the remaining warehouse to be read");
+        await SettleAsync();
+
+        Assert.True(cache.ObservedCancellation, "the dropped warehouse's read should have been cancelled");
+        var batch = Assert.Single(batches);
+        Assert.Equal("DISPYOG", batch.WarehouseCode);
+    }
 }
