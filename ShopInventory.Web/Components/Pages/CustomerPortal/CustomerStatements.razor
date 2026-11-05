@@ -236,14 +236,13 @@
                                 Ledger entries for @customerInfo.CardName between @PeriodLabel, with a running balance.
                             </caption>
                             <colgroup>
-                                <col /><col /><col /><col /><col /><col /><col /><col />
+                                <col /><col /><col /><col /><col /><col /><col />
                             </colgroup>
                             <thead>
                                 <tr>
                                     <th scope="col">Date</th>
                                     <th scope="col">Type</th>
                                     <th scope="col">Ref</th>
-                                    <th scope="col">Offset</th>
                                     <th scope="col">Details</th>
                                     <th scope="col" class="cst-num">Debit</th>
                                     <th scope="col" class="cst-num">Credit</th>
@@ -253,7 +252,7 @@
                             <tbody>
                                 <tr class="cst-row-open">
                                     <td data-label="Date" class="cst-date">@FormatDate(statement.FromDate)</td>
-                                    <td data-label="Summary" colspan="4" class="cst-row-label">Opening balance</td>
+                                    <td data-label="Summary" colspan="3" class="cst-row-label">Opening balance</td>
                                     <td data-label="Debit" class="cst-num cst-nil">&#8212;</td>
                                     <td data-label="Credit" class="cst-num cst-nil">&#8212;</td>
                                     <td data-label="Balance" class="cst-num cst-row-label">
@@ -270,7 +269,7 @@
                                 {
                                     var folded = FoldedLines;
                                     <tr class="cst-row-fold">
-                                        <td colspan="8">
+                                        <td colspan="7">
                                             <div class="cst-fold">
                                                 <span class="cst-fold-span">
                                                     @Pluralise(folded.Count, "entry", "entries") between
@@ -300,7 +299,7 @@
 
                                 <tr class="cst-row-close">
                                     <td data-label="Date" class="cst-date">@FormatDate(statement.ToDate)</td>
-                                    <td data-label="Summary" colspan="4" class="cst-row-label">Closing balance</td>
+                                    <td data-label="Summary" colspan="3" class="cst-row-label">Closing balance</td>
                                     <td data-label="Debit" class="cst-num cst-total">
                                         @FormatCurrency(statement.TotalDebits)
                                     </td>
@@ -723,7 +722,6 @@
             </span>
         </td>
         <td data-label="Ref" class="cst-ref">@(line.OriginNumber ?? line.DocumentNumber)</td>
-        <td data-label="Offset" class="cst-offset">@(line.OffsetAccount ?? "—")</td>
         @* One element between the cell and its contents, not two. On a phone the
            cell is a subgrid of [label | value], and a second child would be laid
            into the next row's label track — which put the Txn line in the

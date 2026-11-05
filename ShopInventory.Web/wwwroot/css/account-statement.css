@@ -536,7 +536,7 @@
 
 .cst .cst-ledger {
     width: 100%;
-    min-width: 880px;
+    min-width: 770px;
     border-collapse: collapse;
     font-size: 14px;
     font-variant-numeric: tabular-nums;
@@ -556,16 +556,12 @@
     width: 92px;
 }
 
-.cst .cst-ledger col:nth-child(4) {
-    width: 110px;
-}
-
-.cst .cst-ledger col:nth-child(6),
-.cst .cst-ledger col:nth-child(7) {
+.cst .cst-ledger col:nth-child(5),
+.cst .cst-ledger col:nth-child(6) {
     width: 118px;
 }
 
-.cst .cst-ledger col:nth-child(8) {
+.cst .cst-ledger col:nth-child(7) {
     width: 126px;
 }
 
@@ -619,10 +615,6 @@
     color: var(--cst-t70);
 }
 
-.cpx .cst .cst-ledger .cst-offset {
-    color: var(--cst-t60);
-}
-
 .cpx .cst .cst-ledger .cst-closing {
     color: var(--cst-accent-text);
 }
@@ -648,10 +640,6 @@
 }
 
 .cst .cst-ref {
-    font-size: 13px;
-}
-
-.cst .cst-offset {
     font-size: 13px;
 }
 
@@ -1013,7 +1001,7 @@
 
     /* The table box itself has to leave table layout, not just its rows. Left as
        `display: table` it keeps sizing itself from the column algorithm, and the
-       colgroup's 718px of fixed columns then shrink-wraps the card stack: at
+       colgroup's 608px of fixed columns then shrink-wraps the card stack: at
        768px the cards came out about 150px wide with two thirds of the row
        empty, while at 390px — where min-content already exceeded the container —
        the same markup looked right. Blocks all the way down, and `width: 100%`
