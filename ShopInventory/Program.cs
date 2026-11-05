@@ -525,6 +525,8 @@ try
 
     // Asks SAP whether it will accept a till sale's invoice, before the sale is taken and fiscalised.
     builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale.CounterSapStockCheck>();
+    // One per process: which warehouses' tills skip that check for now, after SAP timed out there.
+    builder.Services.AddSingleton<ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale.CounterSapCheckBackoff>();
 
     // Register inventory lock service - Prevents race conditions during concurrent invoice posting
     // PostgreSQL advisory locks keep inventory locking safe across multiple API instances.

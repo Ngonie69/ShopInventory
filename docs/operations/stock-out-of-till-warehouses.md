@@ -80,3 +80,19 @@ Do not credit or delete the sale. It has a fiscal receipt, so the invoice has to
 | Transfer request converted in ShopInventory (van loads) | `ConvertTransferRequestHandler` → `IUnpostedTillClaims` | #617 |
 | Approved transfer, desktop transfer, transfer queue, write-off, breakage | `StockValidationService.ValidateInventoryTransferStockAsync` | #617 |
 | Anything keyed in the SAP client | **This rule only** | — |
+
+### When SAP is slow, the till sells unchecked
+
+The till's check waits `DailyStock:CounterSapCheckSeconds` (15) for SAP. If SAP does not answer in
+time, the sale goes through unchecked and the API logs `Sold <sale> unchecked: SAP stock for <warehouse>
+did not answer within 15s`.
+
+SAP's stock reads tend to hang for minutes at a time, not one read at a time. So after a timeout, the
+warehouse's sales skip the check for `DailyStock:CounterSapBackoffSeconds` (120) and log `Sold <sale>
+unchecked: SAP stock for <warehouse> timed out recently, so it is not asked again until <time>`. The
+first sale after that time asks SAP again, and any check there that gets an answer ends the skip early.
+Set it to `0` to ask SAP on every sale. Each API process keeps its own skip, and a restart clears it.
+
+On 2026-11-04 the factory shop waited the full 15 seconds on 11 of its 21 sales between 15:00 and
+16:00. Sales sold unchecked are the ones most likely to hit "SAP has not accepted this sale" later, so
+check `/desktop-sales` after a slow afternoon.

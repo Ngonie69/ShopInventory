@@ -48,6 +48,12 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 /// "SAP did not answer within 15 seconds" while SAP held the stock. On a slow read, a sale that
 /// might be short is the smaller risk next to refusing every sale.</para>
 ///
+/// <para><b>One timeout stops the next sales asking.</b> A timed-out check sells unchecked anyway, so
+/// the wait buys nothing, and SAP's hangs last for minutes rather than one read. After a timeout the
+/// warehouse's sales skip SAP for <see cref="DailyStockSettings.CounterSapBackoffSeconds"/> and are
+/// logged as unchecked (<see cref="CounterSapCheckBackoff"/>). On 2026-11-04 the factory shop waited
+/// the full 15 seconds on 11 of 21 sales between 15:00 and 16:00.</para>
+///
 /// <para>Runs inside the sale's inventory locks, so two tills cannot both be told the last units are
 /// theirs, and before the ledger commit, so a refusal here has nothing to give back.</para>
 /// </remarks>
@@ -56,6 +62,7 @@ public sealed class CounterSapStockCheck(
     IBatchInventoryValidationService batchValidation,
     IStockLedger stockLedger,
     IOptions<DailyStockSettings> dailyStock,
+    CounterSapCheckBackoff backoff,
     ILogger<CounterSapStockCheck> logger)
 {
     public async Task<ErrorOr<Success>> CheckAsync(
@@ -71,6 +78,15 @@ public sealed class CounterSapStockCheck(
             logger.LogWarning(
                 "Sale {Reference} was not checked against SAP stock: DailyStock:CheckSapStockAtCounter is off",
                 reference);
+            return Result.Success;
+        }
+
+        if (backoff.SkippingUntil(warehouseCode) is { } skippingUntil)
+        {
+            logger.LogWarning(
+                "Sold {Reference} unchecked: SAP stock for {Warehouse} timed out recently, so it is not asked again until {SkipUntil:O}",
+                reference, warehouseCode, skippingUntil);
+
             return Result.Success;
         }
 
@@ -105,9 +121,21 @@ public sealed class CounterSapStockCheck(
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.LogWarning(
-                "Sold {Reference} unchecked: SAP stock for {Warehouse} did not answer within {Seconds}s",
-                reference, warehouseCode, seconds);
+            var skipUntil = backoff.TimedOut(
+                warehouseCode, TimeSpan.FromSeconds(Math.Max(0, settings.CounterSapBackoffSeconds)));
+
+            if (skipUntil is null)
+            {
+                logger.LogWarning(
+                    "Sold {Reference} unchecked: SAP stock for {Warehouse} did not answer within {Seconds}s",
+                    reference, warehouseCode, seconds);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Sold {Reference} unchecked: SAP stock for {Warehouse} did not answer within {Seconds}s; its sales skip the check until {SkipUntil:O}",
+                    reference, warehouseCode, seconds, skipUntil.Value);
+            }
 
             return Result.Success;
         }
@@ -121,6 +149,7 @@ public sealed class CounterSapStockCheck(
 
         if (allocation.IsValid)
         {
+            backoff.Answered(warehouseCode);
             return Result.Success;
         }
 
@@ -129,6 +158,11 @@ public sealed class CounterSapStockCheck(
         var refusals = allocation.ValidationErrors
             .Where(error => error.ErrorCode != BatchValidationErrorCode.StockUnknown)
             .ToList();
+
+        if (refusals.Count > 0)
+        {
+            backoff.Answered(warehouseCode);
+        }
 
         if (refusals.Count == 0)
         {

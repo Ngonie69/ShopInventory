@@ -68,8 +68,15 @@ public sealed class CounterSapStockCheckTests : IDisposable
     /// <summary>The clock the trading cut-off reads. Real unless a test is about the cut-off.</summary>
     private TimeProvider _clock = TimeProvider.System;
 
+    /// <summary>The clock the skip window after a timeout reads; tests move it on by hand.</summary>
+    private readonly MovableClock _backoffClock = new(new DateTimeOffset(2026, 11, 4, 13, 0, 0, TimeSpan.Zero));
+
+    /// <summary>One per test, as there is one per API process: it has to outlive a single sale.</summary>
+    private readonly CounterSapCheckBackoff _backoff;
+
     public CounterSapStockCheckTests()
     {
+        _backoff = new CounterSapCheckBackoff(_backoffClock);
         _connection = new SqliteConnection("Data Source=:memory:");
         _connection.Open();
 
@@ -255,6 +262,148 @@ public sealed class CounterSapStockCheckTests : IDisposable
 
         Assert.False(result.IsError);
         Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(10));
+    }
+
+    // ---------------------------------------------------------------
+    // After a timeout, the warehouse stops asking for a while
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// The factory shop on 2026-11-04: SAP's stock reads hung through the afternoon, and 11 of its 21
+    /// sales between 15:00 and 16:00 each waited the full 15 seconds before selling unchecked anyway.
+    /// The second sale here would have waited the same; it does not ask.
+    /// </summary>
+    [Fact]
+    public async Task After_a_timeout_the_next_sale_at_the_shop_sells_without_waiting_for_SAP()
+    {
+        await TimeOutOnceAsync();
+        var readsAfterTimeout = _batchReads;
+
+        var started = DateTime.UtcNow;
+        var result = await CheckAsync(Line(Cheese, 1m));
+
+        Assert.False(result.IsError);
+        Assert.Equal(readsAfterTimeout, _batchReads);
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>
+    /// The skip is a wait saved, not a refusal: during it SAP is not asked at all, so even a sale SAP
+    /// would have refused goes through, and is logged as unchecked. That is the trade the setting makes.
+    /// </summary>
+    [Fact]
+    public async Task During_the_skip_a_sale_SAP_would_have_refused_still_sells()
+    {
+        await TimeOutOnceAsync();
+        _batchRead = null;
+        _sapBatches.Add(("B1", 21m));
+
+        var result = await CheckAsync(Line(Cheese, 22m));
+
+        Assert.False(result.IsError);
+    }
+
+    [Fact]
+    public async Task Once_the_window_has_passed_SAP_is_asked_again_and_can_refuse()
+    {
+        await TimeOutOnceAsync();
+        _batchRead = null;
+        _sapBatches.Add(("B1", 21m));
+
+        _backoffClock.Now += TimeSpan.FromSeconds(_settings.CounterSapBackoffSeconds + 1);
+        var readsBefore = _batchReads;
+        var result = await CheckAsync(Line(Cheese, 22m));
+
+        Assert.True(_batchReads > readsBefore);
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopSales.SapStockShort", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task Another_warehouse_still_asks_SAP()
+    {
+        await TimeOutOnceAsync();
+        _batchRead = null;
+        var readsBefore = _batchReads;
+
+        var otherShop = new CreateDesktopSaleLineRequest
+        {
+            ItemCode = Cheese,
+            Quantity = 1m,
+            UnitPrice = 8.15m,
+            WarehouseCode = "KEFGRS"
+        };
+        await Check().CheckAsync([otherShop], "KEFGRS", "KEF-GRC-TEST", CancellationToken.None);
+
+        Assert.True(_batchReads > readsBefore);
+    }
+
+    [Fact]
+    public async Task With_the_window_set_to_zero_every_sale_asks_SAP()
+    {
+        _settings.CounterSapBackoffSeconds = 0;
+        await TimeOutOnceAsync();
+        _batchRead = null;
+        var readsBefore = _batchReads;
+
+        await CheckAsync(Line(Cheese, 1m));
+
+        Assert.True(_batchReads > readsBefore);
+    }
+
+    /// <summary>
+    /// A read that fails at once costs the cashier nothing to wait for, so it is no reason to stop
+    /// asking. Only running out of time is.
+    /// </summary>
+    [Fact]
+    public async Task A_read_that_fails_at_once_does_not_start_a_skip()
+    {
+        _batchRead = _ => Task.FromException<List<BatchNumber>>(new HttpRequestException("SAP is down"));
+        await CheckAsync(Line(Cheese, 1m));
+
+        _batchRead = null;
+        var readsBefore = _batchReads;
+        await CheckAsync(Line(Cheese, 1m));
+
+        Assert.True(_batchReads > readsBefore);
+    }
+
+    /// <summary>
+    /// A check that was already waiting when another timed out, and then got its answer, shows SAP is
+    /// reading again. The window ends there rather than running its full length.
+    /// </summary>
+    [Fact]
+    public void An_answer_from_SAP_ends_the_window_early()
+    {
+        _backoff.TimedOut(Shop, TimeSpan.FromMinutes(2));
+        Assert.NotNull(_backoff.SkippingUntil(Shop));
+
+        _backoff.Answered(Shop);
+
+        Assert.Null(_backoff.SkippingUntil(Shop));
+    }
+
+    [Fact]
+    public void The_window_is_per_warehouse_whatever_the_case()
+    {
+        _backoff.TimedOut("kefshop", TimeSpan.FromMinutes(2));
+
+        Assert.NotNull(_backoff.SkippingUntil("KEFSHOP"));
+        Assert.Null(_backoff.SkippingUntil("KEFGRS"));
+    }
+
+    /// <summary>A one-second budget and a read that never answers, so one sale times out.</summary>
+    private async Task TimeOutOnceAsync()
+    {
+        _settings.CounterSapCheckSeconds = 1;
+        _batchRead = async token =>
+        {
+            await Task.Delay(Timeout.Infinite, token);
+            return [];
+        };
+
+        var result = await CheckAsync(Line(Cheese, 1m));
+        Assert.False(result.IsError);
     }
 
     /// <summary>
@@ -514,6 +663,13 @@ public sealed class CounterSapStockCheckTests : IDisposable
         public override DateTimeOffset GetUtcNow() => now;
     }
 
+    private sealed class MovableClock(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = now;
+
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
     // ---------------------------------------------------------------
     // Posting date (the admin's switch, end to end)
     // ---------------------------------------------------------------
@@ -730,6 +886,7 @@ public sealed class CounterSapStockCheckTests : IDisposable
         Allocator(),
         Ledger(),
         Options.Create(_settings),
+        _backoff,
         NullLogger<CounterSapStockCheck>.Instance);
 
     private StockLedger Ledger() => new(_context, Options.Create(_settings), NullLogger<StockLedger>.Instance);
