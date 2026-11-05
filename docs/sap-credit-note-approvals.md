@@ -205,8 +205,10 @@ Nothing had ever exercised the value, which is how a dead host name survived: no
 `UploadAttachmentToSAPAsync` or `AppendAttachmentToSAPAsync`, and POD uploads go to
 `FileStorage:UploadPath`, a different location.
 
-The app pool identity still needs read access to the share, or `SAP:AttachmentsUsername` /
-`AttachmentsPassword` must be set. A wrong path is not silent: the read names it, as below.
+**That fix only reached `appsettings.json`, so production kept the dead host until 2026-11-05.** The
+API's `web.config` also sets `SAP__AttachmentsPath`, still to `\\kfdb\`, and `Update-Production.ps1`
+copies that variable from the package onto the server on every deploy, where it overrides
+`appsettings.json`. `ShippedAttachmentsPathTests` now fails if the two files name different folders.
 
 The refusal is reported in SAP's own words as `CreditNoteApproval.AttachmentUnavailable`, deliberately
 **not** `AttachmentNotFound`: the drawer is listing the file by name, and telling somebody it does not
@@ -242,6 +244,24 @@ that a download is broken.
 Note also that `Attachments2_Line.SourcePath` is where the person picked the file from — one row read
 `C:\Users\Alice.Manyangala\Documents` — so it is not a location any server can open. The share read
 uses the configured folder plus `FileName.FileExtension`.
+
+### Signing in to the share
+
+The share asks for a login. The API signs in with
+`SAP:AttachmentsUsername` / `SAP:AttachmentsPassword` (`SAP:AttachmentsDomain` is prefixed to a bare
+user name). Set them on the API server with `scripts/Set-SapAttachmentsShareLogin.ps1`, never in the
+repository, which is public. It prompts for the account, signs in with the same Windows call the API
+makes, reads a file from the folder (`-TestWrite` also writes and deletes one), and only then writes
+the values into the live and slot `web.config` files. `-TestOnly` checks an account without changing
+anything. Deployments carry the values forward from the live site.
+
+The sign-in is shared by the whole process (`NetworkShareConnections`): the first reader signs in, and
+the last one out disconnects. Windows does not count connections — two sign-ins to one share leave one
+entry, and one cancel removes it for both — so readers that each signed in and force-cancelled could
+cut each other off mid-read.
+
+A refused sign-in reaches the snackbar the same way as a folder the server cannot open, and names
+its reason: wrong password, locked out, or share not found.
 
 ### The service approver is on one stage of five
 
