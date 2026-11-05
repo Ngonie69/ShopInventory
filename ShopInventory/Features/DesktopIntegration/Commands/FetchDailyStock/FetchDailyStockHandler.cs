@@ -195,6 +195,20 @@ public sealed class FetchDailyStockHandler(
             var readsStartedAt = DateTime.UtcNow;
             var outstanding = await UnpostedSalesAsync(snapshotDate, warehouseCode, cancellationToken);
 
+            // A van's two reads for its opening, before SAP's stock for the same reason: what SAP had
+            // booked and been sent by now is inside the figure read next. See VanMorningOpening.
+            var isVan = IsVan(warehouseCode);
+            IReadOnlyList<BookedTransfer> bookedTransfers = [];
+            Dictionary<string, decimal> salesSapHas = [];
+
+            if (isVan)
+            {
+                bookedTransfers = await UndeliveredTransfers.ReadAsync(
+                    sapClient, warehouseCode, snapshotDate, logger, cancellationToken);
+                salesSapHas = await VanMorningOpening.SalesSapHasAsync(
+                    context, warehouseCode, snapshotDate, cancellationToken);
+            }
+
             logger.LogInformation("Fetching stock from SAP for warehouse {Warehouse}", warehouseCode);
 
             // Three reads, each answering something the others cannot.
@@ -280,6 +294,13 @@ public sealed class FetchDailyStockHandler(
                 snapshotDate, warehouseCode, readsStartedAt - MovementOverlap, cancellationToken);
             NetMovedWhileFetching(snapshotItems, movedMeanwhile, warehouseCode);
 
+            if (isVan)
+            {
+                await OpenVanForTheDayAsync(
+                    snapshotItems, snapshot.Id, snapshotDate, warehouseCode, bookedTransfers, salesSapHas,
+                    cancellationToken);
+            }
+
             context.DailyStockSnapshotItems.AddRange(snapshotItems);
 
             snapshot.Status = StockSnapshotStatus.Complete;
@@ -303,10 +324,88 @@ public sealed class FetchDailyStockHandler(
         }
         catch (Exception ex)
         {
+            // Whatever this attempt added is dropped first. When the save itself is what failed — a
+            // transfer webhook recording the same line a moment earlier, say — those rows would fail
+            // this save too, and the header would stay Pending, which nothing retries until a restart.
+            foreach (var added in context.ChangeTracker.Entries()
+                         .Where(entry => entry.State == EntityState.Added)
+                         .ToList())
+            {
+                added.State = EntityState.Detached;
+            }
+
             snapshot.Status = StockSnapshotStatus.Failed;
             snapshot.LastError = ex.Message;
             await context.SaveChangesAsync(cancellationToken);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// A van is every monitored warehouse the hourly reconciliation does not look after, the same
+    /// division <c>RefreshWarehouseStockHandler</c> makes.
+    /// </summary>
+    private bool IsVan(string warehouseCode) =>
+        !settings.Value.ReconcileWarehouses.Contains(warehouseCode, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Records the transfers SAP's figure holds that the listener has not delivered, then moves the
+    /// rows' opening from SAP's figure to the van's opening for the day.
+    /// </summary>
+    /// <remarks>
+    /// Recording them is what stops the listener's later delivery adding the same load to rows that
+    /// already hold it: the webhook skips a line it finds recorded. It also puts them among the day's
+    /// transfers, which is where <see cref="VanMorningOpening"/> takes them back out of the opening.
+    /// </remarks>
+    private async Task OpenVanForTheDayAsync(
+        List<DailyStockSnapshotItemEntity> rows,
+        int snapshotId,
+        DateTime snapshotDate,
+        string warehouseCode,
+        IReadOnlyList<BookedTransfer> bookedTransfers,
+        IReadOnlyDictionary<string, decimal> salesSapHas,
+        CancellationToken cancellationToken)
+    {
+        var transfers = await VanMorningOpening.TransfersRecordedAsync(
+            context, warehouseCode, snapshotDate, cancellationToken);
+
+        // Asked now, not when SAP's transfers were read, so a line delivered while SAP was being read
+        // is seen as delivered and left to the webhook's own row.
+        var undelivered = await UndeliveredTransfers.NotYetJournalledAsync(
+            context, warehouseCode, snapshotDate, bookedTransfers,
+            bookedTransfers.Select(transfer => transfer.ItemCode), cancellationToken);
+
+        foreach (var (itemCode, itemTransfers) in undelivered)
+        {
+            var signed = itemTransfers.Sum(transfer => transfer.Signed);
+            var heldInRows = rows
+                .Where(row => string.Equals(row.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
+                .Sum(row => row.AvailableQuantity);
+
+            // The journal then ends where the rows open: at SAP's figure, which holds these transfers.
+            UndeliveredTransfers.Record(context, snapshotDate, warehouseCode, itemTransfers, heldInRows - signed);
+            transfers[itemCode] = transfers.GetValueOrDefault(itemCode) + signed;
+
+            logger.LogInformation(
+                "Stock snapshot for {Warehouse}: {ItemCode} transfer(s) {DocNums} are in SAP's figure but not yet "
+                + "delivered by the listener; recorded now so the delivery does not add them again",
+                warehouseCode, itemCode, string.Join(", ", itemTransfers.Select(transfer => transfer.DocNum)));
+        }
+
+        var opening = VanMorningOpening.Apply(rows, snapshotId, warehouseCode, salesSapHas, transfers);
+
+        if (opening.ItemsMoved > 0)
+        {
+            logger.LogInformation(
+                "Stock snapshot for {Warehouse}: the {Day:yyyy-MM-dd} opening differs from SAP's figure for {Items} "
+                + "item(s), because the van had already loaded or sold them before SAP was read ({Transfers} item(s) "
+                + "moved by transfer, {Sales} sold and posted)",
+                warehouseCode, snapshotDate, opening.ItemsMoved, transfers.Count, salesSapHas.Count);
+        }
+
+        foreach (var problem in opening.Problems)
+        {
+            logger.LogWarning("Stock snapshot for {Warehouse}: {Problem}", warehouseCode, problem);
         }
     }
 
@@ -385,7 +484,8 @@ public sealed class FetchDailyStockHandler(
     ///
     /// <para>Shops only, the list the hourly reconciliation corrects. A van's row is its morning load,
     /// which the van reconciliation computes from; netting it would change the number that
-    /// reconciliation is built on.</para>
+    /// reconciliation is built on. A van read late is handled by <see cref="VanMorningOpening"/>
+    /// instead.</para>
     /// </remarks>
     private async Task<Dictionary<string, decimal>> UnpostedSalesAsync(
         DateTime snapshotDate,

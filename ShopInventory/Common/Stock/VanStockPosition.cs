@@ -10,8 +10,10 @@ namespace ShopInventory.Common.Stock;
 /// <remarks>
 /// <para>
 /// The stored <c>AvailableQuantity</c> moves only when a sale posts, so it lags the van and is not the
-/// answer. <c>OriginalQuantity</c> is SAP's book stock at the 07:00 read — a handset's count no longer
-/// becomes it, see <c>ReportVanSalesStockPositionHandler</c> — transfer adjustments are how a mid-day
+/// answer. <c>OriginalQuantity</c> is the van's opening for the day: SAP's book stock at the 07:00 read,
+/// or, for a read made later, that figure with the day's loads and posted sales before it undone (see
+/// <see cref="VanMorningOpening"/>). A handset's count no longer becomes it, see
+/// <c>ReportVanSalesStockPositionHandler</c>. Transfer adjustments are how a mid-day
 /// load reaches this system, and sales count whether or not they have posted, because the question is
 /// what is on the van, not what SAP has been told.
 /// </para>
@@ -29,8 +31,8 @@ namespace ShopInventory.Common.Stock;
 /// Only a finished read is a position. The read saves its header as Pending before it asks SAP, and
 /// leaves it Failed with no rows when SAP does not answer; either used to read here as a van that had
 /// opened carrying nothing, so every sale was refused as a shortfall of stock the van was holding.
-/// The retry through the day is for shops, so a van's unfinished read stays unfinished, and its
-/// position unknown, until the API restarts or someone fetches it by hand.
+/// A failed read is fetched again every ten minutes once SAP answers (see
+/// <c>DailyStockSnapshotJob</c>); until then the position is unknown.
 /// </para>
 /// </remarks>
 public static class VanStockPosition
@@ -81,16 +83,7 @@ public static class VanStockPosition
             .Select(group => new { ItemCode = group.Key, Quantity = group.Sum(a => a.AdjustmentQuantity) })
             .ToListAsync(cancellationToken);
 
-        // The CAT trading day in UTC terms: CAT runs two hours ahead, so the day opens at 22:00 UTC the
-        // evening before.
-        var from = tradingDate.AddHours(-2);
-        var to = from.AddDays(1);
-
-        var soldLines = db.DesktopSaleLines
-            .AsNoTracking()
-            .Where(line => line.WarehouseCode == warehouseCode
-                        && line.Sale.CreatedAt >= from
-                        && line.Sale.CreatedAt < to);
+        var soldLines = SaleLinesOfTheDay(db, warehouseCode, tradingDate);
 
         if (leaveOutSalesStillHeld)
         {
@@ -128,6 +121,31 @@ public static class VanStockPosition
             .ToList();
 
         return new VanStockPositionReading(true, items);
+    }
+
+    /// <summary>
+    /// The van's sale lines for the CAT trading day, whether or not they have posted.
+    /// </summary>
+    /// <remarks>
+    /// Shared with <see cref="VanMorningOpening"/>, which puts back the ones SAP already has when the
+    /// day's read is late. The two must pick the same sales, or a late read would put back units this
+    /// reading never takes off.
+    /// </remarks>
+    internal static IQueryable<DesktopSaleLineEntity> SaleLinesOfTheDay(
+        ApplicationDbContext db,
+        string warehouseCode,
+        DateTime tradingDate)
+    {
+        // The CAT trading day in UTC terms: CAT runs two hours ahead, so the day opens at 22:00 UTC the
+        // evening before.
+        var from = tradingDate.AddHours(-2);
+        var to = from.AddDays(1);
+
+        return db.DesktopSaleLines
+            .AsNoTracking()
+            .Where(line => line.WarehouseCode == warehouseCode
+                        && line.Sale.CreatedAt >= from
+                        && line.Sale.CreatedAt < to);
     }
 }
 
