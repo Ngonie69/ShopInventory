@@ -263,6 +263,31 @@ cut each other off mid-read.
 A refused sign-in reaches the snackbar the same way as a folder the server cannot open, and names
 its reason: wrong password, locked out, or share not found.
 
+`scripts/Get-SapAttachmentsStatus.ps1` reads all of this back on the API server without changing
+anything: per API site, which one holds the public port, each attachment setting the API will use and
+the file it came from, whether the share password is set (never the password itself), and the
+attachment warnings and errors in that site's own log.
+
+### Adding a draft with an attachment fails in SAP
+
+The share fixes reading. It cannot fix the add: `DraftsService_SaveDraftToDocument` runs entirely
+inside SAP, which copies the attachment onto the new credit note through the same unmounted folder.
+Production, 2026-11-05 15:33 CAT, draft 86380:
+
+```
+400 Attachments folder not defined, or Attachments folder has been changed or removed [Message 131-102]
+```
+
+Nothing is added. Until a SAP administrator gives the Service Layer that folder, a draft with an
+attachment can only be added in the SAP Business One client, and printing it there is what fiscalises
+it. The API recognises the refusal by its message number (`CreditNoteDraftAttachments.IsAttachmentsFolderRefusal`)
+and answers `CreditNoteApproval.AddBlockedByAttachmentsFolder`, which says exactly that. SAP's own words
+stay in the log and the audit entry.
+
+The page keeps the reason in the drawer after it re-reads the request, and closes the confirm dialog
+once SAP has answered. Before, the reason lived only on a snackbar that faded in about five seconds,
+leaving the dialog open and offering the same Add again.
+
 ### The service approver is on one stage of five
 
 `manager` is listed as an approver on `Jay Phil Tat` only. Of 100 sampled pending requests, 31 can be

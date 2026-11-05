@@ -435,19 +435,23 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         isSubmitting = true;
         StateHasChanged();
 
+        // Why the add was refused, kept past the reload below. The reason can be a paragraph saying
+        // what to do instead (SAP's attachments folder, for one), and a snackbar is gone in seconds.
+        string? refusal = null;
+
         try
         {
             var result = await Mediator.Send(new AddApprovedCreditNoteCommand(code, Guid.NewGuid().ToString("N")));
 
             if (result.IsError)
             {
-                detailError = result.FirstError.Description;
-                Snackbar.Add(result.FirstError.Description, Severity.Error);
+                refusal = result.FirstError.Description;
+                detailError = refusal;
+                Snackbar.Add(refusal, Severity.Error);
             }
             else
             {
                 detailError = null;
-                showAddConfirm = false;
                 Snackbar.Add(result.Value.Message, result.Value.Fiscalisation.Attempted && !result.Value.Fiscalisation.Success
                     ? Severity.Warning
                     : Severity.Success);
@@ -456,15 +460,26 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to add the credit note for SAP approval request {Code}", code);
-            detailError = "The credit note could not be added in SAP.";
-            Snackbar.Add(detailError, Severity.Error);
+            refusal = "The credit note could not be added in SAP.";
+            detailError = refusal;
+            Snackbar.Add(refusal, Severity.Error);
         }
         finally
         {
             isSubmitting = false;
+            // SAP has answered either way. Left open, the dialog covered the drawer and offered the
+            // same Add again once the snackbar had faded.
+            showAddConfirm = false;
         }
 
         await Task.WhenAll(LoadDetailAsync(code), LoadAsync());
+
+        // The reload clears detailError when the request reads back. A request that could not be read
+        // keeps the reload's own error instead, which says so.
+        if (refusal is not null && detailCode == code && detail is not null)
+        {
+            detailError = refusal;
+        }
     }
 
     /// <summary>

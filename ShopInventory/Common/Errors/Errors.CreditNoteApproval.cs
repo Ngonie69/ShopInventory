@@ -80,6 +80,21 @@ public static partial class Errors
         public static Error SapRejected(string message) =>
             Error.Failure("CreditNoteApproval.SapRejected", $"SAP refused the request: {message}");
 
+        /// <summary>
+        /// SAP would not add a draft that carries an attachment, because its Service Layer cannot reach
+        /// its own attachments folder. Only the SAP side can fix that; the B1 client can add the draft.
+        /// </summary>
+        /// <remarks>
+        /// SAP's own words ("Attachments folder not defined, or Attachments folder has been changed or
+        /// removed [Message 131-102]") name a setting the person who clicked Add has never seen, and say
+        /// neither that nothing was added nor what to do instead. They stay in the log and the audit.
+        /// </remarks>
+        public static readonly Error AddBlockedByAttachmentsFolder =
+            Error.Failure("CreditNoteApproval.AddBlockedByAttachmentsFolder",
+                "SAP would not add this credit note: it has an attachment, and SAP's server cannot reach its attachments folder. " +
+                "Nothing was added. Add it in the SAP Business One client instead, and print it there so it is fiscalised. " +
+                "Until SAP's administrator fixes that folder, credit notes with attachments can only be added in the client.");
+
         public static Error SapUnavailable(string message) =>
             Error.Failure("CreditNoteApproval.SapUnavailable", $"SAP could not be reached, and nothing was recorded: {message}");
 
