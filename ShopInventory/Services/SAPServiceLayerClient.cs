@@ -1,7 +1,6 @@
 ﻿using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -17780,62 +17779,6 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
     #region SAP Attachment Operations
 
-    private const int ResourceTypeDisk = 0x00000001;
-    private const int ConnectTemporary = 0x00000004;
-    private const int NoError = 0;
-    private const int ErrorAlreadyAssigned = 85;
-    private const int ErrorAccessDenied = 5;
-    private const int ErrorSessionCredentialConflict = 1219;
-    private const int ErrorLogonFailure = 1326;
-    private const int ErrorNotConnected = 2250;
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct NetResource
-    {
-        public int Scope;
-        public int Type;
-        public int DisplayType;
-        public int Usage;
-        public string? LocalName;
-        public string? RemoteName;
-        public string? Comment;
-        public string? Provider;
-    }
-
-    [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
-    private static extern int WNetAddConnection2(ref NetResource netResource, string? password, string? username, int flags);
-
-    [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
-    private static extern int WNetCancelConnection2(string name, int flags, bool force);
-
-    private sealed class SapShareConnection : IDisposable
-    {
-        private readonly string? _shareRoot;
-        private readonly ILogger _logger;
-        private readonly bool _disconnectOnDispose;
-
-        public SapShareConnection(string? shareRoot, ILogger logger, bool disconnectOnDispose)
-        {
-            _shareRoot = shareRoot;
-            _logger = logger;
-            _disconnectOnDispose = disconnectOnDispose;
-        }
-
-        public void Dispose()
-        {
-            if (!_disconnectOnDispose || string.IsNullOrWhiteSpace(_shareRoot) || !OperatingSystem.IsWindows())
-            {
-                return;
-            }
-
-            var result = WNetCancelConnection2(_shareRoot, 0, true);
-            if (result != NoError && result != ErrorNotConnected)
-            {
-                _logger.LogDebug("WNetCancelConnection2({ShareRoot}) returned {ErrorCode}", _shareRoot, result);
-            }
-        }
-    }
-
     private sealed class SapAttachmentFileInfo
     {
         public required string AttachmentsPath { get; init; }
@@ -17885,12 +17828,17 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         return _settings.AttachmentsUsername;
     }
 
-    private SapShareConnection ConnectToSapShareIfNeeded(string attachmentsPath)
+    /// <summary>
+    /// Signs in to the attachments share with <c>SAP:AttachmentsUsername</c> when one is configured,
+    /// for as long as the returned lease is held. Without one, the app pool's own identity is used and
+    /// nothing is signed in.
+    /// </summary>
+    private IDisposable ConnectToSapShareIfNeeded(string attachmentsPath)
     {
         var shareUsername = GetSapAttachmentsShareUsername();
         if (string.IsNullOrWhiteSpace(shareUsername))
         {
-            return new SapShareConnection(null, _logger, disconnectOnDispose: false);
+            return NetworkShareConnections.None;
         }
 
         if (!OperatingSystem.IsWindows())
@@ -17900,34 +17848,38 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         }
 
         var shareRoot = GetShareRoot(attachmentsPath);
-        var resource = new NetResource
+        try
         {
-            Type = ResourceTypeDisk,
-            RemoteName = shareRoot
-        };
-
-        var result = WNetAddConnection2(
-            ref resource,
-            string.IsNullOrWhiteSpace(_settings.AttachmentsPassword) ? null : _settings.AttachmentsPassword,
-            shareUsername,
-            ConnectTemporary);
-
-        if (result == NoError || result == ErrorAlreadyAssigned)
-        {
-            return new SapShareConnection(shareRoot, _logger, disconnectOnDispose: result == NoError);
+            return NetworkShareConnections.Windows.Acquire(
+                shareRoot,
+                shareUsername,
+                string.IsNullOrWhiteSpace(_settings.AttachmentsPassword) ? null : _settings.AttachmentsPassword);
         }
-
-        var errorMessage = result switch
+        catch (System.ComponentModel.Win32Exception refused)
         {
-            ErrorAccessDenied => "Access denied while authenticating to the SAP attachments share.",
-            ErrorLogonFailure => "The SAP attachments share username or password is invalid.",
-            ErrorSessionCredentialConflict =>
-                "Windows already has a connection to this share under different credentials for the current IIS worker session.",
-            _ => $"Failed to authenticate to SAP attachments share '{shareRoot}' (Win32 error {result})."
+            throw new InvalidOperationException(DescribeShareSignInFailure(shareRoot, refused.NativeErrorCode), refused);
+        }
+    }
+
+    /// <summary>
+    /// Why Windows refused to sign in to the attachments share, in words the person who clicked can
+    /// pass on. The codes named are the ones a wrong or stale share setting produces.
+    /// </summary>
+    internal static string DescribeShareSignInFailure(string shareRoot, int win32Error)
+    {
+        var reason = win32Error switch
+        {
+            5 => $"The account in SAP:AttachmentsUsername was refused access to '{shareRoot}'.",
+            53 or 67 => $"The share '{shareRoot}' was not found. Check the server and share name in SAP:AttachmentsPath.",
+            86 or 1326 => $"The user name or password for '{shareRoot}' is wrong (SAP:AttachmentsUsername / SAP:AttachmentsPassword).",
+            1219 => $"This server is already connected to '{shareRoot}' under a different account, and Windows allows only one per server.",
+            1909 => $"The account in SAP:AttachmentsUsername is locked out of '{shareRoot}'.",
+            _ => $"Could not sign in to '{shareRoot}': {new System.ComponentModel.Win32Exception(win32Error).Message} (Windows error {win32Error})."
         };
 
-        throw new InvalidOperationException(
-            errorMessage + " Configure SAP:AttachmentsUsername, SAP:AttachmentsPassword, and optionally SAP:AttachmentsDomain, or run the IIS app pool under an identity that has share access.");
+        return "The SAP attachments share sign-in failed. " + reason +
+            " Set the share's account with scripts/Set-SapAttachmentsShareLogin.ps1 on the API server," +
+            " or run the IIS app pool under an identity that has access to the share.";
     }
 
     private async Task<SapAttachmentFileInfo> CopyAttachmentToSapShareAsync(
