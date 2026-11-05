@@ -199,9 +199,14 @@ A van has no opening stock here in two windows:
 
 - **From midnight CAT until the morning read.** The van's snapshot is dated by the calendar day, and
   the day's row does not exist until the read writes it. Reps do sell in these hours.
-- **All day, when the morning read did not finish for that van.** The 10-minute retry is for shops
-  only, so nothing reads a van again that day unless the API restarts (the start-up catch-up fetches
-  every unfinished warehouse) or somebody fetches it by hand.
+- **Until SAP answers, when the morning read did not finish for that van.** The 10-minute retry fetches
+  every warehouse whose read failed, vans included, as soon as SAP is not held back. Until 2026-11-04 it
+  was for shops only, and that morning all fifteen vans had no figure from 07:00 until the API restarted
+  at 10:47. A read made after the van has loaded or sold is turned back into its opening for the day
+  (`VanMorningOpening`): SAP's figure, less the day's loads, plus the sales SAP has already had.
+
+When SAP's circuit opens during the 07:00 run, the run waits it out (up to three minutes in all) before
+the next warehouse and before the retry, instead of failing every warehouse after it in the same second.
 
 In either window a van sale goes through only if SAP answers its stock read. If SAP is held back or
 leaves that read unanswered, the sale is refused before the receipt is signed, with

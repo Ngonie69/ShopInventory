@@ -52,11 +52,17 @@ public sealed class DailyStockSnapshotJob : IJob
 
     /// <summary>
     /// The repeating trigger that re-reads the unbatched half of a finished snapshot missing it, and
-    /// fetches again a shop's snapshot for the day that failed or never started. Its Quartz identity
+    /// fetches again any snapshot for the day that failed or never started. Its Quartz identity
     /// carries the <c>-trigger</c> suffix every interval trigger gets. The name predates the second
     /// duty and is kept: a trigger renamed in code stays behind in the clustered store under its old one.
     /// </summary>
     public const string UnbatchedRetryTriggerName = "daily-stock-snapshot-unbatched-retry";
+
+    /// <summary>
+    /// The most one fetch run spends waiting for SAP's circuit to close, across all its warehouses.
+    /// See <see cref="WaitForSapAsync"/>.
+    /// </summary>
+    public static readonly TimeSpan SapWaitBudget = TimeSpan.FromMinutes(3);
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DailyStockSnapshotJob> _logger;
@@ -85,7 +91,7 @@ public sealed class DailyStockSnapshotJob : IJob
 
         if (context.Trigger.Key.Name == $"{UnbatchedRetryTriggerName}-trigger")
         {
-            await RetryFailedShopsAsync(scope, warehouses, today, context.CancellationToken);
+            await RetryFailedFetchesAsync(scope, warehouses, today, context.CancellationToken);
             await RetryUnbatchedAsync(scope, warehouses, today, context.CancellationToken);
             return;
         }
@@ -224,40 +230,42 @@ public sealed class DailyStockSnapshotJob : IJob
     }
 
     /// <summary>
-    /// Fetches again every shop whose snapshot for the day failed or was never started.
+    /// Fetches again every warehouse, shop or van, whose snapshot for the day failed or was never started.
     /// </summary>
     /// <remarks>
-    /// <para>The morning run retries a failed warehouse once, straight away. When SAP is down at 07:00
-    /// that retry fails too, and until this existed nothing tried again that day: a shop sold from
-    /// yesterday's snapshot until the next morning, when it had none it was allowed to sell from and
-    /// every sale was refused. Now the day's snapshot is fetched as soon as SAP answers, and the
-    /// fetch takes off every till sale SAP has not had, so the shop moves onto today's figures without
-    /// putting anything it sold back on the shelf.</para>
+    /// <para>The morning run retries a failed warehouse once. When SAP is down at 07:00 that retry fails
+    /// too, and until this existed nothing tried again that day: a shop sold from yesterday's snapshot
+    /// until the next morning, when it had none it was allowed to sell from and every sale was refused.
+    /// Now the day's snapshot is fetched as soon as SAP answers, and the fetch takes off every till sale
+    /// SAP has not had, so the shop moves onto today's figures without putting anything it sold back on
+    /// the shelf.</para>
     ///
-    /// <para>Shops only, the warehouses the hourly reconciliation looks after. A van's row is its
-    /// morning load, and a fetch in the middle of its day would change that number. Not Pending
-    /// snapshots either: something may still be building one, and the startup run is what finishes a
-    /// fetch a restart cut off.</para>
+    /// <para><b>Vans too, since 2026-11-04.</b> That morning SAP failed the 07:00 read for all fifteen
+    /// vans. The shops were fetched again by 07:21; the vans were left out of this retry and had no
+    /// figure until the API restarted at 10:47. Every van sale SAP did not answer for in between was
+    /// refused, eighteen of them, each after a minute's wait on the handset. The reason for leaving vans
+    /// out was that a read in the middle of a van's day would change its opening; the fetch now works
+    /// the opening out from a late read (see <see cref="VanMorningOpening"/>), as the startup run
+    /// already needed it to.</para>
+    ///
+    /// <para>Not Pending snapshots: something may still be building one, and the startup run is what
+    /// finishes a fetch a restart cut off.</para>
     ///
     /// <para>Skipped while SAP is held back, so an outage costs one database read per pass.</para>
     /// </remarks>
-    private async Task RetryFailedShopsAsync(
+    private async Task RetryFailedFetchesAsync(
         IServiceScope scope,
         IReadOnlyCollection<string> warehouses,
         DateTime today,
         CancellationToken ct)
     {
-        var shops = warehouses
-            .Where(code => _settings.ReconcileWarehouses.Contains(code, StringComparer.OrdinalIgnoreCase))
-            .ToList();
-
-        if (shops.Count == 0)
+        if (warehouses.Count == 0)
         {
             return;
         }
 
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var failed = (await UnfinishedAsync(db, shops, today, ct))
+        var failed = (await UnfinishedAsync(db, warehouses, today, ct))
             .Where(entry => entry.Status != StockSnapshotStatus.Pending)
             .ToList();
 
@@ -270,12 +278,12 @@ public sealed class DailyStockSnapshotJob : IJob
             && circuit.ShouldHoldBackWork(out var holdBackReason))
         {
             _logger.LogDebug(
-                "Not fetching {Count} shop snapshot(s) again yet: {Reason}.", failed.Count, holdBackReason);
+                "Not fetching {Count} snapshot(s) again yet: {Reason}.", failed.Count, holdBackReason);
             return;
         }
 
         _logger.LogWarning(
-            "{Count} shop(s) have no finished snapshot for {Day:yyyy-MM-dd}, fetching again: {Warehouses}",
+            "{Count} warehouse(s) have no finished snapshot for {Day:yyyy-MM-dd}, fetching again: {Warehouses}",
             failed.Count,
             today,
             string.Join(", ", failed.Select(entry => $"{entry.WarehouseCode} ({entry.Status?.ToString() ?? "none"})")));
@@ -310,10 +318,15 @@ public sealed class DailyStockSnapshotJob : IJob
             warehouses.Count);
 
         var handler = scope.ServiceProvider.GetRequiredService<FetchDailyStockHandler>();
+        var circuit = scope.ServiceProvider.GetService<SapCircuitBreakerState>();
+        var clock = scope.ServiceProvider.GetService<TimeProvider>() ?? TimeProvider.System;
+        var waitLeft = SapWaitBudget;
         var failedWarehouses = new List<string>();
 
         foreach (var warehouse in warehouses)
         {
+            waitLeft = await WaitForSapAsync(circuit, clock, waitLeft, warehouse, ct);
+
             try
             {
                 await handler.FetchWarehouseStockAsync(today, warehouse, ct);
@@ -328,6 +341,8 @@ public sealed class DailyStockSnapshotJob : IJob
         // Retry failed warehouses once
         foreach (var warehouse in failedWarehouses)
         {
+            waitLeft = await WaitForSapAsync(circuit, clock, waitLeft, warehouse, ct);
+
             try
             {
                 _logger.LogInformation("Retrying stock fetch for warehouse {Warehouse}", warehouse);
@@ -340,5 +355,53 @@ public sealed class DailyStockSnapshotJob : IJob
         }
 
         _logger.LogInformation("Daily stock snapshot fetch complete");
+    }
+
+    /// <summary>
+    /// Waits out SAP's circuit before the next fetch when it is open, if the run's budget allows.
+    /// </summary>
+    /// <remarks>
+    /// <para>On 2026-11-04 the circuit opened at 07:02:30 when SAP did not answer CORMACH2's batch read.
+    /// The run went straight on, so the twenty warehouses after it failed in under half a second without
+    /// SAP being asked, and the retry of each, which followed at once, failed the same way. The circuit
+    /// stays open for thirty seconds; waiting that out costs the run thirty seconds and gives every
+    /// warehouse after it a real attempt.</para>
+    ///
+    /// <para>Bounded across the whole run by <see cref="SapWaitBudget"/>, so a SAP that keeps failing
+    /// does not hold the job for long. Once the budget is spent the fetches go ahead and fail at once,
+    /// and the ten-minute retry picks them up when SAP answers. Not when SAP is switched off in Settings:
+    /// that does not lift by itself.</para>
+    /// </remarks>
+    /// <returns>What is left of the budget.</returns>
+    private async Task<TimeSpan> WaitForSapAsync(
+        SapCircuitBreakerState? circuit,
+        TimeProvider clock,
+        TimeSpan budget,
+        string warehouse,
+        CancellationToken ct)
+    {
+        if (circuit is null || circuit.IsSwitchedOff || !circuit.ShouldShortCircuit(out var retryAfter))
+        {
+            return budget;
+        }
+
+        // A moment past the reopening, so the first call after it is not refused on a rounding.
+        var wait = retryAfter + TimeSpan.FromSeconds(1);
+
+        if (wait > budget)
+        {
+            _logger.LogWarning(
+                "SAP's circuit is open for another {RetryAfter}, longer than the {Budget} this run has left to wait; "
+                + "fetching {Warehouse} anyway, and the ten-minute retry will fetch it again if it fails",
+                retryAfter, budget, warehouse);
+            return budget;
+        }
+
+        _logger.LogInformation(
+            "SAP's circuit is open for another {RetryAfter}; waiting before fetching {Warehouse}",
+            retryAfter, warehouse);
+
+        await Task.Delay(wait, clock, ct);
+        return budget - wait;
     }
 }

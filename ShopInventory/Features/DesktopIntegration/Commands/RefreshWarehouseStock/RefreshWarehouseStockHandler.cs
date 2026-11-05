@@ -45,9 +45,9 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseSto
 /// cycle runs about twenty seconds against a thirty-second client timeout, and on 2026-10-22 VAN006's
 /// press came back "the transfer listener is still checking SAP" with nothing applied. Reading SAP here
 /// is one transfer query for one van, and the listener's later delivery of the same line is skipped
-/// by the webhook's duplicate check. A transfer SAP created after midnight but before the 07:00 fetch
-/// that the listener never delivered is applied on top of a morning figure that already holds it —
-/// the same double count the listener makes when it delivers such a line late, so nothing new.</para>
+/// by the webhook's duplicate check. A transfer SAP booked before the van's morning read that the
+/// listener had not delivered is recorded by that read (see <see cref="VanMorningOpening"/>), so this
+/// finds it already on the ledger and leaves it.</para>
 ///
 /// <para><b>Refuses rather than guesses.</b> A warehouse that is not monitored at all is refused. So
 /// is a snapshot still being fetched, and a SAP read that comes back empty — OITW holds a row for

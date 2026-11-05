@@ -31,6 +31,10 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
     private const string Shop = "KEFSHOP";
     private const string Machine = "CORMACH";
     private const string Groceries = "KEFGRS";
+    private const string Van = "VAN006";
+
+    /// <summary>A warehouse whose first batch read fails and opens the circuit, as CORMACH2's did.</summary>
+    private (string Warehouse, SapCircuitBreakerState Circuit)? _failOnceAndOpen;
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
@@ -149,7 +153,7 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
     {
         var shop = await SeedAsync(Shop, StockSnapshotStatus.Complete, unbatchedMissing: true);
         await SeedAsync(Machine, StockSnapshotStatus.Complete);
-        await SeedAsync(Groceries, StockSnapshotStatus.Failed);
+        await SeedAsync(Groceries, StockSnapshotStatus.Complete);
         await SeedRowAsync(shop, Shop, "CHE011", "B-1", 3m);
 
         // One unbatched item, and the batch-managed one again: the retry must not add a second row
@@ -162,8 +166,8 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
 
         await RunAsync($"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
 
-        // The batch rows the tills are selling from are not read again, and neither is a Failed
-        // warehouse: the retry only fills the missing half.
+        // The batch rows the tills are selling from are not read again: the retry only fills the
+        // missing half.
         Assert.Empty(_sapReads);
         Assert.Equal([Shop], _unbatchedReads);
 
@@ -186,6 +190,8 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
     public async Task A_retry_that_fails_again_leaves_the_flag_for_the_next_one()
     {
         await SeedAsync(Shop, StockSnapshotStatus.Complete, unbatchedMissing: true);
+        await SeedAsync(Machine, StockSnapshotStatus.Complete);
+        await SeedAsync(Groceries, StockSnapshotStatus.Complete);
         _unbatchedReadFails = true;
 
         // SAP alone. The listener fallback has tests of its own.
@@ -203,6 +209,7 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
     {
         await SeedAsync(Shop, StockSnapshotStatus.Complete);
         await SeedAsync(Machine, StockSnapshotStatus.Pending);
+        await SeedAsync(Groceries, StockSnapshotStatus.Complete);
 
         await RunAsync($"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
 
@@ -247,15 +254,78 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
     [Fact]
     public async Task The_retry_fetches_again_a_shop_whose_snapshot_failed_or_never_started()
     {
-        _settings.ReconcileWarehouses.AddRange([Shop, Machine]);
+        _settings.ReconcileWarehouses.AddRange([Shop, Machine, Groceries]);
         await SeedAsync(Shop, StockSnapshotStatus.Failed);
 
         await RunAsync($"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
 
-        // Groceries has no snapshot either, but it is not a shop the reconciliation looks after.
-        Assert.Equal([Shop, Machine], _sapReads);
+        Assert.Equal([Shop, Machine, Groceries], _sapReads);
         Assert.Equal(StockSnapshotStatus.Complete, await StatusAsync(Shop));
         Assert.Equal(StockSnapshotStatus.Complete, await StatusAsync(Machine));
+    }
+
+    /// <summary>
+    /// 2026-11-04: SAP failed the 07:00 read for every van. The retry fetched the shops again by 07:21
+    /// and left the vans, which had no figure until the API restarted at 10:47.
+    /// </summary>
+    [Fact]
+    public async Task The_retry_fetches_again_a_van_whose_snapshot_failed()
+    {
+        _settings.MonitoredWarehouses = [Shop, Van];
+        _settings.ReconcileWarehouses.Add(Shop);
+        await SeedAsync(Shop, StockSnapshotStatus.Complete);
+        await SeedAsync(Van, StockSnapshotStatus.Failed);
+
+        await RunAsync($"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
+
+        Assert.Equal([Van], _sapReads);
+        Assert.Equal(StockSnapshotStatus.Complete, await StatusAsync(Van));
+    }
+
+    // ── The morning run, when SAP's circuit opens ───────
+
+    /// <summary>
+    /// 2026-11-04 07:02:30: the circuit opened on CORMACH2, and the run went straight on, so every
+    /// warehouse after it and every retry failed in under half a second without SAP being asked.
+    /// </summary>
+    [Fact]
+    public async Task The_morning_run_waits_out_an_open_circuit_before_the_next_warehouse()
+    {
+        var circuit = OpeningCircuit(breakSeconds: 30);
+        _failOnceAndOpen = (Shop, circuit);
+        var clock = new RecordedDelays();
+
+        await RunAsync($"{DailyStockSnapshotJob.JobName}-trigger", circuit, clock);
+
+        // The wait came after the shop's failure and before the next read, and the shop was tried again.
+        Assert.Equal([Shop, Machine, Groceries, Shop], _sapReads);
+        Assert.NotEmpty(clock.Waits);
+        Assert.InRange(clock.Waits[0], TimeSpan.FromSeconds(29), TimeSpan.FromSeconds(32));
+        Assert.Equal(StockSnapshotStatus.Complete, await StatusAsync(Shop));
+    }
+
+    [Fact]
+    public async Task The_morning_run_does_not_wait_longer_than_its_budget()
+    {
+        var circuit = OpeningCircuit(breakSeconds: (int)DailyStockSnapshotJob.SapWaitBudget.TotalSeconds + 60);
+        _failOnceAndOpen = (Shop, circuit);
+        var clock = new RecordedDelays();
+
+        await RunAsync($"{DailyStockSnapshotJob.JobName}-trigger", circuit, clock);
+
+        Assert.Empty(clock.Waits);
+        Assert.Equal([Shop, Machine, Groceries, Shop], _sapReads);
+    }
+
+    [Fact]
+    public async Task With_the_circuit_closed_the_morning_run_does_not_wait()
+    {
+        var clock = new RecordedDelays();
+
+        await RunAsync($"{DailyStockSnapshotJob.JobName}-trigger", OpeningCircuit(breakSeconds: 30), clock);
+
+        Assert.Empty(clock.Waits);
+        Assert.Equal([Shop, Machine, Groceries], _sapReads);
     }
 
     [Fact]
@@ -263,6 +333,8 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
     {
         _settings.ReconcileWarehouses.Add(Shop);
         await SeedAsync(Shop, StockSnapshotStatus.Pending);
+        await SeedAsync(Machine, StockSnapshotStatus.Complete);
+        await SeedAsync(Groceries, StockSnapshotStatus.Complete);
 
         await RunAsync($"{DailyStockSnapshotJob.UnbatchedRetryTriggerName}-trigger");
 
@@ -452,7 +524,64 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
             .SingleAsync(snapshot => snapshot.WarehouseCode == warehouse && snapshot.SnapshotDate == Today))
         .Status;
 
-    private async Task RunAsync(string triggerName, SapCircuitBreakerState? circuit = null)
+    /// <summary>A circuit that opens on its first failure and stays open for <paramref name="breakSeconds"/>.</summary>
+    private static SapCircuitBreakerState OpeningCircuit(int breakSeconds) =>
+        new(Options.Create(new SAPSettings
+        {
+            CircuitFailureThreshold = 1,
+            CircuitBreakDurationSeconds = breakSeconds
+        }));
+
+    /// <summary>
+    /// A clock whose delays end at once, recording how long each was asked to be.
+    /// </summary>
+    private sealed class RecordedDelays : TimeProvider
+    {
+        public List<TimeSpan> Waits { get; } = [];
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            new Timer(this, callback, state, dueTime);
+
+        private sealed class Timer : ITimer
+        {
+            private readonly RecordedDelays _owner;
+            private readonly TimerCallback _callback;
+            private readonly object? _state;
+
+            public Timer(RecordedDelays owner, TimerCallback callback, object? state, TimeSpan dueTime)
+            {
+                _owner = owner;
+                _callback = callback;
+                _state = state;
+                Change(dueTime, Timeout.InfiniteTimeSpan);
+            }
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                if (dueTime == Timeout.InfiniteTimeSpan)
+                {
+                    return true;
+                }
+
+                lock (_owner.Waits)
+                {
+                    _owner.Waits.Add(dueTime);
+                }
+
+                // On the pool, after the caller has finished setting the timer up.
+                ThreadPool.QueueUserWorkItem(_ => _callback(_state));
+                return true;
+            }
+
+            public void Dispose()
+            {
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private async Task RunAsync(string triggerName, SapCircuitBreakerState? circuit = null, TimeProvider? clock = null)
     {
         var handler = new FetchDailyStockHandler(
             _context,
@@ -470,6 +599,11 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
         if (circuit is not null)
         {
             services.AddSingleton(circuit);
+        }
+
+        if (clock is not null)
+        {
+            services.AddSingleton(clock);
         }
 
         var job = new DailyStockSnapshotJob(
@@ -504,6 +638,16 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
                 case nameof(ISAPServiceLayerClient.GetAllBatchNumbersInWarehouseAsync):
                     var warehouse = (string)args![0]!;
                     _sapReads.Add(warehouse);
+
+                    if (_failOnceAndOpen is { } failing
+                        && string.Equals(failing.Warehouse, warehouse, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _failOnceAndOpen = null;
+                        failing.Circuit.RecordFailure("SAP did not answer the batch read within its deadline");
+                        return Task.FromException<List<BatchNumber>>(
+                            new TimeoutException("SAP stock read exceeded its 60-second budget"));
+                    }
+
                     return Task.FromResult(new List<BatchNumber>
                     {
                         new() { ItemCode = "CHE011", ItemName = "Feta 1kg", BatchNum = "B-1", Quantity = 4m, ExpiryDate = "2026-10-01" },
@@ -525,6 +669,10 @@ public sealed class DailyStockStartupCatchUpTests : IDisposable
                     }
 
                     return Task.FromResult(_unbatchedStock.ToList());
+
+                // Read ahead of a van's stock; no transfers today.
+                case nameof(ISAPServiceLayerClient.GetStockTransfersCreatedAsync):
+                    return Task.FromResult(new List<SapStockMovementDocument>());
 
                 default:
                     throw new InvalidOperationException($"Unexpected SAP call: {method.Name}");
