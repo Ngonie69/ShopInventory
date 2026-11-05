@@ -6,6 +6,7 @@
 @inject IInventoryTransferService TransferService
 @inject IMasterDataCacheService CacheService
 @inject IWarehouseStockCacheService StockCacheService
+@inject IApprovalProcessService ApprovalService
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateInventoryTransfer> Logger
 @inject IJSRuntime JS
@@ -19,7 +20,11 @@
 @* Styles live in wwwroot/css/transfer-forms.css (linked from App.razor), shared with
    /transfer-request/create — the two forms are the same document in two moods, so they
    are dressed from one sheet. Every control is native HTML: the MudBlazor autocompletes
-   and date pickers this page was built from are gone. *@
+   and date pickers this page was built from are gone.
+
+   One transfer can draw from several warehouses into one (Dispatch's four into the factory
+   shop) or from one out to several (the shop's returns). SAP takes each line's own
+   FromWarehouseCode and WarehouseCode, so either still posts as one document. *@
 
 <div class="tfm">
     <div class="tfm-shell">
@@ -36,10 +41,10 @@
                     <span class="tfm-spin"></span>Loading master data&hellip;
                 </span>
             }
-            else if (isLoadingStock)
+            else if (IsLoadingStock)
             {
                 <span class="tfm-pill is-loading">
-                    <span class="tfm-spin"></span>Updating stock for @selectedFromWarehouse?.WarehouseCode&hellip;
+                    <span class="tfm-spin"></span>Updating stock for @string.Join(", ", loadingStockFor)&hellip;
                 </span>
             }
             else
@@ -71,8 +76,7 @@
                 <div class="tfm-stat">
                     <div class="tfm-stat-k">Route</div>
                     <div class="tfm-stat-v">
-                        @(selectedFromWarehouse?.WarehouseCode ?? "—") &rarr;
-                        @(selectedToWarehouse?.WarehouseCode ?? "—")
+                        @RouteEndLabel(sources, "sources") &rarr; @RouteEndLabel(destinations, "warehouses")
                     </div>
                 </div>
             </div>
@@ -130,37 +134,80 @@
                     <div class="tfm-card-hd">
                         <i class="ph ph-buildings"></i>
                         <h2>Warehouses</h2>
+                        <span class="tfm-note">Several on one end: sources into one, or one out to several</span>
                     </div>
                     <div class="tfm-card-bd tfm-fields">
                         <div class="tfm-lab tfm-span2">
-                            <label class="tfm-lab-t" for="tfm-from-wh">From warehouse <span class="tfm-req">*</span></label>
-                            <NocturnePicker Class="npick-block" Id="tfm-from-wh" Options="warehouseOptions"
-                                            Value="@selectedFromWarehouse?.WarehouseCode"
-                                            ValueChanged="@(code => OnFromWarehouseChangedAsync(code))"
+                            <label class="tfm-lab-t" for="tfm-from-wh">From warehouse@(MultiSource ? "s" : "") <span class="tfm-req">*</span></label>
+                            @if (sources.Count > 0)
+                            {
+                                <ul class="tfm-chips" aria-label="Source warehouses">
+                                    @foreach (var warehouse in sources)
+                                    {
+                                        <li class="tfm-chip">
+                                            <span class="tfm-chip-code">@warehouse.WarehouseCode</span>
+                                            @if (!string.IsNullOrWhiteSpace(warehouse.WarehouseName))
+                                            {
+                                                <span class="tfm-chip-name" title="@warehouse.WarehouseName">@warehouse.WarehouseName</span>
+                                            }
+                                            <button type="button" class="tfm-chip-x" aria-label="Remove @warehouse.WarehouseCode"
+                                                    @onclick="() => RemoveSourceAsync(warehouse)">@RemoveGlyph</button>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            <NocturnePicker Class="npick-block" Id="tfm-from-wh" Options="AvailableSourceOptions"
+                                            Value="@null" AllowClear="false"
+                                            ValueChanged="@(code => AddSourceAsync(code))"
                                             Loading="isLoadingMasterData" LoadingText="Loading warehouses…"
                                             Invalid="@(FromWarehouseError is not null)"
-                                            Placeholder="Select source warehouse…"
-                                            EmptyText="No warehouses loaded"
-                                            AriaLabel="From warehouse" />
+                                            Placeholder="@(sources.Count == 0 ? "Select source warehouse…" : "Add another source warehouse…")"
+                                            EmptyText="No more warehouses"
+                                            AriaLabel="@(sources.Count == 0 ? "From warehouse" : "Add another source warehouse")" />
                             @if (FromWarehouseError is not null)
                             {
                                 <div class="tfm-field-err">@FromWarehouseError</div>
                             }
+                            else if (MultiSource)
+                            {
+                                <div class="tfm-field-hint">Each line names the warehouse it comes from.</div>
+                            }
                         </div>
 
                         <div class="tfm-lab tfm-span2">
-                            <label class="tfm-lab-t" for="tfm-to-wh">To warehouse <span class="tfm-req">*</span></label>
-                            <NocturnePicker Class="npick-block npick-end" Id="tfm-to-wh" Options="warehouseOptions"
-                                            Value="@selectedToWarehouse?.WarehouseCode"
-                                            ValueChanged="@(code => OnToWarehouseChanged(code))"
+                            <label class="tfm-lab-t" for="tfm-to-wh">To warehouse@(MultiDestination ? "s" : "") <span class="tfm-req">*</span></label>
+                            @if (destinations.Count > 0)
+                            {
+                                <ul class="tfm-chips" aria-label="Destination warehouses">
+                                    @foreach (var warehouse in destinations)
+                                    {
+                                        <li class="tfm-chip">
+                                            <span class="tfm-chip-code">@warehouse.WarehouseCode</span>
+                                            @if (!string.IsNullOrWhiteSpace(warehouse.WarehouseName))
+                                            {
+                                                <span class="tfm-chip-name" title="@warehouse.WarehouseName">@warehouse.WarehouseName</span>
+                                            }
+                                            <button type="button" class="tfm-chip-x" aria-label="Remove @warehouse.WarehouseCode"
+                                                    @onclick="() => RemoveDestinationAsync(warehouse)">@RemoveGlyph</button>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            <NocturnePicker Class="npick-block npick-end" Id="tfm-to-wh" Options="AvailableDestinationOptions"
+                                            Value="@null" AllowClear="false"
+                                            ValueChanged="@(code => AddDestinationAsync(code))"
                                             Loading="isLoadingMasterData" LoadingText="Loading warehouses…"
                                             Invalid="@(ToWarehouseError is not null)"
-                                            Placeholder="Select destination warehouse…"
-                                            EmptyText="No warehouses loaded"
-                                            AriaLabel="To warehouse" />
+                                            Placeholder="@(destinations.Count == 0 ? "Select destination warehouse…" : "Add another destination warehouse…")"
+                                            EmptyText="No more warehouses"
+                                            AriaLabel="@(destinations.Count == 0 ? "To warehouse" : "Add another destination warehouse")" />
                             @if (ToWarehouseError is not null)
                             {
                                 <div class="tfm-field-err">@ToWarehouseError</div>
+                            }
+                            else if (MultiDestination)
+                            {
+                                <div class="tfm-field-hint">Each line names the warehouse it goes to.</div>
                             }
                         </div>
 
@@ -177,29 +224,15 @@
                     </div>
 
                     <div class="tfm-route">
-                        <div class="tfm-route-end">
-                            <div class="tfm-route-k">From</div>
-                            <div class="tfm-route-v @(selectedFromWarehouse is null ? "is-empty" : "")">
-                                @(selectedFromWarehouse?.WarehouseCode ?? "Not selected")
-                            </div>
-                            @if (selectedFromWarehouse is not null)
-                            {
-                                <div class="tfm-route-sub">@selectedFromWarehouse.WarehouseName</div>
-                            }
-                        </div>
+                        @RouteEnd("From", sources)
                         <i class="ph ph-arrow-right tfm-route-arrow"></i>
-                        <div class="tfm-route-end">
-                            <div class="tfm-route-k">To</div>
-                            <div class="tfm-route-v @(selectedToWarehouse is null ? "is-empty" : "")">
-                                @(selectedToWarehouse?.WarehouseCode ?? "Not selected")
-                            </div>
-                            @if (selectedToWarehouse is not null)
-                            {
-                                <div class="tfm-route-sub">@selectedToWarehouse.WarehouseName</div>
-                            }
-                        </div>
+                        @RouteEnd("To", destinations)
                         <span class="tfm-spacer"></span>
-                        <span class="tfm-note">Stock is shown for the source warehouse</span>
+                        <span class="tfm-note">
+                            @(MultiSource || MultiDestination
+                                ? "Posts as one SAP transfer · each line moves between its own warehouses"
+                                : "Stock is shown for the source warehouse")
+                        </span>
                     </div>
                 </section>
 
@@ -250,7 +283,7 @@
                         </button>
                     </div>
 
-                    @if (selectedFromWarehouse is null && !isLoadingMasterData)
+                    @if (sources.Count == 0 && !isLoadingMasterData)
                     {
                         <div class="tfm-card-bd">
                             <div class="tfm-alert is-warn is-inline">
@@ -263,15 +296,23 @@
                         </div>
                     }
 
-                    <div class="tfm-lines @(lines.Any(l => l.ShowDropdown) ? "is-picking" : "")">
+                    <div class="tfm-lines @(lines.Any(l => l.ShowDropdown) ? "is-picking" : "") @(MultiSource ? "has-from" : "") @(MultiDestination ? "has-to" : "")">
                         <div class="tfm-lines-inner">
                             <div class="tfm-row is-head">
                                 <div></div>
+                                @if (MultiSource)
+                                {
+                                    <div>From <span class="tfm-req">*</span></div>
+                                }
                                 <div>Item <span class="tfm-req">*</span></div>
                                 <div>Description</div>
                                 <div>Unit</div>
                                 <div class="tfm-r">Quantity <span class="tfm-req">*</span></div>
                                 <div class="tfm-r">In stock</div>
+                                @if (MultiDestination)
+                                {
+                                    <div>To <span class="tfm-req">*</span></div>
+                                }
                                 <div></div>
                             </div>
 
@@ -294,6 +335,15 @@
                                     <div class="tfm-row" @key="line.Id">
                                         <div class="tfm-n">@(index + 1)</div>
 
+                                        @if (MultiSource)
+                                        {
+                                            <NocturneSelect TValue="string" Class="nsel-block" Fixed="true"
+                                                            Options="SourceOptionsFor(line)" Value="@line.FromWarehouseCode"
+                                                            ValueChanged="@(code => OnLineSourceChangedAsync(line, code))"
+                                                            Placeholder="Source…"
+                                                            AriaLabel="@($"Source warehouse for line {index + 1}")" />
+                                        }
+
                                         <div class="tfm-combo">
                                             <input class="tfm-input tfm-cell @(lineError is not null && line.SelectedProduct is null ? "is-bad" : "")"
                                                    value="@line.ItemCode"
@@ -301,7 +351,8 @@
                                                    @onfocus="() => OnItemFocus(line)"
                                                    @onblur="() => line.ShowDropdown = false"
                                                    placeholder="Search item…" autocomplete="off"
-                                                   disabled="@(selectedFromWarehouse is null)" />
+                                                   aria-label="@($"Item for line {index + 1}")"
+                                                   disabled="@(sources.Count == 0)" />
                                             @if (line.ShowDropdown)
                                             {
                                                 <div class="tfm-drop is-wide">
@@ -313,13 +364,25 @@
                                                     {
                                                         @foreach (var product in line.Matches)
                                                         {
+                                                            var best = MultiSource && !IsLoadingStock ? BestStockFor(product.ItemCode) : null;
                                                             <button type="button" class="tfm-drop-i"
                                                                     @onmousedown:preventDefault="true"
-                                                                    @onclick="() => SelectProduct(line, product)">
+                                                                    @onclick="() => SelectProductAsync(line, product)">
                                                                 <span>
                                                                     <span class="tfm-drop-code">@product.ItemCode</span>
                                                                     <span class="tfm-drop-sub">@Truncate(product.ItemName, 40)</span>
                                                                 </span>
+                                                                @if (MultiSource && !IsLoadingStock)
+                                                                {
+                                                                    if (best is { } found)
+                                                                    {
+                                                                        <span class="tfm-drop-src">@found.Code &middot; @found.Quantity.ToString("N0")</span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span class="tfm-drop-src is-none">None in stock</span>
+                                                                    }
+                                                                }
                                                                 @if (!string.IsNullOrWhiteSpace(product.UoM))
                                                                 {
                                                                     <span class="tfm-drop-uom">@product.UoM</span>
@@ -355,11 +418,12 @@
                                         <input type="number" min="0" step="@QuantityStep(line)"
                                                class="tfm-input tfm-num @(lineError is not null && line.SelectedProduct is not null ? "is-bad" : "")"
                                                value="@line.QuantityText"
-                                               @oninput="e => OnQuantityInput(line, e.Value?.ToString())"
+                                               @oninput="e => OnQuantityInputAsync(line, e.Value?.ToString())"
+                                               aria-label="@($"Quantity for line {index + 1}")"
                                                placeholder="0" />
 
                                         <div class="tfm-stock @StockClass(line)">
-                                            @if (line.SelectedProduct is null || selectedFromWarehouse is null)
+                                            @if (line.SelectedProduct is null || line.FromWarehouseCode is null)
                                             {
                                                 <span>—</span>
                                             }
@@ -370,14 +434,23 @@
                                             else
                                             {
                                                 @line.StockInSource.ToString("N2")
-                                                <small>@selectedFromWarehouse.WarehouseCode</small>
+                                                <small>@line.FromWarehouseCode</small>
                                             }
                                         </div>
+
+                                        @if (MultiDestination)
+                                        {
+                                            <NocturneSelect TValue="string" Class="nsel-block" Fixed="true"
+                                                            Options="DestinationOptions" Value="@line.ToWarehouseCode"
+                                                            ValueChanged="@(code => OnLineDestinationChangedAsync(line, code))"
+                                                            Placeholder="Destination…"
+                                                            AriaLabel="@($"Destination warehouse for line {index + 1}")" />
+                                        }
 
                                         <button type="button" class="tfm-btn-x" title="Remove line"
                                                 aria-label="Remove line @(index + 1)"
                                                 disabled="@(lines.Count <= 1)"
-                                                @onclick="() => RemoveLine(line)">
+                                                @onclick="() => RemoveLineAsync(line)">
                                             <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
                                                 <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
                                             </svg>
@@ -391,7 +464,7 @@
                                         {
                                             <div class="tfm-row-err" style="color:var(--tfm-warn);">
                                                 Only @line.StockInSource.ToString("N2") in
-                                                @selectedFromWarehouse?.WarehouseCode — the transfer will be short.
+                                                @line.FromWarehouseCode — the transfer will be short.
                                             </div>
                                         }
                                     </div>
@@ -416,9 +489,23 @@
                     <div class="tfm-total-v">@TotalQuantity.ToString("N2")</div>
                     <div class="tfm-total-sub">
                         @CompletedLineCount line(s) &middot;
-                        @(selectedFromWarehouse?.WarehouseCode ?? "—") &rarr; @(selectedToWarehouse?.WarehouseCode ?? "—")
+                        @RouteEndLabel(sources, "sources") &rarr; @RouteEndLabel(destinations, "warehouses")
                         &middot; @((docDate ?? DateTime.Today).ToString("dd MMM yyyy"))
                     </div>
+
+                    @if ((MultiSource || MultiDestination) && WarehouseSplit.Count > 0)
+                    {
+                        <ul class="tfm-split" aria-label="@(MultiSource ? "Quantity by source warehouse" : "Quantity by destination warehouse")">
+                            @foreach (var split in WarehouseSplit)
+                            {
+                                <li>
+                                    <span class="tfm-split-code">@split.Code</span>
+                                    <span class="tfm-split-n">@split.Lines line@(split.Lines == 1 ? "" : "s")</span>
+                                    <span class="tfm-split-q">@split.Quantity.ToString("N2")</span>
+                                </li>
+                            }
+                        </ul>
+                    }
 
                     @* Listed rather than enforced by disabling the button: a disabled submit gives
                        the operator nothing to act on, and the reasons below are the whole answer. *@
@@ -454,6 +541,64 @@
                             @onclick="ClearForm" disabled="@isSubmitting">
                         <i class="ph ph-arrow-counter-clockwise"></i>Reset form
                     </button>
+                </div>
+
+                <!-- ── Who will approve it ─────────────────────────────── -->
+                <div class="tfm-card tfm-panel">
+                    <div class="tfm-panel-hd">
+                        <i class="ph ph-seal-check"></i>
+                        <span class="tfm-panel-t">Approval</span>
+                        <span class="tfm-spacer"></span>
+                        @if (isLoadingRoute)
+                        {
+                            <span class="tfm-spin" aria-label="Checking who will approve"></span>
+                        }
+                    </div>
+                    <div class="tfm-approval" aria-live="polite">
+                        @if (routePreviewKey is null)
+                        {
+                            <p class="tfm-approval-note">Choose the warehouses to see who will approve this transfer.</p>
+                        }
+                        else if (isLoadingRoute && routePreview is null)
+                        {
+                            <p class="tfm-approval-note">Checking who will approve this route&hellip;</p>
+                        }
+                        else if (routePreview is null)
+                        {
+                            <p class="tfm-approval-note">
+                                Couldn't check who will approve this route. Submitting still routes it as usual.
+                            </p>
+                        }
+                        else if (!routePreview.Matched)
+                        {
+                            <div class="tfm-approval-warn">
+                                No approval template covers this route, so the transfer can't be submitted.
+                                Ask an administrator to add one under Approval process.
+                            </div>
+                        }
+                        else
+                        {
+                            <div>
+                                <div class="tfm-approval-k">Template</div>
+                                <div class="tfm-approval-v">@routePreview.TemplateName</div>
+                            </div>
+                            @foreach (var stage in routePreview.Stages)
+                            {
+                                <div class="tfm-approval-stage">
+                                    <div class="tfm-approval-name">@stage.StageName</div>
+                                    <div class="tfm-approval-sub">@StageWho(stage)</div>
+                                    @if (StageWarning(stage) is { } warning)
+                                    {
+                                        <div class="tfm-approval-warn">@warning</div>
+                                    }
+                                </div>
+                            }
+                            <p class="tfm-approval-note">
+                                Stock stays where it is until every stage approves. Then the transfer posts to
+                                SAP by itself.
+                            </p>
+                        }
+                    </div>
                 </div>
 
                 <div class="tfm-card tfm-panel">
@@ -502,7 +647,6 @@
 
     // ── State ───────────────────────────────────────────
     private bool isLoadingMasterData = true;
-    private bool isLoadingStock;
     private bool isSubmitting;
     private bool showDocDetails;
     private string? errorMessage;
@@ -517,8 +661,15 @@
     private List<ProductDto> cachedProducts = new();
     private HashSet<string> assignedWarehouseCodes = new(StringComparer.OrdinalIgnoreCase);
 
-    private WarehouseDto? selectedFromWarehouse;
-    private WarehouseDto? selectedToWarehouse;
+    /// <summary>
+    /// The warehouses picked on each end, in the order they were added. One transfer can name several
+    /// on one end — never on both, since then no line's route could be read off the form.
+    /// </summary>
+    private readonly List<WarehouseDto> sources = new();
+    private readonly List<WarehouseDto> destinations = new();
+
+    private bool MultiSource => sources.Count > 1;
+    private bool MultiDestination => destinations.Count > 1;
 
     private DateTime? docDate = DateTime.Today;
     private DateTime? dueDate;
@@ -528,18 +679,37 @@
     private List<TransferLineItem> lines = new() { new TransferLineItem() };
 
     /// <summary>
-    /// The source warehouse's stock, by item code. Held here rather than written onto the cached
-    /// ProductDto objects: that cache is shared across every circuit, so merging one user's
+    /// Each source warehouse's stock, by warehouse then item code. Held here rather than written onto
+    /// the cached ProductDto objects: that cache is shared across every circuit, so merging one user's
     /// warehouse figures into it would show them to everyone else.
     /// </summary>
-    private readonly Dictionary<string, ProductDto> stockBySource = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<string, ProductDto>> stockByWarehouse = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Source warehouses whose warehouse-wide stock is being read right now.</summary>
+    private readonly HashSet<string> loadingStockFor = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Both cache reads go through the same EF Core DbContext, which cannot serve two queries at once,
+    /// so a second source picked while the first is still loading waits its turn.
+    /// </summary>
+    private readonly SemaphoreSlim stockLoadGate = new(1, 1);
+
+    private bool IsLoadingStock => loadingStockFor.Count > 0;
 
     /// <summary>
     /// The per-line stock confirmations, coalesced into one call at a time. Each one becomes a SAP
     /// round trip holding one of six process-wide slots, so a form firing one per line could starve
-    /// every other user of the app.
+    /// every other user of the app. Built for several warehouses: lines from different sources are
+    /// read in turn rather than cancelling one another, and still hold one slot between them.
     /// </summary>
     private StockRefreshBatcher? stockRefresh;
+
+    // Who the transfer would wait on, for the warehouses it uses now. The key is those warehouses, so a
+    // change that does not move the route asks nothing.
+    private ApprovalRoutePreviewModel? routePreview;
+    private string? routePreviewKey;
+    private bool isLoadingRoute;
+    private CancellationTokenSource? routePreviewCancellation;
 
     /// <summary>
     /// Validation is shown from the first submit attempt onwards, never before: the form opens
@@ -559,6 +729,11 @@
         (3, "Review")
     ];
 
+    private static readonly RenderFragment RemoveGlyph = @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                               stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+        <path d="M6 6l12 12M18 6L6 18"></path>
+    </svg>;
+
     // ── Derived ─────────────────────────────────────────
     private IEnumerable<TransferLineItem> CompletedLines =>
         lines.Where(l => !string.IsNullOrWhiteSpace(l.ItemCode) && l.Quantity > 0);
@@ -567,10 +742,46 @@
 
     private decimal TotalQuantity => CompletedLines.Sum(l => l.Quantity);
 
-    private bool HasRoute => selectedFromWarehouse is not null
-        && selectedToWarehouse is not null
-        && !string.Equals(selectedFromWarehouse.WarehouseCode, selectedToWarehouse.WarehouseCode,
-            StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// The warehouses the transfer will actually use on each end: those its lines name, or every pick
+    /// before any line is filled in. This, not the picks, is what the API routes the approval on.
+    /// </summary>
+    private List<string> UsedSources => UsedCodes(CompletedLines.Select(line => line.FromWarehouseCode), sources);
+
+    private List<string> UsedDestinations => UsedCodes(CompletedLines.Select(line => line.ToWarehouseCode), destinations);
+
+    private static List<string> UsedCodes(IEnumerable<string?> lineCodes, List<WarehouseDto> picked)
+    {
+        var codes = lineCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return codes.Count > 0 ? codes : picked.Select(warehouse => warehouse.WarehouseCode!).ToList();
+    }
+
+    /// <summary>Why the warehouses chosen cannot make one transfer, or null when they can.</summary>
+    private string? RouteProblem
+    {
+        get
+        {
+            if (sources.Count == 0 || destinations.Count == 0)
+                return null;
+            if (MultiSource && MultiDestination)
+                return "Pick several warehouses on one end only: several sources into one destination, or one source out to several.";
+            if (sources.Count == 1 && destinations.Count == 1 &&
+                string.Equals(sources[0].WarehouseCode, destinations[0].WarehouseCode, StringComparison.OrdinalIgnoreCase))
+                return "Source and destination must be different warehouses.";
+
+            var index = lines.FindIndex(line => line.SelectedProduct is not null && line.FromWarehouseCode is not null &&
+                string.Equals(line.FromWarehouseCode, line.ToWarehouseCode, StringComparison.OrdinalIgnoreCase));
+            return index < 0
+                ? null
+                : $"Line {index + 1} moves stock from {lines[index].FromWarehouseCode} to itself — pick a different warehouse for one end.";
+        }
+    }
+
+    private bool HasRoute => sources.Count > 0 && destinations.Count > 0 && RouteProblem is null;
 
     private bool HasReason => !string.IsNullOrWhiteSpace(transferReason);
 
@@ -587,7 +798,7 @@
     ];
 
     private string? FromWarehouseError =>
-        hasAttemptedSubmit && selectedFromWarehouse is null ? "Choose a source warehouse." : null;
+        hasAttemptedSubmit && sources.Count == 0 ? "Choose a source warehouse." : null;
 
     private string? ToWarehouseError
     {
@@ -595,11 +806,9 @@
         {
             if (!hasAttemptedSubmit)
                 return null;
-            if (selectedToWarehouse is null)
+            if (destinations.Count == 0)
                 return "Choose a destination warehouse.";
-            if (selectedFromWarehouse is not null && !HasRoute)
-                return "Must be different from the source warehouse.";
-            return null;
+            return RouteProblem;
         }
     }
 
@@ -613,16 +822,18 @@
         {
             var problems = new List<string>();
 
-            if (selectedFromWarehouse is null)
+            if (sources.Count == 0)
                 problems.Add("Choose a source warehouse.");
-            if (selectedToWarehouse is null)
+            if (destinations.Count == 0)
                 problems.Add("Choose a destination warehouse.");
-            if (selectedFromWarehouse is not null && selectedToWarehouse is not null && !HasRoute)
-                problems.Add("Source and destination must be different warehouses.");
+            if (RouteProblem is { } routeProblem)
+                problems.Add(routeProblem);
             if (!HasReason)
                 problems.Add("Give a reason for the transfer.");
             if (!HasCompletedLine)
                 problems.Add("Add at least one item with a quantity.");
+            if (routePreview is { Matched: false } && routePreviewKey == RoutePreviewKey(UsedSources, UsedDestinations))
+                problems.Add("No approval template covers this route. Ask an administrator to add one.");
 
             for (var i = 0; i < lines.Count; i++)
             {
@@ -634,6 +845,64 @@
             return problems;
         }
     }
+
+    private List<NocturnePickerOption> AvailableSourceOptions => warehouseOptions
+        .Where(option => !sources.Any(warehouse => string.Equals(warehouse.WarehouseCode, option.Value, StringComparison.OrdinalIgnoreCase)))
+        .ToList();
+
+    private List<NocturnePickerOption> AvailableDestinationOptions => warehouseOptions
+        .Where(option => !destinations.Any(warehouse => string.Equals(warehouse.WarehouseCode, option.Value, StringComparison.OrdinalIgnoreCase)))
+        .ToList();
+
+    private NocturneSelectOption<string>[] DestinationOptions => destinations
+        .Select(warehouse => new NocturneSelectOption<string>(warehouse.WarehouseCode!, warehouse.WarehouseCode!)
+        {
+            Hint = warehouse.WarehouseName
+        })
+        .ToArray();
+
+    /// <summary>The line's source choices, each carrying that warehouse's stock of the line's item.</summary>
+    private NocturneSelectOption<string>[] SourceOptionsFor(TransferLineItem line) => sources
+        .Select(warehouse => new NocturneSelectOption<string>(warehouse.WarehouseCode!, warehouse.WarehouseCode!)
+        {
+            Hint = StockIn(warehouse.WarehouseCode, line.SelectedProduct?.ItemCode)?.QuantityInStock.ToString("N0")
+        })
+        .ToArray();
+
+    /// <summary>Quantity per warehouse on the many end, for the totals card.</summary>
+    private List<(string Code, int Lines, decimal Quantity)> WarehouseSplit => CompletedLines
+        .GroupBy(line => (MultiSource ? line.FromWarehouseCode : line.ToWarehouseCode) ?? "—", StringComparer.OrdinalIgnoreCase)
+        .Select(group => (group.Key, group.Count(), group.Sum(line => line.Quantity)))
+        .ToList();
+
+    private static string RouteEndLabel(List<WarehouseDto> picked, string plural) => picked.Count switch
+    {
+        0 => "—",
+        1 => picked[0].WarehouseCode ?? "—",
+        _ => $"{picked.Count} {plural}"
+    };
+
+    private static RenderFragment RouteEnd(string label, List<WarehouseDto> picked) => @<div class="tfm-route-end">
+        <div class="tfm-route-k">@label@(picked.Count > 1 ? $" · {picked.Count} warehouses" : "")</div>
+        @if (picked.Count == 0)
+        {
+            <div class="tfm-route-v is-empty">Not selected</div>
+        }
+        else if (picked.Count == 1)
+        {
+            <div class="tfm-route-v">@picked[0].WarehouseCode</div>
+            <div class="tfm-route-sub">@picked[0].WarehouseName</div>
+        }
+        else
+        {
+            <div class="tfm-route-codes">
+                @foreach (var warehouse in picked)
+                {
+                    <span class="tfm-split-code">@warehouse.WarehouseCode</span>
+                }
+            </div>
+        }
+    </div>;
 
     // ── Steps ───────────────────────────────────────────
     private bool IsStepCompleted(int step) => step switch
@@ -661,9 +930,13 @@
 
     // ── Lifecycle ───────────────────────────────────────
     protected override void OnInitialized() =>
-        stockRefresh = new StockRefreshBatcher(StockCacheService, Logger, ApplyStockBatchAsync);
+        stockRefresh = new StockRefreshBatcher(StockCacheService, Logger, ApplyStockBatchAsync, multipleWarehouses: true);
 
-    public void Dispose() => stockRefresh?.Dispose();
+    public void Dispose()
+    {
+        stockRefresh?.Dispose();
+        routePreviewCancellation?.Cancel();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -702,7 +975,7 @@
 
     /// <summary>
     /// A stock or depot controller works out of one warehouse, so the source is chosen for them
-    /// from their `warehouse` claim.
+    /// from their `warehouse` claim. They can add more, or swap it, from the picker.
     /// </summary>
     private async Task PreselectAssignedWarehouseAsync()
     {
@@ -723,9 +996,7 @@
                 || (role != "StockController" && role != "DepotController"))
                 return;
 
-            selectedFromWarehouse = FindWarehouse(assignedWarehouse);
-            if (selectedFromWarehouse is not null)
-                await LoadStockForSourceAsync();
+            await AddSourceAsync(assignedWarehouse);
         }
         catch (Exception ex)
         {
@@ -734,34 +1005,112 @@
     }
 
     // ── Warehouses ──────────────────────────────────────
-    private async Task OnFromWarehouseChangedAsync(string? warehouseCode)
+    private bool IsSource(string? code) =>
+        code is not null && sources.Any(warehouse => string.Equals(warehouse.WarehouseCode, code, StringComparison.OrdinalIgnoreCase));
+
+    private bool IsDestination(string? code) =>
+        code is not null && destinations.Any(warehouse => string.Equals(warehouse.WarehouseCode, code, StringComparison.OrdinalIgnoreCase));
+
+    private async Task AddSourceAsync(string? warehouseCode)
     {
-        selectedFromWarehouse = FindWarehouse(warehouseCode);
+        var warehouse = FindWarehouse(warehouseCode);
+        if (warehouse?.WarehouseCode is null || IsSource(warehouse.WarehouseCode))
+            return;
 
-        // A per-line confirmation still in flight is reading the warehouse the operator just left,
-        // and holding a SAP slot to do it.
-        stockRefresh?.Cancel();
+        sources.Add(warehouse);
+        NormalizeLineWarehouses();
+        await LoadStockForWarehouseAsync(warehouse.WarehouseCode);
+        await RefreshRoutePreviewAsync();
+    }
 
-        // Stock is a property of the source, so every figure on screen is stale the moment it
-        // changes. The lines themselves are kept — the operator picked those items on purpose, and
-        // the new figures are re-read below rather than making them start over.
+    private async Task RemoveSourceAsync(WarehouseDto warehouse)
+    {
+        sources.Remove(warehouse);
+        var code = warehouse.WarehouseCode!;
+
+        // A confirmation still in flight for it is holding a SAP slot to answer for a warehouse the
+        // transfer no longer uses; the other sources' work carries on.
+        stockRefresh?.Cancel(code);
+        stockByWarehouse.Remove(code);
+
+        // The lines themselves are kept — the operator picked those items on purpose — and move to
+        // a source still on the transfer, whose figures are read for them.
+        NormalizeLineWarehouses();
+        await RefreshRoutePreviewAsync();
+    }
+
+    private async Task AddDestinationAsync(string? warehouseCode)
+    {
+        var warehouse = FindWarehouse(warehouseCode);
+        if (warehouse?.WarehouseCode is null || IsDestination(warehouse.WarehouseCode))
+            return;
+
+        destinations.Add(warehouse);
+        NormalizeLineWarehouses();
+        await RefreshRoutePreviewAsync();
+    }
+
+    private async Task RemoveDestinationAsync(WarehouseDto warehouse)
+    {
+        destinations.Remove(warehouse);
+        NormalizeLineWarehouses();
+        await RefreshRoutePreviewAsync();
+    }
+
+    /// <summary>
+    /// Points every line at warehouses still on the transfer: the only one when an end has one, the
+    /// line's own pick when it is still listed, otherwise the best remaining choice. A line whose
+    /// source moves has its stock figure re-read.
+    /// </summary>
+    private void NormalizeLineWarehouses()
+    {
         foreach (var line in lines)
         {
-            line.StockInSource = 0;
-            line.HasStockFigure = false;
-            line.IsLoadingStock = false;
-        }
+            var previousSource = line.FromWarehouseCode;
+            line.FromWarehouseCode = sources.Count switch
+            {
+                0 => null,
+                1 => sources[0].WarehouseCode,
+                _ => IsSource(line.FromWarehouseCode) ? line.FromWarehouseCode : BestSourceFor(line.SelectedProduct?.ItemCode)
+            };
+            if (!string.Equals(previousSource, line.FromWarehouseCode, StringComparison.OrdinalIgnoreCase))
+            {
+                line.SourcePickedByHand = false;
+                ResetStock(line);
+                ApplyStockFromCache(line);
+                QueueStockRefresh(line);
+            }
 
-        await LoadStockForSourceAsync();
-
-        foreach (var line in lines.Where(l => l.SelectedProduct is not null))
-        {
-            ApplyStockFromCache(line);
+            line.ToWarehouseCode = destinations.Count switch
+            {
+                0 => null,
+                1 => destinations[0].WarehouseCode,
+                _ => IsDestination(line.ToWarehouseCode) ? line.ToWarehouseCode : destinations[0].WarehouseCode
+            };
         }
     }
 
-    private void OnToWarehouseChanged(string? warehouseCode) =>
-        selectedToWarehouse = FindWarehouse(warehouseCode);
+    private async Task OnLineSourceChangedAsync(TransferLineItem line, string? warehouseCode)
+    {
+        if (!IsSource(warehouseCode))
+            return;
+
+        line.FromWarehouseCode = warehouseCode;
+        line.SourcePickedByHand = true;
+        ResetStock(line);
+        ApplyStockFromCache(line);
+        QueueStockRefresh(line);
+        await RefreshRoutePreviewAsync();
+    }
+
+    private async Task OnLineDestinationChangedAsync(TransferLineItem line, string? warehouseCode)
+    {
+        if (!IsDestination(warehouseCode))
+            return;
+
+        line.ToWarehouseCode = warehouseCode;
+        await RefreshRoutePreviewAsync();
+    }
 
     private WarehouseDto? FindWarehouse(string? warehouseCode) =>
         string.IsNullOrWhiteSpace(warehouseCode)
@@ -769,35 +1118,38 @@
             : cachedWarehouses.FirstOrDefault(w =>
                 string.Equals(w.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Pulls the source warehouse's stock into <see cref="stockBySource"/>.</summary>
-    private async Task LoadStockForSourceAsync()
+    /// <summary>Pulls one source warehouse's stock into <see cref="stockByWarehouse"/>.</summary>
+    private async Task LoadStockForWarehouseAsync(string warehouseCode)
     {
-        stockBySource.Clear();
+        loadingStockFor.Add(warehouseCode);
+        StateHasChanged();
 
-        var warehouseCode = selectedFromWarehouse?.WarehouseCode;
-        if (string.IsNullOrWhiteSpace(warehouseCode))
-            return;
-
+        await stockLoadGate.WaitAsync();
         try
         {
-            isLoadingStock = true;
-            StateHasChanged();
+            // Taken off the transfer while it waited for the previous load.
+            if (!IsSource(warehouseCode))
+                return;
 
             var stockResponse = await StockCacheService.GetAllCachedStockAsync(warehouseCode);
-            if (stockResponse?.Products is null)
+            if (stockResponse?.Products is null || !IsSource(warehouseCode))
                 return;
 
-            // Ignore a late response if the source moved on while it was in flight.
-            if (!string.Equals(selectedFromWarehouse?.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase))
-                return;
-
+            // A per-line confirmation that landed first is fresher than this cache read, so it is kept.
+            var stock = StockMap(warehouseCode);
             foreach (var product in stockResponse.Products.Where(p => !string.IsNullOrEmpty(p.ItemCode)))
             {
-                stockBySource[product.ItemCode!] = product;
+                stock.TryAdd(product.ItemCode!, product);
+            }
+
+            foreach (var line in lines.Where(l => l.SelectedProduct is not null &&
+                         string.Equals(l.FromWarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase)))
+            {
+                ApplyStockFromCache(line);
             }
 
             Logger.LogInformation("Loaded stock for {Count} items in warehouse {Warehouse}",
-                stockBySource.Count, warehouseCode);
+                stock.Count, warehouseCode);
         }
         catch (Exception ex)
         {
@@ -806,9 +1158,118 @@
         }
         finally
         {
-            isLoadingStock = false;
+            stockLoadGate.Release();
+            loadingStockFor.Remove(warehouseCode);
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private Dictionary<string, ProductDto> StockMap(string warehouseCode)
+    {
+        if (!stockByWarehouse.TryGetValue(warehouseCode, out var stock))
+        {
+            stock = new Dictionary<string, ProductDto>(StringComparer.OrdinalIgnoreCase);
+            stockByWarehouse[warehouseCode] = stock;
+        }
+
+        return stock;
+    }
+
+    private ProductDto? StockIn(string? warehouseCode, string? itemCode) =>
+        warehouseCode is not null && itemCode is not null &&
+        stockByWarehouse.TryGetValue(warehouseCode, out var stock) && stock.TryGetValue(itemCode, out var product)
+            ? product
+            : null;
+
+    /// <summary>The source holding most of the item, or null when none of them holds any.</summary>
+    private (string Code, decimal Quantity)? BestStockFor(string? itemCode)
+    {
+        (string Code, decimal Quantity)? best = null;
+        foreach (var warehouse in sources)
+        {
+            var quantity = StockIn(warehouse.WarehouseCode, itemCode)?.QuantityInStock ?? 0m;
+            if (quantity > 0 && (best is null || quantity > best.Value.Quantity))
+                best = (warehouse.WarehouseCode!, quantity);
+        }
+
+        return best;
+    }
+
+    private string? BestSourceFor(string? itemCode) =>
+        BestStockFor(itemCode)?.Code ?? sources.FirstOrDefault()?.WarehouseCode;
+
+    // ── Who will approve it ─────────────────────────────
+    private static string RoutePreviewKey(List<string> from, List<string> to) =>
+        $"{string.Join(",", from).ToUpperInvariant()}>{string.Join(",", to).ToUpperInvariant()}";
+
+    /// <summary>
+    /// Asks the API which template and stages the transfer would get, whenever the warehouses it uses
+    /// change. Advisory: a failed preview leaves the submit exactly as it was.
+    /// </summary>
+    private async Task RefreshRoutePreviewAsync()
+    {
+        var from = UsedSources;
+        var to = UsedDestinations;
+        if (from.Count == 0 || to.Count == 0 || (from.Count > 1 && to.Count > 1))
+        {
+            routePreviewCancellation?.Cancel();
+            routePreview = null;
+            routePreviewKey = null;
+            isLoadingRoute = false;
+            return;
+        }
+
+        var key = RoutePreviewKey(from, to);
+        if (key == routePreviewKey)
+            return;
+
+        routePreviewKey = key;
+        routePreviewCancellation?.Cancel();
+        var cancellation = routePreviewCancellation = new CancellationTokenSource();
+        routePreview = null;
+        isLoadingRoute = true;
+        StateHasChanged();
+
+        var preview = await ApprovalService.PreviewTransferRouteAsync(from, to, cancellation.Token);
+        if (cancellation.IsCancellationRequested || key != routePreviewKey)
+            return;
+
+        routePreview = preview;
+        isLoadingRoute = false;
+        StateHasChanged();
+    }
+
+    private static string FriendlyRole(string role) => role switch
+    {
+        "StockController" => "Stock Officer",
+        "DepotController" => "Depot Controller",
+        "WashBay" => "Wash Bay",
+        "Admin" => "Administrator",
+        _ => role
+    };
+
+    private static string StageWho(ApprovalRoutePreviewStageModel stage)
+    {
+        var who = stage.AuthorizerRoles.Count == 0
+            ? "Named approvers"
+            : string.Join(" or ", stage.AuthorizerRoles.Select(FriendlyRole));
+        var scoped = stage.WarehouseScope != ApprovalWarehouseScopes.Any && stage.ScopeWarehouses.Count > 0;
+        var where = scoped ? $" assigned to {string.Join(", ", stage.ScopeWarehouses)}" : "";
+        var each = scoped && stage.ApprovalPerWarehouse && stage.ScopeWarehouses.Count > 1 ? ", one from each" : "";
+        var count = stage.ApprovalsRequired > 1 ? $" · {stage.ApprovalsRequired} approvals" : "";
+        return $"{who}{where}{each}{count}";
+    }
+
+    private static string? StageWarning(ApprovalRoutePreviewStageModel stage)
+    {
+        if (stage.WarehousesWithoutAuthorizer.Count > 0)
+        {
+            var codes = string.Join(", ", stage.WarehousesWithoutAuthorizer);
+            return $"Nobody else who could approve is assigned to {codes}, so only an administrator can approve for " +
+                   (stage.WarehousesWithoutAuthorizer.Count == 1 ? "it." : "them.");
+        }
+
+        return stage.AuthorizerCount == 0 ? "Nobody else can approve this stage yet, so only an administrator can." : null;
     }
 
     // ── Item picker ─────────────────────────────────────
@@ -849,25 +1310,38 @@
             .ToList();
     }
 
-    private void SelectProduct(TransferLineItem line, ProductDto product)
+    private async Task SelectProductAsync(TransferLineItem line, ProductDto product)
     {
         line.SelectedProduct = product;
         line.ItemCode = product.ItemCode;
         line.UoMCode = string.IsNullOrWhiteSpace(product.UoM) ? null : product.UoM.Trim();
         line.ShowDropdown = false;
 
+        // With several sources the line takes the one holding most of the item, unless the operator
+        // already chose its source by hand.
+        if (MultiSource && !line.SourcePickedByHand)
+            line.FromWarehouseCode = BestSourceFor(product.ItemCode);
+
+        ResetStock(line);
         ApplyStockFromCache(line);
 
         // The warehouse-wide load is a cache read and can be stale for an item that just moved,
         // so confirm this one against the service.
         QueueStockRefresh(line);
+        await RefreshRoutePreviewAsync();
     }
 
     // ── Stock ───────────────────────────────────────────
+    private static void ResetStock(TransferLineItem line)
+    {
+        line.StockInSource = 0;
+        line.HasStockFigure = false;
+        line.IsLoadingStock = false;
+    }
+
     private void ApplyStockFromCache(TransferLineItem line)
     {
-        var itemCode = line.SelectedProduct?.ItemCode;
-        if (string.IsNullOrWhiteSpace(itemCode) || !stockBySource.TryGetValue(itemCode, out var stock))
+        if (StockIn(line.FromWarehouseCode, line.SelectedProduct?.ItemCode) is not { } stock)
             return;
 
         line.StockInSource = stock.QuantityInStock;
@@ -877,12 +1351,13 @@
     }
 
     /// <summary>
-    /// Asks for the line's stock in the source warehouse. Queued rather than read here: the batcher
-    /// folds every line's request into one call, so a form of any length holds one SAP slot.
+    /// Asks for the line's stock in its source warehouse. Queued rather than read here: the batcher
+    /// folds every line's request into one call per warehouse, one call at a time, so a form of any
+    /// length holds one SAP slot.
     /// </summary>
     private void QueueStockRefresh(TransferLineItem line)
     {
-        var warehouseCode = selectedFromWarehouse?.WarehouseCode;
+        var warehouseCode = line.FromWarehouseCode;
         var itemCode = line.SelectedProduct?.ItemCode;
         if (string.IsNullOrWhiteSpace(warehouseCode) || string.IsNullOrWhiteSpace(itemCode))
             return;
@@ -898,23 +1373,25 @@
     /// </summary>
     /// <remarks>
     /// Runs off the circuit's synchronisation context, so every touch of component state goes
-    /// through InvokeAsync. Lines are matched by the code they currently hold rather than by the
-    /// product object queued: a line the operator has since typed past no longer has a selection and
-    /// is skipped, and one they have pointed at a different item does not match this batch.
+    /// through InvokeAsync. Lines are matched by the code and source they currently hold rather than
+    /// by the product object queued: a line the operator has since typed past, or moved to another
+    /// source, does not match this batch.
     /// </remarks>
     private Task ApplyStockBatchAsync(StockRefreshBatch batch) => InvokeAsync(() =>
     {
-        // Drop a late batch if the source warehouse moved on while it was in flight.
-        if (!string.Equals(selectedFromWarehouse?.WarehouseCode, batch.WarehouseCode, StringComparison.OrdinalIgnoreCase))
+        // Drop a late batch for a warehouse taken off the transfer while it was in flight.
+        if (!IsSource(batch.WarehouseCode))
             return;
 
+        var stockMap = StockMap(batch.WarehouseCode);
         foreach (var (itemCode, stock) in batch.Stock)
-            stockBySource[itemCode] = stock;
+            stockMap[itemCode] = stock;
 
         foreach (var line in lines)
         {
             var itemCode = line.SelectedProduct?.ItemCode;
-            if (string.IsNullOrWhiteSpace(itemCode) || !batch.RequestedItemCodes.Contains(itemCode))
+            if (string.IsNullOrWhiteSpace(itemCode) || !batch.RequestedItemCodes.Contains(itemCode) ||
+                !string.Equals(line.FromWarehouseCode, batch.WarehouseCode, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             // Cleared for every code that was asked about, so a line for an item the warehouse
@@ -935,33 +1412,45 @@
 
     private bool ExceedsStock(TransferLineItem line) =>
         line.SelectedProduct is not null
-        && selectedFromWarehouse is not null
+        && line.FromWarehouseCode is not null
         && line.HasStockFigure
         && line.Quantity > line.StockInSource;
 
     private string StockClass(TransferLineItem line)
     {
-        if (line.SelectedProduct is null || selectedFromWarehouse is null || !line.HasStockFigure)
+        if (line.SelectedProduct is null || line.FromWarehouseCode is null || !line.HasStockFigure)
             return "is-idle";
 
         return ExceedsStock(line) ? "is-short" : string.Empty;
     }
 
     // ── Lines ───────────────────────────────────────────
-    private void AddLine() => lines.Add(new TransferLineItem());
+    private void AddLine()
+    {
+        var line = new TransferLineItem
+        {
+            FromWarehouseCode = sources.FirstOrDefault()?.WarehouseCode,
+            ToWarehouseCode = destinations.FirstOrDefault()?.WarehouseCode
+        };
+        lines.Add(line);
+    }
 
-    private void RemoveLine(TransferLineItem line)
+    private async Task RemoveLineAsync(TransferLineItem line)
     {
         if (lines.Count <= 1)
             return;
 
         lines.Remove(line);
+        await RefreshRoutePreviewAsync();
     }
 
-    private void OnQuantityInput(TransferLineItem line, string? value)
+    private async Task OnQuantityInputAsync(TransferLineItem line, string? value)
     {
         line.QuantityText = value;
         line.Quantity = decimal.TryParse(value, out var quantity) ? quantity : 0m;
+
+        // A line becomes part of the route once it has a quantity, which can bring in a warehouse.
+        await RefreshRoutePreviewAsync();
     }
 
     // ── Validation ──────────────────────────────────────
@@ -1012,6 +1501,12 @@
         if (line.Quantity <= 0)
             return "enter a quantity greater than zero.";
 
+        if (sources.Count > 0 && !IsSource(line.FromWarehouseCode))
+            return "choose the warehouse it comes from.";
+
+        if (destinations.Count > 0 && !IsDestination(line.ToWarehouseCode))
+            return "choose the warehouse it goes to.";
+
         return DescribeQuantityProblem(line);
     }
 
@@ -1048,16 +1543,19 @@
 
         try
         {
+            var completed = CompletedLines.ToList();
             var request = new CreateInventoryTransferDto
             {
-                FromWarehouse = selectedFromWarehouse!.WarehouseCode,
-                ToWarehouse = selectedToWarehouse!.WarehouseCode,
+                // SAP's header takes one of each; every line carries its own pair, which is what SAP
+                // and the approval engine actually go by.
+                FromWarehouse = UsedSources[0],
+                ToWarehouse = UsedDestinations[0],
                 DocDate = (docDate ?? DateTime.Today).ToString("yyyy-MM-dd"),
                 DueDate = dueDate?.ToString("yyyy-MM-dd"),
                 Comments = BuildComments(),
                 ClientRequestId = clientRequestId,
 
-                Lines = CompletedLines
+                Lines = completed
                     .Select(l => new CreateInventoryTransferLineDto
                     {
                         ItemCode = l.ItemCode,
@@ -1066,14 +1564,14 @@
                         // populated, and rejects every fractional quantity it sees — the line's own
                         // and every batch it allocates.
                         UoMCode = l.UoMCode,
-                        FromWarehouseCode = selectedFromWarehouse!.WarehouseCode,
-                        ToWarehouseCode = selectedToWarehouse!.WarehouseCode
+                        FromWarehouseCode = l.FromWarehouseCode,
+                        ToWarehouseCode = l.ToWarehouseCode
                     })
                     .ToList()
             };
 
             Logger.LogInformation("Submitting inventory transfer: From={From}, To={To}, Lines={Lines}",
-                request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
+                string.Join(",", UsedSources), string.Join(",", UsedDestinations), request.Lines.Count);
 
             var (success, message, transfer, pendingTransfer) = await TransferService.CreateInventoryTransferAsync(request);
 
@@ -1138,8 +1636,9 @@
     private void ClearForm()
     {
         stockRefresh?.Cancel();
-        selectedFromWarehouse = null;
-        selectedToWarehouse = null;
+        routePreviewCancellation?.Cancel();
+        sources.Clear();
+        destinations.Clear();
         docDate = DateTime.Today;
         dueDate = null;
         comments = null;
@@ -1148,7 +1647,10 @@
         showDocDetails = false;
         errorMessage = null;
         successMessage = null;
-        stockBySource.Clear();
+        stockByWarehouse.Clear();
+        routePreview = null;
+        routePreviewKey = null;
+        isLoadingRoute = false;
         lines = new List<TransferLineItem> { new TransferLineItem() };
     }
 
@@ -1166,6 +1668,20 @@
         public string? QuantityText { get; set; }
 
         public string? UoMCode { get; set; }
+
+        /// <summary>The warehouse this line draws from: always one of the transfer's sources.</summary>
+        public string? FromWarehouseCode { get; set; }
+
+        /// <summary>The warehouse this line delivers to: always one of the transfer's destinations.</summary>
+        public string? ToWarehouseCode { get; set; }
+
+        /// <summary>
+        /// Set when the operator chose the line's source themselves, so picking an item does not
+        /// move it to the warehouse holding the most.
+        /// </summary>
+        public bool SourcePickedByHand { get; set; }
+
+        /// <summary>The line's item in its own source warehouse.</summary>
         public decimal StockInSource { get; set; }
         public bool HasStockFigure { get; set; }
         public bool IsLoadingStock { get; set; }

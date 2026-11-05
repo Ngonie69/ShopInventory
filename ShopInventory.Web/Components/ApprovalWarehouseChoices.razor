@@ -1,0 +1,130 @@
+@* One end of an approval template's route: the warehouses a document's lines must all come from,
+   or all go to. Picks show as chips above a searchable checkbox list, the same pattern the page
+   uses for people, so a pick that the search has filtered out of the list can still be seen and
+   removed. Styled by approval-process.css (apr-), which is global. *@
+
+<div>
+    <div class="apr-block-head">
+        <span class="apr-label" id="@labelId">
+            @Label <span class="apr-label-note">(none means any)</span>
+        </span>
+        <span class="apr-block-count">@(Selected.Count == 0 ? "Any warehouse" : $"{Selected.Count} picked")</span>
+        <label class="apr-block-search">
+            <span class="visually-hidden">Find a warehouse for @Label.ToLowerInvariant()</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                 stroke-linecap="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="M20 20l-3.5-3.5"></path>
+            </svg>
+            <input class="apr-input apr-input-search" type="search" autocomplete="off"
+                   placeholder="Find a warehouse…" @bind="query" @bind:event="oninput" />
+        </label>
+    </div>
+
+    @if (Selected.Count > 0)
+    {
+        <ul class="apr-chips list-unstyled" aria-labelledby="@labelId">
+            @foreach (var pickedCode in Selected)
+            {
+                <li class="apr-chip">
+                    <span class="apr-chip-code">@pickedCode</span>
+                    @if (NameOf(pickedCode) is { } name)
+                    {
+                        <span class="apr-chip-name" title="@name">@name</span>
+                    }
+                    <button type="button" class="apr-chip-x" aria-label="@($"Remove {pickedCode}")"
+                            @onclick="() => SetAsync(pickedCode, false)">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                            <path d="M6 6l12 12M18 6L6 18"></path>
+                        </svg>
+                    </button>
+                </li>
+            }
+        </ul>
+    }
+
+    <div class="apr-choices apr-choices-scroll" role="group" aria-labelledby="@labelId">
+        @foreach (var warehouse in Matching)
+        {
+            var picked = IsPicked(warehouse.WarehouseCode);
+            <label class="apr-choice @(picked ? "apr-choice-on" : "")">
+                <input type="checkbox" class="apr-choice-check" checked="@picked"
+                       @onchange="e => SetAsync(warehouse.WarehouseCode!, e.Value as bool? == true)" />
+                <span class="apr-box @(picked ? "apr-box-on" : "")" aria-hidden="true">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M5 12.5l4.5 4.5L19 7"></path>
+                    </svg>
+                </span>
+                <span class="apr-choice-text">
+                    <span class="apr-choice-name">@warehouse.WarehouseCode</span>
+                    @if (!string.IsNullOrWhiteSpace(warehouse.WarehouseName))
+                    {
+                        <span class="apr-choice-role">@warehouse.WarehouseName</span>
+                    }
+                </span>
+            </label>
+        }
+        @if (Matching.Count == 0)
+        {
+            <p class="apr-choices-empty">
+                @(query.Trim().Length == 0 ? "No warehouses to choose from." : $"No warehouse matches “{query.Trim()}”.")
+            </p>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Hint))
+    {
+        <p class="apr-block-hint">@Hint</p>
+    }
+</div>
+
+@code {
+    private readonly string labelId = $"aprwh-{Guid.NewGuid():N}";
+    private string query = string.Empty;
+
+    /// <summary>"From warehouses" or "To warehouses".</summary>
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+
+    /// <summary>A sentence under the list saying how the picks are matched.</summary>
+    [Parameter] public string? Hint { get; set; }
+
+    [Parameter, EditorRequired] public IReadOnlyList<WarehouseDto> Warehouses { get; set; } = [];
+
+    /// <summary>The template's own list, changed in place as warehouses are picked and removed.</summary>
+    [Parameter, EditorRequired] public List<string> Selected { get; set; } = [];
+
+    /// <summary>Raised after every change so the page can redraw what depends on the list.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private List<WarehouseDto> Matching
+    {
+        get
+        {
+            var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return Warehouses
+                .Where(warehouse => !string.IsNullOrWhiteSpace(warehouse.WarehouseCode))
+                .Where(warehouse => terms.All(term =>
+                    warehouse.WarehouseCode!.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (warehouse.WarehouseName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)))
+                .ToList();
+        }
+    }
+
+    private bool IsPicked(string? code)
+        => code is not null && Selected.Contains(code, StringComparer.OrdinalIgnoreCase);
+
+    private string? NameOf(string code)
+        => Warehouses.FirstOrDefault(warehouse =>
+            string.Equals(warehouse.WarehouseCode, code, StringComparison.OrdinalIgnoreCase))?.WarehouseName;
+
+    private async Task SetAsync(string code, bool picked)
+    {
+        if (picked && !IsPicked(code))
+            Selected.Add(code);
+        else if (!picked)
+            Selected.RemoveAll(item => string.Equals(item, code, StringComparison.OrdinalIgnoreCase));
+        await Changed.InvokeAsync();
+    }
+}

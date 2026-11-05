@@ -6,6 +6,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.InventoryTransfers.Commands.CloseTransferRequest;
 using ShopInventory.Features.InventoryTransfers.Commands.ConvertTransferRequest;
 using ShopInventory.Features.InventoryTransfers.Commands.DecidePendingTransfer;
+using ShopInventory.Features.InventoryTransfers.Queries.PreviewTransferApproval;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -77,6 +78,28 @@ public sealed class ApprovalProcessController(
     {
         var result = await approvalService.DeleteTemplateAsync(id, cancellationToken);
         return result.Match(_ => NoContent(), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Preview who a direct transfer with these warehouses would wait on before it is submitted
+    /// </summary>
+    /// <remarks>
+    /// Repeat <c>from</c> and <c>to</c> for each warehouse: <c>?from=DISPCH&amp;from=DISPYOG&amp;to=KEFSHOP</c>.
+    /// Opens no approval. A stage listing warehouses without an authorizer can only be decided by an
+    /// administrator there.
+    /// </remarks>
+    [HttpGet("transfers/route-preview")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
+    public async Task<IActionResult> PreviewTransferRoute(
+        [FromQuery(Name = "from")] string[] from,
+        [FromQuery(Name = "to")] string[] to,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null) return Unauthorized();
+
+        var result = await mediator.Send(new PreviewTransferApprovalQuery(from, to, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>

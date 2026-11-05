@@ -410,6 +410,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(e => e.Description).HasMaxLength(500);
       entity.Property(e => e.AuthorizerUserIdsJson).IsRequired().HasColumnType("text");
       entity.Property(e => e.AuthorizerRolesJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.WarehouseScope).IsRequired().HasMaxLength(20);
     });
 
     modelBuilder.Entity<ApprovalTemplateDefinitionEntity>(entity =>
@@ -423,8 +424,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(e => e.OriginatorUserIdsJson).IsRequired().HasColumnType("text");
       entity.Property(e => e.OriginatorRolesJson).IsRequired().HasColumnType("text");
       entity.Property(e => e.StageIdsJson).IsRequired().HasColumnType("text");
-      entity.Property(e => e.FromWarehouse).HasMaxLength(50);
-      entity.Property(e => e.ToWarehouse).HasMaxLength(50);
+      entity.Property(e => e.FromWarehousesJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.ToWarehousesJson).IsRequired().HasColumnType("text");
     });
 
     modelBuilder.Entity<ApprovalRequestEntity>(entity =>
@@ -438,8 +439,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(e => e.DocumentNumber).HasMaxLength(120);
       entity.Property(e => e.OriginatorName).IsRequired().HasMaxLength(150);
       entity.Property(e => e.OriginatorRole).IsRequired().HasMaxLength(50);
-      entity.Property(e => e.FromWarehouse).HasMaxLength(50);
-      entity.Property(e => e.ToWarehouse).HasMaxLength(50);
+      // A transfer can draw from, or deliver to, several warehouses; these hold the codes joined.
+      entity.Property(e => e.FromWarehouse).HasMaxLength(400);
+      entity.Property(e => e.ToWarehouse).HasMaxLength(400);
       entity.Property(e => e.StageSnapshotsJson).IsRequired().HasColumnType("text");
       entity.Property(e => e.Status).IsRequired().HasMaxLength(40);
       entity.HasMany(e => e.Decisions)
@@ -457,6 +459,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(e => e.AuthorizerRole).IsRequired().HasMaxLength(50);
       entity.Property(e => e.Decision).IsRequired().HasMaxLength(30);
       entity.Property(e => e.Remarks).HasMaxLength(1000);
+      entity.Property(e => e.WarehouseCodesJson).HasColumnType("text");
     });
 
     modelBuilder.Entity<PendingInventoryTransferEntity>(entity =>
