@@ -105,8 +105,14 @@ public sealed class ApprovalProcessController(
     /// <summary>
     /// Decide a transfer request
     /// </summary>
+    /// <remarks>
+    /// The dispatch, production and distribution officers are here as owners of a receiving warehouse.
+    /// The approval engine lets anyone decide only the stages that name their role — out of the box,
+    /// for these three, the receiving-owner stage for their own warehouses — and posting the transfer
+    /// still refuses them, as it refuses anyone who could not convert the request.
+    /// </remarks>
     [HttpPost("transfer-requests/{docEntry:int}/decision")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,ShopStock")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,ShopStock,DispatchOfficer,ProductionOfficer,DistributionOfficer")]
     public async Task<IActionResult> SubmitDecision(
         int docEntry,
         [FromBody] SubmitApprovalDecisionDto request,

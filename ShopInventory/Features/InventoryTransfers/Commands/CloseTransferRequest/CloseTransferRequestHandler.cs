@@ -43,18 +43,30 @@ public sealed class CloseTransferRequestHandler(
             var document = await sapClient.GetInventoryTransferRequestByDocEntryAsync(command.DocEntry, cancellationToken);
             if (document is null) return Errors.InventoryTransfer.TransferRequestNotFound(command.DocEntry);
 
-            // Whoever may convert a request is also the one who may turn it down.
-            var scopeCheck = await warehouseAuthorizer.EnsureCanActOnSourceAsync(
-                command.UserId, document.FromWarehouse, cancellationToken);
-            if (scopeCheck.IsError) return scopeCheck.Errors;
+            var context = ApprovalDocumentContext.ForTransferRequest(document);
 
             // A request this app never raised has no approval to reject — closing it in SAP is the
             // whole of the action, and routing a decision at it would only refuse the caller for a
-            // stage that exists solely because we asked for one.
-            if (!await approvalService.HasApprovalAsync(
-                    ApprovalDocumentContext.ForTransferRequest(document), cancellationToken))
+            // stage that exists solely because we asked for one. Only someone who could convert it
+            // may do that: a receiving warehouse's owner may turn down stock coming to them, not
+            // close other people's requests outright.
+            if (!await approvalService.HasApprovalAsync(context, cancellationToken))
             {
+                var converterCheck = await warehouseAuthorizer.EnsureCanConvertRequestAsync(
+                    command.UserId, document.FromWarehouse, cancellationToken);
+                if (converterCheck.IsError) return converterCheck.Errors;
                 return await CloseWithoutApprovalAsync(command, document, cancellationToken);
+            }
+
+            // Whoever may convert a request may also turn it down, and so may whoever holds one of
+            // its pending stages — the receiving warehouse's owner runs the other end of it, which is
+            // the very reason they were asked. Approving never had the source check; refusing now
+            // matches it.
+            if (!await approvalService.CanAuthorizePendingStageAsync(context, command.UserId, command.StageId, cancellationToken))
+            {
+                var scopeCheck = await warehouseAuthorizer.EnsureCanActOnSourceAsync(
+                    command.UserId, document.FromWarehouse, cancellationToken);
+                if (scopeCheck.IsError) return scopeCheck.Errors;
             }
 
             var key = $"{command.DocEntry}:{command.StageId?.ToString() ?? "auto"}:{command.UserId}:reject";
