@@ -1,4 +1,5 @@
 @page "/customer-portal/invoices"
+@using System.Globalization
 @using ShopInventory.Web.Models
 @inject ICustomerStatementService StatementService
 @inject IInvoiceService InvoiceService
@@ -12,10 +13,11 @@
 
 <PageTitle>Invoices - Customer Portal</PageTitle>
 
-@* On the portal's page vocabulary — the `cpd` blocks the dashboard was built
-   from; see the Page vocabulary section of customer-portal.css. `cpx` comes
-   down from the shell. *@
-<div class="cpd fade-in">
+@* On the portal's page vocabulary (`cpd`, see customer-portal.css) plus this page's
+   own `cpi` block, from the "Customer Portal Invoices Redesign" design: one-click
+   periods instead of a date form, a balance summary whose age bands filter the
+   list, and a side drawer for the detail. `cpx` comes down from the shell. *@
+<div class="cpd cpi fade-in">
     @if (isLoading && customerInfo == null)
     {
         <div class="cpd-panel">
@@ -50,62 +52,77 @@
                     {
                         <span>@AccountScopeCaption()</span>
                     }
-                    <span>
-                        @(lastUpdated.HasValue
-                            ? $"Updated {lastUpdated.Value:MMM dd, yyyy 'at' HH:mm} UTC"
-                            : "Not loaded yet")
-                    </span>
                 </div>
             </div>
             <div class="cpd-hero-actions">
-                <a href="/customer-portal/dashboard" class="btn btn-outline-primary">
-                    <i class="ph ph-arrow-left"></i> Dashboard
+                <a href="/customer-portal/statements" class="btn btn-outline-primary">
+                    <i class="ph ph-file-text"></i> View statement
                 </a>
-                <a href="/customer-portal/statements" class="btn btn-primary">View statement</a>
             </div>
         </div>
 
-        @* The strip states the overdue position in one sentence, exactly as the
-           dashboard does. Absent on an account with nothing past due, rather
-           than merely empty. *@
-        @if (hasLoaded && OverdueAmount > 0)
+        @if (!hasLoaded)
         {
-            <div class="cpd-banner" role="status">
-                <i class="ph ph-warning-circle"></i>
-                <div class="cpd-banner-text">
-                    <span class="cpd-banner-num">@FormatCurrency(OverdueAmount)</span>
-                    past due across @OverdueCount @Plural(OverdueCount, "invoice")@(OldestOverdueDays > 0
-                        ? $" — oldest {OldestOverdueDays} {Plural(OldestOverdueDays, "day")} over terms."
-                        : ".")
+            @if (isLoading)
+            {
+                <div class="cpd-panel">
+                    <div class="cpd-empty">
+                        <div class="spinner-border" role="status" style="width: 2.25rem; height: 2.25rem;">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-3 mb-0">Loading your invoices...</p>
+                    </div>
                 </div>
-            </div>
+            }
+            else
+            {
+                @* First visit. Nothing has been read yet: the customer says which invoices
+                   they want, and one click both chooses and loads. *@
+                <section class="cpd-panel cpi-start" aria-labelledby="cpi-start-title">
+                    <span class="cpi-start-icon"><i class="ph ph-receipt"></i></span>
+                    <h3 id="cpi-start-title">Which invoices would you like to see?</h3>
+                    <p class="cpi-start-lede">Pick a period and your open invoices load straight from our accounts.</p>
+                    <div class="cpi-choices">
+                        @foreach (var preset in Presets)
+                        {
+                            <button type="button"
+                                    class="cpi-choice @(showCustom && preset.Key == CustomKey ? "is-on" : "")"
+                                    @onclick="() => ChoosePreset(preset.Key)">
+                                <span class="cpi-choice-icon"><i class="ph @preset.Icon"></i></span>
+                                <span class="cpi-choice-title">@preset.Choice</span>
+                                <span class="cpi-choice-sub">@ChoiceCaption(preset)</span>
+                            </button>
+                        }
+                    </div>
+                    @if (!string.IsNullOrEmpty(loadError))
+                    {
+                        <p class="cpd-filter-note" role="alert">@loadError</p>
+                    }
+                    <p class="cpi-start-foot">
+                        Need every transaction on the account, payments included?
+                        <a href="/customer-portal/statements">Open your statement</a>
+                    </p>
+                </section>
+            }
         }
-
-        <section class="cpd-panel">
-            <div class="cpd-panel-head">
-                <h5>Period</h5>
-                @if (hasLoaded)
-                {
-                    <span class="cpd-tag">@filteredInvoices.Count @Plural(filteredInvoices.Count, "invoice")</span>
-                }
-            </div>
-            @* Every control here is one of the portal's own. NocturneDateField keeps the
-               shorthand entry FlexibleDatePicker was written for and draws the portal's
-               calendar; NocturneSelect draws its menu in page DOM, so the row is one
-               height and one palette. See .claude/skills/nocturne-dropdowns-and-dates. *@
-            <div class="cpd-filters">
-                <div class="cpd-field">
-                    <label class="cpd-field-label" for="cinv-f-from">From</label>
-                    <NocturneDateField Id="cinv-f-from" @bind-Date="fromDate" AriaLabel="From date" />
+        else
+        {
+            @* The period bar: what is loaded, and the one click that changes it. *@
+            <div class="cpi-bar">
+                <div class="cpi-seg" role="group" aria-label="Period">
+                    @foreach (var preset in Presets)
+                    {
+                        var on = IsPresetOn(preset.Key);
+                        <button type="button" class="@(on ? "is-on" : "")" aria-pressed="@(on ? "true" : "false")"
+                                disabled="@isLoading" @onclick="() => ChoosePreset(preset.Key)">
+                            @preset.Label
+                        </button>
+                    }
                 </div>
-                <div class="cpd-field">
-                    <label class="cpd-field-label" for="cinv-f-to">To</label>
-                    <NocturneDateField Id="cinv-f-to" @bind-Date="toDate" AriaLabel="To date" />
-                </div>
+                <span class="cpi-range">@LoadedRangeCaption()</span>
                 @if (isMultiAccount && linkedAccounts.Any())
                 {
-                    <div class="cpd-field">
-                        <label class="cpd-field-label" for="cinv-f-account">Account</label>
+                    <div class="cpi-account">
                         @* The lambda is not a style choice: passing the method group makes
                            TValue inference fail on an error that names EventCallback. *@
                         <NocturneSelect Id="cinv-f-account" Class="nsel-block" TValue="string"
@@ -115,94 +132,163 @@
                                         Placeholder="All accounts" />
                     </div>
                 }
-                <div class="cpd-field cpd-field-action">
-                    <button type="button" class="btn btn-primary" @onclick="LoadInvoices"
-                            disabled="@(isLoading || !HasPeriod || PeriodIsInverted)">
-                        @if (isLoading)
-                        {
-                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                            <span>Loading</span>
-                        }
-                        else
-                        {
-                            <span>@(hasLoaded ? "Reload invoices" : "Load invoices")</span>
-                        }
-                    </button>
-                </div>
+                <span class="cpi-updated">
+                    @(lastUpdated.HasValue ? $"Updated {lastUpdated.Value:HH:mm} UTC" : "")
+                </span>
+                <button type="button" class="btn btn-outline-primary cpi-icon-btn" aria-label="Reload invoices"
+                        disabled="@isLoading" @onclick="LoadInvoices">
+                    <i class="ph ph-arrow-clockwise @(isLoading ? "cpi-spin" : "")"></i>
+                </button>
             </div>
-            @if (PeriodIsInverted)
+            @if (!string.IsNullOrEmpty(loadError))
             {
-                <p class="cpd-filter-note" role="alert">
-                    The From date falls after the To date. Swap them to load invoices.
-                </p>
+                <p class="cpd-filter-note cpi-bar-note" role="alert">@loadError</p>
             }
-        </section>
+        }
+
+        @if (showCustom)
+        {
+            @* Every control here is one of the portal's own. NocturneDateField keeps the
+               shorthand entry FlexibleDatePicker was written for and draws the portal's
+               calendar. See .claude/skills/nocturne-dropdowns-and-dates. *@
+            <section class="cpd-panel cpi-custom" aria-label="Custom period">
+                <div class="cpd-filters">
+                    <div class="cpd-field">
+                        <label class="cpd-field-label" for="cinv-f-from">From</label>
+                        <NocturneDateField Id="cinv-f-from" @bind-Date="fromDate" AriaLabel="From date" />
+                    </div>
+                    <div class="cpd-field">
+                        <label class="cpd-field-label" for="cinv-f-to">To</label>
+                        <NocturneDateField Id="cinv-f-to" @bind-Date="toDate" AriaLabel="To date" />
+                    </div>
+                    <div class="cpd-field cpd-field-action">
+                        <button type="button" class="btn btn-primary" @onclick="ApplyCustom"
+                                disabled="@(isLoading || !HasPeriod || PeriodIsInverted)">
+                            @if (isLoading)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                <span>Loading</span>
+                            }
+                            else
+                            {
+                                <span>Load invoices</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+                @if (PeriodIsInverted)
+                {
+                    <p class="cpd-filter-note" role="alert">
+                        The From date falls after the To date. Swap them to load invoices.
+                    </p>
+                }
+            </section>
+        }
 
         @if (hasLoaded)
         {
-            <section class="cpd-kpis">
-                <div class="cpd-kpi">
-                    <div class="cpd-kpi-top">
+            var open = OpenInvoices;
+            var bands = AgeBands(open);
+
+            <section class="cpd-panel cpi-summary" aria-label="Balance summary">
+                <div class="cpi-figs">
+                    <div class="cpi-fig">
                         <span class="cpd-kpi-label">Outstanding</span>
-                        <i class="ph ph-receipt"></i>
+                        <span class="cpi-fig-num is-lead">@FormatCurrency(open.Sum(i => i.Balance))</span>
+                        <span class="cpd-kpi-sub">across @open.Count open @Plural(open.Count, "invoice")</span>
                     </div>
-                    <div class="cpd-kpi-num">@FormatCurrency(filteredOutstanding)</div>
-                    <div class="cpd-kpi-sub">@PeriodCaption()</div>
-                </div>
-
-                <div class="cpd-kpi">
-                    <div class="cpd-kpi-top">
-                        <span class="cpd-kpi-label">Open invoices</span>
-                        <i class="ph ph-files"></i>
-                    </div>
-                    <div class="cpd-kpi-num">@OpenCount</div>
-                    <div class="cpd-kpi-sub">
-                        @(PaidCount > 0 ? $"{PaidCount} settled in range" : "None settled in range")
-                    </div>
-                </div>
-
-                <div class="cpd-kpi @(OverdueAmount > 0 ? "is-alert" : "")">
-                    <div class="cpd-kpi-top">
+                    <div class="cpi-fig @(OverdueAmount(open) > 0 ? "is-alert" : "")">
                         <span class="cpd-kpi-label">Overdue</span>
-                        <i class="ph ph-clock"></i>
+                        <span class="cpi-fig-num">@FormatCurrency(OverdueAmount(open))</span>
+                        <span class="cpd-kpi-sub">@OverdueCaption(open)</span>
                     </div>
-                    <div class="cpd-kpi-num">@FormatCurrency(OverdueAmount)</div>
-                    <div class="cpd-kpi-sub">
-                        @if (OverdueCount > 0)
-                        {
-                            <text>@OverdueCount @Plural(OverdueCount, "invoice")@(OldestOverdueDays > 0
-                                ? $", oldest {OldestOverdueDays} {Plural(OldestOverdueDays, "day")} over"
-                                : "")</text>
-                        }
-                        else
-                        {
-                            <text>Nothing past due</text>
-                        }
+                    <div class="cpi-fig">
+                        <span class="cpd-kpi-label">Next due</span>
+                        <span class="cpi-fig-num">@(NextDue(open) is { } next ? FormatCurrency(next.Balance) : "—")</span>
+                        <span class="cpd-kpi-sub">@NextDueCaption(open)</span>
                     </div>
                 </div>
 
-                <div class="cpd-kpi">
-                    <div class="cpd-kpi-top">
-                        <span class="cpd-kpi-label">Next due</span>
-                        <i class="ph ph-calendar-check"></i>
+                <div class="cpi-age">
+                    <div class="cpi-age-head">
+                        <span class="cpd-kpi-label">Balance by age</span>
+                        <span class="cpi-age-hint">Select a band to list its invoices</span>
                     </div>
-                    <div class="cpd-kpi-num">@FormatCurrency(NextDue?.Balance ?? 0)</div>
-                    <div class="cpd-kpi-sub">@NextDueCaption()</div>
+                    @* Bands grown by their share, as on the dashboard — and an invariant
+                       format, because a comma decimal separator is not a CSS number. *@
+                    <div class="cpd-aging-bar" role="img" aria-label="@AgeBarLabel(bands)">
+                        @foreach (var band in bands.Where(b => b.Amount > 0))
+                        {
+                            <div class="cpd-aging-seg @band.Key"
+                                 style="flex: @(band.Amount.ToString("F2", CultureInfo.InvariantCulture))"></div>
+                        }
+                    </div>
+                    <div class="cpd-aging-legend cpi-bands">
+                        @foreach (var band in bands)
+                        {
+                            var empty = band.Amount <= 0;
+                            var on = bandFilter == band.Index;
+                            <button type="button"
+                                    class="cpd-aging-item cpi-band @band.Key @(empty ? "is-empty" : "") @(on ? "is-on" : "")"
+                                    aria-pressed="@(on ? "true" : "false")" disabled="@empty"
+                                    @onclick="() => SelectBand(band.Index)">
+                                <span class="cpd-aging-key"><span class="cpd-dot"></span>@band.Label</span>
+                                <span class="cpd-aging-val">@(empty ? "—" : FormatCurrency(band.Amount))</span>
+                                @if (!empty)
+                                {
+                                    <span class="cpd-aging-sub">@band.Count @Plural(band.Count, "invoice")</span>
+                                }
+                            </button>
+                        }
+                    </div>
                 </div>
             </section>
 
-            <section class="cpd-panel cpd-ledger">
-                <div class="cpd-panel-head">
-                    <h5>Open invoices</h5>
-                    <span class="cpd-panel-total">
-                        Balance <strong>@FormatCurrency(filteredOutstanding)</strong>
-                    </span>
+            var listed = ListedInvoices(open);
+            var totalPages = Math.Max(1, (int)Math.Ceiling(listed.Count / (double)PageSize));
+            var page = Math.Clamp(currentPage, 1, totalPages);
+            var paged = listed.Skip((page - 1) * PageSize).Take(PageSize).ToList();
+
+            <section class="cpd-panel cpd-ledger cpi-list" aria-label="Invoice list">
+                <div class="cpi-list-head">
+                    <div class="cpi-tabs" role="group" aria-label="Show invoices">
+                        @foreach (var tab in Tabs(open))
+                        {
+                            var on = bandFilter is null && listTab == tab.Tab;
+                            <button type="button" class="cpi-tab @(on ? "is-on" : "")"
+                                    aria-pressed="@(on ? "true" : "false")" @onclick="() => SelectTab(tab.Tab)">
+                                @tab.Label <span class="cpi-tab-count">@tab.Count</span>
+                            </button>
+                        }
+                    </div>
+                    <div class="cpi-search">
+                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                        <input type="search" class="cpd-input" placeholder="Search invoice number"
+                               aria-label="Search invoice number" inputmode="numeric"
+                               @bind="searchText" @bind:event="oninput" @bind:after="ResetPage" />
+                    </div>
                 </div>
 
-                @if (pagedInvoices.Any())
+                @if (bandFilter is int shownBand)
                 {
-                    <div class="table-responsive">
-                        <table class="cpd-table mobile-card-table">
+                    <div class="cpi-filtered" role="status">
+                        <span class="cpi-filtered-key @bands[shownBand].Key"><span class="cpd-dot"></span>@BandFilterCaption(bands[shownBand])</span>
+                        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="ClearBand">Show all open</button>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(listNotice))
+                {
+                    <p class="cpd-filter-note cpi-list-note" role="alert">@listNotice</p>
+                }
+
+                @if (paged.Any())
+                {
+                    @* Two renderings of the same rows: a ledger where it fits, and cards where
+                       it does not. A container query on `.cpd` picks one, so a laptop with the
+                       portal drawer open gets cards for the same reason a phone does. *@
+                    <div class="table-responsive cpi-table-wrap">
+                        <table class="cpd-table cpi-table">
                             <thead>
                                 <tr>
                                     <th>Invoice</th>
@@ -210,74 +296,126 @@
                                     {
                                         <th>Account</th>
                                     }
-                                    <th>Due</th>
+                                    <th>Status</th>
+                                    <th>Due date</th>
                                     <th class="cpd-num">Amount</th>
                                     <th class="cpd-num">Paid</th>
                                     <th class="cpd-num">Balance</th>
-                                    <th class="cpd-num">Status</th>
-                                    <th class="cpd-num">Detail</th>
+                                    <th class="cpd-num"><span class="visually-hidden">Actions</span></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var invoice in pagedInvoices)
+                                @foreach (var invoice in paged)
                                 {
                                     var status = InvoiceStatus(invoice);
                                     <tr>
-                                        <td data-label="Invoice">
-                                            @* One element, not two: below 992px each cell becomes a
-                                               labelled grid row, and a second child would be placed
-                                               into the label track. *@
+                                        <td>
                                             <span class="cpd-doc">
-                                                <span class="cpd-doc-id">@invoice.DocNum</span>
+                                                @* Stretched across the row, so the whole row opens
+                                                   the drawer while only this button is in the tab
+                                                   order for it. *@
+                                                <button type="button" class="cpi-doc-btn cpd-doc-id"
+                                                        aria-label="Open invoice @invoice.DocNum"
+                                                        @onclick="() => ViewInvoiceDetails(invoice)">
+                                                    @invoice.DocNum
+                                                </button>
                                                 <span class="cpd-doc-sub">Issued @invoice.DocDate.ToString("MMM dd, yyyy")</span>
                                             </span>
                                         </td>
                                         @if (isMultiAccount)
                                         {
-                                            <td data-label="Account" class="cpd-quiet">
+                                            <td class="cpd-quiet">
                                                 <span class="cpd-doc">
-                                                    <span class="cpd-doc-id">@(invoice.CardCode ?? "—")</span>
+                                                    <span>@(invoice.CardCode ?? "—")</span>
                                                     <span class="cpd-doc-sub">@(invoice.Currency ?? "")</span>
                                                 </span>
                                             </td>
                                         }
-                                        <td data-label="Due" class="cpd-quiet">
-                                            @(invoice.DueDate?.ToString("MMM dd, yyyy") ?? "—")
-                                        </td>
-                                        <td data-label="Amount" class="cpd-num">@FormatCurrency(invoice.DocTotal)</td>
-                                        <td data-label="Paid" class="cpd-num cpd-quiet">@FormatCurrency(invoice.PaidToDate)</td>
-                                        <td data-label="Balance" class="cpd-num cpd-strong">@FormatCurrency(invoice.Balance)</td>
-                                        <td data-label="Status" class="cpd-num">
-                                            <span class="cpd-status @status.Cls">@status.Text</span>
-                                        </td>
-                                        <td data-label="Detail" class="cpd-num">
-                                            <button type="button" class="btn btn-outline-primary btn-sm"
-                                                    @onclick="() => ViewInvoiceDetails(invoice)">
-                                                View
-                                            </button>
+                                        <td><span class="cpd-status @status.Cls">@status.Text</span></td>
+                                        <td class="cpd-quiet">@(invoice.DueDate?.ToString("MMM dd, yyyy") ?? "—")</td>
+                                        <td class="cpd-num">@FormatCurrency(invoice.DocTotal)</td>
+                                        <td class="cpd-num cpd-quiet">@(invoice.PaidToDate > 0 ? FormatCurrency(invoice.PaidToDate) : "—")</td>
+                                        <td class="cpd-num cpd-strong">@FormatCurrency(invoice.Balance)</td>
+                                        <td class="cpd-num">
+                                            <span class="cpi-acts">
+                                                <button type="button" class="btn btn-sm cpi-icon-btn cpi-row-pdf"
+                                                        aria-label="Download invoice @invoice.DocNum as PDF"
+                                                        disabled="@(rowPdfDocEntry == invoice.DocEntry)"
+                                                        @onclick="() => DownloadRowPdf(invoice)">
+                                                    @if (rowPdfDocEntry == invoice.DocEntry)
+                                                    {
+                                                        <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="ph ph-download-simple"></i>
+                                                    }
+                                                </button>
+                                                <i class="ph ph-caret-right cpi-row-caret" aria-hidden="true"></i>
+                                            </span>
                                         </td>
                                     </tr>
                                 }
                             </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="@(isMultiAccount ? 4 : 3)" class="cpd-quiet">
+                                        @listed.Count @Plural(listed.Count, "invoice")
+                                    </td>
+                                    <td class="cpd-num">@FormatCurrency(listed.Sum(i => i.DocTotal))</td>
+                                    <td class="cpd-num cpd-quiet">@FormatCurrency(listed.Sum(i => i.PaidToDate))</td>
+                                    <td class="cpd-num">@FormatCurrency(listed.Sum(i => i.Balance))</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
                         </table>
+                    </div>
+
+                    <ul class="cpi-cards">
+                        @foreach (var invoice in paged)
+                        {
+                            var status = InvoiceStatus(invoice);
+                            <li>
+                                <button type="button" class="cpi-card" @onclick="() => ViewInvoiceDetails(invoice)">
+                                    <span class="cpi-card-row">
+                                        <span class="cpi-card-num">@invoice.DocNum</span>
+                                        <span class="cpd-status @status.Cls">@status.Text</span>
+                                    </span>
+                                    <span class="cpi-card-row">
+                                        <span class="cpi-card-sub">
+                                            @CardCaption(invoice)
+                                            @if (isMultiAccount && !string.IsNullOrEmpty(invoice.CardCode))
+                                            {
+                                                <span class="cpi-card-acct">@invoice.CardCode</span>
+                                            }
+                                        </span>
+                                        <span class="cpi-card-amt">@FormatCurrency(invoice.Balance)</span>
+                                    </span>
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                    <div class="cpi-cards-total">
+                        <span>@listed.Count @Plural(listed.Count, "invoice")</span>
+                        <span>Balance <strong>@FormatCurrency(listed.Sum(i => i.Balance))</strong></span>
                     </div>
 
                     @if (totalPages > 1)
                     {
                         <div class="cpd-pager">
                             <div class="cpd-pager-info">
-                                Showing @(((currentPage - 1) * pageSize) + 1)&ndash;@(Math.Min(currentPage * pageSize, filteredInvoices.Count))
-                                of @filteredInvoices.Count invoices
+                                Showing @(((page - 1) * PageSize) + 1)&ndash;@(Math.Min(page * PageSize, listed.Count))
+                                of @listed.Count invoices
                             </div>
                             <nav aria-label="Invoice pages">
                                 <ul class="pagination pagination-sm mb-0">
-                                    <li class="page-item @(currentPage == 1 ? "disabled" : "")">
-                                        <button class="page-link" @onclick="() => GoToPage(currentPage - 1)"
-                                                disabled="@(currentPage == 1)" aria-label="Previous page">
+                                    <li class="page-item @(page == 1 ? "disabled" : "")">
+                                        <button class="page-link" @onclick="() => GoToPage(page - 1, totalPages)"
+                                                disabled="@(page == 1)" aria-label="Previous page">
                                             <i class="ph ph-caret-left"></i>
                                         </button>
                                     </li>
-                                    @foreach (var pg in GetVisiblePages())
+                                    @foreach (var pg in GetVisiblePages(page, totalPages))
                                     {
                                         @if (pg == -1)
                                         {
@@ -285,14 +423,14 @@
                                         }
                                         else
                                         {
-                                            <li class="page-item @(pg == currentPage ? "active" : "")">
-                                                <button class="page-link" @onclick="() => GoToPage(pg)">@pg</button>
+                                            <li class="page-item @(pg == page ? "active" : "")">
+                                                <button class="page-link" @onclick="() => GoToPage(pg, totalPages)">@pg</button>
                                             </li>
                                         }
                                     }
-                                    <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
-                                        <button class="page-link" @onclick="() => GoToPage(currentPage + 1)"
-                                                disabled="@(currentPage == totalPages)" aria-label="Next page">
+                                    <li class="page-item @(page == totalPages ? "disabled" : "")">
+                                        <button class="page-link" @onclick="() => GoToPage(page + 1, totalPages)"
+                                                disabled="@(page == totalPages)" aria-label="Next page">
                                             <i class="ph ph-caret-right"></i>
                                         </button>
                                     </li>
@@ -303,38 +441,60 @@
                 }
                 else
                 {
-                    <div class="cpd-empty">No open invoices found for the selected period.</div>
+                    <div class="cpd-empty">
+                        <i class="ph ph-receipt"></i>
+                        <h5>Nothing to show</h5>
+                        <p>@EmptyCaption()</p>
+                    </div>
                 }
             </section>
-        }
-        else
-        {
-            <div class="cpd-panel">
-                <div class="cpd-empty">
-                    <i class="ph ph-receipt"></i>
-                    <h5>Choose a period</h5>
-                    <p>Set the dates above and load your open invoices.</p>
-                </div>
-            </div>
         }
     }
 </div>
 
-@* The detail sheet. It renders inside CustomerPortalLayout, so `.cpx` is above
-   it and it needs no peer scope class of its own. *@
+@* The detail drawer. It renders inside CustomerPortalLayout, so `.cpx` is above it
+   and it needs no peer scope class of its own. *@
 @if (showInvoiceModal)
 {
-    <div class="cpd cpd-overlay" role="dialog" aria-modal="true" aria-label="Invoice detail">
-        <div class="cpd-sheet">
+    <div class="cpd cpd-overlay cpi-overlay" @onkeydown="OnDrawerKeyDown">
+        <button type="button" class="cpi-scrim" aria-label="Close invoice detail" tabindex="-1"
+                @onclick="CloseInvoiceModal"></button>
+        <aside class="cpd-sheet cpi-drawer" role="dialog" aria-modal="true" aria-labelledby="cpi-drawer-title"
+               tabindex="-1" @ref="drawerRef">
             <div class="cpd-sheet-head">
-                <i class="ph ph-receipt"></i>
-                <h5>Invoice @(selectedInvoice?.DocNum ?? selectedInvoiceSummary?.DocNum)</h5>
+                <div class="cpi-drawer-title">
+                    <span class="cpd-kpi-label">Invoice</span>
+                    <span class="cpi-drawer-name">
+                        <h5 id="cpi-drawer-title">@(selectedInvoice?.DocNum ?? selectedInvoiceSummary?.DocNum)</h5>
+                        @if (selectedInvoiceSummary is not null)
+                        {
+                            var status = InvoiceStatus(selectedInvoiceSummary);
+                            <span class="cpd-status @status.Cls">@status.Text</span>
+                        }
+                    </span>
+                </div>
                 <button type="button" class="cpd-sheet-close" @onclick="CloseInvoiceModal" aria-label="Close">
                     <i class="ph ph-x"></i>
                 </button>
             </div>
 
             <div class="cpd-sheet-body">
+                @if (selectedInvoiceSummary is { } summary)
+                {
+                    @* From the list row, so it shows before the document itself arrives. *@
+                    <div class="cpi-balance">
+                        <span class="cpd-kpi-label">@(summary.Balance > 0 ? "Balance due" : "Paid in full")</span>
+                        <span class="cpi-balance-num">@FormatCurrency(summary.Balance)</span>
+                        <span class="cpd-kpi-sub">
+                            of @FormatCurrency(summary.DocTotal) &middot;
+                            @(summary.PaidToDate > 0 ? $"{FormatCurrency(summary.PaidToDate)} paid" : "nothing paid yet")
+                        </span>
+                        <span class="cpi-paid-bar" aria-hidden="true">
+                            <span class="cpi-paid-fill" style="width: @(PaidShare(summary).ToString("F1", CultureInfo.InvariantCulture))%"></span>
+                        </span>
+                    </div>
+                }
+
                 @if (isDetailLoading)
                 {
                     <div class="cpd-empty">
@@ -356,18 +516,22 @@
                 {
                     <div class="cpd-defs">
                         <div class="cpd-def">
-                            <span class="cpd-def-k">Invoice date</span>
+                            <span class="cpd-def-k">Issued</span>
                             <span class="cpd-def-v">@FormatDate(selectedInvoice.DocDate)</span>
                         </div>
                         <div class="cpd-def">
-                            <span class="cpd-def-k">Due date</span>
-                            <span class="cpd-def-v">@FormatDate(selectedInvoice.DocDueDate)</span>
+                            <span class="cpd-def-k">Due</span>
+                            <span class="cpd-def-v">
+                                @FormatDate(selectedInvoice.DocDueDate)
+                                @if (selectedInvoiceSummary is not null)
+                                {
+                                    <span class="cpi-def-sub">@DueRelative(selectedInvoiceSummary)</span>
+                                }
+                            </span>
                         </div>
                         <div class="cpd-def">
-                            <span class="cpd-def-k">Amount</span>
-                            <span class="cpd-def-v is-lg">
-                                @FormatCurrencyWithCode(selectedInvoice.DocTotal, selectedInvoice.DocCurrency)
-                            </span>
+                            <span class="cpd-def-k">Your reference</span>
+                            <span class="cpd-def-v">@(string.IsNullOrWhiteSpace(selectedInvoice.NumAtCard) ? "—" : selectedInvoice.NumAtCard)</span>
                         </div>
                         <div class="cpd-def">
                             <span class="cpd-def-k">VAT</span>
@@ -375,68 +539,38 @@
                                 @FormatCurrencyWithCode(selectedInvoice.VatSum, selectedInvoice.DocCurrency)
                             </span>
                         </div>
-                        <div class="cpd-def">
-                            <span class="cpd-def-k">Reference</span>
-                            <span class="cpd-def-v">@(string.IsNullOrWhiteSpace(selectedInvoice.NumAtCard) ? "—" : selectedInvoice.NumAtCard)</span>
-                        </div>
-                        <div class="cpd-def">
-                            <span class="cpd-def-k">Status</span>
-                            <span class="cpd-def-v">
-                                @if (selectedInvoiceSummary is not null)
-                                {
-                                    var status = InvoiceStatus(selectedInvoiceSummary);
-                                    <span class="cpd-status @status.Cls">@status.Text</span>
-                                }
-                                else
-                                {
-                                    <text>—</text>
-                                }
-                            </span>
-                        </div>
                     </div>
 
                     <div>
                         <div class="cpd-sub-head">
                             <i class="ph ph-list-bullets"></i> Items invoiced
+                            @if (selectedInvoice.Lines?.Any() == true)
+                            {
+                                <span class="cpi-sub-count">@selectedInvoice.Lines.Count @Plural(selectedInvoice.Lines.Count, "line")</span>
+                            }
                         </div>
                         @if (selectedInvoice.Lines?.Any() == true)
                         {
-                            <div class="table-responsive">
-                                <table class="cpd-table mobile-card-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Item</th>
-                                            <th class="cpd-num">Qty</th>
-                                            <th>UoM</th>
-                                            <th class="cpd-num">Gross price</th>
-                                            <th class="cpd-num">Total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var line in selectedInvoice.Lines)
-                                        {
-                                            <tr>
-                                                <td data-label="Item">
-                                                    <span class="cpd-doc">
-                                                        <span class="cpd-doc-id">@line.ItemDescription</span>
-                                                        <span class="cpd-doc-sub">@line.ItemCode</span>
-                                                    </span>
-                                                </td>
-                                                <td data-label="Qty" class="cpd-num">
-                                                    @QuantityDisplay.Format(line.Quantity, line.UoMCode)
-                                                </td>
-                                                <td data-label="UoM" class="cpd-quiet">@(line.UoMCode ?? "—")</td>
-                                                <td data-label="Gross price" class="cpd-num cpd-quiet">
-                                                    @FormatCurrencyWithCode(line.GrossPrice, selectedInvoice.DocCurrency)
-                                                </td>
-                                                <td data-label="Total" class="cpd-num cpd-strong">
-                                                    @FormatCurrencyWithCode(line.LineTotal, selectedInvoice.DocCurrency)
-                                                </td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
+                            @* Line totals are before VAT and the gross price may not be, so the
+                               two are stated side by side rather than as a multiplication that
+                               would not add up. *@
+                            <ul class="cpi-lines">
+                                @foreach (var line in selectedInvoice.Lines)
+                                {
+                                    <li class="cpi-line">
+                                        <span class="cpi-line-main">
+                                            <span class="cpi-line-name">@line.ItemDescription</span>
+                                            <span class="cpi-line-meta">
+                                                @line.ItemCode &middot; @QuantityDisplay.Format(line.Quantity, line.UoMCode)
+                                            </span>
+                                        </span>
+                                        <span class="cpi-line-money">
+                                            <span class="cpi-line-total">@FormatCurrencyWithCode(line.LineTotal, selectedInvoice.DocCurrency)</span>
+                                            <span class="cpi-line-meta">Gross price @FormatCurrencyWithCode(line.GrossPrice, selectedInvoice.DocCurrency)</span>
+                                        </span>
+                                    </li>
+                                }
+                            </ul>
                         }
                         else
                         {
@@ -475,15 +609,14 @@
                         }
                         else
                         {
-                            <div class="cpd-empty">No POD is attached to this invoice yet.</div>
+                            <div class="cpi-none">No signed delivery note is attached to this invoice yet.</div>
                         }
                     </div>
                 }
             </div>
 
             <div class="cpd-sheet-foot">
-                <button type="button" class="btn btn-outline-primary" @onclick="CloseInvoiceModal">Close</button>
-                <button type="button" class="btn btn-primary" @onclick="DownloadInvoicePdf"
+                <button type="button" class="btn btn-primary cpi-drawer-pdf" @onclick="DownloadInvoicePdf"
                         disabled="@(isPdfLoading || selectedInvoice == null)">
                     @if (isPdfLoading)
                     {
@@ -492,41 +625,72 @@
                     }
                     else
                     {
+                        <i class="ph ph-download-simple"></i>
                         <span>Download PDF</span>
                     }
                 </button>
+                <button type="button" class="btn btn-outline-primary" @onclick="CloseInvoiceModal">Close</button>
             </div>
-        </div>
+        </aside>
     </div>
 }
 
 @code {
+    private const string AllKey = "all";
+    private const string CustomKey = "custom";
+    private const int PageSize = 15;
+
+    private sealed record PeriodPreset(string Key, string Label, string Choice, string Icon);
+
+    /// <summary>
+    /// The periods a customer can ask for. "All open" comes first because it answers the
+    /// question most people open this page with — what do I owe — and it costs the same to
+    /// read as any other: the service fetches every open invoice for the account and applies
+    /// the dates afterwards.
+    /// </summary>
+    private static readonly PeriodPreset[] Presets =
+    {
+        new(AllKey, "All open", "Everything open", "ph-stack"),
+        new("30", "30 days", "Last 30 days", "ph-calendar-blank"),
+        new("90", "90 days", "Last 90 days", "ph-calendar-blank"),
+        new("year", "This year", "This year", "ph-calendar"),
+        new(CustomKey, "Custom", "Custom dates", "ph-calendar-dots")
+    };
+
+    private enum ListTab { Open, Overdue, NotDue }
+
+    private sealed record TabInfo(ListTab Tab, string Label, int Count);
+
+    private sealed record AgeBand(int Index, string Key, string Label, decimal Amount, int Count);
+
     private CustomerPortalSession? portalSession;
     private CustomerInfo? customerInfo;
     private List<CustomerInvoiceSummary> invoices = new();
     private bool isLoading = true;
-    private bool hasLoaded = false;
-    private int currentPage = 1;
-    private int pageSize = 15;
-    private int totalPages => (int)Math.Ceiling((double)filteredInvoices.Count / pageSize);
-    private List<CustomerInvoiceSummary> pagedInvoices => filteredInvoices
-        .Skip((currentPage - 1) * pageSize)
-        .Take(pageSize)
-        .ToList();
+    private bool hasLoaded;
+    private string? loadError;
     private DateTime? lastUpdated;
-    private decimal totalOutstanding;
-    private decimal filteredOutstanding => filteredInvoices.Sum(i => i.Balance);
     private bool isMultiAccount;
-    // Deliberately empty. This is a live read of the customer's ledger, and the
-    // reader who opened the page has not said which period they want yet — so both
-    // fields start blank and the button stays out of reach until they do.
+    private string selectedAccountFilter = "";
+    private List<LinkedAccountInfo> linkedAccounts = new();
+
+    // Nothing is read until the customer picks a period: this is a live read of their
+    // ledger. The first visit therefore opens on the choice, and a choice both picks
+    // and loads. The custom fields start blank for the same reason.
     private DateTime? fromDate;
     private DateTime? toDate;
+    private bool showCustom;
+    private string? loadedPreset;
+    private DateTime? loadedFrom;
+    private DateTime? loadedTo;
 
-    private bool HasPeriod => fromDate.HasValue && toDate.HasValue;
+    private ListTab listTab = ListTab.Open;
+    private int? bandFilter;
+    private string searchText = "";
+    private int currentPage = 1;
+    private int? rowPdfDocEntry;
+    private string? listNotice;
 
-    // Refused at the button rather than sent: an inverted range is not a query.
-    private bool PeriodIsInverted => HasPeriod && fromDate > toDate;
     private CustomerInvoiceSummary? selectedInvoiceSummary;
     private InvoiceDto? selectedInvoice;
     private List<DocumentAttachmentDto> podAttachments = new();
@@ -534,40 +698,29 @@
     private bool isDetailLoading;
     private string? detailError;
     private bool isPdfLoading;
-    private string selectedAccountFilter = "";
-    private List<LinkedAccountInfo> linkedAccounts = new();
+    private ElementReference drawerRef;
+    private bool focusDrawer;
+
+    private bool HasPeriod => fromDate.HasValue && toDate.HasValue;
+
+    // Refused at the button rather than sent: an inverted range is not a query.
+    private bool PeriodIsInverted => HasPeriod && fromDate > toDate;
 
     // Computed rather than static: the list arrives with the session.
     private IEnumerable<NocturneSelectOption<string>> AccountFilterOptions =>
         PortalFilterOptions.Accounts(linkedAccounts);
 
-    private List<CustomerInvoiceSummary> filteredInvoices => string.IsNullOrEmpty(selectedAccountFilter)
-        ? invoices
-        : invoices.Where(i => i.CardCode == selectedAccountFilter).ToList();
-
-    private List<CustomerInvoiceSummary> OpenInvoices => filteredInvoices.Where(i => i.Balance > 0).ToList();
-
-    private int OpenCount => OpenInvoices.Count;
-
-    private int PaidCount => filteredInvoices.Count - OpenCount;
-
-    private decimal OverdueAmount => OpenInvoices.Where(i => i.DaysOverdue > 0).Sum(i => i.Balance);
-
-    private int OverdueCount => OpenInvoices.Count(i => i.DaysOverdue > 0);
-
-    private int OldestOverdueDays => OpenInvoices.Any(i => i.DaysOverdue > 0)
-        ? OpenInvoices.Max(i => i.DaysOverdue)
-        : 0;
+    /// <summary>Open invoices on the account the filter names, or on every account.</summary>
+    private List<CustomerInvoiceSummary> OpenInvoices => invoices
+        .Where(i => i.Balance > 0)
+        .Where(i => string.IsNullOrEmpty(selectedAccountFilter) || i.CardCode == selectedAccountFilter)
+        .ToList();
 
     /// <summary>
-    /// The soonest invoice not yet over terms. Deliberately not "the oldest open
-    /// invoice": one already past due is stated by the overdue figure beside it,
-    /// and counting it twice would make the row read as more debt than there is.
+    /// The width of one age band: the customer's payment terms when they are known, else
+    /// 30 days — the same rule the dashboard's aging panel uses, so the bands agree.
     /// </summary>
-    private CustomerInvoiceSummary? NextDue => OpenInvoices
-        .Where(i => i.DaysOverdue <= 0 && i.DueDate.HasValue)
-        .OrderBy(i => i.DueDate)
-        .FirstOrDefault();
+    private int BandWidth => customerInfo?.PaymentTermsDays is > 0 and var days ? days : 30;
 
     protected override async Task OnInitializedAsync()
     {
@@ -581,6 +734,22 @@
 
         await LoadCustomerInfo();
         isLoading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusDrawer)
+        {
+            focusDrawer = false;
+            try
+            {
+                await drawerRef.FocusAsync();
+            }
+            catch (Exception ex) when (ex is JSException or InvalidOperationException)
+            {
+                // The drawer closed before it could take focus.
+            }
+        }
     }
 
     private async Task LoadCustomerInfo()
@@ -605,23 +774,79 @@
         }
     }
 
+    private bool IsPresetOn(string key) => showCustom ? key == CustomKey : key == loadedPreset;
+
+    private async Task ChoosePreset(string key)
+    {
+        if (key == CustomKey)
+        {
+            showCustom = true;
+            return;
+        }
+
+        var today = DateTime.Today;
+        (fromDate, toDate) = key switch
+        {
+            "30" => (today.AddDays(-30), today),
+            "90" => (today.AddDays(-90), today),
+            "year" => (new DateTime(today.Year, 1, 1), today),
+            _ => ((DateTime?)null, (DateTime?)null)
+        };
+
+        showCustom = false;
+        await LoadPeriod(key);
+    }
+
+    private async Task ApplyCustom()
+    {
+        if (!HasPeriod || PeriodIsInverted)
+        {
+            return;
+        }
+
+        await LoadPeriod(CustomKey);
+    }
+
+    /// <summary>Reload the period already on screen.</summary>
     private async Task LoadInvoices()
     {
-        if (customerInfo == null || !HasPeriod || PeriodIsInverted) return;
+        if (loadedPreset is null)
+        {
+            return;
+        }
+
+        fromDate = loadedFrom;
+        toDate = loadedTo;
+        await LoadPeriod(loadedPreset);
+    }
+
+    private async Task LoadPeriod(string preset)
+    {
+        if (customerInfo == null || PeriodIsInverted)
+        {
+            return;
+        }
 
         isLoading = true;
+        loadError = null;
+        listNotice = null;
 
         try
         {
             invoices = await StatementService.GetOpenInvoicesAsync(customerInfo.CardCode, fromDate, toDate);
-            totalOutstanding = invoices.Sum(i => i.Balance);
             lastUpdated = DateTime.UtcNow;
+            loadedPreset = preset;
+            loadedFrom = fromDate;
+            loadedTo = toDate;
             hasLoaded = true;
+            showCustom = preset == CustomKey;
+            bandFilter = null;
             currentPage = 1;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading invoices");
+            loadError = "We could not load your invoices just now. Please try again.";
         }
         finally
         {
@@ -631,21 +856,253 @@
 
     private void OnAccountFilterChanged(string value)
     {
+        bandFilter = null;
+        currentPage = 1;
+
         if (!CustomerSession.CanAccessCardCode(portalSession, value))
         {
             Logger.LogWarning("Rejected unauthorized customer invoice account filter {CardCode}", value);
             selectedAccountFilter = string.Empty;
-            currentPage = 1;
             return;
         }
 
         selectedAccountFilter = value;
+    }
+
+    private void SelectTab(ListTab tab)
+    {
+        listTab = tab;
+        bandFilter = null;
         currentPage = 1;
+    }
+
+    private void SelectBand(int band)
+    {
+        bandFilter = bandFilter == band ? null : band;
+        currentPage = 1;
+    }
+
+    private void ClearBand()
+    {
+        bandFilter = null;
+        currentPage = 1;
+    }
+
+    private void ResetPage() => currentPage = 1;
+
+    private List<CustomerInvoiceSummary> ListedInvoices(List<CustomerInvoiceSummary> open)
+    {
+        IEnumerable<CustomerInvoiceSummary> rows = bandFilter is int band
+            ? open.Where(i => BandOf(i) == band)
+            : listTab switch
+            {
+                ListTab.Overdue => open.Where(i => i.DaysOverdue > 0),
+                ListTab.NotDue => open.Where(i => i.DaysOverdue <= 0),
+                _ => open
+            };
+
+        var needle = searchText.Trim();
+        if (needle.Length > 0)
+        {
+            rows = rows.Where(i => i.DocNum.ToString(CultureInfo.InvariantCulture)
+                .Contains(needle, StringComparison.Ordinal));
+        }
+
+        return rows.ToList();
+    }
+
+    private static IEnumerable<TabInfo> Tabs(List<CustomerInvoiceSummary> open) => new[]
+    {
+        new TabInfo(ListTab.Open, "All open", open.Count),
+        new TabInfo(ListTab.Overdue, "Overdue", open.Count(i => i.DaysOverdue > 0)),
+        new TabInfo(ListTab.NotDue, "Not yet due", open.Count(i => i.DaysOverdue <= 0))
+    };
+
+    private int BandOf(CustomerInvoiceSummary invoice)
+    {
+        var days = invoice.DaysOverdue;
+        var width = BandWidth;
+
+        if (days <= 0) return 0;
+        if (days <= width) return 1;
+        if (days <= width * 2) return 2;
+        if (days <= width * 3) return 3;
+        return 4;
+    }
+
+    /// <summary>The five bands, worded and keyed exactly as the dashboard's aging panel.</summary>
+    private List<AgeBand> AgeBands(List<CustomerInvoiceSummary> open)
+    {
+        var width = BandWidth;
+        string[] keys = { "cpd-b-current", "cpd-b-1", "cpd-b-2", "cpd-b-3", "cpd-b-4" };
+        string[] labels =
+        {
+            "Current",
+            $"1-{width} Days",
+            $"{width + 1}-{width * 2} Days",
+            $"{width * 2 + 1}-{width * 3} Days",
+            $"Over {width * 3} Days"
+        };
+
+        return Enumerable.Range(0, 5)
+            .Select(index =>
+            {
+                var inBand = open.Where(i => BandOf(i) == index).ToList();
+                return new AgeBand(index, keys[index], labels[index], inBand.Sum(i => i.Balance), inBand.Count);
+            })
+            .ToList();
+    }
+
+    private string AgeBarLabel(List<AgeBand> bands) =>
+        "Balance by age: " + string.Join(", ", bands.Select(b => $"{b.Label} {FormatCurrency(b.Amount)}"));
+
+    private static string BandFilterCaption(AgeBand band) => band.Index == 0
+        ? "Showing invoices not yet due"
+        : $"Showing invoices {band.Label.ToLowerInvariant()} over terms";
+
+    private static decimal OverdueAmount(List<CustomerInvoiceSummary> open) =>
+        open.Where(i => i.DaysOverdue > 0).Sum(i => i.Balance);
+
+    private static string OverdueCaption(List<CustomerInvoiceSummary> open)
+    {
+        var overdue = open.Where(i => i.DaysOverdue > 0).ToList();
+        if (overdue.Count == 0)
+        {
+            return "Nothing past due";
+        }
+
+        var oldest = overdue.Max(i => i.DaysOverdue);
+        return $"{overdue.Count} {Plural(overdue.Count, "invoice")} · oldest {oldest} {Plural(oldest, "day")} over";
+    }
+
+    /// <summary>
+    /// The soonest invoice not yet over terms. Deliberately not "the oldest open
+    /// invoice": one already past due is stated by the overdue figure beside it,
+    /// and counting it twice would make the row read as more debt than there is.
+    /// </summary>
+    private static CustomerInvoiceSummary? NextDue(List<CustomerInvoiceSummary> open) => open
+        .Where(i => i.DaysOverdue <= 0 && i.DueDate.HasValue)
+        .OrderBy(i => i.DueDate)
+        .FirstOrDefault();
+
+    private static string NextDueCaption(List<CustomerInvoiceSummary> open)
+    {
+        if (NextDue(open) is not { DueDate: { } dueOn } next)
+        {
+            return open.Count > 0 ? "Everything open is past due" : "Nothing outstanding";
+        }
+
+        return $"Invoice {next.DocNum} · {DueIn((dueOn.Date - DateTime.Today).Days)}";
+    }
+
+    private static string DueIn(int days) => days switch
+    {
+        <= 0 => "due today",
+        1 => "due tomorrow",
+        _ => $"due in {days} days"
+    };
+
+    private static string DueRelative(CustomerInvoiceSummary invoice)
+    {
+        if (invoice.Balance <= 0) return "Settled";
+        if (invoice.DaysOverdue > 0) return $"{invoice.DaysOverdue} {Plural(invoice.DaysOverdue, "day")} over terms";
+        if (invoice.DueDate is not { } due) return string.Empty;
+
+        var text = DueIn((due.Date - DateTime.Today).Days);
+        return char.ToUpperInvariant(text[0]) + text[1..];
+    }
+
+    /// <summary>
+    /// The same three states the dashboard's ledger states, said the same way, plus a
+    /// fourth for an invoice falling due within the week.
+    /// </summary>
+    private static (string Cls, string Text) InvoiceStatus(CustomerInvoiceSummary invoice)
+    {
+        if (invoice.Balance <= 0) return ("is-paid", "Paid");
+        if (invoice.DaysOverdue > 0) return ("is-over", $"{invoice.DaysOverdue} {Plural(invoice.DaysOverdue, "day")} over");
+
+        if (invoice.DueDate is { } due)
+        {
+            var days = (due.Date - DateTime.Today).Days;
+            if (days <= 7)
+            {
+                return ("is-soon", days switch
+                {
+                    <= 0 => "Due today",
+                    1 => "Due tomorrow",
+                    _ => $"Due in {days} days"
+                });
+            }
+        }
+
+        return (string.Empty, "Current");
+    }
+
+    private string CardCaption(CustomerInvoiceSummary invoice) => invoice.PaidToDate > 0
+        ? $"Paid {FormatCurrency(invoice.PaidToDate)} of {FormatCurrency(invoice.DocTotal)}"
+        : invoice.DueDate is { } due ? $"Due {due:MMM dd, yyyy}" : $"Issued {invoice.DocDate:MMM dd, yyyy}";
+
+    private static decimal PaidShare(CustomerInvoiceSummary invoice) => invoice.DocTotal > 0
+        ? Math.Clamp(invoice.PaidToDate / invoice.DocTotal * 100m, 0m, 100m)
+        : 0m;
+
+    private string EmptyCaption()
+    {
+        if (searchText.Trim().Length > 0) return $"No open invoice number contains \"{searchText.Trim()}\".";
+        if (bandFilter is not null) return "No open invoices fall in that age band.";
+
+        return listTab switch
+        {
+            ListTab.Overdue => "Nothing is past due in this period.",
+            ListTab.NotDue => "Everything open in this period is past due.",
+            _ => "You have no open invoices in this period."
+        };
+    }
+
+    private static string ChoiceCaption(PeriodPreset preset)
+    {
+        var today = DateTime.Today;
+        return preset.Key switch
+        {
+            AllKey => "Every invoice with a balance",
+            "30" => $"{today.AddDays(-30):MMM d} – {today:MMM d, yyyy}",
+            "90" => $"{today.AddDays(-90):MMM d} – {today:MMM d, yyyy}",
+            "year" => $"Jan 1 – {today:MMM d, yyyy}",
+            _ => "Choose a from and to date"
+        };
+    }
+
+    /// <summary>The period the figures on screen cover.</summary>
+    private string LoadedRangeCaption()
+    {
+        if (loadedFrom is null && loadedTo is null) return "Every open invoice, any date";
+        if (loadedFrom is null) return $"Up to {loadedTo:MMM d, yyyy}";
+        if (loadedTo is null) return $"Since {loadedFrom:MMM d, yyyy}";
+
+        return loadedFrom.Value.Year == loadedTo.Value.Year
+            ? $"{loadedFrom:MMM d} – {loadedTo:MMM d, yyyy}"
+            : $"{loadedFrom:MMM d, yyyy} – {loadedTo:MMM d, yyyy}";
+    }
+
+    /// <summary>
+    /// Which accounts the list is showing, for a customer whose portal login
+    /// reaches more than one.
+    /// </summary>
+    private string AccountScopeCaption()
+    {
+        if (string.IsNullOrEmpty(selectedAccountFilter))
+        {
+            return "All main accounts";
+        }
+
+        return linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
+            ?? selectedAccountFilter;
     }
 
     private async Task ViewInvoiceDetails(CustomerInvoiceSummary invoice)
     {
         showInvoiceModal = true;
+        focusDrawer = true;
         isDetailLoading = true;
         detailError = null;
         selectedInvoiceSummary = invoice;
@@ -680,21 +1137,24 @@
         detailError = null;
     }
 
+    private void OnDrawerKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            CloseInvoiceModal();
+        }
+    }
+
     private async Task DownloadInvoicePdf()
     {
         if (selectedInvoice == null || isPdfLoading) return;
         isPdfLoading = true;
         try
         {
-            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(selectedInvoice.DocEntry);
-            if (pdfBytes == null || pdfBytes.Length == 0)
+            if (!await SavePdf(selectedInvoice.DocEntry, selectedInvoice.DocNum))
             {
                 detailError = "Failed to retrieve invoice PDF.";
-                return;
             }
-            var base64 = Convert.ToBase64String(pdfBytes);
-            var fileName = $"Invoice_{selectedInvoice.DocNum}.pdf";
-            await JSRuntime.InvokeVoidAsync("downloadPdfFromBase64", base64, fileName);
         }
         catch (Exception ex)
         {
@@ -705,6 +1165,43 @@
         {
             isPdfLoading = false;
         }
+    }
+
+    /// <summary>The download button on a list row, which saves the PDF without opening the drawer.</summary>
+    private async Task DownloadRowPdf(CustomerInvoiceSummary invoice)
+    {
+        if (rowPdfDocEntry is not null) return;
+
+        rowPdfDocEntry = invoice.DocEntry;
+        listNotice = null;
+        try
+        {
+            if (!await SavePdf(invoice.DocEntry, invoice.DocNum))
+            {
+                listNotice = $"We could not get the PDF for invoice {invoice.DocNum}. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading invoice PDF for DocEntry {DocEntry}", invoice.DocEntry);
+            listNotice = $"We could not get the PDF for invoice {invoice.DocNum}. Please try again.";
+        }
+        finally
+        {
+            rowPdfDocEntry = null;
+        }
+    }
+
+    private async Task<bool> SavePdf(int docEntry, int docNum)
+    {
+        var pdfBytes = await InvoiceService.GetInvoicePdfAsync(docEntry);
+        if (pdfBytes == null || pdfBytes.Length == 0)
+        {
+            return false;
+        }
+
+        await JSRuntime.InvokeVoidAsync("downloadPdfFromBase64", Convert.ToBase64String(pdfBytes), $"Invoice_{docNum}.pdf");
+        return true;
     }
 
     private async Task DownloadAttachment(DocumentAttachmentDto attachment)
@@ -738,12 +1235,12 @@
         }
     }
 
-    private string FormatCurrency(decimal amount)
+    private static string FormatCurrency(decimal amount)
     {
         return $"${amount:N2}";
     }
 
-    private string FormatCurrencyWithCode(decimal amount, string? currency)
+    private static string FormatCurrencyWithCode(decimal amount, string? currency)
     {
         if (string.IsNullOrWhiteSpace(currency))
         {
@@ -755,48 +1252,6 @@
 
     private static string Plural(int count, string noun) => count == 1 ? noun : noun + "s";
 
-    /// <summary>The period the figures cover, as the filter currently states it.</summary>
-    private string PeriodCaption()
-    {
-        if (fromDate is null && toDate is null) return "All invoices on record";
-        if (fromDate is null) return $"Up to {toDate:MMM dd, yyyy}";
-        if (toDate is null) return $"Since {fromDate:MMM dd, yyyy}";
-        return $"{fromDate:MMM dd, yyyy} – {toDate:MMM dd, yyyy}";
-    }
-
-    /// <summary>
-    /// Which accounts the list is showing, for a customer whose portal login
-    /// reaches more than one.
-    /// </summary>
-    private string AccountScopeCaption()
-    {
-        if (string.IsNullOrEmpty(selectedAccountFilter))
-        {
-            return "All main accounts";
-        }
-
-        return linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
-            ?? selectedAccountFilter;
-    }
-
-    private string NextDueCaption()
-    {
-        if (NextDue?.DueDate is not { } dueOn)
-        {
-            return OpenCount > 0 ? "Everything open is past due" : "Nothing outstanding";
-        }
-
-        var days = (dueOn.Date - DateTime.Today).Days;
-        var when = days switch
-        {
-            <= 0 => "due today",
-            1 => "due tomorrow",
-            _ => $"due in {days} days"
-        };
-
-        return $"Invoice {NextDue.DocNum} — {when}";
-    }
-
     private static bool IsPodAttachment(DocumentAttachmentDto attachment)
     {
         var label = $"{attachment.FileName} {attachment.Description}";
@@ -804,7 +1259,7 @@
             || label.Contains("proof of delivery", StringComparison.OrdinalIgnoreCase);
     }
 
-    private void GoToPage(int page)
+    private void GoToPage(int page, int totalPages)
     {
         if (page >= 1 && page <= totalPages)
         {
@@ -812,7 +1267,7 @@
         }
     }
 
-    private List<int> GetVisiblePages()
+    private static List<int> GetVisiblePages(int currentPage, int totalPages)
     {
         var pages = new List<int>();
         if (totalPages <= 7)
@@ -833,15 +1288,7 @@
         return pages;
     }
 
-    /// <summary>The same three states the dashboard's ledger states, said the same way.</summary>
-    private static (string Cls, string Text) InvoiceStatus(CustomerInvoiceSummary invoice)
-    {
-        if (invoice.Balance <= 0) return ("is-paid", "Paid");
-        if (invoice.DaysOverdue > 0) return ("is-over", $"{invoice.DaysOverdue} {Plural(invoice.DaysOverdue, "day")} over");
-        return (string.Empty, "Current");
-    }
-
-    private string FormatDate(string? dateStr)
+    private static string FormatDate(string? dateStr)
     {
         if (string.IsNullOrWhiteSpace(dateStr))
         {

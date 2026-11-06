@@ -2740,6 +2740,908 @@
 }
 
 /* ==========================================================================
+   Invoices page  (`cpi-`)
+
+   /customer-portal/invoices, from the "Customer Portal Invoices Redesign"
+   design: a first visit that asks which invoices to show and loads on the
+   answer, a period bar, one summary panel whose age bands filter the list, a
+   list with tabs and search that turns into cards where a table will not fit,
+   and a side drawer for the detail.
+
+   Built on the `cpd-` vocabulary above — the hero, the panels, the dashboard's
+   aging bar and legend, the table, the status tag, the pager and the sheet are
+   all shared — so this block holds only what the page adds. The drawer reuses
+   `cpd-overlay` / `cpd-sheet` and changes their shape here, under its own
+   class, because the POD viewer still wants the centred sheet.
+
+   Every button here that holds more than a word states its own alignment: a
+   bare `button { display: inline-flex; align-items: center; justify-content:
+   center }` elsewhere in the portal's sheets centres whatever a button holds,
+   which turns a card's two-sided rows into one centred clump.
+   ========================================================================== */
+
+/* First visit ------------------------------------------------------------- */
+
+.cpx .cpi-start {
+    padding: clamp(20px, 3.4vw, 36px) var(--cpx-pad) var(--cpx-pad);
+}
+
+.cpx .cpi-start-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    margin-bottom: var(--cpx-s6);
+    border-radius: 12px;
+    background: var(--cpx-accent-soft);
+    color: var(--cpx-accent-text);
+    font-size: 23px;
+}
+
+.cpx .cpi-start h3 {
+    max-width: 40rem;
+    margin: 0;
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: clamp(1.2rem, 1.05rem + .7vw, 1.6rem);
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -.01em;
+    color: var(--cpx-ink);
+}
+
+.cpx .cpi-start-lede {
+    max-width: 40rem;
+    margin: var(--cpx-s3) 0 0;
+    font-size: var(--cpx-text);
+    color: var(--cpx-mute);
+}
+
+.cpx .cpi-choices {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr));
+    gap: var(--cpx-s4);
+    margin-top: var(--cpx-s8);
+}
+
+.cpx .cpi-choice {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: var(--cpx-s2);
+    min-height: 124px;
+    padding: var(--cpx-s6);
+    border: 1px solid var(--cpx-edge);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface-2);
+    color: var(--cpx-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .15s ease, background-color .15s ease;
+}
+
+.cpx .cpi-choice:hover,
+.cpx .cpi-choice.is-on {
+    border-color: var(--cpx-accent);
+    background: var(--cpx-accent-soft);
+}
+
+.cpx .cpi-choice-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    margin-bottom: var(--cpx-s2);
+    border-radius: 9px;
+    background: var(--cpx-accent-soft);
+    color: var(--cpx-accent-text);
+    font-size: 18px;
+    transition: background-color .15s ease, color .15s ease;
+}
+
+.cpx .cpi-choice:hover .cpi-choice-icon,
+.cpx .cpi-choice.is-on .cpi-choice-icon {
+    background: var(--cpx-accent);
+    color: var(--cpx-on-accent);
+}
+
+.cpx .cpi-choice-title {
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: 1.02rem;
+    font-weight: 600;
+    color: var(--cpx-ink);
+}
+
+.cpx .cpi-choice-sub {
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+}
+
+.cpx .cpi-start-foot {
+    margin: var(--cpx-s8) 0 0;
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+}
+
+.cpx .cpi-start-foot a {
+    font-weight: 600;
+    color: var(--cpx-accent-text);
+}
+
+/* Period bar ---------------------------------------------------------------
+   What is loaded, and the one click that changes it. The account dropdown of a
+   multi-account login sits in the same row, on the filter row's metrics. */
+
+.cpx .cpi-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--cpx-s3) var(--cpx-s4);
+
+    --nsel-h: 40px;
+    --nsel-pad-y: var(--cpx-s2);
+    --nsel-pad-x: var(--cpx-s4);
+    --nsel-fs: var(--cpx-text-sm);
+    --nsel-radius: var(--cpx-r-md);
+    --nsel-fill: var(--cpx-field);
+    --nsel-edge: var(--cpx-edge);
+    --nsel-edge-hi: var(--cpx-edge-hi);
+    --nsel-min-w: 0;
+}
+
+.cpx .cpi-seg {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 10px;
+    background: var(--cpx-surface);
+    box-shadow: var(--cpx-shadow-sm);
+}
+
+.cpx .cpi-seg button {
+    height: 36px;
+    padding: 0 var(--cpx-s4);
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--cpx-mute);
+    font: inherit;
+    font-size: var(--cpx-text-sm);
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.cpx .cpi-seg button:hover:not(:disabled) {
+    background: var(--cpx-hover);
+    color: var(--cpx-ink);
+}
+
+.cpx .cpi-seg button.is-on {
+    background: var(--cpx-accent-soft);
+    color: var(--cpx-accent-text);
+}
+
+.cpx .cpi-seg button:disabled {
+    cursor: default;
+}
+
+.cpx .cpi-range {
+    font-size: var(--cpx-text-sm);
+    font-weight: 500;
+    color: var(--cpx-ink-2);
+}
+
+.cpx .cpi-account {
+    flex: 0 1 15rem;
+    min-width: 11rem;
+}
+
+.cpx .cpi-updated {
+    margin-left: auto;
+    font-size: .78rem;
+    color: var(--cpx-mute-2);
+}
+
+/* Square, and one class deeper than `.cpx .btn` so its padding cannot win. */
+.cpx .btn.cpi-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+    padding: 0;
+    font-size: 17px;
+}
+
+/* A load that failed sits under the bar rather than a full gap below it. */
+.cpx .cpi-bar-note {
+    margin-top: calc(-1 * var(--cpx-s3));
+}
+
+.cpx .cpi-spin {
+    animation: cpi-spin .9s linear infinite;
+}
+
+@keyframes cpi-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Summary ------------------------------------------------------------------
+   Three figures over the dashboard's aging bar, in one panel. The legend is the
+   dashboard's too, but each band is a button here: selecting one lists only
+   the invoices in it. */
+
+.cpx .cpi-summary {
+    padding: 0;
+    overflow: hidden;
+}
+
+.cpx .cpi-figs {
+    display: grid;
+    grid-template-columns: 1fr;
+}
+
+.cpx .cpi-fig {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpx-s2);
+    min-width: 0;
+    padding: var(--cpx-pad);
+}
+
+.cpx .cpi-fig + .cpi-fig {
+    border-top: 1px solid var(--cpx-rowline);
+}
+
+@container (min-width: 640px) {
+    .cpx .cpi-figs {
+        grid-template-columns: 1.3fr 1fr 1fr;
+    }
+
+    .cpx .cpi-fig + .cpi-fig {
+        border-top: 0;
+        border-left: 1px solid var(--cpx-rowline);
+    }
+}
+
+.cpx .cpi-fig-num {
+    font-size: var(--cpx-num);
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -.02em;
+    color: var(--cpx-ink);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.cpx .cpi-fig-num.is-lead {
+    font-size: clamp(1.5rem, 1.2rem + 1.3vw, 2.25rem);
+}
+
+.cpx .cpi-fig.is-alert .cpd-kpi-label,
+.cpx .cpi-fig.is-alert .cpi-fig-num {
+    color: var(--cpd-alert);
+}
+
+.cpx .cpi-age {
+    padding: var(--cpx-s6) var(--cpx-pad) var(--cpx-pad);
+    border-top: 1px solid var(--cpx-rowline);
+}
+
+.cpx .cpi-age-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 2px var(--cpx-s4);
+    margin-bottom: var(--cpx-s4);
+}
+
+.cpx .cpi-age-hint {
+    font-size: .74rem;
+    color: var(--cpx-mute-2);
+}
+
+/* The bands carry their own padding as buttons, so the row is pulled out by
+   the same amount to keep the text in line with the bar's ends. */
+.cpx .cpi-bands {
+    gap: var(--cpx-s1);
+    margin: var(--cpx-s4) calc(-1 * var(--cpx-s3)) 0;
+}
+
+.cpx .cpi-band {
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: var(--cpx-s3);
+    border: 1px solid transparent;
+    border-radius: var(--cpx-r-md);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+
+.cpx .cpi-band:hover:not(:disabled) {
+    background: var(--cpx-hover);
+}
+
+.cpx .cpi-band.is-on {
+    border-color: var(--cpx-edge-hi);
+    background: var(--cpx-hover);
+}
+
+.cpx .cpi-band:disabled {
+    cursor: default;
+}
+
+/* List ---------------------------------------------------------------------
+   Tabs and search on the rule that heads the ledger. */
+
+.cpx .cpd-ledger.cpi-list {
+    padding-top: var(--cpx-s2);
+}
+
+.cpx .cpi-list-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--cpx-s2) var(--cpx-s4);
+    padding: 0 var(--cpx-pad);
+    border-bottom: 1px solid var(--cpx-divider);
+}
+
+/* The active tab's underline sits on the head's rule rather than above it. */
+.cpx .cpi-tabs {
+    display: flex;
+    gap: var(--cpx-s1);
+    margin-bottom: -1px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.cpx .cpi-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpx-s2);
+    height: 46px;
+    padding: 0 var(--cpx-s3);
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--cpx-mute);
+    font: inherit;
+    font-size: var(--cpx-text-sm);
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.cpx .cpi-tab:hover {
+    color: var(--cpx-ink);
+}
+
+.cpx .cpi-tab.is-on {
+    border-bottom-color: var(--cpx-accent);
+    color: var(--cpx-ink);
+}
+
+.cpx .cpi-tab-count {
+    min-width: 22px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--cpx-tag-bg);
+    color: var(--cpx-tag-ink);
+    font-size: .7rem;
+    text-align: center;
+}
+
+.cpx .cpi-tab.is-on .cpi-tab-count {
+    background: var(--cpx-accent-soft);
+    color: var(--cpx-accent-text);
+}
+
+.cpx .cpi-search {
+    position: relative;
+    flex: 0 1 16rem;
+    min-width: 12rem;
+    margin-bottom: var(--cpx-s2);
+}
+
+.cpx .cpi-search > i {
+    position: absolute;
+    top: 50%;
+    left: 12px;
+    transform: translateY(-50%);
+    font-size: 16px;
+    color: var(--cpx-mute-2);
+    pointer-events: none;
+}
+
+.cpx .cpi-search .cpd-input {
+    min-height: 40px;
+    padding-left: 36px;
+}
+
+/* The age band a list is narrowed to, and the way back out of it. */
+.cpx .cpi-filtered {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpx-s2) var(--cpx-s4);
+    padding: var(--cpx-s3) var(--cpx-pad);
+    border-bottom: 1px solid var(--cpx-rowline);
+    background: var(--cpx-surface-2);
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-ink-2);
+}
+
+.cpx .cpi-filtered-key {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpx-s2);
+}
+
+.cpx .cpi-list-note {
+    margin: var(--cpx-s3) var(--cpx-pad) 0;
+}
+
+.cpx .cpi-table-wrap {
+    margin-top: var(--cpx-s2);
+}
+
+.cpx.customer-shell .cpi-table thead th {
+    padding-top: var(--cpx-s4);
+}
+
+.cpx.customer-shell .cpi-table td {
+    vertical-align: middle;
+}
+
+/* The shared heading rule left-aligns every `th` at (0,3,1), which outranks
+   `.cpd-num`; the money headings belong over their right-aligned figures. */
+.cpx.customer-shell .cpi-table th.cpd-num {
+    text-align: right;
+}
+
+/* The whole row opens the drawer: the invoice number's button is stretched
+   over it, so a pointer can land anywhere while the keyboard still meets one
+   button per row. The download button is lifted above the stretch. */
+.cpx .cpi-table tbody tr {
+    position: relative;
+    cursor: pointer;
+}
+
+/* `position: static` is the whole trick, and it has to be said: a bare
+   `button { position: relative }` elsewhere in the portal's sheets would
+   otherwise make the button the stretch's containing block, and the row would
+   only open from the number itself. */
+.cpx .cpi-doc-btn {
+    position: static;
+    align-self: flex-start;
+    justify-content: flex-start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--cpx-ink);
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+.cpx .cpi-doc-btn::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+}
+
+.cpx .cpi-doc-btn:hover {
+    color: var(--cpx-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.cpx .cpi-acts {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpx-s1);
+}
+
+.cpx .btn.cpi-row-pdf {
+    position: relative;
+    z-index: 1;
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--cpx-mute);
+    font-size: 16px;
+}
+
+.cpx .btn.cpi-row-pdf:hover,
+.cpx .btn.cpi-row-pdf:focus-visible {
+    border-color: var(--cpx-edge);
+    background: var(--cpx-hover);
+    color: var(--cpx-ink);
+}
+
+.cpx .cpi-row-caret {
+    font-size: 14px;
+    color: var(--cpx-faint);
+}
+
+.cpx .cpi-table tbody tr:hover .cpi-row-caret {
+    color: var(--cpx-accent-text);
+}
+
+/* An invoice falling due within the week: amber, on the status tag's outline. */
+.cpx .cpd-status.is-soon {
+    border-color: var(--cpx-warn-edge);
+    color: var(--cpx-warn);
+}
+
+/* Cards: the same rows where the ledger will not fit. A container query on
+   `.cpd` rather than a viewport one, since a laptop with the portal drawer open
+   is as narrow here as a tablet without it. */
+.cpx .cpi-cards {
+    display: none;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+    gap: var(--cpx-s3);
+    margin: 0;
+    padding: var(--cpx-s4) var(--cpx-pad) 0;
+    list-style: none;
+}
+
+.cpx .cpi-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: var(--cpx-s3);
+    width: 100%;
+    padding: var(--cpx-s4);
+    border: 1px solid var(--cpx-edge);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface-2);
+    color: var(--cpx-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.cpx .cpi-card:hover {
+    border-color: var(--cpx-edge-hi);
+}
+
+.cpx .cpi-card-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpx-s3);
+}
+
+.cpx .cpi-card-num {
+    font-weight: 600;
+}
+
+.cpx .cpi-card-sub {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    font-size: .78rem;
+    color: var(--cpx-mute);
+}
+
+.cpx .cpi-card-acct {
+    font-size: .7rem;
+    color: var(--cpx-mute-2);
+}
+
+.cpx .cpi-card-amt {
+    font-size: 1.12rem;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.cpx .cpi-cards-total {
+    display: none;
+    justify-content: space-between;
+    gap: var(--cpx-s4);
+    padding: var(--cpx-s4) var(--cpx-pad) var(--cpx-s2);
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+}
+
+.cpx .cpi-cards-total strong {
+    font-weight: 600;
+    color: var(--cpx-ink);
+}
+
+@container (max-width: 860px) {
+    .cpx .cpi-table-wrap {
+        display: none;
+    }
+
+    .cpx .cpi-cards {
+        display: grid;
+    }
+
+    .cpx .cpi-cards-total {
+        display: flex;
+    }
+}
+
+/* Narrow: the period buttons take the full row and scroll if they must, and the
+   search moves above the tabs so the tabs keep their place on the rule. */
+@container (max-width: 560px) {
+    .cpx .cpi-seg {
+        display: flex;
+        width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .cpx .cpi-seg button {
+        flex: 1 0 auto;
+    }
+
+    .cpx .cpi-updated {
+        margin-left: 0;
+    }
+
+    .cpx .cpi-account {
+        flex-basis: 100%;
+    }
+
+    .cpx .cpi-search {
+        order: -1;
+        flex-basis: 100%;
+        min-width: 0;
+        margin: var(--cpx-s3) 0 0;
+    }
+}
+
+/* Drawer -------------------------------------------------------------------
+   The centred sheet turned into a panel down the right edge. The scrim behind
+   it is a real button, so a click outside closes it.
+
+   It starts under the top bar rather than at the top of the window: MudAppBar
+   stacks at 1300 against the overlay's 1200, so a full-height panel had its
+   heading and close button hidden behind the bar. Same arrangement as the staff
+   drawers, which also open below their bar. */
+
+.cpx .cpd-overlay.cpi-overlay {
+    top: var(--cpx-topbar-h, 58px);
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: flex-end;
+    padding: 0;
+}
+
+.cpx .cpi-scrim {
+    position: absolute;
+    inset: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: default;
+}
+
+.cpx .cpd-sheet.cpi-drawer {
+    position: relative;
+    width: min(31rem, 100%);
+    height: 100%;
+    max-height: none;
+    border-radius: 0 0 0 var(--cpx-r-lg);
+    animation: cpi-drawer-in .22s ease-out;
+}
+
+.cpx .cpd-sheet.cpi-drawer:focus {
+    outline: none;
+}
+
+@keyframes cpi-drawer-in {
+    from {
+        opacity: 0;
+        transform: translateX(24px);
+    }
+}
+
+@media (max-width: 520px) {
+    .cpx .cpd-sheet.cpi-drawer {
+        border-radius: 0;
+    }
+}
+
+.cpx .cpi-drawer .cpd-sheet-head {
+    align-items: flex-start;
+}
+
+/* The body takes the height the panel has to spare, so the actions stay on the
+   bottom edge however short the invoice is. */
+.cpx .cpi-drawer .cpd-sheet-body {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.cpx .cpi-drawer-title {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.cpx .cpi-drawer-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--cpx-s2) var(--cpx-s3);
+}
+
+.cpx .cpi-drawer .cpd-sheet-head h5 {
+    font-size: 1.35rem;
+    letter-spacing: -.01em;
+}
+
+.cpx .btn.cpi-drawer-pdf {
+    display: inline-flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cpx-s2);
+}
+
+.cpx .cpi-balance {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpx-s2);
+    padding: var(--cpx-s6);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface-2);
+    box-shadow: inset 0 0 0 1px var(--cpx-divider);
+}
+
+.cpx .cpi-balance-num {
+    font-size: clamp(1.6rem, 1.4rem + .8vw, 2.1rem);
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -.02em;
+    color: var(--cpx-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.cpx .cpi-paid-bar {
+    display: block;
+    height: 6px;
+    margin-top: var(--cpx-s3);
+    border-radius: 999px;
+    background: var(--cpx-rowline);
+    overflow: hidden;
+}
+
+.cpx .cpi-paid-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--cpx-ok);
+}
+
+.cpx .cpi-def-sub {
+    display: block;
+    margin-top: 2px;
+    font-size: .74rem;
+    font-weight: 400;
+    color: var(--cpx-mute);
+}
+
+.cpx .cpi-sub-count {
+    margin-left: auto;
+    font-weight: 500;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--cpx-mute-2);
+}
+
+.cpx .cpi-lines {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-radius: var(--cpx-r-md);
+    box-shadow: inset 0 0 0 1px var(--cpx-divider);
+}
+
+.cpx .cpi-line {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--cpx-s4);
+    padding: var(--cpx-s3) var(--cpx-s4);
+}
+
+.cpx .cpi-line + .cpi-line {
+    border-top: 1px solid var(--cpx-rowline);
+}
+
+.cpx .cpi-line-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.cpx .cpi-line-name {
+    font-size: var(--cpx-text-sm);
+    font-weight: 500;
+    color: var(--cpx-ink);
+    overflow-wrap: anywhere;
+}
+
+.cpx .cpi-line-meta {
+    font-size: .72rem;
+    color: var(--cpx-mute);
+}
+
+.cpx .cpi-line-money {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.cpx .cpi-line-total {
+    font-size: var(--cpx-text-sm);
+    font-weight: 600;
+    color: var(--cpx-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.cpx .cpi-none {
+    padding: var(--cpx-s4);
+    border: 1px dashed var(--cpx-edge);
+    border-radius: var(--cpx-r-md);
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+}
+
+/* Focus rings for the page's own controls, on the portal's accent. */
+.cpx .cpi-choice:focus-visible,
+.cpx .cpi-seg button:focus-visible,
+.cpx .cpi-band:focus-visible,
+.cpx .cpi-doc-btn:focus-visible,
+.cpx .cpi-card:focus-visible {
+    outline: 2px solid var(--cpx-accent);
+    outline-offset: 2px;
+}
+
+.cpx .cpi-tab:focus-visible {
+    outline: 2px solid var(--cpx-accent);
+    outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cpx .cpd-sheet.cpi-drawer,
+    .cpx .cpi-spin {
+        animation: none;
+    }
+}
+
+/* ==========================================================================
    Statement page
 
    Its rules used to live here — an aging grid of six cards, a filter grid and a
