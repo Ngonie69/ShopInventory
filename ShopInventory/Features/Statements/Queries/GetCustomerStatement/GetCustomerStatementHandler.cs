@@ -2,8 +2,10 @@ using System.Diagnostics;
 using System.Globalization;
 using ErrorOr;
 using MediatR;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Sap;
+using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Services;
 
@@ -14,9 +16,23 @@ public sealed class GetCustomerStatementHandler(
     ISAPServiceLayerClient sapClient,
     IStatementBuildCache statementCache,
     ILogger<GetCustomerStatementHandler> logger,
-    TimeProvider? clock = null
+    TimeProvider? clock = null,
+    IOptions<SAPSettings>? sapSettings = null
 ) : IRequestHandler<GetCustomerStatementQuery, ErrorOr<CustomerStatementResponseDto>>
 {
+    /// <summary>How long one attempt at one statement SQL read may take.</summary>
+    /// <remarks>
+    /// The reads used to inherit the SAP client's five-minute timeout, which is also how long the
+    /// portal waits, so one stuck read cost the customer the whole statement. See
+    /// <see cref="SAPSettings.StatementSqlRequestTimeoutSeconds"/> for the measurements.
+    /// </remarks>
+    private readonly TimeSpan _readBudget = TimeSpan.FromSeconds(
+        Math.Clamp((sapSettings?.Value ?? new SAPSettings()).StatementSqlRequestTimeoutSeconds, 5, 300));
+
+    /// <summary>How many times a statement SQL read is tried; see <see cref="SAPSettings.StatementSqlMaxAttempts"/>.</summary>
+    private readonly int _readAttempts =
+        Math.Clamp((sapSettings?.Value ?? new SAPSettings()).StatementSqlMaxAttempts, 1, 3);
+
     // Fixed codes, not content-addressed ones. Both statements below are constant — the card code
     // and the dates arrive as bound parameters — so two SAP query objects serve every statement
     // ever viewed. Interpolating those values instead gave every request its own SQL text and so
@@ -139,8 +155,22 @@ WHERE T1."ShortName" = :cardCode
             // nothing to report as a failure and nothing here worth logging as one.
             throw;
         }
+        catch (TimeoutException ex)
+        {
+            // A read SAP never answered, after its retries. Said plainly and at once: before reads
+            // had budgets of their own this was a five-minute spinner ending in "still being built",
+            // which was not true — a failed build is not cached, so there was nothing to come back to.
+            logger.LogWarning(
+                "Customer statement for {CardCode} gave up: {Reason}",
+                request.CardCode,
+                ex.Message);
+            return Errors.Statement.SapNotAnswering;
+        }
         catch (OperationCanceledException)
         {
+            // Only the build's own ceiling now. A SAP read hitting the SAP client's timeout used to
+            // land here too and be reported as this budget; TimeLegAsync turns that into a
+            // TimeoutException naming the read.
             logger.LogWarning(
                 "Customer statement for {CardCode} exceeded its {BuildMinutes}-minute budget",
                 request.CardCode,
@@ -272,7 +302,13 @@ WHERE T1."ShortName" = :cardCode
         // How each line is bucketed from that date is SAP's own rule; see BuildAgingSummary.
         var today = AuditService.ToCAT((clock ?? TimeProvider.System).GetUtcNow().UtcDateTime).Date;
         var agingAsAt = toDate < today ? toDate : today;
-        response.Aging = BuildAgingSummary(openItemsTask.Result, paymentTerms, agingAsAt);
+        var openItems = openItemsTask.Result;
+
+        // A failed open-items read used to be built as if the customer had no open items, and the
+        // page printed "0.00 outstanding" for an account that owed money. The empty buckets are
+        // still built, so a reader that ignores the flag gets the labels and zeros it always got.
+        response.AgingAvailable = openItems is not null;
+        response.Aging = BuildAgingSummary(openItems ?? [], paymentTerms, agingAsAt);
 
         logger.LogInformation(
             "Customer statement for {CardCode} built in {ElapsedMs:F0}ms across {AccountCount} account(s) with {LineCount} line(s)",
@@ -299,9 +335,73 @@ WHERE T1."ShortName" = :cardCode
     }
 
     /// <summary>
+    /// Runs one of the statement's SQL reads under <see cref="_readBudget"/>, trying it again when
+    /// SAP does not answer, up to <see cref="_readAttempts"/> times in all.
+    /// </summary>
+    /// <remarks>
+    /// Each attempt queues for its own slot in <see cref="_sapReads"/>, so a retry waits its turn
+    /// rather than jumping the reads behind it. A <see cref="TimeoutException"/> after the last
+    /// attempt is left to travel: the opening balance and ledger cannot be shown without it, and the
+    /// open-items read turns it into "aging unavailable" itself.
+    /// </remarks>
+    private async Task<List<Dictionary<string, object?>>> ReadStatementSqlAsync(
+        string leg,
+        string cardCode,
+        string queryCode,
+        string queryName,
+        string sqlText,
+        IReadOnlyDictionary<string, string> parameters,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await ReadSapAsync(
+                    () => sapClient.ExecuteParameterisedSqlQueryWithBudgetAsync(
+                        queryCode,
+                        queryName,
+                        sqlText,
+                        parameters,
+                        _readBudget,
+                        cancellationToken),
+                    cancellationToken);
+            }
+            catch (TimeoutException) when (attempt < _readAttempts)
+            {
+                // The script that measures statements counts these lines; keep the wording.
+                logger.LogWarning(
+                    "Statement leg {StatementLeg} for {CardCode} got no answer from SAP within {BudgetSeconds:0}s (attempt {Attempt} of {MaxAttempts}); retrying",
+                    leg,
+                    cardCode,
+                    _readBudget.TotalSeconds,
+                    attempt,
+                    _readAttempts);
+            }
+            catch (TimeoutException)
+            {
+                logger.LogWarning(
+                    "Statement leg {StatementLeg} for {CardCode} got no answer from SAP in {MaxAttempts} attempt(s) of {BudgetSeconds:0}s; giving up",
+                    leg,
+                    cardCode,
+                    _readAttempts,
+                    _readBudget.TotalSeconds);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
     /// Times one leg of the build so a statement that runs long says which SAP read it spent the
     /// time in, rather than only that it did.
     /// </summary>
+    /// <remarks>
+    /// Also names the read when the SAP client's own timeout fires. That surfaces as a
+    /// <see cref="TaskCanceledException"/>, which <see cref="Handle"/> could not tell apart from the
+    /// build's ten-minute ceiling, so a read stuck for five minutes was logged as the build running
+    /// out of ten. Turned into a <see cref="TimeoutException"/> here, where the leg is known, it
+    /// reaches the customer as "SAP did not answer" like a read that ran out of its own budget.
+    /// </remarks>
     private async Task<T> TimeLegAsync<T>(string leg, string cardCode, Func<Task<T>> work)
     {
         var started = Stopwatch.GetTimestamp();
@@ -309,6 +409,12 @@ WHERE T1."ShortName" = :cardCode
         try
         {
             return await work();
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            throw new TimeoutException(
+                $"SAP did not answer the {leg} read before the SAP client's own timeout.",
+                ex);
         }
         finally
         {
@@ -341,7 +447,9 @@ WHERE T1."ShortName" = :cardCode
         DateTime fromDate,
         CancellationToken cancellationToken)
     {
-        var rows = await ReadSapAsync(() => sapClient.ExecuteParameterisedSqlQueryAsync(
+        var rows = await ReadStatementSqlAsync(
+            "opening balance",
+            cardCode,
             OpeningBalanceQueryCode,
             "Statement Opening Balance",
             OpeningBalanceSql,
@@ -349,7 +457,8 @@ WHERE T1."ShortName" = :cardCode
             {
                 ["cardCode"] = cardCode,
                 ["fromDate"] = FormatSqlDate(fromDate)
-            }, cancellationToken), cancellationToken);
+            },
+            cancellationToken);
 
         return rows.Count == 0
             ? 0m
@@ -368,7 +477,9 @@ WHERE T1."ShortName" = :cardCode
         CancellationToken cancellationToken)
     {
         var rowsPerCardCode = await Task.WhenAll(cardCodes.Select(cardCode =>
-            ReadSapAsync(() => sapClient.ExecuteParameterisedSqlQueryAsync(
+            ReadStatementSqlAsync(
+                "ledger rows",
+                cardCode,
                 LedgerQueryCode,
                 "Statement Ledger Rows",
                 LedgerSql,
@@ -377,7 +488,8 @@ WHERE T1."ShortName" = :cardCode
                     ["cardCode"] = cardCode,
                     ["fromDate"] = FormatSqlDate(fromDate),
                     ["toDate"] = FormatSqlDate(toDate)
-                }, cancellationToken), cancellationToken)));
+                },
+                cancellationToken)));
 
         var rows = rowsPerCardCode.SelectMany(cardCodeRows => cardCodeRows);
 
@@ -409,9 +521,12 @@ WHERE T1."ShortName" = :cardCode
     /// unrelated to the customer — the Service Layer validates SqlText when the query object is
     /// created, so an expression it dislikes surfaces as an error for the entire request. That is
     /// how five reports once went blank over a single unsupported function, and a statement is worth
-    /// showing with an empty aging table but not worth withholding over one.
+    /// showing without its aging but not worth withholding over it.
+    ///
+    /// Null, not empty, when the read failed: an empty list means the customer has no open items,
+    /// and the aging block says so with zeros. Null makes the statement say aging is unavailable.
     /// </remarks>
-    private async Task<List<StatementOpenItemRow>> GetOpenItemsAsync(
+    private async Task<List<StatementOpenItemRow>?> GetOpenItemsAsync(
         IReadOnlyList<string> cardCodes,
         DateTime toDate,
         CancellationToken cancellationToken)
@@ -419,7 +534,9 @@ WHERE T1."ShortName" = :cardCode
         try
         {
             var rowsPerCardCode = await Task.WhenAll(cardCodes.Select(cardCode =>
-                ReadSapAsync(() => sapClient.ExecuteParameterisedSqlQueryAsync(
+                ReadStatementSqlAsync(
+                    "open items",
+                    cardCode,
                     OpenItemsQueryCode,
                     "Statement Open Items",
                     OpenItemsSql,
@@ -427,7 +544,8 @@ WHERE T1."ShortName" = :cardCode
                     {
                         ["cardCode"] = cardCode,
                         ["toDate"] = FormatSqlDate(toDate)
-                    }, cancellationToken), cancellationToken)));
+                    },
+                    cancellationToken)));
 
             return rowsPerCardCode
                 .SelectMany(rows => rows)
@@ -439,18 +557,20 @@ WHERE T1."ShortName" = :cardCode
                     Balance: GetDecimal(row, "BalanceDueDebit") - GetDecimal(row, "BalanceDueCredit")))
                 .ToList();
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex) when (ex is not TaskCanceledException { InnerException: TimeoutException })
         {
-            // The statement's own timeout, not an aging problem. Let it travel.
+            // The statement's own timeout or the caller's, not an aging problem. Let it travel. The
+            // SAP client's own timeout is an aging problem, and falls through to the catch below.
             throw;
         }
         catch (Exception ex)
         {
+            // The script that measures statements counts these lines; keep the opening words.
             logger.LogError(
                 ex,
-                "Aging could not be built for {CardCodes}; the statement will show an empty aging table",
+                "Aging could not be built for {CardCodes}; the statement will say aging is unavailable",
                 string.Join(",", cardCodes));
-            return [];
+            return null;
         }
     }
 

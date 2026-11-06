@@ -18,6 +18,22 @@ otherwise be surprised.
 
 ### Changed
 
+- **A customer statement stops waiting for a SAP read after 30 seconds and tries it once more**
+  (`GET /api/statement/{cardCode}`, and the PDF at `/api/statement/generate/{cardCode}`). Each read used
+  to wait out the SAP client's five minutes, the same five minutes the portal waits, so one stuck read
+  cost the customer the whole statement: 4 of 12 builds in early November 2026. Now:
+  - if the opening balance or ledger read still gets no answer, the statement answers `400`
+    `Statement.SapNotAnswering`, "Our accounting system didn't answer in time…", in about a minute;
+  - if the aging read gets no answer, the statement is returned with the new field
+    `agingAvailable: false` and empty aging buckets. The portal and the PDF then say aging could not be
+    loaded rather than printing `0.00` outstanding, and that statement is not kept in the 5-minute
+    cache. `agingAvailable` is `true` in every other case, including a customer with nothing open.
+
+  The limits are `SAP:StatementSqlRequestTimeoutSeconds` (30) and `SAP:StatementSqlMaxAttempts` (2). A read
+  running out of its budget is not counted towards the SAP circuit breaker. Each retry is logged as
+  `Statement leg … got no answer from SAP within 30s (attempt 1 of 2); retrying`, and
+  `scripts/Measure-StatementBuildTimes.ps1` counts them.
+
 - **New: customers can view and download their credit notes in the portal** (`/customer-portal/credit-notes`,
   under Invoices in the portal's menu). Two endpoints back it, both `invoices.view`:
   `GET /api/CreditNote/customers?cardCodes=…&fromDate=…&toDate=…` (a year at most, read from SAP with the

@@ -717,6 +717,18 @@ public interface ISAPServiceLayerClient
     Task<List<Dictionary<string, object?>>> ExecuteParameterisedSqlQueryAsync(string queryCode, string queryName, string sqlText, IReadOnlyDictionary<string, string> parameters, CancellationToken cancellationToken = default, int? maxRows = null);
 
     /// <summary>
+    /// <see cref="ExecuteParameterisedSqlQueryAsync"/> under a deadline of its own, raising a
+    /// <see cref="TimeoutException"/> when <paramref name="budget"/> runs out.
+    /// </summary>
+    /// <remarks>
+    /// Without one, a read inherits the five-minute client timeout: a Service Layer that accepts the
+    /// request and never answers holds an SAP slot, and whoever is waiting, for all of it. The
+    /// budget covers every page, retry and re-authentication of the one read. Caller cancellation
+    /// still surfaces as an <see cref="OperationCanceledException"/>, so the two stay apart.
+    /// </remarks>
+    Task<List<Dictionary<string, object?>>> ExecuteParameterisedSqlQueryWithBudgetAsync(string queryCode, string queryName, string sqlText, IReadOnlyDictionary<string, string> parameters, TimeSpan budget, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Binds parameters under a content-addressed code, for a statement whose shape varies as well
     /// as its values.
     /// </summary>

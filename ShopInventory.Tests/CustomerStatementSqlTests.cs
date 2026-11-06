@@ -160,7 +160,7 @@ public class CustomerStatementSqlTests
     {
         var sap = StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
-            nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryAsync) =>
+            nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryWithBudgetAsync) =>
                 RecordAndAnswer(calls, ledgerRows, args!),
             nameof(ISAPServiceLayerClient.GetPaymentTermsByCodeAsync) =>
                 Task.FromResult<PaymentTermsDto?>(null),

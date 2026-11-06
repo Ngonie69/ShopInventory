@@ -15,6 +15,13 @@ public class CustomerStatementResponseDto
     public decimal ClosingBalance { get; set; }
     public List<StatementLineDto> Lines { get; set; } = new();
     public StatementAgingSummaryDto Aging { get; set; } = new();
+
+    /// <summary>
+    /// False when SAP could not answer the open-items read, so <see cref="Aging"/> holds empty
+    /// buckets rather than the customer's real aging. Readers show "unavailable", never the zeros.
+    /// </summary>
+    /// <remarks>True by default so a statement built any other way reads as it always did.</remarks>
+    public bool AgingAvailable { get; set; } = true;
 }
 
 public class StatementCustomerDto

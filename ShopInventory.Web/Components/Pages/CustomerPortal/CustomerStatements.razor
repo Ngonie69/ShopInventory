@@ -329,36 +329,49 @@
                 <div class="cst-section-head">
                     <h2>Aging</h2>
                     <span class="cst-section-note">across all open invoices, not only this period</span>
-                    <span class="cst-aging-total">
-                        @FormatCurrency(statement.Aging.Total) <span>outstanding</span>
-                    </span>
+                    @if (statement.AgingAvailable)
+                    {
+                        <span class="cst-aging-total">
+                            @FormatCurrency(statement.Aging.Total) <span>outstanding</span>
+                        </span>
+                    }
                 </div>
 
-                @{
-                    var buckets = AgingBuckets;
+                @* When SAP could not answer the aging read the buckets are empty, not the customer's:
+                   showing them printed "0.00 outstanding" for accounts that owed money. *@
+                @if (!statement.AgingAvailable)
+                {
+                    <p class="cst-empty" role="status">
+                        Aging couldn't be loaded just now. The transactions and balances above are
+                        complete. Generate the statement again to retry the aging.
+                    </p>
                 }
+                else
+                {
+                    var buckets = AgingBuckets;
 
-                <div class="cst-aging-bar" role="img" aria-label="@AgingBarLabel">
-                    @foreach (var bucket in buckets.Where(b => b.Share > 0))
-                    {
-                        <span class="cst-aging-seg cst-age-@bucket.Rank"
-                              style="flex-basis: @FormatPercent(bucket.Share)"></span>
-                    }
-                </div>
+                    <div class="cst-aging-bar" role="img" aria-label="@AgingBarLabel">
+                        @foreach (var bucket in buckets.Where(b => b.Share > 0))
+                        {
+                            <span class="cst-aging-seg cst-age-@bucket.Rank"
+                                  style="flex-basis: @FormatPercent(bucket.Share)"></span>
+                        }
+                    </div>
 
-                <div class="cst-buckets">
-                    @foreach (var bucket in buckets)
-                    {
-                        <div class="cst-bucket @(bucket.Amount > 0 ? "" : "cst-bucket-nil")">
-                            <div class="cst-bucket-head">
-                                <span class="cst-dot @(bucket.Amount > 0 ? $"cst-age-{bucket.Rank}" : "cst-age-nil")"
-                                      aria-hidden="true"></span>
-                                <span class="cst-bucket-label">@bucket.Label</span>
+                    <div class="cst-buckets">
+                        @foreach (var bucket in buckets)
+                        {
+                            <div class="cst-bucket @(bucket.Amount > 0 ? "" : "cst-bucket-nil")">
+                                <div class="cst-bucket-head">
+                                    <span class="cst-dot @(bucket.Amount > 0 ? $"cst-age-{bucket.Rank}" : "cst-age-nil")"
+                                          aria-hidden="true"></span>
+                                    <span class="cst-bucket-label">@bucket.Label</span>
+                                </div>
+                                <div class="cst-bucket-num">@FormatCurrency(bucket.Amount)</div>
                             </div>
-                            <div class="cst-bucket-num">@FormatCurrency(bucket.Amount)</div>
-                        </div>
-                    }
-                </div>
+                        }
+                    </div>
+                }
             </section>
         }
 

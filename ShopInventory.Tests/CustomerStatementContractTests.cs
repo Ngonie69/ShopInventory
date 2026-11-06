@@ -302,7 +302,7 @@ public class CustomerStatementContractTests
         StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
             nameof(ISAPServiceLayerClient.GetPaymentTermsByCodeAsync) => Task.FromResult(paymentTerms),
-            nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryAsync) => LedgerRows((string)args![0]!, openItems),
+            nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryWithBudgetAsync) => LedgerRows((string)args![0]!, openItems),
             _ => throw new InvalidOperationException($"ISAPServiceLayerClient.{method.Name} was not expected.")
         });
 

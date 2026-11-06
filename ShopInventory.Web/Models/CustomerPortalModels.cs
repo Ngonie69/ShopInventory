@@ -177,6 +177,16 @@ public class CustomerStatementResponse
 
     // Aging summary
     public AgingSummary Aging { get; set; } = new();
+
+    /// <summary>
+    /// Mirrors the API's <c>CustomerStatementResponseDto.AgingAvailable</c>. False means SAP could not
+    /// answer the aging read, and <see cref="Aging"/> is empty buckets, not the customer's aging.
+    /// </summary>
+    /// <remarks>
+    /// True by default, as on the API, so an API that predates the field — the other slot during a
+    /// blue/green deploy — still renders aging as before.
+    /// </remarks>
+    public bool AgingAvailable { get; set; } = true;
 }
 
 /// <summary>

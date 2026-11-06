@@ -152,6 +152,18 @@ public sealed class StatementBuildCache(
                 return result;
             }
 
+            // A statement whose aging read failed is answered but not kept. The page tells the
+            // customer to generate it again to retry the aging; from the cache that would hand back
+            // the same incomplete statement for five minutes.
+            if (!result.Value.AgingAvailable)
+            {
+                logger.LogInformation(
+                    "Statement {StatementKey} built in {ElapsedMs:F0}ms without its aging, so not cached",
+                    key,
+                    elapsed.TotalMilliseconds);
+                return result;
+            }
+
             memoryCache.Set(key, result.Value, ResultLifetime);
             logger.LogInformation(
                 "Statement {StatementKey} built in {ElapsedMs:F0}ms and cached for {CacheMinutes} minutes",
