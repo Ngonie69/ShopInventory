@@ -8,8 +8,9 @@ namespace ShopInventory.Services;
 
 /// <summary>
 /// Restricts who may action a transfer based on the warehouses assigned to their account.
-/// Depot controllers only ever act on stock leaving a warehouse they run, so the check is
-/// against the transfer's source warehouse.
+/// Depot controllers and shops' stock users act on stock leaving a warehouse they run, so most
+/// checks are against the transfer's source warehouse; deciding a held transfer is the exception
+/// (<see cref="ITransferWarehouseAuthorizer.EnsureCanDecideAsync"/>).
 /// </summary>
 public interface ITransferWarehouseAuthorizer
 {
@@ -41,12 +42,30 @@ public interface ITransferWarehouseAuthorizer
     /// The source warehouses a user may action, or <c>null</c> when they are not warehouse-scoped.
     /// </summary>
     Task<IReadOnlyList<string>?> GetSourceScopeAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Confirms the user may decide, or read the stock check of, a held transfer between
+    /// <paramref name="sourceWarehouses"/> and <paramref name="destinationWarehouses"/>: a
+    /// warehouse-scoped user needs one of their warehouses at either end.
+    /// </summary>
+    /// <remarks>
+    /// Either end, not the source alone, because deciding is the approval stage's question. A stage
+    /// aimed at the receiving warehouse asks the shop's stock user to accept stock that leaves
+    /// Dispatch, and a source-only check refused them the decision the stage offered. The stage still
+    /// narrows it further: <see cref="InventoryTransferApprovalService.IsAuthorizer"/> decides which
+    /// end counts, so this only keeps a scoped user off transfers touching none of their warehouses.
+    /// </remarks>
+    Task<ErrorOr<Success>> EnsureCanDecideAsync(
+        Guid userId,
+        IReadOnlyList<string> sourceWarehouses,
+        IReadOnlyList<string> destinationWarehouses,
+        CancellationToken cancellationToken);
 }
 
 public sealed class TransferWarehouseAuthorizer(ApplicationDbContext context) : ITransferWarehouseAuthorizer
 {
     /// <summary>Roles whose transfer actions are limited to their assigned warehouses.</summary>
-    private static readonly string[] ScopedRoles = [ApplicationRoles.DepotController];
+    private static readonly string[] ScopedRoles = [ApplicationRoles.DepotController, ApplicationRoles.ShopStock];
 
     public Task<ErrorOr<Success>> EnsureCanActOnSourceAsync(
         Guid userId,
@@ -72,7 +91,8 @@ public sealed class TransferWarehouseAuthorizer(ApplicationDbContext context) : 
             return Result.Success;
         }
 
-        if (!string.Equals(user.Role, ApplicationRoles.DepotController, StringComparison.OrdinalIgnoreCase))
+        // A depot controller or a shop's stock user converts only what leaves a warehouse they run.
+        if (!ScopedRoles.Contains(user.Role, StringComparer.OrdinalIgnoreCase))
             return Errors.InventoryTransfer.TransferRequestConverterRoleRequired;
 
         return await EnsureInScopeAsync(
@@ -84,6 +104,29 @@ public sealed class TransferWarehouseAuthorizer(ApplicationDbContext context) : 
         string? warehouseCode,
         CancellationToken cancellationToken)
         => EnsureInScopeAsync(userId, warehouseCode, Errors.InventoryTransfer.WarehouseNotAssignable, cancellationToken);
+
+    public async Task<ErrorOr<Success>> EnsureCanDecideAsync(
+        Guid userId,
+        IReadOnlyList<string> sourceWarehouses,
+        IReadOnlyList<string> destinationWarehouses,
+        CancellationToken cancellationToken)
+    {
+        var scope = await GetSourceScopeAsync(userId, cancellationToken);
+        if (scope is null)
+            return Result.Success;
+
+        if (scope.Count == 0)
+            return Errors.InventoryTransfer.NoAssignedWarehouses;
+
+        var touched = sourceWarehouses.Concat(destinationWarehouses)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .ToList();
+        if (touched.Any(code => scope.Contains(code, StringComparer.OrdinalIgnoreCase)))
+            return Result.Success;
+
+        return Errors.InventoryTransfer.WarehouseNotAssigned(sourceWarehouses.FirstOrDefault() ?? string.Empty);
+    }
 
     private async Task<ErrorOr<Success>> EnsureInScopeAsync(
         Guid userId,

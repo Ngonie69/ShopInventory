@@ -464,6 +464,14 @@ public static class Permissions
                 // Receives the trucks Distribution loads for its depot, and sends stock back to dispatch.
                 ViewFactoryTransfers, SendFactoryTransfers, AcceptFactoryTransfers
             },
+            // A shop's stock user: a depot controller's transfer rights and nothing of the depot's
+            // other work. Which transfers it may act on, or approve, is narrowed again by the
+            // warehouses on its account (TransferWarehouseAuthorizer) and the approval stages.
+            ApplicationRoles.ShopStock => new List<string>
+            {
+                ViewProducts,
+                ViewStock, ViewInventory, TransferStock, TransferInventory
+            },
             ApplicationRoles.ReadOnly => new List<string>
             {
                 ViewDashboard, ViewProducts, ViewInvoices, ViewPayments,

@@ -280,6 +280,12 @@ Inventory
 Account
     Security  /security
 
+## ShopStock
+Inventory
+    Transfers  /inventory-transfers
+Account
+    Security  /security
+
 ## Lab
 Lab
     Batch Status  /lab/batch-status

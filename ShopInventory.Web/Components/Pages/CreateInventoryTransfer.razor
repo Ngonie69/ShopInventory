@@ -993,7 +993,7 @@
             var assignedWarehouse = assignedWarehouseCodes.FirstOrDefault();
 
             if (string.IsNullOrEmpty(assignedWarehouse)
-                || (role != "StockController" && role != "DepotController"))
+                || (role != "StockController" && role != "DepotController" && role != "ShopStock"))
                 return;
 
             await AddSourceAsync(assignedWarehouse);
@@ -1244,6 +1244,7 @@
         "StockController" => "Stock Officer",
         "DepotController" => "Depot Controller",
         "WashBay" => "Wash Bay",
+        "ShopStock" => "Shop Stock",
         "Admin" => "Administrator",
         _ => role
     };

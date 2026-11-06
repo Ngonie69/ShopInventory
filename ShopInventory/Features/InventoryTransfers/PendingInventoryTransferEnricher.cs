@@ -45,8 +45,8 @@ public sealed class PendingInventoryTransferEnricher(
         foreach (var pending in pendingTransfers)
         {
             var dto = PendingInventoryTransferMapper.ToDto(pending, includeLines);
-            var (request, stages) = await approvalService.GetProgressAsync(
-                ApprovalDocumentContext.ForPendingTransfer(pending), cancellationToken);
+            var document = ApprovalDocumentContext.ForPendingTransfer(pending);
+            var (request, stages) = await approvalService.GetProgressAsync(document, cancellationToken);
 
             dto.ApprovalRequestId = request.Id;
             dto.ApprovalTemplateName = request.TemplateName;
@@ -57,7 +57,8 @@ public sealed class PendingInventoryTransferEnricher(
                 viewer is not null &&
                 // Whoever raised the transfer, or changed it after approval, withdraws it instead.
                 InventoryTransferApprovalService.MayApprove(request, viewer.Id) &&
-                IsInScope(scope, pending.FromWarehouse) &&
+                // Mirrors DecidePendingTransferHandler: either end, the stage decides which.
+                IsInScope(scope, document) &&
                 stages.Any(stage => stage.Status == ApprovalRequestStatuses.Pending &&
                                     InventoryTransferApprovalService.CanAdvance(viewer, stage));
 
@@ -73,6 +74,7 @@ public sealed class PendingInventoryTransferEnricher(
         return results;
     }
 
-    private static bool IsInScope(IReadOnlyList<string>? scope, string fromWarehouse)
-        => scope is null || scope.Contains(fromWarehouse, StringComparer.OrdinalIgnoreCase);
+    private static bool IsInScope(IReadOnlyList<string>? scope, ApprovalDocumentContext document)
+        => scope is null || document.SourceWarehouses.Concat(document.DestinationWarehouses)
+            .Any(code => scope.Contains(code, StringComparer.OrdinalIgnoreCase));
 }

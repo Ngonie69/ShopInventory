@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.InventoryTransfers;
@@ -380,6 +382,128 @@ public sealed class DispatchFactoryShopApprovalTests : IDisposable
         Assert.Equal("DISPYOG, DISPMILK", request.ToWarehouse);
     }
 
+    // ── The shop's stock user, apart from the stock officers ───────────────────────────────
+    // The factory shop's stock user holds ShopStock, not StockController. Stock coming into the shop
+    // waits for them; stock going back to Dispatch still waits for Dispatch's stock officers.
+
+    [Fact]
+    public async Task The_shops_stock_user_approves_stock_coming_into_the_shop()
+    {
+        await SetUpSplitRoutesAsync();
+        var raiser = await AddUserAsync(ApplicationRoles.StockController, "DISPYOG");
+        var shopStock = await AddUserAsync(ApplicationRoles.ShopStock, FactoryShop);
+        var pending = await AddPendingTransferAsync(raiser, ("DISPYOG", FactoryShop), ("DISPCH", FactoryShop));
+
+        var result = await ApprovalService().SubmitDecisionAsync(
+            ApprovalDocumentContext.ForPendingTransfer(pending), shopStock.Id, ApprovalDecisionValues.Approved, null, null, default);
+
+        Assert.False(result.IsError);
+        Assert.True(result.Value.ApprovalProcessComplete);
+    }
+
+    [Fact]
+    public async Task A_stock_officer_at_the_shop_cannot_approve_in_place_of_its_stock_user()
+    {
+        await SetUpSplitRoutesAsync();
+        var raiser = await AddUserAsync(ApplicationRoles.StockController, "DISPYOG");
+        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, FactoryShop);
+        var pending = await AddPendingTransferAsync(raiser, ("DISPYOG", FactoryShop));
+
+        var result = await ApprovalService().SubmitDecisionAsync(
+            ApprovalDocumentContext.ForPendingTransfer(pending), stockOfficer.Id, ApprovalDecisionValues.Approved, null, null, default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("ApprovalProcess.NotAuthorizer", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task A_return_to_dispatch_still_waits_for_the_dispatch_stock_officer()
+    {
+        await SetUpSplitRoutesAsync();
+        var shopStock = await AddUserAsync(ApplicationRoles.ShopStock, FactoryShop);
+        var dispatchOfficer = await AddUserAsync(ApplicationRoles.StockController, "DISPYOG");
+        var otherShopStock = await AddUserAsync(ApplicationRoles.ShopStock, FactoryShop);
+        var pending = await AddPendingTransferAsync(shopStock, (FactoryShop, "DISPYOG"));
+        var document = ApprovalDocumentContext.ForPendingTransfer(pending);
+
+        var byShop = await ApprovalService().SubmitDecisionAsync(document, otherShopStock.Id, ApprovalDecisionValues.Approved, null, null, default);
+        StartNewRequestScope();
+        var byDispatch = await ApprovalService().SubmitDecisionAsync(document, dispatchOfficer.Id, ApprovalDecisionValues.Approved, null, null, default);
+
+        Assert.True(byShop.IsError);
+        Assert.Equal("ApprovalProcess.NotAuthorizer", byShop.FirstError.Code);
+        Assert.False(byDispatch.IsError);
+        Assert.True(byDispatch.Value.ApprovalProcessComplete);
+    }
+
+    [Fact]
+    public async Task Only_the_shops_stock_user_is_alerted_for_stock_coming_in()
+    {
+        await SetUpSplitRoutesAsync();
+        var raiser = await AddUserAsync(ApplicationRoles.StockController, "DISPYOG");
+        var shopStock = await AddUserAsync(ApplicationRoles.ShopStock, FactoryShop);
+        await AddUserAsync(ApplicationRoles.StockController, FactoryShop);
+        await AddUserAsync(ApplicationRoles.ShopStock, "KEFGRS");
+        var pending = await AddPendingTransferAsync(raiser, ("DISPYOG", FactoryShop));
+
+        await ApprovalService().EnsureRequestAsync(ApprovalDocumentContext.ForPendingTransfer(pending), raiser.Id, default);
+
+        var alerted = await _context.Notifications.AsNoTracking()
+            .Where(item => item.EntityType == "TransferRequestApproval")
+            .Select(item => item.TargetUsername)
+            .ToListAsync();
+        Assert.Equal([shopStock.Username], alerted);
+    }
+
+    [Fact]
+    public async Task The_queue_offers_the_shops_stock_user_approve_on_stock_leaving_dispatch()
+    {
+        // The stock leaves a dispatch warehouse the shop's stock user is not assigned to. A
+        // source-only scope check hid the Approve button the receiving stage offered them.
+        await SetUpSplitRoutesAsync();
+        var raiser = await AddUserAsync(ApplicationRoles.StockController, "DISPYOG");
+        var shopStock = await AddUserAsync(ApplicationRoles.ShopStock, FactoryShop);
+        var otherShopStock = await AddUserAsync(ApplicationRoles.ShopStock, "KEFGRS");
+        var pending = await AddPendingTransferAsync(raiser, ("DISPYOG", FactoryShop));
+
+        var forShop = Assert.Single(await Enricher().EnrichAsync([pending], shopStock.Id, includeLines: false, default));
+        var forOtherShop = Assert.Single(await Enricher().EnrichAsync([pending], otherShopStock.Id, includeLines: false, default));
+
+        Assert.True(forShop.CanCurrentUserDecide);
+        Assert.False(forOtherShop.CanCurrentUserDecide);
+    }
+
+    [Fact]
+    public async Task A_scoped_user_decides_at_either_end_but_acts_on_the_source_only()
+    {
+        var shopStock = await AddUserAsync(ApplicationRoles.ShopStock, FactoryShop);
+        var authorizer = new TransferWarehouseAuthorizer(_context);
+
+        var decideIncoming = await authorizer.EnsureCanDecideAsync(shopStock.Id, ["DISPYOG", "DISPCH"], [FactoryShop], default);
+        var decideElsewhere = await authorizer.EnsureCanDecideAsync(shopStock.Id, ["DISPYOG"], ["KEFGRC"], default);
+        var retryIncoming = await authorizer.EnsureCanActOnSourceAsync(shopStock.Id, "DISPYOG", default);
+        var sendOwnStock = await authorizer.EnsureCanActOnSourceAsync(shopStock.Id, FactoryShop, default);
+
+        Assert.False(decideIncoming.IsError);
+        Assert.True(decideElsewhere.IsError);
+        Assert.Equal("InventoryTransfer.WarehouseNotAssigned", decideElsewhere.FirstError.Code);
+        Assert.True(retryIncoming.IsError);
+        Assert.False(sendOwnStock.IsError);
+    }
+
+    [Fact]
+    public async Task The_shops_stock_user_converts_only_requests_leaving_the_shop()
+    {
+        var shopStock = await AddUserAsync(ApplicationRoles.ShopStock, FactoryShop);
+        var authorizer = new TransferWarehouseAuthorizer(_context);
+
+        var fromShop = await authorizer.EnsureCanConvertRequestAsync(shopStock.Id, FactoryShop, default);
+        var fromDispatch = await authorizer.EnsureCanConvertRequestAsync(shopStock.Id, "DISPYOG", default);
+
+        Assert.False(fromShop.IsError);
+        Assert.True(fromDispatch.IsError);
+    }
+
     // ── Helpers ───────────────────────────────
 
     /// <summary>The receiving-officer stage and the two templates the factory shop runs on.</summary>
@@ -393,13 +517,35 @@ public sealed class DispatchFactoryShopApprovalTests : IDisposable
         return (stage, toShop, fromShop);
     }
 
+    /// <summary>
+    /// The arrangement SeparateFactoryShopStockApproval leaves: stock into the shop waits for the
+    /// shop's stock user, returns to Dispatch for each receiving dispatch warehouse's stock officer.
+    /// </summary>
+    private async Task SetUpSplitRoutesAsync()
+    {
+        var service = ApprovalService();
+        var shop = await SaveStageAsync(service, "Factory shop stock", ApprovalWarehouseScopes.Destination, perWarehouse: true, ApplicationRoles.ShopStock);
+        var officer = await SaveStageAsync(service, "Receiving stock officer", ApprovalWarehouseScopes.Destination, perWarehouse: true);
+        await SaveTemplateAsync(service, "Dispatch to Factory Shop", Dispatch, [FactoryShop], shop.Id);
+        await SaveTemplateAsync(service, "Factory Shop returns to Dispatch", [FactoryShop], Dispatch, officer.Id);
+        StartNewRequestScope();
+    }
+
+    private PendingInventoryTransferEnricher Enricher() => new(
+        _context,
+        ApprovalService(),
+        new TransferWarehouseAuthorizer(_context),
+        StubProxy.Unused<ISAPServiceLayerClient>(),
+        Options.Create(new SAPSettings()));
+
     private static async Task<ApprovalStageDefinitionDto> SaveStageAsync(
-        IInventoryTransferApprovalService service, string name, string scope, bool perWarehouse)
+        IInventoryTransferApprovalService service, string name, string scope, bool perWarehouse,
+        string role = ApplicationRoles.StockController)
     {
         var saved = await service.SaveStageAsync(new ApprovalStageDefinitionDto
         {
             Name = name,
-            AuthorizerRoles = [ApplicationRoles.StockController],
+            AuthorizerRoles = [role],
             WarehouseScope = scope,
             ApprovalPerWarehouse = perWarehouse
         }, default);
