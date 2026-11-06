@@ -2582,8 +2582,8 @@
 }
 
 /* Media rows ---------------------------------------------------------------
-   An icon in a tinted square beside two lines of copy. Support states three
-   channels this way, and the POD list in the invoice sheet is the same object
+   An icon in a tinted square beside two lines of copy. Support lists its
+   contacts this way, and the POD list in the invoice sheet is the same object
    with a button on the end. */
 
 .cpx .cpd-media {
@@ -2627,6 +2627,20 @@
     font-size: var(--cpx-text-sm);
     color: var(--cpx-mute);
     overflow-wrap: anywhere;
+}
+
+/* Support's phone and email links. Without this, MudBlazor's bare `a` rule
+   (it loads last) paints them near-white in both themes, so in light they
+   vanish into the panel. */
+.cpx .cpd-media-sub a {
+    font-weight: 600;
+    color: var(--cpx-accent-text);
+    text-decoration: none;
+}
+
+.cpx .cpd-media-sub a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
 }
 
 .cpx .cpd-media-action {
