@@ -97,6 +97,7 @@ Examples:
   - [Purchasing Documents](#48-purchasing-documents)
   - [Van Sales Customer Ordering](#49-van-sales-customer-ordering)
   - [Credit Note Approvals (SAP)](#50-credit-note-approvals-sap)
+  - [Held Transfers (SAP)](#50a-held-transfers-sap)
   - [Shops](#51-shops)
   - [Market Breakages](#52-market-breakages)
   - [Stock Write-offs](#53-stock-write-offs)
@@ -5970,6 +5971,55 @@ is added. `WashBay` ships scoped to `Factory Washbay` and holds both `creditnote
 `creditnotes.add_approved`; if its entry is missing it is refused the queue
 (`CreditNoteApproval.StageScopeNotConfigured`) rather than shown all of it, and a configured name SAP does
 not have is `CreditNoteApproval.StageScopeUnresolved`.
+
+---
+
+### 50a. Held Transfers (SAP)
+
+**Base route:** `/api/sap-transfer-approvals`  
+**Auth:** Bearer, `Admin,StockController,WashBay,DepotController,ShopStock` — decided by the account in the database, see below
+
+Inventory transfers keyed in the SAP B1 client, held by **SAP's own approval procedure** and approved
+there, that nobody has added yet. SAP is the source of truth: the list is read live from
+`StockTransferDrafts` (open, `sasApproved`, `DocObjectCode '67'` — the set serves every kind of draft)
+joined to the `ApprovalRequests` (`ObjectType '67'`) holding them, and the add is the bound action
+`POST StockTransferDrafts({docEntry})/SaveDraftToDocument`. Deciding stays in the B1 client. Nothing is
+mirrored into the local approval engine (§44). See `docs/sap-transfer-approvals.md`.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/sap-transfer-approvals` | The approved drafts waiting to be added, newest first: `page` 1, `pageSize` 25, `beforeDocEntry` for cursor paging, `warehouse` for drafts leaving or entering one warehouse |
+| GET | `/api/sap-transfer-approvals/{draftEntry}` | One draft: lines with their batch picks, the approval requests and approver lines, and the transfer requests it was copied from |
+| POST | `/api/sap-transfer-approvals/{draftEntry}/add` | Add the approved draft as the inventory transfer, then close any transfer request it was copied from. Body `{ "clientRequestId": "…" }` or an `Idempotency-Key` header |
+
+**Who may add, and see.** The people who may convert a transfer request
+(`ITransferWarehouseAuthorizer.EnsureCanConvertRequestAsync`): Admin, StockController and WashBay from
+any warehouse; DepotController and ShopStock only from the warehouses on their account — the draft's
+header and every line. The role is read from the account by user id, never from the request's role
+claims, because the Web's integration key carries Admin. A scoped account's list and `totalCount` are
+filtered in SAP, and `scopedWarehouses` names its warehouses; the detail answers
+`403 SapTransferApproval.OutsideWarehouseScope` for a draft leaving another warehouse, and the add the
+conversion's own `403 InventoryTransfer.WarehouseNotAssigned`.
+
+Each row carries `canAdd` and, when false, `statusNote`. The list sees only the draft's header; the
+detail reads the draft by key — the only read SAP answers with each line's batch picks — and also
+withholds `canAdd` when a batch- or serial-managed line's pick does not cover it.
+
+**The add.** Refused before anything reaches SAP, in these words, when: the draft is not approved
+(`SapTransferApproval.NotApproved`), an approval request on it is still pending
+(`ApprovalNotSettled`), a batch-managed line has no complete pick (`SelectionMissing`, naming the lines —
+also what SAP's own refusal for a missing pick maps to), the transfer request it was copied from was
+already converted here (`409 AlreadyTransferredByApp`), or a till has sold units out of the source
+warehouse that SAP has not invoiced yet (`TillSalesWouldBeTaken`, the conversion's check). A closed draft
+answers `409 SapTransferApproval.AlreadyAdded`, naming the transfer when SAP's request does and any
+copied-from request still open. Any other SAP refusal is `SapTransferApproval.SapRejected` with SAP's
+message. A call that got no clear answer is settled by reading the draft back — SAP closes it when it
+converts — and is `SapTransferApproval.AddUncertain` only while the draft still reads open.
+
+One add per draft, whoever clicks: a repeat replays the first answer (checked again against the
+caller's warehouses). The result names the transfer (`transferDocEntry`, `transferDocNum`; `resolved`
+false when SAP did not say and it could not be recognised by its lines), the copied-from requests it
+closed (`closedRequestDocNums`) and any it could not (`requestsLeftOpen`).
 
 ---
 

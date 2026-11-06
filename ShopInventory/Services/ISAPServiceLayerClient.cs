@@ -1072,6 +1072,75 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task<SapAttachmentDownload?> ReadAttachmentFromShareAsync(SAPAttachmentLine line, CancellationToken cancellationToken = default);
 
+    // SAP approval procedure — inventory transfers keyed in the B1 client and held for approval. As for
+    // the credit memos, SAP is the source of truth and nothing is mirrored into the local engine.
+
+    /// <summary>
+    /// One page of the inventory transfer drafts that are approved and still open — waiting for
+    /// somebody to add them — newest first, with the total for the same filter.
+    /// </summary>
+    /// <param name="page">Which page, when reading by offset. Ignored when a cursor is given.</param>
+    /// <param name="pageSize">How many rows the page holds.</param>
+    /// <param name="beforeDocEntry">Continue below this draft DocEntry rather than counting pages in from the top.</param>
+    /// <param name="fromWarehouses">
+    /// Only drafts leaving one of these warehouses, in the rows and the count alike. Null reads every
+    /// warehouse; an empty collection is refused, because a scope that names nothing must not read as
+    /// "everything".
+    /// </param>
+    /// <param name="warehouse">Only drafts leaving or entering this warehouse.</param>
+    /// <param name="cancellationToken">Cancels the reads.</param>
+    Task<(List<SAPStockTransferDraft> Items, int TotalCount)> GetApprovedStockTransferDraftsAsync(
+        int page,
+        int pageSize,
+        int? beforeDocEntry = null,
+        IReadOnlyCollection<string>? fromWarehouses = null,
+        string? warehouse = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The approval requests (<c>ObjectType 67</c>) holding these stock transfer drafts. A draft can be
+    /// held by more than one request, one per template that matched it.
+    /// </summary>
+    Task<List<SAPApprovalRequest>> GetStockTransferApprovalRequestsAsync(
+        IReadOnlyCollection<int> draftEntries,
+        bool withLines = false,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One stock transfer draft with its lines and their batch and serial picks; null when there is no
+    /// such draft. Any draft comes back — the caller checks <see cref="SAPStockTransferDraft.DocObjectCode"/>.
+    /// </summary>
+    Task<SAPStockTransferDraft?> GetStockTransferDraftAsync(int docEntry, CancellationToken cancellationToken = default);
+
+    /// <summary>Whether SAP manages each item by batch or serial; an item SAP does not know is absent.</summary>
+    Task<IReadOnlyDictionary<string, SapItemManagement>> GetItemManagementAsync(
+        IReadOnlyCollection<string> itemCodes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>The highest stock transfer DocEntry SAP holds, or null when it holds none.</summary>
+    Task<int?> GetNewestStockTransferDocEntryAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The stock transfers posted after <paramref name="afterDocEntry"/> between these warehouses,
+    /// oldest first and a bounded window of them — how the transfer an add produced is recognised.
+    /// </summary>
+    Task<List<InventoryTransfer>> GetStockTransfersAfterAsync(
+        int afterDocEntry,
+        string? fromWarehouse,
+        string? toWarehouse,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds an approved stock transfer draft as the real transfer
+    /// (<c>POST StockTransferDrafts(n)/SaveDraftToDocument</c>). Returns the created transfer's DocEntry
+    /// when SAP's answer names it, otherwise null.
+    /// </summary>
+    /// <remarks>
+    /// SAP's refusal — an unapproved draft, a batch or serial selection that is not complete, too little
+    /// stock — surfaces as <see cref="SapRequestRejectedException"/> carrying SAP's own message.
+    /// </remarks>
+    Task<int?> SaveStockTransferDraftToDocumentAsync(int draftDocEntry, CancellationToken cancellationToken = default);
+
     // Quotation Operations (from SAP)
     Task<List<SAPQuotation>> GetQuotationsFromSAPAsync(CancellationToken cancellationToken = default);
     Task<List<SAPQuotation>> GetPagedQuotationsFromSAPAsync(int page, int pageSize, CancellationToken cancellationToken = default);

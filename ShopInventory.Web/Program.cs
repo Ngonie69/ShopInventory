@@ -312,6 +312,7 @@ try
     builder.Services.AddScoped<IInventoryTransferService, InventoryTransferService>();
     builder.Services.AddScoped<IApprovalProcessService, ApprovalProcessService>();
     builder.Services.AddScoped<ICreditNoteApprovalService, CreditNoteApprovalService>();
+    builder.Services.AddScoped<ISapTransferApprovalService, SapTransferApprovalService>();
     builder.Services.AddScoped<IMarketBreakageService, MarketBreakageService>();
     builder.Services.AddScoped<IFactoryTransferService, FactoryTransferService>();
     builder.Services.AddScoped<IStockWriteOffService, StockWriteOffService>();

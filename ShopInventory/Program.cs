@@ -481,6 +481,7 @@ try
     builder.Services.AddScoped<IPendingTransferRequestEditEnricher, PendingTransferRequestEditEnricher>();
     builder.Services.AddScoped<ShopInventory.Features.CreditNoteApprovals.ISapApprovalLookups, ShopInventory.Features.CreditNoteApprovals.SapApprovalLookups>();
     builder.Services.AddScoped<ShopInventory.Features.CreditNoteApprovals.ICreditNoteApprovalStageScope, ShopInventory.Features.CreditNoteApprovals.CreditNoteApprovalStageScope>();
+    builder.Services.AddScoped<ShopInventory.Features.SapTransferApprovals.ISapTransferApprovalAccess, ShopInventory.Features.SapTransferApprovals.SapTransferApprovalAccess>();
     builder.Services.AddScoped<ShopInventory.Common.Security.ICallerAccountReader, ShopInventory.Common.Security.CallerAccountReader>();
     builder.Services.AddScoped<VanSalesAuditFilter>();
     builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.DesktopIntegrationAuditFilter>();

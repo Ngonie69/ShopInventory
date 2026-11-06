@@ -1,0 +1,1420 @@
+/* ==========================================================================
+   SAP-held transfers — Nocturne
+
+   /inventory-transfers/sap-approvals: inventory transfers keyed in the SAP
+   client and approved by SAP's approval procedure that nobody has added yet,
+   and the add that turns one into the real transfer. `sta-` is not shared
+   with any other sheet.
+
+   GENERATED FILE. Do not hand-edit: regenerate with
+
+       python scripts/derive_sap_transfer_approvals_css.py
+
+   run from the repo root. Everything above the page footer is
+   credit-note-approvals.css with its prefix renamed, so it follows that
+   sheet's palette and both themes through nocturne-tokens.css and has no
+   `.dark-theme` block of its own.
+   ========================================================================== */
+
+.sta,
+.sta-overlay {
+    --sta-bg: var(--noct-bg);
+    --sta-surface: var(--noct-surface);
+    --sta-field: var(--noct-surface);
+    --sta-ink: var(--noct-ink);
+    --sta-ink-2: var(--noct-ink-2);
+    --sta-mute: var(--noct-mute);
+    --sta-mute-2: var(--noct-mute-2);
+    --sta-mute-3: var(--noct-mute-3);
+    --sta-faint: var(--noct-faint);
+    --sta-placeholder: var(--noct-placeholder);
+    --sta-divider: var(--noct-divider);
+    --sta-rowline: var(--noct-rule);
+    --sta-hover: var(--noct-hover);
+    --sta-press: var(--noct-press);
+    --sta-field-edge: var(--noct-field-edge);
+    --sta-field-edge-hi: var(--noct-field-edge-hi);
+    --sta-accent: var(--noct-accent);
+    --sta-accent-rgb: var(--noct-accent-rgb);
+    --sta-accent-text: var(--noct-accent-text);
+    --sta-tag-bg: var(--noct-avatar-bg);
+    --sta-tag-ink: var(--noct-ink-2);
+    --sta-scrim: var(--noct-scrim);
+    --sta-shadow-sm: 0 0 0 1px var(--noct-rule);
+    --sta-shadow-lg: var(--noct-shadow-lg);
+
+    /* The four states a request can be in, taken from the system's families so
+       they agree with every other status chip in the app: waiting, cleared,
+       refused, and the settled grey of one already added or cancelled. */
+    --sta-pending: var(--noct-fam-warn);
+    --sta-pending-rgb: var(--noct-fam-warn-rgb);
+    --sta-approved: var(--noct-fam-good);
+    --sta-approved-rgb: var(--noct-fam-good-rgb);
+    --sta-rejected: var(--noct-fam-bad);
+    --sta-rejected-rgb: var(--noct-fam-bad-rgb);
+    --sta-settled: var(--noct-fam-neutral);
+    --sta-bad: var(--noct-fam-bad);
+    --sta-bad-bg: rgba(var(--noct-fam-bad-rgb), .1);
+    --sta-bad-edge: rgba(var(--noct-fam-bad-rgb), .35);
+    --sta-warn-bg: var(--noct-warn-bg);
+    --sta-warn-edge: var(--noct-warn-edge);
+    --sta-warn-ink: var(--noct-warn-ink);
+
+    --sta-s1: var(--noct-s1);
+    --sta-s2: var(--noct-s2);
+    --sta-s3: var(--noct-s3);
+    --sta-s4: var(--noct-s4);
+    --sta-s6: var(--noct-s6);
+    --sta-s8: var(--noct-s8);
+    --sta-r-sm: var(--noct-r-sm);
+    --sta-r-md: var(--noct-r-md);
+    --sta-r-lg: var(--noct-r-lg);
+
+    color-scheme: var(--noct-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.sta {
+    min-height: 100vh;
+    background: var(--sta-bg);
+    color: var(--sta-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.sta *,
+.sta-overlay * {
+    box-sizing: border-box;
+}
+
+.sta :focus-visible,
+.sta-overlay :focus-visible {
+    outline: 2px solid var(--sta-accent);
+    outline-offset: 2px;
+}
+
+.sta ::selection,
+.sta-overlay ::selection {
+    background: rgba(var(--sta-accent-rgb), .3);
+}
+
+.sta-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--sta-divider) 48px,
+            var(--sta-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Opaque, not translucent: the compositor skips backdrop-filter often enough
+   (headless, remote sessions, reduced-transparency settings) that a frosted
+   header lets the page's own title read through the one below it. */
+
+.sta-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--sta-bg);
+}
+
+.sta-shell {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--sta-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--sta-s8);
+}
+
+.sta-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.sta-titles-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s3);
+}
+
+.sta-titles-row i {
+    font-size: 17px;
+    color: var(--sta-accent);
+}
+
+.sta-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -.01em;
+    color: var(--sta-ink);
+}
+
+.sta-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--sta-mute-2);
+}
+
+.sta-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s4);
+}
+
+.sta-count {
+    font-size: 12px;
+    color: var(--sta-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.sta-body {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--sta-s8) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sta-s6);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.sta .sta-btn,
+.sta-overlay .sta-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: var(--sta-s2) calc(var(--sta-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--sta-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--sta-r-md);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.sta .sta-btn:disabled,
+.sta-overlay .sta-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.sta .sta-btn-primary,
+.sta-overlay .sta-btn-primary {
+    color: var(--sta-accent);
+    border-color: var(--sta-accent);
+    letter-spacing: .02em;
+}
+
+.sta .sta-btn-primary:hover:not(:disabled),
+.sta-overlay .sta-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--sta-accent-rgb), .12);
+}
+
+.sta .sta-btn-primary:active:not(:disabled),
+.sta-overlay .sta-btn-primary:active:not(:disabled) {
+    background: rgba(var(--sta-accent-rgb), .22);
+}
+
+.sta .sta-btn-secondary,
+.sta-overlay .sta-btn-secondary {
+    border-color: var(--sta-divider);
+}
+
+.sta .sta-btn-secondary:hover:not(:disabled),
+.sta-overlay .sta-btn-secondary:hover:not(:disabled) {
+    background: var(--sta-hover);
+}
+
+.sta .sta-btn-secondary:active:not(:disabled),
+.sta-overlay .sta-btn-secondary:active:not(:disabled) {
+    background: var(--sta-press);
+}
+
+.sta .sta-btn-ghost,
+.sta-overlay .sta-btn-ghost {
+    color: var(--sta-accent);
+    padding-inline: var(--sta-s1);
+}
+
+.sta .sta-btn-ghost:hover:not(:disabled),
+.sta-overlay .sta-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--sta-accent-rgb), .1);
+}
+
+.sta .sta-btn-ghost:active:not(:disabled),
+.sta-overlay .sta-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--sta-accent-rgb), .18);
+}
+
+/* The two decisions: outlined in their own state's hue, so approve and reject
+   are told apart before the label is read. */
+.sta .sta-btn-good,
+.sta-overlay .sta-btn-good {
+    color: var(--sta-approved);
+    border-color: rgba(var(--sta-approved-rgb), .5);
+}
+
+.sta .sta-btn-good:hover:not(:disabled),
+.sta-overlay .sta-btn-good:hover:not(:disabled) {
+    background: rgba(var(--sta-approved-rgb), .12);
+}
+
+.sta .sta-btn-bad,
+.sta-overlay .sta-btn-bad {
+    color: var(--sta-bad);
+    border-color: var(--sta-bad-edge);
+}
+
+.sta .sta-btn-bad:hover:not(:disabled),
+.sta-overlay .sta-btn-bad:hover:not(:disabled) {
+    background: var(--sta-bad-bg);
+}
+
+.sta .sta-btn-sm,
+.sta-overlay .sta-btn-sm {
+    height: 30px;
+    font-size: 12.5px;
+}
+
+.sta .sta-btn-icon,
+.sta-overlay .sta-btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}
+
+.sta .sta-btn-icon-sm,
+.sta-overlay .sta-btn-icon-sm {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+}
+
+.sta .sta-btn svg,
+.sta-overlay .sta-btn svg {
+    display: block;
+    width: 1em;
+    height: 1em;
+    fill: currentColor;
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.sta-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--sta-s4);
+    flex-wrap: wrap;
+}
+
+.sta-field > label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--sta-mute);
+}
+
+/* The status filter is a segmented control rather than a dropdown: three
+   choices, all of them worth seeing at once, and the count of each is the
+   thing the page is for. */
+.sta-seg {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border-radius: var(--sta-r-md);
+    background: var(--sta-hover);
+}
+
+.sta .sta-seg-btn {
+    height: 28px;
+    padding: 0 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--sta-mute);
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--sta-r-md) - 2px);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.sta .sta-seg-btn:hover:not(.is-on) {
+    color: var(--sta-ink-2);
+}
+
+.sta .sta-seg-btn.is-on {
+    color: var(--sta-accent-text);
+    background: var(--sta-surface);
+    box-shadow: var(--sta-shadow-sm);
+}
+
+.sta .sta-input,
+.sta-overlay .sta-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--sta-ink);
+    caret-color: var(--sta-accent);
+    background: var(--sta-field);
+    background-image: none;
+    border: 1px solid var(--sta-field-edge);
+    border-radius: var(--sta-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.sta .sta-input:hover,
+.sta-overlay .sta-input:hover {
+    border-color: var(--sta-field-edge-hi);
+}
+
+.sta .sta-input:focus-visible,
+.sta-overlay .sta-input:focus-visible {
+    border-color: var(--sta-accent);
+    outline-offset: 0;
+}
+
+.sta .sta-input::placeholder,
+.sta-overlay .sta-input::placeholder {
+    color: var(--sta-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--sta-placeholder);
+}
+
+.sta-overlay .sta-textarea {
+    min-height: 76px;
+    resize: vertical;
+    line-height: 1.5;
+    padding: var(--sta-s2) 10px;
+}
+
+.sta-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s2);
+    margin-left: auto;
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+
+.sta-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--sta-surface);
+    border-radius: var(--sta-r-md);
+    box-shadow: var(--sta-shadow-sm);
+    overflow: hidden;
+}
+
+.sta-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s4);
+    padding: var(--sta-s4) var(--sta-s6);
+    min-height: 54px;
+}
+
+.sta-range {
+    font-size: 13px;
+    color: var(--sta-mute-2);
+}
+
+.sta-hint {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sta-s2);
+    font-size: 12px;
+    color: var(--sta-mute-3);
+}
+
+.sta-hint i {
+    font-size: 13px;
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+
+.sta-tablewrap {
+    overflow-x: auto;
+}
+
+.sta-table {
+    width: 100%;
+    min-width: 1080px;
+    border-collapse: collapse;
+    font-size: 13px;
+    /* Fixed layout is what lets the customer and reason cells clip with an
+       ellipsis; an auto table stretches to fit the longest reason instead. */
+    table-layout: fixed;
+}
+
+.sta-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--sta-mute);
+    padding: var(--sta-s2);
+    white-space: nowrap;
+}
+
+.sta-table td {
+    padding: var(--sta-s2);
+    vertical-align: middle;
+}
+
+.sta-table th:first-child,
+.sta-table td:first-child {
+    padding-left: var(--sta-s6);
+}
+
+.sta-table th:last-child,
+.sta-table td:last-child {
+    padding-right: var(--sta-s6);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.sta-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.sta-table thead tr {
+    background: linear-gradient(to right,
+            transparent, var(--sta-divider) 48px,
+            var(--sta-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.sta-table tbody tr {
+    background: linear-gradient(to right,
+            transparent, var(--sta-rowline) 48px,
+            var(--sta-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.sta-table tbody tr:hover {
+    background:
+        linear-gradient(var(--sta-hover), var(--sta-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--sta-rowline) 48px,
+            var(--sta-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.sta-table tbody tr.is-open-row,
+.sta-table tbody tr.is-open-row:hover {
+    background:
+        linear-gradient(rgba(var(--sta-accent-rgb), .09), rgba(var(--sta-accent-rgb), .09)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--sta-rowline) 48px,
+            var(--sta-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.sta-table tbody tr.is-dim {
+    opacity: .66;
+}
+
+.sta .sta-link {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: var(--sta-accent);
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    text-underline-offset: 3px;
+}
+
+.sta .sta-link:hover {
+    color: var(--sta-accent-text);
+    text-decoration: underline;
+}
+
+.sta-cust {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 130px;
+}
+
+/* The customer name doubles as the row's control. The design gives it the body
+   colour rather than the accent, so it reads as text, but it stays a real button
+   so the row can be opened from the keyboard. */
+.sta .sta-cust-name {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--sta-ink);
+    background: none;
+    border: 0;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+}
+
+.sta .sta-cust-name:hover {
+    color: var(--sta-accent-text);
+    text-decoration: underline;
+}
+
+.sta-cust-code {
+    /* One line. SAP card codes carry a currency suffix ("FAZ002 USD"), which wrapped
+       and left the rows at ragged heights; the full value stays on the title. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    font-size: 11.5px;
+    letter-spacing: .02em;
+    color: var(--sta-mute-3);
+}
+
+.sta-date {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--sta-ink-2);
+}
+
+.sta-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: .02em;
+    padding: 2px 8px;
+    border-radius: calc(var(--sta-r-md) * .75);
+    white-space: nowrap;
+    background: var(--sta-tag-bg);
+    color: var(--sta-tag-ink);
+}
+
+.sta-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 120px;
+}
+
+.sta-stack-sub {
+    font-size: 11.5px;
+    color: var(--sta-mute-3);
+}
+
+/* Status: a dot in the state's hue and the word beside it, the same pairing
+   the credit notes list uses. */
+.sta-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.sta-status .sta-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--sta-settled);
+}
+
+.sta-status .sta-dot.is-pending {
+    background: var(--sta-pending);
+}
+
+.sta-status .sta-dot.is-approved {
+    background: var(--sta-approved);
+}
+
+.sta-status .sta-dot.is-rejected {
+    background: var(--sta-rejected);
+}
+
+.sta-status-text {
+    color: var(--sta-mute);
+}
+
+.sta-status-text.is-pending {
+    color: var(--sta-pending);
+}
+
+.sta-status-text.is-approved {
+    color: var(--sta-approved);
+}
+
+.sta-status-text.is-rejected {
+    color: var(--sta-rejected);
+}
+
+.sta-clip {
+    color: var(--sta-mute-3);
+    font-size: 14px;
+}
+
+.sta-rowactions {
+    display: inline-flex;
+    gap: var(--sta-s1);
+    justify-content: flex-end;
+}
+
+/* ── Empty / loading ───────────────────────────────────────────────────── */
+
+.sta-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sta-s3);
+    padding: 56px var(--sta-s6);
+    font-size: 13.5px;
+}
+
+.sta-empty i {
+    font-size: 22px;
+    color: var(--sta-accent);
+    opacity: .8;
+}
+
+.sta-skel {
+    height: 11px;
+    border-radius: var(--sta-r-sm);
+    background: var(--sta-rowline);
+    animation: sta-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes sta-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sta-skel {
+        animation: none;
+    }
+}
+
+/* ── Footer / pager ────────────────────────────────────────────────────── */
+
+.sta-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s4);
+    padding: var(--sta-s4) var(--sta-s6);
+    border-top: 1px solid var(--sta-divider);
+}
+
+.sta-foot-range {
+    font-size: 12px;
+    color: var(--sta-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.sta-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s2);
+    margin-left: auto;
+}
+
+.sta-page-label {
+    font-size: 12px;
+    color: var(--sta-mute-2);
+    font-variant-numeric: tabular-nums;
+    min-width: 74px;
+    text-align: center;
+}
+
+/* ── Alerts ────────────────────────────────────────────────────────────── */
+
+.sta-alert,
+.sta-overlay .sta-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sta-s3);
+    padding: var(--sta-s3) var(--sta-s4);
+    border-radius: var(--sta-r-md);
+    background: var(--sta-bad-bg);
+    border: 1px solid var(--sta-bad-edge);
+    color: var(--sta-bad);
+    font-size: 13px;
+}
+
+.sta-alert-body {
+    flex: 1;
+}
+
+/* What the last add said, left on the page after the drawer closes (SAP deletes
+   the approval request with the add, so the drawer has nothing left to show).
+   Success is the approved family; a failed fiscalisation uses .sta-blocked. */
+.sta-done {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sta-s3);
+    padding: var(--sta-s3) var(--sta-s4);
+    border-radius: var(--sta-r-md);
+    background: rgba(var(--sta-approved-rgb), .1);
+    border: 1px solid rgba(var(--sta-approved-rgb), .4);
+    color: var(--sta-ink);
+    font-size: 13px;
+}
+
+.sta-done > .ph {
+    color: var(--sta-approved);
+}
+
+.sta-added > .ph {
+    font-size: 16px;
+    margin-top: 1px;
+}
+
+.sta-added-source {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--sta-mute-2);
+}
+
+/* Why an action is unavailable — a sentence from SAP's own state, not a
+   failure, so it is the notice colour rather than the danger one. */
+.sta-blocked {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sta-s3);
+    padding: var(--sta-s3) var(--sta-s4);
+    border-radius: var(--sta-r-md);
+    background: var(--sta-warn-bg);
+    border: 1px solid var(--sta-warn-edge);
+    color: var(--sta-warn-ink);
+    font-size: 13px;
+}
+
+/* ── Overlays: drawer, dialogs and the file viewer ─────────────────────── */
+
+.sta-overlay {
+    color: var(--sta-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.sta-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    background: var(--sta-scrim);
+    z-index: 9998;
+}
+
+.sta-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    width: min(680px, 96vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    background: var(--sta-surface);
+    box-shadow: var(--sta-shadow-lg);
+    font-size: 14px;
+}
+
+.sta-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s4);
+    padding: var(--sta-s4) var(--sta-s6);
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--sta-divider);
+}
+
+.sta-drawer-title {
+    margin: 0 auto 0 0;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s3);
+}
+
+.sta-drawer-title i {
+    color: var(--sta-accent);
+    font-size: 15px;
+}
+
+.sta-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--sta-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sta-s6);
+}
+
+.sta-drawer-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sta-s2);
+    padding: var(--sta-s4) var(--sta-s6);
+    border-top: 1px solid var(--sta-divider);
+    flex-shrink: 0;
+}
+
+.sta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--sta-s4);
+}
+
+.sta-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--sta-mute-3);
+    margin-bottom: 2px;
+}
+
+.sta-dd {
+    font-size: 13.5px;
+    color: var(--sta-ink);
+}
+
+.sta-sect {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--sta-accent);
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s2);
+    margin-bottom: var(--sta-s3);
+}
+
+.sta-note {
+    padding: var(--sta-s3) var(--sta-s4);
+    border-radius: var(--sta-r-md);
+    background: var(--sta-hover);
+    font-size: 13px;
+    color: var(--sta-ink-2);
+}
+
+.sta-note .sta-dt {
+    color: var(--sta-mute-3);
+}
+
+.sta-lines {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.sta-lines th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--sta-mute);
+    padding: var(--sta-s2);
+    white-space: nowrap;
+}
+
+.sta-lines td {
+    padding: var(--sta-s2);
+    color: var(--sta-ink-2);
+}
+
+/* A row rule, not a row fill: a bare colour in `background` ignores the 1px
+   size and floods the row. Inside a box these stay solid rather than fading. */
+.sta-lines thead tr,
+.sta-lines tbody tr {
+    background: linear-gradient(var(--sta-rowline), var(--sta-rowline)) no-repeat bottom / 100% 1px;
+}
+
+/* app.css paints every `.dark-theme table thead th` slate (0,1,3), which beats
+   the sheet's own `.sta-table th` and `.sta-lines th` and turned the header rows
+   near-black — the drawer's on the drawer's surface, the list's on the ground.
+   Two classes out-specify it; the header stays a rule under quiet type, as in
+   light. */
+.sta .sta-table thead th,
+.sta-overlay .sta-lines thead th {
+    background: transparent;
+    color: var(--sta-mute);
+    border-bottom-color: transparent;
+}
+
+.sta-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sta-s4) var(--sta-s6);
+    border-radius: var(--sta-r-md);
+    border: 1px solid var(--sta-accent);
+    background: rgba(var(--sta-accent-rgb), .08);
+}
+
+.sta-total-label {
+    font-size: 13px;
+    color: var(--sta-mute);
+}
+
+.sta-total-value {
+    font-size: 20px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--sta-accent-text);
+}
+
+/* The approver rail: one row per approver per stage, so a multi-stage template
+   reads as a sequence rather than a list of names. */
+.sta-rail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sta-s2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.sta-rail-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sta-s3);
+    padding: var(--sta-s3) var(--sta-s4);
+    border-radius: var(--sta-r-md);
+    background: var(--sta-hover);
+}
+
+.sta-rail-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.sta-rail-who {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.sta-rail-meta {
+    font-size: 11.5px;
+    color: var(--sta-mute-3);
+}
+
+.sta-rail-remarks {
+    margin-top: 2px;
+    font-size: 12.5px;
+    font-style: italic;
+    color: var(--sta-mute-2);
+}
+
+/* Attachments: one row per file, name and date on the left, the two actions
+   right. */
+.sta-files {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sta-s2);
+}
+
+.sta-file {
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s3);
+    padding: var(--sta-s3) var(--sta-s4);
+    border-radius: var(--sta-r-md);
+    border: 1px solid var(--sta-divider);
+}
+
+.sta-file i {
+    font-size: 16px;
+    color: var(--sta-accent);
+    flex: none;
+}
+
+.sta-file-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.sta-file-name {
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sta-file-meta {
+    font-size: 11.5px;
+    color: var(--sta-mute-3);
+}
+
+.sta-file-actions {
+    display: inline-flex;
+    gap: var(--sta-s2);
+    flex: none;
+}
+
+.sta-dialog-wrap {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: var(--sta-s4);
+    background: var(--sta-scrim);
+}
+
+.sta-dialog {
+    width: min(560px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--sta-s8));
+    display: flex;
+    flex-direction: column;
+    gap: var(--sta-s4);
+    padding: var(--sta-s6);
+    border-radius: var(--sta-r-lg);
+    background: var(--sta-surface);
+    box-shadow: var(--sta-shadow-lg);
+    font-size: 14px;
+}
+
+.sta-dialog-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -.015em;
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s3);
+}
+
+.sta-dialog-title i {
+    font-size: 17px;
+    color: var(--sta-accent);
+}
+
+.sta-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sta-s4);
+    overflow-y: auto;
+}
+
+.sta-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sta-s2);
+}
+
+.sta-confirm {
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s4);
+    padding: var(--sta-s3) var(--sta-s4);
+    border-radius: var(--sta-r-md);
+    background: var(--sta-hover);
+}
+
+.sta-confirm-copy {
+    font-size: 13.5px;
+}
+
+.sta-confirm-sub {
+    font-size: 12.5px;
+    color: var(--sta-mute-2);
+}
+
+/* The viewer is sized to the artefact, not to a dialog grid: a scanned return
+   note is the thing being read, so it gets the frame minus the app bar. */
+.sta-viewer {
+    width: min(1100px, 100%);
+    height: calc(100vh - var(--kf-topbar-h, 74px) - var(--sta-s8));
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--sta-r-lg);
+    background: var(--sta-surface);
+    box-shadow: var(--sta-shadow-lg);
+    overflow: hidden;
+}
+
+.sta-viewer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s4);
+    padding: var(--sta-s4) var(--sta-s6);
+    border-bottom: 1px solid var(--sta-divider);
+    flex-shrink: 0;
+}
+
+.sta-viewer-name {
+    margin: 0 auto 0 0;
+    font-size: 14px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sta-viewer-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--sta-s4);
+    background: var(--sta-hover);
+}
+
+.sta-viewer-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: var(--sta-r-sm);
+}
+
+/* Deliberately white in both schemes: a PDF's own page is paper, and a dark
+   frame behind it reads as a rendering fault. */
+.sta-viewer-pdf {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: var(--sta-r-sm);
+    background: #ffffff;
+}
+
+.sta-viewer-fallback {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sta-s3);
+    font-size: 13.5px;
+    color: var(--sta-mute-2);
+}
+
+.sta-spin,
+.sta-overlay .sta-spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: sta-spin .7s linear infinite;
+}
+
+.sta-overlay .sta-spin-lg {
+    width: 22px;
+    height: 22px;
+    border-width: 3px;
+}
+
+@keyframes sta-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+    .sta-shell,
+    .sta-body {
+        padding-left: var(--sta-s6);
+        padding-right: var(--sta-s6);
+    }
+
+    .sta-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--sta-s4);
+    }
+
+    .sta-head-actions {
+        justify-content: space-between;
+    }
+
+    .sta-filter-actions {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .sta-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+/* ---- The design's column rhythm, reason and age ------------------------- */
+
+.sta-table th:nth-child(1) { width: 24%; }
+.sta-table th:nth-child(2) { width: 18%; }
+.sta-table th:nth-child(3) { width: 108px; }
+.sta-table th:nth-child(4) { width: 132px; }
+.sta-table th:nth-child(5) { width: 148px; }
+.sta-table th:nth-child(6) { width: 136px; }
+.sta-table th:nth-child(7) { width: 128px; }
+.sta-table th:nth-child(8) { width: 56px; }
+
+/* Reason for credit. SAP leaves it blank on older memos, so the em dash is a
+   common and correct reading, not a failure to load. */
+.sta-reason-text {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--sta-ink-2);
+}
+
+/* How long the request has waited, under the date it was raised. */
+.sta-age {
+    font-size: 11px;
+    color: var(--sta-mute-3);
+}
+
+
+/* ── This page ───────────────────────────────────────────────────────────
+   What the credit memo queue does not have. Every colour resolves through
+   the --sta-* aliases above, so both themes follow from nocturne-tokens.css.
+   The drawer sits outside `.sta` on `.sta-overlay`, so every rule it uses is
+   written for that root too.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* The route a transfer takes, source first, as one unit that does not wrap. */
+.sta .sta-route,
+.sta-overlay .sta-route {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sta-s2);
+    white-space: nowrap;
+}
+
+/* The route is the row's control, and MudBlazor's sheet loads last with a bare
+   `button` rule that centres a button's contents; the column flex box then
+   stretches it across the cell. Both together put the route in the middle of
+   the cell over its left-aligned numbers. */
+.sta .sta-cust-name.sta-route {
+    justify-content: flex-start;
+    align-self: flex-start;
+}
+
+.sta .sta-route-arrow,
+.sta-overlay .sta-route-arrow {
+    color: var(--sta-mute-2);
+    font-size: 12px;
+}
+
+.sta .sta-wh,
+.sta-overlay .sta-wh {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    letter-spacing: .01em;
+    color: var(--sta-ink);
+}
+
+/* A depot controller's queue is limited to its own warehouses; say which. */
+.sta .sta-scope {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sta-s2);
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--sta-mute);
+}
+
+/* The batch picks on a draft line, one per row, inside the lines table. */
+.sta-overlay .sta-batches {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+}
+
+.sta-overlay .sta-batch {
+    display: inline-flex;
+    gap: var(--sta-s2);
+    white-space: nowrap;
+}
+
+.sta-overlay .sta-batch-no {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    color: var(--sta-ink-2);
+}
+
+.sta-overlay .sta-batch-qty {
+    color: var(--sta-mute);
+    font-variant-numeric: tabular-nums;
+}
+
+/* A line SAP would refuse for want of a batch or serial pick. The warn family,
+   on the line itself as well as in the note, so it is found in a long draft. */
+.sta-overlay .sta-lines-missing td {
+    background: var(--sta-warn-bg);
+}
+
+.sta-overlay .sta-missing {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--sta-warn-ink);
+}
+
+.sta-overlay .sta-copied {
+    font-size: 11px;
+    color: var(--sta-mute);
+}
+
+/* The transfer requests a draft was copied from, and whether each is open. */
+.sta-overlay .sta-linked {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sta-s2);
+}
+
+.sta-overlay .sta-linked-item {
+    display: flex;
+    align-items: center;
+    gap: var(--sta-s3);
+    padding: var(--sta-s2) var(--sta-s3);
+    border-radius: var(--sta-r-md);
+    box-shadow: var(--sta-shadow-sm);
+    font-size: 13px;
+}
+
+.sta-overlay .sta-linked-item .sta-tag {
+    margin-left: auto;
+}
