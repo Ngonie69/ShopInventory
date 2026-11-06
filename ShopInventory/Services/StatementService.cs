@@ -397,11 +397,23 @@ namespace ShopInventory.Services
 
         private void AddAgingAnalysis(Document document, StatementAgingSummaryDto aging)
         {
-            var sectionTitle = new Paragraph("AGING ANALYSIS")
-                .SetFont(_boldFont)
-                .SetFontSize(11)
-                .SetFontColor(PrimaryColor)
+            var sectionTitle = new Paragraph()
+                .Add(new Text("AGING ANALYSIS")
+                    .SetFont(_boldFont)
+                    .SetFontSize(11)
+                    .SetFontColor(PrimaryColor))
                 .SetMarginBottom(10);
+
+            // The period can run past the day the statement was pulled, and then the aging is
+            // measured from that day rather than the period end. Say which day it is.
+            if (aging.AsAtDate != default)
+            {
+                sectionTitle.Add(new Text($"   as at {aging.AsAtDate:dd MMM yyyy}")
+                    .SetFont(_regularFont)
+                    .SetFontSize(9)
+                    .SetFontColor(TextMuted));
+            }
+
             document.Add(sectionTitle);
 
             var agingTable = new Table(new float[] { 1, 1, 1, 1, 1, 1 })
@@ -468,7 +480,7 @@ namespace ShopInventory.Services
             document.Add(sectionTitle);
 
             // Create the ledger table
-            var ledgerTable = new Table(new float[] { 1.1f, 0.9f, 1.2f, 1.2f, 2.1f, 1.1f, 1.1f, 1.2f })
+            var ledgerTable = new Table(new float[] { 1.1f, 0.9f, 1.2f, 3.3f, 1.1f, 1.1f, 1.2f })
                 .SetWidth(UnitValue.CreatePercentValue(100))
                 .SetMarginBottom(15);
 
@@ -476,7 +488,6 @@ namespace ShopInventory.Services
             AddModernHeader(ledgerTable, "Date");
             AddModernHeader(ledgerTable, "Origin");
             AddModernHeader(ledgerTable, "Origin No.");
-            AddModernHeader(ledgerTable, "Offset Acct");
             AddModernHeader(ledgerTable, "Details");
             AddModernHeader(ledgerTable, "Debit");
             AddModernHeader(ledgerTable, "Credit");
@@ -484,7 +495,6 @@ namespace ShopInventory.Services
 
             // Opening balance row
             AddLedgerCell(ledgerTable, statement.FromDate.ToString("dd MMM yyyy"), false, TextAlignment.LEFT, null, true);
-            AddLedgerCell(ledgerTable, "", false, TextAlignment.LEFT, null, true);
             AddLedgerCell(ledgerTable, "", false, TextAlignment.LEFT, null, true);
             AddLedgerCell(ledgerTable, "", false, TextAlignment.LEFT, null, true);
             AddLedgerCell(ledgerTable, "Opening Balance", false, TextAlignment.LEFT, null, true);
@@ -501,8 +511,7 @@ namespace ShopInventory.Services
                 AddLedgerCell(ledgerTable, line.Date.ToString("dd MMM yyyy"), isAlternate);
                 AddLedgerCell(ledgerTable, line.OriginCode, isAlternate, TextAlignment.LEFT, line.Debit > 0 ? DangerColor : SuccessColor);
                 AddLedgerCell(ledgerTable, TruncateText(line.OriginNumber ?? line.DocumentNumber, 16), isAlternate);
-                AddLedgerCell(ledgerTable, TruncateText(line.OffsetAccount ?? "-", 16), isAlternate);
-                AddLedgerCell(ledgerTable, TruncateText(line.Description ?? line.DocumentType, 38), isAlternate);
+                AddLedgerCell(ledgerTable, TruncateText(line.Description ?? line.DocumentType, 60), isAlternate);
                 AddLedgerCell(ledgerTable, line.Debit > 0 ? $"{line.Debit:N2}" : "-", isAlternate, TextAlignment.RIGHT, line.Debit > 0 ? DangerColor : TextMuted);
                 AddLedgerCell(ledgerTable, line.Credit > 0 ? $"{line.Credit:N2}" : "-", isAlternate, TextAlignment.RIGHT, line.Credit > 0 ? SuccessColor : TextMuted);
                 AddLedgerCell(ledgerTable, $"{line.Balance:N2}", isAlternate, TextAlignment.RIGHT, line.Balance > 0 ? DangerColor : SuccessColor);
@@ -510,7 +519,6 @@ namespace ShopInventory.Services
                 rowIndex++;
             }
 
-            AddLedgerTotalCell(ledgerTable, "");
             AddLedgerTotalCell(ledgerTable, "");
             AddLedgerTotalCell(ledgerTable, "");
             AddLedgerTotalCell(ledgerTable, "");

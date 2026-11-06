@@ -536,7 +536,7 @@
 
 .cst .cst-ledger {
     width: 100%;
-    min-width: 880px;
+    min-width: 770px;
     border-collapse: collapse;
     font-size: 14px;
     font-variant-numeric: tabular-nums;
@@ -556,16 +556,12 @@
     width: 92px;
 }
 
-.cst .cst-ledger col:nth-child(4) {
-    width: 110px;
-}
-
-.cst .cst-ledger col:nth-child(6),
-.cst .cst-ledger col:nth-child(7) {
+.cst .cst-ledger col:nth-child(5),
+.cst .cst-ledger col:nth-child(6) {
     width: 118px;
 }
 
-.cst .cst-ledger col:nth-child(8) {
+.cst .cst-ledger col:nth-child(7) {
     width: 126px;
 }
 
@@ -596,6 +592,13 @@
     color: var(--cst-t60);
 }
 
+/* The money headings take their figures' right edge. The rule above outranks
+   `.cst .cst-num`, so without this DEBIT, CREDIT and BALANCE sat on the left of
+   their columns while every amount under them sat on the right. */
+.cpx .cst .cst-ledger th.cst-num {
+    text-align: right;
+}
+
 .cst .cst-ledger thead tr {
     background: var(--cst-rule) no-repeat bottom / 100% 1px;
 }
@@ -611,16 +614,16 @@
     color: var(--cst-t35);
 }
 
+.cpx .cst .cst-ledger .cst-fold-sum {
+    color: var(--cst-t50);
+}
+
 .cpx .cst .cst-ledger .cst-credit {
     color: var(--cst-accent-text);
 }
 
 .cpx .cst .cst-ledger .cst-date {
     color: var(--cst-t70);
-}
-
-.cpx .cst .cst-ledger .cst-offset {
-    color: var(--cst-t60);
 }
 
 .cpx .cst .cst-ledger .cst-closing {
@@ -648,10 +651,6 @@
 }
 
 .cst .cst-ref {
-    font-size: 13px;
-}
-
-.cst .cst-offset {
     font-size: 13px;
 }
 
@@ -700,6 +699,27 @@
 
 .cst .cst-ledger tr.cst-row-fold td {
     padding: var(--cst-s3) var(--cst-s2);
+    vertical-align: middle;
+}
+
+.cst .cst-fold-sum {
+    font-size: 13px;
+}
+
+/* Expand's label ends on the figures' right edge, as the totals beside it do.
+   The cell gives up its right padding and the button keeps only what its 1px
+   border leaves of the padding a figure has, so nothing pokes past the table
+   and starts the ledger scrolling sideways. Desktop only: on a phone the
+   button is an ordinary left-aligned control. */
+@media (min-width: 992px) {
+
+    .cst .cst-ledger tr.cst-row-fold td.cst-fold-action {
+        padding-right: 0;
+    }
+
+    .cst .cst-fold-action .cst-btn {
+        padding-right: calc(var(--cst-s2) - 1px);
+    }
 }
 
 .cst .cst-fold {
@@ -1013,7 +1033,7 @@
 
     /* The table box itself has to leave table layout, not just its rows. Left as
        `display: table` it keeps sizing itself from the column algorithm, and the
-       colgroup's 718px of fixed columns then shrink-wraps the card stack: at
+       colgroup's 608px of fixed columns then shrink-wraps the card stack: at
        768px the cards came out about 150px wide with two thirds of the row
        empty, while at 390px — where min-content already exceeded the container —
        the same markup looked right. Blocks all the way down, and `width: 100%`
@@ -1084,8 +1104,8 @@
         color: var(--cst-t40);
     }
 
-    /* An unlabelled cell — the fold row's summary — spans both tracks rather
-       than leaving an empty gutter. */
+    /* An unlabelled cell — the fold row's summary and its Expand — spans both
+       tracks rather than leaving an empty gutter. */
     .cst .cst-ledger td:not([data-label]) {
         display: block;
     }
@@ -1094,12 +1114,17 @@
         content: none;
     }
 
+    /* A card like the rest, dashed to say it stands for several: the summary,
+       its Debit and Credit totals as labelled lines, then Expand. */
     .cst .cst-ledger tbody tr.cst-row-fold {
-        display: block;
         margin-bottom: var(--cst-s3);
         padding: var(--cst-s3) var(--cst-s4);
         border-style: dashed;
         background: none;
+    }
+
+    .cst .cst-ledger tr.cst-row-fold td {
+        padding: 3px 0;
     }
 
     .cst .cst-num {
