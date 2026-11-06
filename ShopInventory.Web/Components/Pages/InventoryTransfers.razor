@@ -1501,6 +1501,20 @@ else if (pendingActionTitle is not null)
                                 Approvals: @stage.ApprovalCount/@stage.ApprovalsRequired &nbsp;|&nbsp;
                                 Rejections: @stage.RejectionCount/@stage.RejectionsRequired
                             </div>
+                            @if (stage.WarehouseProgress.Count > 0)
+                            {
+                                @* Which warehouses have agreed and which still wait. One the requester runs
+                                   is agreed by their asking, with nobody's decision behind it, so it says so. *@
+                                <div class="itx-stage-roles" style="margin-top:.35rem;">
+                                    @foreach (var warehouse in stage.WarehouseProgress)
+                                    {
+                                        <span class="itx-wh @(warehouse.Status == "Approved" ? "dst" : "src")"
+                                              title="@WarehouseProgressTitle(warehouse)">
+                                            @warehouse.WarehouseCode @WarehouseProgressLabel(warehouse)
+                                        </span>
+                                    }
+                                </div>
+                            }
                             @if (stage.Decisions.Count > 0)
                             {
                                 <div style="margin-top:.5rem;">
@@ -1531,7 +1545,7 @@ else if (pendingActionTitle is not null)
                                             @onclick="() => ConvertRequest(selectedTransferRequest, stage.StageId, false)">
                                         <i class="bi bi-check-circle"></i> Approve
                                     </button>
-                                    @if (WillCompleteApproval(selectedTransferRequest, stage))
+                                    @if (canWriteTransfers && WillCompleteApproval(selectedTransferRequest, stage))
                                     {
                                         <button type="button" class="itx-btn itx-btn-sm"
                                                 disabled="@(isConverting || isRejecting)"
@@ -2070,6 +2084,10 @@ else if (pendingActionTitle is not null)
     // True when the account holds any role of InventoryTransferRoles, so a manager who also holds,
     // say, StockController keeps that role's buttons.
     private bool canWriteTransfers;
+    // Whether a request's stage may be offered for a decision at all: everyone who can write
+    // transfers, and the factory officers who own a receiving warehouse. Those officers approve or
+    // turn down nothing but the stages that name them, for their own warehouses, and never convert.
+    private bool canDecideRequests;
     private HashSet<string> assignedWarehouseCodes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<Guid, string?> decisionRemarks = [];
     private const int transferRequestBatchSize = 100;
@@ -2844,6 +2862,8 @@ else if (pendingActionTitle is not null)
         currentUserId = Guid.TryParse(userIdValue, out var parsedUserId) ? parsedUserId : null;
         currentUserRole = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
         canWriteTransfers = UserRoles.IsInAnyRole(authState.User, UserRoles.InventoryTransferRoles);
+        canDecideRequests = canWriteTransfers ||
+                            UserRoles.IsInAnyRole(authState.User, UserRoles.TransferRequestReceivingOwnerRoles);
         assignedWarehouseCodes = authState.User.FindAll("warehouse")
             .Select(claim => claim.Value)
             .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -4895,16 +4915,45 @@ else if (pendingActionTitle is not null)
 
     private bool CanCurrentUserDecideStage(InventoryTransferRequestDto? request, ApprovalStageProgressModel stage)
     {
-        if (!canWriteTransfers) return false;
+        if (!canDecideRequests) return false;
         if (!IsRequestConvertible(request) || !string.Equals(stage.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return false;
         if (string.IsNullOrWhiteSpace(currentUserRole)) return false;
         if (IsOwnRequest(request)) return false;
         if (currentUserId.HasValue &&
             stage.Decisions.Any(x => x.AuthorizerUserId == currentUserId.Value)) return false;
         if (string.Equals(currentUserRole, "Admin", StringComparison.OrdinalIgnoreCase)) return true;
-        return (currentUserId.HasValue && stage.AuthorizerUserIds.Contains(currentUserId.Value)) ||
-               stage.AuthorizerRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase);
+        var holdsStage = (currentUserId.HasValue && stage.AuthorizerUserIds.Contains(currentUserId.Value)) ||
+                         stage.AuthorizerRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase);
+        return holdsStage && CoversWaitingWarehouse(stage);
     }
+
+    /// <summary>
+    /// On a stage tied to one end of the transfer, whether the user is assigned to a warehouse there
+    /// that still waits — the receiving owner's stage asks each warehouse's own people, and a stock
+    /// officer elsewhere must not be offered a button the server then refuses. Mirrors
+    /// <c>InventoryTransferApprovalService.CanAdvance</c>; the server decides either way.
+    /// </summary>
+    private bool CoversWaitingWarehouse(ApprovalStageProgressModel stage)
+    {
+        var scoped = !string.Equals(stage.WarehouseScope, ApprovalWarehouseScopes.Any, StringComparison.OrdinalIgnoreCase) &&
+                     stage.ScopeWarehouses.Count > 0;
+        if (!scoped) return true;
+        var waiting = stage.WarehouseProgress.Count > 0
+            ? stage.WarehouseProgress.Where(item => string.Equals(item.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+                .Select(item => item.WarehouseCode)
+            : stage.ScopeWarehouses;
+        return waiting.Any(assignedWarehouseCodes.Contains);
+    }
+
+    private static string WarehouseProgressLabel(ApprovalWarehouseProgressModel warehouse)
+        => warehouse.ConsentedByRequester ? "✓ requester's own"
+            : warehouse.Status == "Approved" ? "✓"
+            : "· waiting";
+
+    private string WarehouseProgressTitle(ApprovalWarehouseProgressModel warehouse)
+        => warehouse.ConsentedByRequester
+            ? $"{warehouse.WarehouseCode}: approved — whoever raised the request runs this warehouse"
+            : $"{warehouse.WarehouseCode}: {GetFriendlyStatus(warehouse.Status)}";
 
     /// <summary>The server refuses a person's approval of a request they raised; this hides the button.</summary>
     private bool IsOwnRequest(InventoryTransferRequestDto? request)
@@ -4947,6 +4996,9 @@ else if (pendingActionTitle is not null)
         "StockController" => "Stock Officer",
         "DepotController" => "Depot Controller",
         "WashBay" => "Wash Bay",
+        "DispatchOfficer" => "Dispatch Officer",
+        "ProductionOfficer" => "Production Officer",
+        "DistributionOfficer" => "Distribution Officer",
         "Admin" => "Administrator",
         // No role means no approval was raised here — the request came straight from SAP. This used
         // to read "Administrator review", which described a review that does not exist.

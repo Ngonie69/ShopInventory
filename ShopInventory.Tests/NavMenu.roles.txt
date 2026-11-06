@@ -264,18 +264,21 @@ Account
 
 ## ProductionOfficer
 Inventory
+    Transfers  /inventory-transfers
     Factory Transfers  /factory-transfers
 Account
     Security  /security
 
 ## DispatchOfficer
 Inventory
+    Transfers  /inventory-transfers
     Factory Transfers  /factory-transfers
 Account
     Security  /security
 
 ## DistributionOfficer
 Inventory
+    Transfers  /inventory-transfers
     Factory Transfers  /factory-transfers
 Account
     Security  /security

@@ -79,6 +79,12 @@ public sealed class ApprovalWarehouseProgressDto
 
     /// <summary>Pending or Approved.</summary>
     public string Status { get; set; } = "Pending";
+
+    /// <summary>
+    /// Approved because the person who raised the request runs this warehouse: asking for stock to come
+    /// to your own warehouse is agreeing to take it. No decision is recorded for it.
+    /// </summary>
+    public bool ConsentedByRequester { get; set; }
 }
 
 public sealed class ApprovalDecisionDto

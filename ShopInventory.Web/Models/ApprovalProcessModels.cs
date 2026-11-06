@@ -77,6 +77,9 @@ public sealed class ApprovalWarehouseProgressModel
     public int ApprovalCount { get; set; }
     public int ApprovalsRequired { get; set; }
     public string Status { get; set; } = "Pending";
+
+    /// <summary>Approved because whoever raised the request runs this warehouse; nobody decided it.</summary>
+    public bool ConsentedByRequester { get; set; }
 }
 
 public sealed class ApprovalDecisionModel

@@ -235,8 +235,20 @@ public static class UserRoles
     /// </summary>
     public const string InventoryTransferRoles = "Admin,StockController,WashBay,DepotController";
 
-    /// <summary>Who can open /inventory-transfers: <see cref="InventoryTransferRoles"/> and the manager, read only.</summary>
-    public const string InventoryTransferViewRoles = "Admin,Manager,StockController,WashBay,DepotController";
+    /// <summary>
+    /// The factory officers who run a warehouse and so are asked, as its owner, to agree to a transfer
+    /// request delivering there. They approve or turn down that one stage for their own warehouses and
+    /// do nothing else on /inventory-transfers: converting, editing and raising stay with
+    /// <see cref="InventoryTransferRoles"/>, and the API refuses them the same way.
+    /// </summary>
+    public const string TransferRequestReceivingOwnerRoles = "DispatchOfficer,ProductionOfficer,DistributionOfficer";
+
+    /// <summary>
+    /// Who can open /inventory-transfers: <see cref="InventoryTransferRoles"/>, the manager (read only),
+    /// and <see cref="TransferRequestReceivingOwnerRoles"/> (to answer requests into their warehouses).
+    /// </summary>
+    public const string InventoryTransferViewRoles =
+        "Admin,Manager,StockController,WashBay,DepotController,DispatchOfficer,ProductionOfficer,DistributionOfficer";
 
     /// <summary>
     /// Who can open /credit-notes/approvals: the people who decide another person's SAP credit memo
