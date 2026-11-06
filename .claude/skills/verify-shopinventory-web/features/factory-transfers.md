@@ -15,6 +15,11 @@ warehouses on the account.
 - Open drawer: lines with the batches SAP moved, a count stepper per line, Accept / Accept *n* of *m*
   (a short count needs a note), Reject (needs a note), Recall (sender only), Retry, Cancel send
 
+- Printing (`FactoryTransferDocumentBuilder`): the open drawer's footer has "Print draft" until the
+  transfer is settled (stamped DRAFT, carrying the counts typed so far) and "Print" after; the send
+  drawer has "Print draft" once every line has a quantity, a loading or release sheet before anything
+  is posted. Nothing is sent to the API by printing.
+
 - Depot trucks: a DistributionOfficer picks "Load a truck for a depot" in From, a depot in To, then
   truck registration and driver (both required). An open depot order fills the lines from the dispatch
   warehouse holding most of each item. The DepotController for that depot accepts it; short lines go
@@ -47,6 +52,13 @@ c.click(".ops-drawer-foot .fxt-dconfirm")
 the sender and "yours to count" for the receiver, and the stub's `/__requests` log shows the send body
 (source, destination, reason, a `clientRequestId`) and then the decision body with the counted
 quantities. After a short accept the drawer reads Part-accepted.
+
+**Proving a print:** swap the print function for a recorder before clicking —
+`window.__printed=[]; window.printReportHtml = h => window.__printed.push(h)` — then assert on the HTML
+the button produced. Headless never shows a print dialog. Use made-up warehouse codes in the stub
+(e.g. `VRFYPRO`) so the stock rows its sync caches in `CachedWarehouseStocks` / `CacheSyncInfo`
+(`WarehouseStock_<wh>`) can be deleted exactly afterwards. Stub + driver:
+`artifacts/verify/20261106-144910-factory-transfer-print/` (19 checks).
 
 ## Gotchas
 
