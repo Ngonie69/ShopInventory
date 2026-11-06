@@ -26,6 +26,9 @@
     <!-- Derived from credit-notes.css — the same list-and-drawer shape — for the SAP-held credit
          memos a manager decides; its palette is aliased from nocturne-tokens.css. -->
     <StaffStylesheetEarly Include="wwwroot/css/credit-note-approvals.css" />
+    <!-- Generated from credit-note-approvals.css — the same SAP-held queue and drawer — for the
+         inventory transfers SAP approved and nobody added. See scripts/derive_sap_transfer_approvals_css.py. -->
+    <StaffStylesheetEarly Include="wwwroot/css/sap-transfer-approvals.css" />
     <!-- Generated from credit-note-approvals.css — the same queue-and-drawer shape — for the broken
          stock vans bring back, counted and confirmed into a transfer to returns. -->
     <StaffStylesheetEarly Include="wwwroot/css/market-breakages.css" />

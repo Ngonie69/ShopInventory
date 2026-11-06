@@ -56,6 +56,9 @@ public static class AuditActions
     public const string AddApprovedCreditNote = "AddApprovedCreditNote";
     public const string ViewCreditNoteDraftAttachment = "ViewCreditNoteDraftAttachment";
 
+    // SAP-held inventory transfers (keyed in the B1 client, approved there, added from here)
+    public const string AddApprovedSapTransfer = "AddApprovedSapTransfer";
+
     // Sales Order actions
     public const string CreateSalesOrder = "CreateSalesOrder";
     public const string CreateMobileSalesOrder = "Create Mobile Sales Order";

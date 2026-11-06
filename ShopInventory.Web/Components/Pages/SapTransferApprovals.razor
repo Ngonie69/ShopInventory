@@ -1,0 +1,532 @@
+@page "/inventory-transfers/sap-approvals"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = UserRoles.SapTransferApprovalRoles)]
+@rendermode InteractiveServer
+
+<PageTitle>SAP-Held Transfers - Shop Inventory</PageTitle>
+
+@* Nocturne, generated from the Credit Note Approvals page: wwwroot/css/sap-transfer-approvals.css
+   (scripts/derive_sap_transfer_approvals_css.py) carries both schemes and follows the app's theme
+   toggle. Icon-only buttons draw their glyph inline rather than from the Phosphor font, because the
+   glyph is the whole label and a font that fails to load would leave them reading as dead controls. *@
+
+<div class="sta">
+
+    <header class="sta-head">
+        <div class="sta-shell">
+            <div class="sta-titles">
+                <div class="sta-titles-row">
+                    <i class="ph ph-seal-check" aria-hidden="true"></i>
+                    <h1 class="sta-title">SAP-Held Transfers</h1>
+                </div>
+                <p class="sta-sub">Transfers keyed in SAP, approved there, and waiting to be added</p>
+            </div>
+            <div class="sta-head-actions">
+                <span class="sta-count">@totalCount.ToString("N0") approved</span>
+                <button type="button" class="sta-btn sta-btn-secondary" @onclick="RefreshAsync" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="sta-spin" aria-hidden="true"></span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    }
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </div>
+        <div class="sta-rule"></div>
+    </header>
+
+    <div class="sta-body">
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="sta-alert" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div class="sta-alert-body">@errorMessage</div>
+                <button type="button" class="sta-btn sta-btn-ghost sta-btn-icon-sm" title="Dismiss"
+                        aria-label="Dismiss error" @onclick="() => errorMessage = null">
+                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                    </svg>
+                </button>
+            </div>
+        }
+
+        @* What the last add said. The drawer closes on a successful add, because the draft leaves the
+           queue with it, so the transfer's number is kept here rather than only in a snackbar that
+           fades. A request left open keeps the notice colour: it needs following up. *@
+        @if (!string.IsNullOrEmpty(addedNotice))
+        {
+            <div class="@(addedNoticeNeedsAttention ? "sta-blocked sta-added" : "sta-done sta-added")" role="status">
+                <i class="ph @(addedNoticeNeedsAttention ? "ph-warning" : "ph-check-circle")" aria-hidden="true"></i>
+                <div class="sta-alert-body">
+                    <div>@addedNotice</div>
+                    @if (!string.IsNullOrEmpty(addedNoticeSource))
+                    {
+                        <div class="sta-added-source">@addedNoticeSource</div>
+                    }
+                </div>
+                <button type="button" class="sta-btn sta-btn-ghost sta-btn-icon-sm" title="Dismiss"
+                        aria-label="Dismiss notice" @onclick="DismissAddedNotice">
+                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                    </svg>
+                </button>
+            </div>
+        }
+
+        <section class="sta-filters">
+            <div class="sta-field" style="width:220px">
+                <label for="sta-f-warehouse">Warehouse</label>
+                @* Sent to SAP, which filters and counts — so the rows follow once the typing rests. *@
+                <input id="sta-f-warehouse" class="sta-input" type="text" placeholder="From or to, e.g. CMFS"
+                       maxlength="20" value="@warehouseFilter" @oninput="OnWarehouseFilterInputAsync" />
+            </div>
+            @if (!string.IsNullOrWhiteSpace(warehouseFilter))
+            {
+                <div class="sta-filter-actions">
+                    <button type="button" class="sta-btn sta-btn-ghost" @onclick="ClearWarehouseFilterAsync">Clear</button>
+                </div>
+            }
+            @if (scopedWarehouses is { Count: > 0 })
+            {
+                <div class="sta-filter-actions">
+                    <span class="sta-scope">
+                        <i class="ph ph-warehouse" aria-hidden="true"></i>
+                        Transfers leaving
+                        @foreach (var scopedCode in scopedWarehouses)
+                        {
+                            <span class="sta-tag">@scopedCode</span>
+                        }
+                    </span>
+                </div>
+            }
+        </section>
+
+        <section class="sta-card">
+
+            <div class="sta-toolbar">
+                <span class="sta-range">@RangeLabel</span>
+                <span class="sta-hint">
+                    <i class="ph ph-info" aria-hidden="true"></i>Approvals are decided in SAP; adding posts the transfer there
+                </span>
+            </div>
+
+            <div class="sta-tablewrap">
+                <table class="sta-table">
+                    <thead>
+                        <tr>
+                            <th>Route</th>
+                            <th>Comments</th>
+                            <th>Raised</th>
+                            <th>Originator</th>
+                            <th>Stage</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (isLoading)
+                        {
+                            @for (var skeletonRow = 0; skeletonRow < 6; skeletonRow++)
+                            {
+                                <tr>
+                                    @for (var skeletonCell = 0; skeletonCell < 7; skeletonCell++)
+                                    {
+                                        <td><div class="sta-skel"></div></td>
+                                    }
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            @foreach (var draft in drafts)
+                            {
+                                <tr @key="draft.DraftEntry" class="@RowClass(draft)">
+                                    <td>
+                                        <span class="sta-cust">
+                                            <button type="button" class="sta-cust-name sta-route"
+                                                    @onclick="() => OpenAsync(draft.DraftEntry)">
+                                                <span class="sta-wh">@(draft.FromWarehouse ?? "—")</span>
+                                                <span class="sta-route-arrow" aria-label="to">→</span>
+                                                <span class="sta-wh">@(draft.ToWarehouse ?? "—")</span>
+                                            </button>
+                                            <span class="sta-cust-code" title="@RowMeta(draft)">@RowMeta(draft)</span>
+                                        </span>
+                                    </td>
+                                    <td class="sta-reason">
+                                        <span class="sta-reason-text" title="@RowComments(draft)">
+                                            @(string.IsNullOrWhiteSpace(RowComments(draft)) ? "—" : RowComments(draft))
+                                        </span>
+                                    </td>
+                                    <td class="sta-date">
+                                        <span class="sta-stack">
+                                            <span>@FormatDate(RaisedDate(draft))</span>
+                                            <span class="sta-age">@AgeText(RaisedDate(draft))</span>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="sta-stack">
+                                            <span>@(draft.OriginatorName ?? draft.OriginatorUserCode ?? "—")</span>
+                                            @if (!string.IsNullOrWhiteSpace(draft.OriginatorName) && !string.IsNullOrWhiteSpace(draft.OriginatorUserCode))
+                                            {
+                                                <span class="sta-stack-sub">@draft.OriginatorUserCode</span>
+                                            }
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="sta-stack">
+                                            <span>@(draft.StageName ?? (draft.StageCode is int stageCode ? $"Stage {stageCode}" : "—"))</span>
+                                            @if (!string.IsNullOrWhiteSpace(draft.TemplateName))
+                                            {
+                                                <span class="sta-stack-sub">@draft.TemplateName</span>
+                                            }
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="sta-status" title="@draft.StatusNote">
+                                            <span class="sta-dot @(draft.CanAdd ? "is-approved" : "is-pending")" aria-hidden="true"></span>
+                                            <span class="sta-status-text @(draft.CanAdd ? "is-approved" : "is-pending")">
+                                                @(draft.CanAdd ? "Ready to add" : "Held")
+                                            </span>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="sta-rowactions">
+                                            <button type="button" class="sta-btn sta-btn-ghost sta-btn-icon-sm"
+                                                    title="View transfer" aria-label="View draft @draft.DraftNum"
+                                                    @onclick="() => OpenAsync(draft.DraftEntry)">
+                                                <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                    <path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,94,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.46,133.46,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48,48,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z" />
+                                                </svg>
+                                            </button>
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (!isLoading && drafts.Count == 0)
+            {
+                <div class="sta-empty">
+                    <i class="ph ph-seal-check" aria-hidden="true"></i>
+                    <span>@EmptyMessage</span>
+                </div>
+            }
+
+            <div class="sta-foot">
+                <span class="sta-foot-range">@RangeLabel</span>
+                <div class="sta-pager">
+                    <button type="button" class="sta-btn sta-btn-secondary sta-btn-icon" title="Previous page"
+                            aria-label="Previous page" disabled="@(currentPage <= 1 || isLoading)" @onclick="PreviousPageAsync">
+                        <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                            <path d="M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80a8,8,0,0,1,0-11.32l80-80a8,8,0,0,1,11.32,11.32L91.31,128Z" />
+                        </svg>
+                    </button>
+                    <span class="sta-page-label">Page @currentPage / @TotalPages</span>
+                    <button type="button" class="sta-btn sta-btn-secondary sta-btn-icon" title="Next page"
+                            aria-label="Next page" disabled="@(!CanGoNext || isLoading)" @onclick="NextPageAsync">
+                        <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                            <path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+
+@if (detailEntry is not null)
+{
+    <div class="sta-overlay">
+        <div class="sta-scrim" @onclick="CloseDetail"></div>
+        <aside class="sta-drawer" aria-label="Held transfer details">
+            <div class="sta-drawer-head">
+                <h2 class="sta-drawer-title">
+                    <i class="ph ph-seal-check" aria-hidden="true"></i>
+                    Draft @(detail?.Draft.DraftNum.ToString() ?? detailEntry.ToString())
+                </h2>
+                <button type="button" class="sta-btn sta-btn-ghost sta-btn-icon" title="Close"
+                        aria-label="Close details" @onclick="CloseDetail">
+                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="sta-drawer-body">
+                @if (isLoadingDetail)
+                {
+                    <div class="sta-note">Reading the draft from SAP…</div>
+                }
+                else if (detail is null)
+                {
+                    <div class="sta-alert" role="alert">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <div class="sta-alert-body">@(detailError ?? "This draft could not be read from SAP.")</div>
+                    </div>
+                }
+                else
+                {
+                    @if (!string.IsNullOrEmpty(detailError))
+                    {
+                        <div class="sta-alert" role="alert">
+                            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                            <div class="sta-alert-body">@detailError</div>
+                        </div>
+                    }
+
+                    <div class="sta-grid">
+                        <div>
+                            <div class="sta-dt">Route</div>
+                            <div class="sta-dd">
+                                <span class="sta-route">
+                                    <span class="sta-wh">@(detail.Draft.FromWarehouse ?? "—")</span>
+                                    <span class="sta-route-arrow" aria-label="to">→</span>
+                                    <span class="sta-wh">@(detail.Draft.ToWarehouse ?? "—")</span>
+                                </span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="sta-dt">Draft #</div>
+                            <div class="sta-dd">@detail.Draft.DraftNum</div>
+                        </div>
+                        <div>
+                            <div class="sta-dt">Document date</div>
+                            <div class="sta-dd">@FormatDate(detail.Draft.DocDate)</div>
+                        </div>
+                        <div>
+                            <div class="sta-dt">Due</div>
+                            <div class="sta-dd">@FormatDate(detail.Draft.DueDate)</div>
+                        </div>
+                        <div>
+                            <div class="sta-dt">Raised by</div>
+                            <div class="sta-dd">@(detail.Draft.OriginatorName ?? detail.Draft.OriginatorUserCode ?? "—")</div>
+                        </div>
+                        <div>
+                            <div class="sta-dt">Approval request</div>
+                            <div class="sta-dd">
+                                @(detail.Draft.RequestCodes.Count == 0 ? "—" : string.Join(", ", detail.Draft.RequestCodes))
+                            </div>
+                        </div>
+                        <div>
+                            <div class="sta-dt">Template</div>
+                            <div class="sta-dd">@(detail.Draft.TemplateName ?? "—")</div>
+                        </div>
+                        <div>
+                            <div class="sta-dt">Stage</div>
+                            <div class="sta-dd">@(detail.Draft.StageName ?? "—")</div>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(detail.Draft.Comments) || !string.IsNullOrWhiteSpace(detail.Draft.RequestRemarks))
+                    {
+                        <div class="sta-note">
+                            <div class="sta-dt">Comments</div>
+                            @(detail.Draft.Comments ?? detail.Draft.RequestRemarks)
+                        </div>
+                    }
+
+                    @if (detail.LinkedRequests.Count > 0)
+                    {
+                        <div>
+                            <div class="sta-sect"><i class="ph ph-arrow-bend-down-right" aria-hidden="true"></i>Copied from</div>
+                            <div class="sta-linked">
+                                @foreach (var linked in detail.LinkedRequests)
+                                {
+                                    <div class="sta-linked-item">
+                                        <span>Transfer request #@(linked.DocNum?.ToString() ?? linked.DocEntry.ToString())</span>
+                                        @if (!string.IsNullOrWhiteSpace(linked.FromWarehouse))
+                                        {
+                                            <span class="sta-route">
+                                                <span class="sta-wh">@linked.FromWarehouse</span>
+                                                <span class="sta-route-arrow" aria-label="to">→</span>
+                                                <span class="sta-wh">@linked.ToWarehouse</span>
+                                            </span>
+                                        }
+                                        <span class="sta-tag">@(linked.Status ?? "Not read")</span>
+                                    </div>
+                                }
+                            </div>
+                            <div class="sta-note" style="margin-top:var(--sta-s2)">
+                                Adding the draft closes a request that is still open, so it is not converted again.
+                            </div>
+                        </div>
+                    }
+
+                    <div>
+                        <div class="sta-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Lines</div>
+                        @if (detail.SelectionUnchecked)
+                        {
+                            <div class="sta-note">SAP did not say which items it manages by batch, so the batch picks could not be checked here. SAP checks them when the transfer is added.</div>
+                        }
+                        <table class="sta-lines">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Description</th>
+                                    <th class="sta-num">Qty</th>
+                                    <th>Batches</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in detail.Lines)
+                                {
+                                    <tr class="@(line.SelectionMissing ? "sta-lines-missing" : "")">
+                                        <td>
+                                            <span class="sta-stack">
+                                                <span class="sta-cust-name">@line.ItemCode</span>
+                                                @if (LineRouteDiffers(line))
+                                                {
+                                                    <span class="sta-stack-sub">@line.FromWarehouse → @line.ToWarehouse</span>
+                                                }
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="sta-stack">
+                                                <span>@line.ItemDescription</span>
+                                                @if (line.BaseRequestDocEntry is not null)
+                                                {
+                                                    <span class="sta-copied">From the request</span>
+                                                }
+                                            </span>
+                                        </td>
+                                        <td class="sta-num">@QuantityDisplay.Format(line.Quantity) @line.UoMCode</td>
+                                        <td>
+                                            @if (line.SelectionMissing)
+                                            {
+                                                <span class="sta-missing">
+                                                    <i class="ph ph-warning" aria-hidden="true"></i>
+                                                    @(line.Batches.Count == 0 && line.SerialCount == 0 ? "No batch picked" : "Pick incomplete")
+                                                </span>
+                                            }
+                                            @if (line.Batches.Count > 0)
+                                            {
+                                                <div class="sta-batches">
+                                                    @foreach (var batch in line.Batches)
+                                                    {
+                                                        <span class="sta-batch">
+                                                            <span class="sta-batch-no">@batch.BatchNumber</span>
+                                                            <span class="sta-batch-qty">@QuantityDisplay.Format(batch.Quantity)</span>
+                                                        </span>
+                                                    }
+                                                </div>
+                                            }
+                                            else if (line.SerialCount > 0)
+                                            {
+                                                <span class="sta-batch-qty">@line.SerialCount serial numbers</span>
+                                            }
+                                            else if (!line.SelectionMissing)
+                                            {
+                                                <span class="sta-batch-qty">@(line.ManagesBatches == false && line.ManagesSerials == false ? "Not batch-managed" : "—")</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @if (detail.Approvals.Count > 0)
+                    {
+                        <div>
+                            <div class="sta-sect"><i class="ph ph-users-three" aria-hidden="true"></i>Approved in SAP</div>
+                            <ul class="sta-rail">
+                                @foreach (var approval in detail.Approvals)
+                                {
+                                    @foreach (var decision in approval.Decisions)
+                                    {
+                                        <li class="sta-rail-item">
+                                            <span class="sta-dot @StatusModifier(decision.Status)" aria-hidden="true"></span>
+                                            <div class="sta-rail-body">
+                                                <div class="sta-rail-who">@(decision.UserName ?? decision.UserCode ?? $"User {decision.UserId}")</div>
+                                                <div class="sta-rail-meta">
+                                                    Request @approval.Code · @(decision.StageName ?? approval.StageName ?? $"Stage {decision.StageCode}") · @decision.Status
+                                                    @if (decision.DecidedDate is not null)
+                                                    {
+                                                        <span> · @FormatDate(decision.DecidedDate)</span>
+                                                    }
+                                                </div>
+                                                @if (!string.IsNullOrWhiteSpace(decision.Remarks))
+                                                {
+                                                    <div class="sta-rail-remarks">@decision.Remarks</div>
+                                                }
+                                            </div>
+                                        </li>
+                                    }
+                                }
+                            </ul>
+                        </div>
+                    }
+
+                    @if (!detail.Draft.CanAdd && !string.IsNullOrWhiteSpace(detail.Draft.StatusNote))
+                    {
+                        <div class="sta-blocked">
+                            <i class="ph ph-info" aria-hidden="true"></i>
+                            <div class="sta-alert-body">@detail.Draft.StatusNote</div>
+                        </div>
+                    }
+                }
+            </div>
+            <div class="sta-drawer-foot">
+                <button type="button" class="sta-btn sta-btn-secondary" @onclick="CloseDetail" disabled="@isSubmitting">Close</button>
+                @if (detail?.Draft.CanAdd == true)
+                {
+                    <button type="button" class="sta-btn sta-btn-primary" @onclick="OpenAddConfirm" disabled="@isSubmitting">
+                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                        <span>Add transfer</span>
+                    </button>
+                }
+            </div>
+        </aside>
+    </div>
+}
+
+@if (showAddConfirm && detail is not null)
+{
+    <div class="sta-overlay">
+        <div class="sta-dialog-wrap" @onclick="CloseAddConfirm">
+            <div class="sta-dialog" role="dialog" aria-modal="true" aria-label="Add transfer"
+                 @onclick:stopPropagation="true">
+                <h2 class="sta-dialog-title"><i class="ph ph-plus-circle" aria-hidden="true"></i>Add transfer</h2>
+                <div class="sta-dialog-body">
+                    <div class="sta-confirm">
+                        <div>
+                            <div class="sta-confirm-copy">
+                                Post draft @detail.Draft.DraftNum as an inventory transfer of
+                                @detail.Lines.Count @(detail.Lines.Count == 1 ? "line" : "lines") from
+                                @detail.Draft.FromWarehouse to @detail.Draft.ToWarehouse.
+                            </div>
+                            <div class="sta-confirm-sub">
+                                The stock leaves @detail.Draft.FromWarehouse in SAP.
+                                @if (OpenLinkedRequests.Count > 0)
+                                {
+                                    <span>Transfer request #@string.Join(", #", OpenLinkedRequests) is closed with it.</span>
+                                }
+                                This cannot be undone.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="sta-dialog-actions">
+                    <button type="button" class="sta-btn sta-btn-secondary" @onclick="CloseAddConfirm"
+                            disabled="@isSubmitting">Close</button>
+                    <button type="button" class="sta-btn sta-btn-primary" @onclick="AddAsync" disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="sta-spin" aria-hidden="true"></span>
+                        }
+                        <span>Add transfer</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}

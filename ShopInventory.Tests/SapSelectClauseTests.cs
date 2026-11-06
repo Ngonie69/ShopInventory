@@ -56,6 +56,9 @@ public class SapSelectClauseTests
         { "SapUserSelect", "User" },
         { "SapUserAccountSelect", "User" },
         { "AttachmentSelect", "Attachments2" },
+        { "StockTransferDraftListSelect", "StockTransfer" },
+        { "NewestStockTransferSelect", "StockTransfer" },
+        { "ItemManagementSelect", "Item" },
         { "ItemSelect", "Item" },
         { "InventoryCountingHeaderSelect", "InventoryCounting" },
     };

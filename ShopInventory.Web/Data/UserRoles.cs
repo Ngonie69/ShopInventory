@@ -244,6 +244,14 @@ public static class UserRoles
     public const string InventoryTransferRoles = "Admin,StockController,WashBay,DepotController,ShopStock";
 
     /// <summary>
+    /// Who can open /inventory-transfers/sap-approvals and add a transfer SAP approved: the people who
+    /// convert a transfer request, because adding moves stock out of the source warehouse as a
+    /// conversion does. A depot controller or a shop's stock user sees only the transfers leaving its own
+    /// warehouses; the API narrows that by the account, not by these roles.
+    /// </summary>
+    public const string SapTransferApprovalRoles = InventoryTransferRoles;
+
+    /// <summary>
     /// The factory officers who run a warehouse and so are asked, as its owner, to agree to a transfer
     /// request delivering there. They approve or turn down that one stage for their own warehouses and
     /// do nothing else on /inventory-transfers: converting, editing and raising stay with

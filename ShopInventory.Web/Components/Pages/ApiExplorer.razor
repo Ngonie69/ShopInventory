@@ -1855,6 +1855,21 @@ new("PUT", "/api/report-product-groups/{id}", "Replace a product group and its m
 },
 new ApiModule
 {
+Name = "SAP-Held Transfers",
+BasePath = "/api/sap-transfer-approvals",
+Description = "Inventory transfers keyed in SAP and approved there that nobody added: list them, read one with its batch picks, and add it as the real transfer.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Success,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/sap-transfer-approvals", "Approved transfer drafts waiting to be added, scoped to the caller's warehouses"),
+new("GET", "/api/sap-transfer-approvals/{draftEntry}", "One draft with its lines, batch picks, approvals and copied-from request"),
+new("POST", "/api/sap-transfer-approvals/{draftEntry}/add", "Add the approved draft as the inventory transfer")
+}
+},
+new ApiModule
+{
 Name = "SAP Users",
 BasePath = "/api/sap-users",
 Description = "The user accounts inside SAP Business One — not this application's, which are under User Management. Unlock one, or set its password. Administrator only.",
