@@ -21,8 +21,8 @@ otherwise be surprised.
 - **A transfer request now waits for the owner of each warehouse it delivers to before it posts.**
   Every transfer request's approval gains a stage, `Receiving warehouse owner`, after whatever its
   template routes it to. Someone assigned to each destination warehouse, holding one of its roles
-  (stock officer, depot controller, wash bay, dispatch, production or distribution officer), approves
-  for that warehouse; an administrator can approve for any. Three cases skip it:
+  (stock officer, depot controller, shop stock, wash bay, dispatch, production or distribution
+  officer), approves for that warehouse; an administrator can approve for any. Three cases skip it:
   - **vans** (`VAN` + digits), so a rep's van stock request is unchanged;
   - **a warehouse the requester runs**: their request counts as its approval, and the drawer marks it
     "requester's own";

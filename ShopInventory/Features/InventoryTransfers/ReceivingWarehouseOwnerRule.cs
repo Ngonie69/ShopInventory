@@ -30,7 +30,12 @@ namespace ShopInventory.Features.InventoryTransfers;
 public static partial class ReceivingWarehouseOwnerRule
 {
     /// <summary>The stage definition the rule reads its roles, approvals and on/off switch from.</summary>
-    public static readonly Guid StageId = Guid.Parse("11000000-0000-0000-0000-000000000005");
+    /// <remarks>
+    /// Deliberately outside the 11000000-…-0001, -0002, … run that migrations hand out to the stages
+    /// they seed: the engine finds this stage by its id, so a migration that took the next number in
+    /// that run would have its stage added to every transfer request. -0005 is "Factory shop stock".
+    /// </remarks>
+    public static readonly Guid StageId = Guid.Parse("11000000-0000-0000-0000-000000000100");
 
     public const string StageName = "Receiving warehouse owner";
 
@@ -43,6 +48,7 @@ public static partial class ReceivingWarehouseOwnerRule
     [
         ApplicationRoles.StockController,
         ApplicationRoles.DepotController,
+        ApplicationRoles.ShopStock,
         ApplicationRoles.WashBay,
         ApplicationRoles.DispatchOfficer,
         ApplicationRoles.ProductionOfficer,
