@@ -108,15 +108,19 @@ public sealed class CreditNoteApprovalAccessTests
         }
     }
 
+    /// <summary>
+    /// Since 2026-11-06 the wash bay posts what it approves. Which requests it may touch is the stage
+    /// scope's business, pinned in <c>CreditNoteApprovalAddTests</c> and the decision tests.
+    /// </summary>
     [Fact]
-    public void The_wash_bay_may_decide_but_not_add()
+    public void The_wash_bay_may_decide_and_add()
     {
         var permissions = Permission.GetDefaultPermissionsForRole(ApplicationRoles.WashBay);
 
         Assert.Contains(Permission.ApproveSapCreditNotes, permissions);
-        Assert.DoesNotContain(Permission.AddApprovedCreditNotes, permissions);
+        Assert.Contains(Permission.AddApprovedCreditNotes, permissions);
         Assert.Contains(UserRoles.WashBay, Split(UserRoles.CreditNoteApprovalRoles));
-        Assert.DoesNotContain(UserRoles.WashBay, Split(UserRoles.CreditNoteAddRoles));
+        Assert.Contains(UserRoles.WashBay, Split(UserRoles.CreditNoteAddRoles));
     }
 
     private static string[] Split(string roles)

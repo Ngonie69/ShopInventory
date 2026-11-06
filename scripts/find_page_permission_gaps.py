@@ -1513,12 +1513,6 @@ ROLE_HIDDEN_CALLS = {
          r"(?s)void PromptDelete\(RouteCustomerModel customer\).{0,300}?customerPendingDelete\s*=\s*customer;",
          r"(?s)\A(?!(?:.*?\bPromptDelete\b){3})"],
         "RouteCustomers.razor opens the removal confirmation only from an Admin-gated button"),
-    ("CreditNoteApprovals", "WashBay", "POST api/credit-note-approvals/{code:int}/add"): (
-        [r'(?s)<AuthorizeView Roles="@UserRoles\.CreditNoteAddRoles"[^>]*>.{0,600}?@onclick="OpenAddConfirm"',
-         r"private void OpenAddConfirm\(\)\s*=>\s*showAddConfirm\s*=\s*true;",
-         r"(?s)\A(?!(?:.*?\bOpenAddConfirm\b){3})",
-         r"(?s)\A(?!(?:.*?\bshowAddConfirm\s*=\s*true){2})"],
-        "CreditNoteApprovals opens the add confirmation only from the CreditNoteAddRoles-gated button"),
     ("MobileDrafts", "Merchandiser", "PUT api/SalesOrder/{id}"): (
         [r"canSaveOrderPrices\s*=\s*user\.IsInRole\(UserRoles\.Admin\)\s*\|\|\s*user\.IsInRole\(UserRoles\.Cashier\)\s*\|\|\s*user\.IsInRole\(UserRoles\.SalesRep\);",
          r"(?s)if\s*\(\s*!canSaveOrderPrices\s*\)\s*\{\s*ApplyLocalOrderPricing\(order,\s*updatedLines\);\s*return true;\s*\}.{0,3000}?SalesOrderService\.UpdateSalesOrderAsync\(order\.Id",

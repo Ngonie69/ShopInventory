@@ -210,6 +210,12 @@ public sealed class AddApprovedCreditNoteResultDto
 
     /// <summary>False when the draft was added but SAP's answer did not name the credit note it became.</summary>
     public bool Resolved { get; set; }
+
+    /// <summary>
+    /// The SAP stage the request stood at when it was added. A repeat replays this answer after SAP
+    /// has deleted the request, so it is what a stage-scoped caller's replay is checked against.
+    /// </summary>
+    public int? StageCode { get; set; }
     public CreditNoteApprovalFiscalisationDto Fiscalisation { get; set; } = new();
     public string Message { get; set; } = string.Empty;
 }

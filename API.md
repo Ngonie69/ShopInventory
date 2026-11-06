@@ -5947,14 +5947,15 @@ off. A fiscal failure is an Exception Center incident; the add still stands.
 approval template covering A/R credit memos, or every decision is refused with
 `CreditNoteApproval.ApproverNotOnStage`.
 
-**Stage scope.** A role named in `CreditNoteApprovals:RoleStageScopes` sees and decides only the requests
-whose current SAP stage carries one of the names configured for it. The list and its `totalCount` are
-filtered in SAP; the detail, the attachment download and the decision answer
-`403 CreditNoteApproval.OutsideStageScope` for any other request. `WashBay` ships scoped to
-`Wash Bay Approvals` and holds `creditnotes.approve` without `creditnotes.add_approved`; if its entry is
-missing it is refused the queue (`CreditNoteApproval.StageScopeNotConfigured`) rather than shown all of it,
-and a configured name SAP does not have is `CreditNoteApproval.StageScopeUnresolved`. The add is not
-scoped, because no scoped role may add.
+**Stage scope.** A role named in `CreditNoteApprovals:RoleStageScopes` sees, decides and adds only the
+requests whose current SAP stage carries one of the names configured for it. The list and its `totalCount`
+are filtered in SAP; the detail, the attachment download, the decision and the add answer
+`403 CreditNoteApproval.OutsideStageScope` for any other request. A repeated add is checked against the
+stage the first answer recorded (`stageCode` on the add result), because SAP deletes the request once it
+is added. `WashBay` ships scoped to `Wash Bay Approvals` and holds both `creditnotes.approve` and
+`creditnotes.add_approved`; if its entry is missing it is refused the queue
+(`CreditNoteApproval.StageScopeNotConfigured`) rather than shown all of it, and a configured name SAP does
+not have is `CreditNoteApproval.StageScopeUnresolved`.
 
 ---
 

@@ -5,11 +5,13 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.CreditNoteApprovals;
 using ShopInventory.Features.CreditNoteApprovals.Commands.AddApprovedCreditNote;
 using ShopInventory.Features.CreditNotes;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
@@ -403,6 +405,98 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         Assert.Equal(9001, result.Value.CreditNoteDocEntry);
     }
 
+    // ── Stage scope: the wash bay adds only what it may decide ─────────────────
+
+    [Fact]
+    public async Task The_wash_bay_adds_a_request_at_its_own_stage()
+    {
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123)) { SaveReturns = 9001, DraftAfterSave = ClosedDraft(88123) };
+        var scope = FixedStageScope.Stages("Wash Bay Approvals", 4);
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService(), scope: scope)
+            .Handle(Command(3110), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Single(sap.Saves);
+        Assert.Equal(4, result.Value.StageCode);
+        Assert.Equal([Ngoni], scope.AskedFor);
+    }
+
+    /// <summary>
+    /// Refused before its state is described, as a decision is: "already added" or "not approved" would
+    /// tell the wash bay about a credit memo that is not its to know about.
+    /// </summary>
+    [Fact]
+    public async Task The_wash_bay_is_refused_a_request_at_another_stage_and_nothing_reaches_sap()
+    {
+        var approved = new RecordingSap(Approved(3110), OpenDraft(88123)) { SaveReturns = 9001 };
+        var audit = new RecordingAuditService();
+        var result = await Handler(approved, new RecordingFiscalisation(), audit, scope: FixedStageScope.Stages("Wash Bay Approvals", 5))
+            .Handle(Command(3110), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.OutsideStageScope", result.FirstError.Code);
+        Assert.Empty(approved.Saves);
+        Assert.Empty(approved.Projected);
+        Assert.Empty(audit.Entries);
+
+        var generated = new RecordingSap(Generated(3111, objectEntry: 9001), OpenDraft(88123));
+        var generatedResult = await Handler(generated, new RecordingFiscalisation(), new RecordingAuditService(), scope: FixedStageScope.Stages("Wash Bay Approvals", 5))
+            .Handle(Command(3111), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.OutsideStageScope", generatedResult.FirstError.Code);
+        Assert.DoesNotContain("9001", generatedResult.FirstError.Description);
+    }
+
+    /// <summary>
+    /// SAP deletes the request once it is added, so a repeat cannot be scoped by reading it. The first
+    /// answer carries the stage instead, and a wash bay is not handed somebody else's credit note by
+    /// asking for its code after an administrator added it.
+    /// </summary>
+    [Fact]
+    public async Task A_replay_is_scoped_by_the_stage_the_add_was_made_at()
+    {
+        var store = Store();
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123)) { SaveReturns = 9001, DraftAfterSave = ClosedDraft(88123) };
+
+        var byAdmin = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService(), store: store)
+            .Handle(Command(3110), CancellationToken.None);
+        Assert.False(byAdmin.IsError);
+        Assert.Equal(4, byAdmin.Value.StageCode);
+
+        var otherStage = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService(), store: store, scope: FixedStageScope.Stages("Wash Bay Approvals", 5))
+            .Handle(Command(3110), CancellationToken.None);
+        Assert.Equal("CreditNoteApproval.OutsideStageScope", otherStage.FirstError.Code);
+
+        var ownStage = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService(), store: store, scope: FixedStageScope.Stages("Wash Bay Approvals", 4))
+            .Handle(Command(3110), CancellationToken.None);
+        Assert.False(ownStage.IsError, "a retry at the caller's own stage must still replay the credit note it became");
+        Assert.Equal(byAdmin.Value.CreditNoteDocEntry, ownStage.Value.CreditNoteDocEntry);
+
+        Assert.Single(sap.Saves);
+    }
+
+    /// <summary>
+    /// A wash bay whose stage is not configured is refused before it takes the add's claim, so the claim
+    /// is not left held against the administrator who adds the request next.
+    /// </summary>
+    [Fact]
+    public async Task A_scope_that_cannot_be_resolved_refuses_the_add_without_holding_its_claim()
+    {
+        var store = Store();
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123)) { SaveReturns = 9001, DraftAfterSave = ClosedDraft(88123) };
+        var unconfigured = new FixedStageScope(Errors.CreditNoteApproval.StageScopeNotConfigured(ApplicationRoles.WashBay));
+
+        var refused = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService(), store: store, scope: unconfigured)
+            .Handle(Command(3110), CancellationToken.None);
+        Assert.Equal("CreditNoteApproval.StageScopeNotConfigured", refused.FirstError.Code);
+        Assert.Empty(sap.Saves);
+
+        var byAdmin = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService(), store: store)
+            .Handle(Command(3110), CancellationToken.None);
+        Assert.False(byAdmin.IsError, string.Join("; ", byAdmin.Errors.Select(error => error.Description)));
+        Assert.Single(sap.Saves);
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────────
 
     private AddApprovedCreditNoteHandler Handler(
@@ -411,9 +505,11 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         RecordingAuditService audit,
         bool fiscaliseAfterAdd = true,
         IIdempotencyRequestStore? store = null,
-        IStockLedger? ledger = null) => new(
+        IStockLedger? ledger = null,
+        ICreditNoteApprovalStageScope? scope = null) => new(
         _context,
         sap.AsClient(),
+        scope ?? FixedStageScope.EveryStage,
         sap.AsProjection(),
         new SapCreditNoteFiscaliser(
             _context,
