@@ -289,18 +289,10 @@ public sealed class InventoryTransferApprovalService(
             : null;
         var template = await SelectTemplateAsync(originator, document, cancellationToken)
             ?? throw new InvalidOperationException($"No active approval template is available for {document.DocumentType}.");
-        var stageIds = Deserialize<Guid>(template.StageIdsJson);
-        var stages = await context.ApprovalStageDefinitions
-            .AsNoTracking()
-            .Where(stage => stage.IsActive && stageIds.Contains(stage.Id))
-            .ToListAsync(cancellationToken);
-        var orderedStages = stageIds
-            .Select(stageId => stages.FirstOrDefault(stage => stage.Id == stageId))
-            .Where(stage => stage is not null)
-            .Select(stage => ToSnapshot(stage!, document))
-            .ToList();
+        var orderedStages = await TemplateSnapshotsAsync(template, document, cancellationToken);
         if (orderedStages.Count == 0)
             throw new InvalidOperationException($"Approval template '{template.Name}' has no active approval stages.");
+        await AddReceivingOwnerStageAsync(orderedStages, document, originator, cancellationToken);
 
         var request = new ApprovalRequestEntity
         {
@@ -317,8 +309,16 @@ public sealed class InventoryTransferApprovalService(
             StageSnapshotsJson = Serialize(orderedStages),
             Status = document.AlreadyClosed
                 ? ApprovalRequestStatuses.Generated
-                : ApprovalRequestStatuses.Pending
+                // Only when every stage is already met by the requester's own consent — a template
+                // whose one stage is the receiving owner, raised by that owner. Any other stage
+                // needs a decision, so this is Pending in every ordinary case.
+                : BuildProgress(new ApprovalRequestEntity(), orderedStages)
+                    .All(stage => stage.Status == ApprovalRequestStatuses.Approved)
+                    ? ApprovalRequestStatuses.Approved
+                    : ApprovalRequestStatuses.Pending
         };
+        if (request.Status == ApprovalRequestStatuses.Approved)
+            request.CompletedAtUtc = DateTime.UtcNow;
         context.ApprovalRequests.Add(request);
         try
         {
@@ -482,6 +482,8 @@ public sealed class InventoryTransferApprovalService(
             ? Serialize(CoveredWarehouses(authorizer, selectedStage))
             : null;
         existingDecision.DecidedAtUtc = DateTime.UtcNow;
+        if (decision == ApprovalDecisionValues.Approved)
+            RecordOwnerAgreement(request, snapshots, progress, selectedStage, authorizer);
 
         progress = BuildProgress(request, snapshots);
         var stageAfter = progress.First(stage => stage.StageId == selectedStage.StageId);
@@ -534,6 +536,56 @@ public sealed class InventoryTransferApprovalService(
                 _ => $"Decision recorded for {selectedStage.StageName}; other approvals are still pending."
             }
         };
+    }
+
+    /// <summary>
+    /// The owner of a receiving warehouse who approves another stage of a request has agreed to take
+    /// the stock, so that approval is recorded against the receiving-owner stage too, for the waiting
+    /// warehouses they run.
+    /// </summary>
+    /// <remarks>
+    /// Without it, a request a stock officer raises into a depot asks that depot's controller twice —
+    /// once as the template's "Depot Acceptance", once as the depot's owner — for one judgement.
+    /// Administrators are not owners by role, so an administrator's approval of their own stage never
+    /// signs for a warehouse; they approve the receiving stage on it, by choice.
+    /// </remarks>
+    private static void RecordOwnerAgreement(
+        ApprovalRequestEntity request,
+        List<ApprovalStageSnapshot> snapshots,
+        List<ApprovalStageProgressDto> progressBeforeDecision,
+        ApprovalStageProgressDto decidedStage,
+        User authorizer)
+    {
+        foreach (var snapshot in snapshots.Where(item => item.FollowsReceivingOwnerRule && item.Id != decidedStage.StageId))
+        {
+            var stage = progressBeforeDecision.FirstOrDefault(item => item.StageId == snapshot.Id);
+            if (stage is null || stage.Status != ApprovalRequestStatuses.Pending)
+                continue;
+            if (request.Decisions.Any(item => item.StageId == snapshot.Id && item.AuthorizerUserId == authorizer.Id))
+                continue;
+
+            var waiting = stage.WarehouseProgress.Count > 0
+                ? stage.WarehouseProgress.Where(item => item.Status == ApprovalRequestStatuses.Pending).Select(item => item.WarehouseCode)
+                : stage.ScopeWarehouses;
+            if (ReceivingWarehouseOwnerRule.OwnedBy(authorizer, snapshot.AuthorizerRoles, snapshot.AuthorizerUserIds, waiting).Count == 0)
+                continue;
+
+            request.Decisions.Add(new ApprovalDecisionEntity
+            {
+                ApprovalRequestId = request.Id,
+                StageId = snapshot.Id,
+                StageName = snapshot.Name,
+                AuthorizerUserId = authorizer.Id,
+                AuthorizerName = authorizer.Username,
+                AuthorizerRole = authorizer.Role,
+                Decision = ApprovalDecisionValues.Approved,
+                Remarks = $"Agreed as the receiving warehouse's owner when approving {decidedStage.StageName}.",
+                // Every scope warehouse they run, as an ordinary decision on this stage would store.
+                WarehouseCodesJson = Serialize(ReceivingWarehouseOwnerRule.OwnedBy(
+                    authorizer, snapshot.AuthorizerRoles, snapshot.AuthorizerUserIds, snapshot.ScopeWarehouses)),
+                DecidedAtUtc = DateTime.UtcNow
+            });
+        }
     }
 
     /// <summary>
@@ -599,6 +651,12 @@ public sealed class InventoryTransferApprovalService(
         var snapshots = Deserialize<ApprovalStageSnapshot>(request.StageSnapshotsJson);
         foreach (var snapshot in snapshots)
             snapshot.ScopeWarehouses = ScopeWarehousesFor(snapshot.WarehouseScope, document);
+        var originator = request.OriginatorUserId is { } originatorId
+            ? await context.Users.AsNoTracking().FirstOrDefaultAsync(user => user.Id == originatorId, cancellationToken)
+            : null;
+        // Re-aimed by the same rule it was opened under — and added if the request predates it, or
+        // first delivered only to vans and now delivers somewhere that has an owner.
+        await AddReceivingOwnerStageAsync(snapshots, document, originator, cancellationToken);
         request.StageSnapshotsJson = Serialize(snapshots);
         request.FromWarehouse = RouteLabel(document.SourceWarehouses, document.FromWarehouse);
         request.ToWarehouse = RouteLabel(document.DestinationWarehouses, document.ToWarehouse);
@@ -775,15 +833,8 @@ public sealed class InventoryTransferApprovalService(
         if (template is null)
             return new ApprovalRoutePreviewDto { Matched = false };
 
-        var stageIds = Deserialize<Guid>(template.StageIdsJson);
-        var stages = await context.ApprovalStageDefinitions.AsNoTracking()
-            .Where(stage => stage.IsActive && stageIds.Contains(stage.Id))
-            .ToListAsync(cancellationToken);
-        var snapshots = stageIds
-            .Select(stageId => stages.FirstOrDefault(stage => stage.Id == stageId))
-            .Where(stage => stage is not null)
-            .Select(stage => ToSnapshot(stage!, document))
-            .ToList();
+        var snapshots = await TemplateSnapshotsAsync(template, document, cancellationToken);
+        await AddReceivingOwnerStageAsync(snapshots, document, originator, cancellationToken);
 
         // One read of the people who could be asked, filtered per stage below. Administrators are
         // left out of the count: they can always decide, and counting them would hide a stage that
@@ -812,9 +863,11 @@ public sealed class InventoryTransferApprovalService(
                 WarehouseScope = stage.WarehouseScope,
                 ApprovalPerWarehouse = stage.ApprovalPerWarehouse,
                 ScopeWarehouses = stage.ScopeWarehouses,
+                // A warehouse the raiser runs is approved by their raising it, so it needs nobody.
                 WarehousesWithoutAuthorizer = IsScoped(stage)
                     ? stage.ScopeWarehouses
-                        .Where(code => !eligible.Any(user => CoveredWarehouses(user, stage).Contains(code, StringComparer.OrdinalIgnoreCase)))
+                        .Where(code => !snapshot.ConsentedWarehouses.Contains(code, StringComparer.OrdinalIgnoreCase) &&
+                                       !eligible.Any(user => CoveredWarehouses(user, stage).Contains(code, StringComparer.OrdinalIgnoreCase)))
                         .ToList()
                     : [],
                 AuthorizerCount = eligible.Count
@@ -914,7 +967,18 @@ public sealed class InventoryTransferApprovalService(
         [
             NewStage(DepotStageId, "Depot Acceptance", "Depot controllers accept transfers arriving from Dispatch.", ApplicationRoles.DepotController),
             NewStage(StockStageId, "Stock Officer Approval", "Stock officers approve transfers initiated by depot controllers.", ApplicationRoles.StockController),
-            NewStage(AdminStageId, "Administrator Review", "Fallback review for requests that do not match a specific template.", ApplicationRoles.Admin)
+            NewStage(AdminStageId, "Administrator Review", "Fallback review for requests that do not match a specific template.", ApplicationRoles.Admin),
+            // Added to transfer requests by the engine rather than by a template; seeded here so it
+            // comes back if deleted. Deactivating it is how the rule is switched off.
+            new ApprovalStageDefinitionEntity
+            {
+                Id = ReceivingWarehouseOwnerRule.StageId,
+                Name = ReceivingWarehouseOwnerRule.StageName,
+                Description = ReceivingWarehouseOwnerRule.StageDescription,
+                AuthorizerRolesJson = Serialize(ReceivingWarehouseOwnerRule.DefaultRoles),
+                WarehouseScope = ApprovalWarehouseScopes.Destination,
+                ApprovalPerWarehouse = true
+            }
         ];
 
         var present = await LoadDefaultStagesAsync(defaults, cancellationToken);
@@ -954,6 +1018,64 @@ public sealed class InventoryTransferApprovalService(
         ApprovalStageDefinitionEntity stage)
         => present.FirstOrDefault(item => item.Id == stage.Id)
            ?? present.FirstOrDefault(item => item.Name == stage.Name);
+
+    /// <summary>The template's own active stages, in its order, aimed at this document.</summary>
+    private async Task<List<ApprovalStageSnapshot>> TemplateSnapshotsAsync(
+        ApprovalTemplateDefinitionEntity template,
+        ApprovalDocumentContext document,
+        CancellationToken cancellationToken)
+    {
+        var stageIds = Deserialize<Guid>(template.StageIdsJson);
+        var stages = await context.ApprovalStageDefinitions.AsNoTracking()
+            .Where(stage => stage.IsActive && stageIds.Contains(stage.Id))
+            .ToListAsync(cancellationToken);
+        return stageIds
+            .Select(stageId => stages.FirstOrDefault(stage => stage.Id == stageId))
+            .Where(stage => stage is not null)
+            .Select(stage => ToSnapshot(stage!, document))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Puts <see cref="ReceivingWarehouseOwnerRule"/> into a transfer request's stages: aims a
+    /// receiving-owner stage the template already holds, or adds one after the template's own. Leaves
+    /// it out when every destination is a van, and when an administrator has switched it off.
+    /// </summary>
+    /// <remarks>
+    /// Other document types are left exactly as their template says. A direct transfer is raised by
+    /// the person moving the stock, and its templates already name who receives it where that matters.
+    /// </remarks>
+    private async Task AddReceivingOwnerStageAsync(
+        List<ApprovalStageSnapshot> snapshots,
+        ApprovalDocumentContext document,
+        User? originator,
+        CancellationToken cancellationToken)
+    {
+        if (document.DocumentType != ApprovalDocumentTypes.InventoryTransferRequest)
+            return;
+
+        if (!snapshots.Any(snapshot => snapshot.Id == ReceivingWarehouseOwnerRule.StageId))
+        {
+            var definition = await context.ApprovalStageDefinitions.AsNoTracking()
+                .FirstOrDefaultAsync(stage => stage.Id == ReceivingWarehouseOwnerRule.StageId && stage.IsActive, cancellationToken);
+            if (definition is null)
+                return;
+            snapshots.Add(ToSnapshot(definition, document));
+        }
+
+        foreach (var snapshot in snapshots.Where(snapshot => snapshot.Id == ReceivingWarehouseOwnerRule.StageId))
+        {
+            snapshot.WarehouseScope = ApprovalWarehouseScopes.Destination;
+            snapshot.FollowsReceivingOwnerRule = true;
+            snapshot.ScopeWarehouses = ReceivingWarehouseOwnerRule.WarehousesToApprove(document.DestinationWarehouses);
+            snapshot.ConsentedWarehouses = ReceivingWarehouseOwnerRule.OwnedBy(
+                originator, snapshot.AuthorizerRoles, snapshot.AuthorizerUserIds, snapshot.ScopeWarehouses);
+        }
+
+        // Nothing but vans: nobody's agreement is needed. Left in with no warehouses, the stage would
+        // fall back to its roles alone and wait for any stock officer anywhere.
+        snapshots.RemoveAll(snapshot => snapshot.FollowsReceivingOwnerRule && snapshot.ScopeWarehouses.Count == 0);
+    }
 
     private async Task<ApprovalTemplateDefinitionEntity?> SelectTemplateAsync(User? originator, ApprovalDocumentContext document, CancellationToken cancellationToken)
     {
@@ -1026,25 +1148,32 @@ public sealed class InventoryTransferApprovalService(
 
             // Per-warehouse stages count each warehouse on its own: a return to DISPYOG and DISPCH is
             // approved only once both have their approvals, however many come from one side.
+            // A warehouse the requester runs is approved by their raising the request.
+            bool Consented(string code) => stage.ConsentedWarehouses.Contains(code, StringComparer.OrdinalIgnoreCase);
             List<ApprovalWarehouseProgressDto> warehouseProgress = stage.ApprovalPerWarehouse && scopeWarehouses.Count > 0
                 ? scopeWarehouses.Select(code =>
                 {
-                    var count = decisions.Count(decision =>
-                        decision.Decision == ApprovalDecisionValues.Approved &&
-                        Deserialize<string>(decision.WarehouseCodesJson).Contains(code, StringComparer.OrdinalIgnoreCase));
+                    var consented = Consented(code);
+                    var count = consented
+                        ? stage.ApprovalsRequired
+                        : decisions.Count(decision =>
+                            decision.Decision == ApprovalDecisionValues.Approved &&
+                            Deserialize<string>(decision.WarehouseCodesJson).Contains(code, StringComparer.OrdinalIgnoreCase));
                     return new ApprovalWarehouseProgressDto
                     {
                         WarehouseCode = code,
                         ApprovalCount = count,
                         ApprovalsRequired = stage.ApprovalsRequired,
-                        Status = count >= stage.ApprovalsRequired ? ApprovalRequestStatuses.Approved : ApprovalRequestStatuses.Pending
+                        Status = count >= stage.ApprovalsRequired ? ApprovalRequestStatuses.Approved : ApprovalRequestStatuses.Pending,
+                        ConsentedByRequester = consented
                     };
                 }).ToList()
                 : [];
 
             var approved = warehouseProgress.Count > 0
                 ? warehouseProgress.All(item => item.Status == ApprovalRequestStatuses.Approved)
-                : approvals >= stage.ApprovalsRequired;
+                : approvals >= stage.ApprovalsRequired ||
+                  (scopeWarehouses.Count > 0 && scopeWarehouses.All(Consented));
             var status = rejections >= stage.RejectionsRequired ? ApprovalRequestStatuses.NotApproved
                 : approved ? ApprovalRequestStatuses.Approved
                 : ApprovalRequestStatuses.Pending;
@@ -1141,11 +1270,21 @@ public sealed class InventoryTransferApprovalService(
     {
         try
         {
+            // The receiving-owner stage is asked last, and not of anyone already asked about another
+            // stage of this request: their approval there counts as the owner's too
+            // (RecordOwnerAgreement), so a second alert would only ask the same question twice.
+            var receivingOwnerStageIds = snapshots
+                .Where(snapshot => snapshot.FollowsReceivingOwnerRule)
+                .Select(snapshot => snapshot.Id)
+                .ToHashSet();
             var pendingStages = BuildProgress(request, snapshots)
                 .Where(stage => stage.Status == ApprovalRequestStatuses.Pending)
+                .OrderBy(stage => receivingOwnerStageIds.Contains(stage.StageId))
                 .ToList();
+            var askedAboutAnotherStage = new HashSet<Guid>();
             foreach (var stage in pendingStages)
             {
+                var isReceivingOwnerStage = receivingOwnerStageIds.Contains(stage.StageId);
                 var decidedUserIds = stage.Decisions.Select(item => item.AuthorizerUserId).ToHashSet();
                 var authorizerUserIds = stage.AuthorizerUserIds;
                 var authorizerRoles = stage.AuthorizerRoles;
@@ -1165,6 +1304,11 @@ public sealed class InventoryTransferApprovalService(
                                             CanAdvance(user, stage))
                              .DistinctBy(user => user.Id))
                 {
+                    if (isReceivingOwnerStage && askedAboutAnotherStage.Contains(recipient.Id))
+                        continue;
+                    if (!isReceivingOwnerStage)
+                        askedAboutAnotherStage.Add(recipient.Id);
+
                     var entityId = ApprovalNotificationEntityId(request.DocumentType, request.DocumentKey, stage.StageId);
                     var exists = await context.Notifications.AsNoTracking().AnyAsync(item =>
                         item.Category == "TransferApproval" &&
@@ -1470,5 +1614,14 @@ public sealed class InventoryTransferApprovalService(
 
         /// <summary>The document's warehouses on the stage's end, fixed when the approval opened or was reopened.</summary>
         public List<string> ScopeWarehouses { get; set; } = [];
+
+        /// <summary>
+        /// Aimed by <see cref="ReceivingWarehouseOwnerRule"/>: vans left out of the scope, and the
+        /// requester's own warehouses counted as approved. False on every snapshot written before it.
+        /// </summary>
+        public bool FollowsReceivingOwnerRule { get; set; }
+
+        /// <summary>Scope warehouses the requester runs, approved by their raising the request.</summary>
+        public List<string> ConsentedWarehouses { get; set; } = [];
     }
 }

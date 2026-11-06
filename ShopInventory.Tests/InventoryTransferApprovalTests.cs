@@ -461,6 +461,10 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         // opened here, the authorisation recorded against the administrator stage, and the process
         // reported complete so the caller generates the SAP transfer. Losing this would leave a
         // SAP-raised request with no way through the app at all.
+        //
+        // WH02 is not a van, so the request also waits for WH02's owner. Nobody runs WH02 here, and
+        // an administrator's approval of their own stage never signs for a warehouse, so it takes a
+        // second, deliberate approval of the receiving stage — still entirely within the app.
         var admin = await AddUserAsync(ApplicationRoles.Admin);
         var document = new InventoryTransferRequest
         {
@@ -471,13 +475,21 @@ public sealed class InventoryTransferApprovalTests : IDisposable
             ToWarehouse = "WH02"
         };
 
-        var outcome = await ApprovalService().SubmitDecisionAsync(
+        var first = await ApprovalService().SubmitDecisionAsync(
             document, admin.Id, ApprovalDecisionValues.Approved, null, null, default);
 
-        Assert.False(outcome.IsError);
-        Assert.Equal("Administrator Review", outcome.Value.StageName);
-        Assert.Equal(ApprovalRequestStatuses.Approved, outcome.Value.RequestStatus);
-        Assert.True(outcome.Value.ApprovalProcessComplete);
+        Assert.False(first.IsError);
+        Assert.Equal("Administrator Review", first.Value.StageName);
+        Assert.Equal(ApprovalRequestStatuses.Pending, first.Value.RequestStatus);
+
+        _context.ChangeTracker.Clear();
+        var second = await ApprovalService().SubmitDecisionAsync(
+            document, admin.Id, ApprovalDecisionValues.Approved, null, null, default);
+
+        Assert.False(second.IsError);
+        Assert.Equal("Receiving warehouse owner", second.Value.StageName);
+        Assert.Equal(ApprovalRequestStatuses.Approved, second.Value.RequestStatus);
+        Assert.True(second.Value.ApprovalProcessComplete);
     }
 
     // ── Remarks carried into SAP ────────────────────────

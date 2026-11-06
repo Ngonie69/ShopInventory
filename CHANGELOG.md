@@ -33,6 +33,31 @@ otherwise be surprised.
   was copied from is closed afterwards. Deciding stays in the B1 client. **The add itself has not yet
   been run against SAP** — see `docs/sap-transfer-approvals.md` for what to record on the first run.
 
+- **A transfer request now waits for the owner of each warehouse it delivers to before it posts.**
+  Every transfer request's approval gains a stage, `Receiving warehouse owner`, after whatever its
+  template routes it to. Someone assigned to each destination warehouse, holding one of its roles
+  (stock officer, depot controller, shop stock, wash bay, dispatch, production or distribution
+  officer), approves for that warehouse; an administrator can approve for any. Three cases skip it:
+  - **vans** (`VAN` + digits), so a rep's van stock request is unchanged;
+  - **a warehouse the requester runs**: their request counts as its approval, and the drawer marks it
+    "requester's own";
+  - **an owner who approves another stage of the request**: that approval counts for their
+    warehouses too. Without this, a stock officer's request into a depot would ask the depot's
+    controller twice, once as `Depot Acceptance` and once as the owner.
+
+  Applies to approvals opened from now on: requests the app raises, and SAP-raised requests on their
+  first conversion. Requests already awaiting approval keep their stages until they are changed and
+  reopened. To switch it off, or change who holds it, deactivate or edit the stage on the Approval
+  Process page; it is re-seeded only if deleted.
+
+  To let the factory officers answer requests into their warehouses, `DispatchOfficer`,
+  `ProductionOfficer` and `DistributionOfficer` can now open `/inventory-transfers`, read only apart
+  from that stage, and call `POST /api/approval-process/transfer-requests/{docEntry}/decision`. Posting
+  still refuses them (`403 InventoryTransfer.TransferRequestConverterRoleRequired`), and so does
+  closing a request that has no approval. A depot controller who holds a pending stage can now turn
+  a request down even when they do not run its source warehouse; approving never asked about the
+  source. Approval progress per warehouse carries a new field, `consentedByRequester`.
+
 - **The wash bay now adds the SAP credit memos it approves, and its queue opens.** Every `WashBay`
   account holds `creditnotes.add_approved` as well as `creditnotes.approve`, and `/credit-notes/approvals`
   offers it "Add credit note", which posts the credit note to SAP and fiscalises it. Both stay limited to

@@ -1,6 +1,7 @@
 using System.Globalization;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using MudBlazor;
 using ShopInventory.Web.Components;
 using ShopInventory.Web.Features.FactoryTransfers.Commands.CancelFactoryTransfer;
@@ -46,6 +47,7 @@ public partial class FactoryTransfers : IDisposable
     [Inject] private IMediator Mediator { get; set; } = default!;
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
     [Inject] private IWarehouseStockCacheService StockCache { get; set; } = default!;
+    [Inject] private IJSRuntime JS { get; set; } = default!;
 
     private readonly CancellationTokenSource disposal = new();
 
@@ -392,6 +394,78 @@ public partial class FactoryTransfers : IDisposable
         }
     }
 
+    // ── Printing ─────────────────────────────────────────────────────────────────
+
+    /// <summary>Until it is settled the open transfer prints stamped DRAFT, with the counts typed so far.</summary>
+    private bool DetailIsDraft => detail is not null && FactoryTransferDocumentBuilder.IsDraft(detail.Summary.Status);
+
+    private Task PrintAsync()
+        => detail is null
+            ? Task.CompletedTask
+            : PrintHtmlAsync(FactoryTransferDocumentBuilder.Build(detail, IAuditService.ToCAT(DateTime.UtcNow), counts));
+
+    /// <summary>A loading or release sheet for what is on the send form, before anything is posted.</summary>
+    private Task PrintUnsentAsync()
+        => CanPrintUnsent
+            ? PrintHtmlAsync(FactoryTransferDocumentBuilder.BuildUnsent(UnsentTransfer(), IAuditService.ToCAT(DateTime.UtcNow)))
+            : Task.CompletedTask;
+
+    private bool CanPrintUnsent
+        => !string.IsNullOrEmpty(sendSource) && sendLines.Count > 0 && sendLines.All(line => line.Quantity > 0);
+
+    private FactoryTransferDetailDto UnsentTransfer()
+    {
+        var route = SelectedRoute;
+        var depot = IsTruck ? options?.DepotDelivery?.Depots.FirstOrDefault(item => item.Code == sendDestination) : null;
+        var sources = sendLines.Select(line => line.FromWarehouse).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var lineId = 0;
+
+        return new FactoryTransferDetailDto
+        {
+            Summary = new FactoryTransferSummaryDto
+            {
+                DepartmentName = IsTruck ? depot?.Name ?? string.Empty : route?.DepartmentName ?? string.Empty,
+                Direction = IsTruck ? FactoryTransferStatus.Delivery : route?.Direction ?? string.Empty,
+                SourceWarehouseCode = IsTruck ? sources.FirstOrDefault() ?? string.Empty : sendSource!,
+                SourceLabel = IsTruck ? string.Join(", ", sources) : sendSource!,
+                HoldingWarehouseCode = SendHolding,
+                DestinationWarehouseCode = sendDestination ?? string.Empty,
+                Reason = sendReason?.Trim() ?? string.Empty,
+                VehiclePlate = IsTruck ? sendPlate?.Trim() ?? string.Empty : string.Empty,
+                DriverName = IsTruck ? sendDriver?.Trim() ?? string.Empty : string.Empty,
+                SourceRequestDocNum = IsTruck
+                    ? depotOrders.FirstOrDefault(order => order.DocEntry.ToString(CultureInfo.InvariantCulture) == selectedOrder)?.DocNum ?? 0
+                    : 0,
+                LineCount = sendLines.Count,
+                TotalQuantity = sendLines.Sum(line => line.Quantity ?? 0)
+            },
+            Lines = sendLines.Select(line => new FactoryTransferLineDto
+            {
+                Id = ++lineId,
+                LineNum = lineId,
+                ItemCode = line.ItemCode,
+                ItemDescription = line.ItemName,
+                UoMCode = line.UoM,
+                FromWarehouseCode = line.FromWarehouse,
+                Quantity = line.Quantity ?? 0
+            }).ToList()
+        };
+    }
+
+    private async Task PrintHtmlAsync(string html)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("printReportHtml", disposal.Token, html);
+        }
+        catch (OperationCanceledException) when (disposal.IsCancellationRequested)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
     // ── Sending ──────────────────────────────────────────────────────────────────
 
     /// <summary>The From choice that means "load a truck for a depot" rather than a warehouse.</summary>
@@ -734,27 +808,9 @@ public partial class FactoryTransfers : IDisposable
 
     // ── Words and colours ────────────────────────────────────────────────────────
 
-    private static string DirectionWord(string direction) => direction switch
-    {
-        FactoryTransferStatus.Return or FactoryTransferStatus.DepotReturn => "return",
-        FactoryTransferStatus.Delivery => "delivery",
-        _ => "release"
-    };
+    private static string DirectionWord(string direction) => FactoryTransferStatus.DirectionWord(direction);
 
-    private static string StatusLabel(string status) => status switch
-    {
-        FactoryTransferStatus.Sending => "Sending",
-        FactoryTransferStatus.SendFailed => "Send failed",
-        FactoryTransferStatus.InTransit => "In transit",
-        FactoryTransferStatus.Settling => "Posting",
-        FactoryTransferStatus.SettleFailed => "Post failed",
-        FactoryTransferStatus.Accepted => "Accepted",
-        FactoryTransferStatus.PartiallyAccepted => "Part-accepted",
-        FactoryTransferStatus.Rejected => "Rejected",
-        FactoryTransferStatus.Recalled => "Recalled",
-        FactoryTransferStatus.Cancelled => "Cancelled",
-        _ => status
-    };
+    private static string StatusLabel(string status) => FactoryTransferStatus.Describe(status);
 
     private static string StatusModifier(string status) => status switch
     {
@@ -807,13 +863,9 @@ public partial class FactoryTransfers : IDisposable
     private static string DoneLabel(FactoryTransferSummaryDto summary) => summary.Status switch
     {
         FactoryTransferStatus.InTransit => $"Waiting for {summary.DestinationWarehouseCode} to accept it.",
-        _ when !string.IsNullOrEmpty(summary.Status) && IsFinal(summary.Status) => "Settled. Nothing more to do.",
+        _ when !string.IsNullOrEmpty(summary.Status) && FactoryTransferStatus.IsSettled(summary.Status) => "Settled. Nothing more to do.",
         _ => "Nothing for you to do on this one."
     };
-
-    private static bool IsFinal(string status) => status is FactoryTransferStatus.Accepted
-        or FactoryTransferStatus.PartiallyAccepted or FactoryTransferStatus.Rejected
-        or FactoryTransferStatus.Recalled or FactoryTransferStatus.Cancelled;
 
     private static string UnitsText(decimal units) => units == 1 ? "1 unit" : $"{QuantityDisplay.Format(units)} units";
 
