@@ -784,6 +784,36 @@
     flex: 1;
 }
 
+/* What the last add said, left on the page after the drawer closes (SAP deletes
+   the approval request with the add, so the drawer has nothing left to show).
+   Success is the approved family; a failed fiscalisation uses .cna-blocked. */
+.cna-done {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cna-s3);
+    padding: var(--cna-s3) var(--cna-s4);
+    border-radius: var(--cna-r-md);
+    background: rgba(var(--cna-approved-rgb), .1);
+    border: 1px solid rgba(var(--cna-approved-rgb), .4);
+    color: var(--cna-ink);
+    font-size: 13px;
+}
+
+.cna-done > .ph {
+    color: var(--cna-approved);
+}
+
+.cna-added > .ph {
+    font-size: 16px;
+    margin-top: 1px;
+}
+
+.cna-added-source {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--cna-mute-2);
+}
+
 /* Why an action is unavailable — a sentence from SAP's own state, not a
    failure, so it is the notice colour rather than the danger one. */
 .cna-blocked {

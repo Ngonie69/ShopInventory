@@ -1036,7 +1036,7 @@ else if (pendingActionTitle is not null)
                         <span>
                             <strong>@stage.StageName</strong>
                             <span class="itx-stage-roles">
-                                @string.Join(", ", stage.AuthorizerRoles)@StageScopeText(stage)
+                                @string.Join(", ", stage.AuthorizerRoles.Select(GetFriendlyRoleName))@StageScopeText(stage)
                             </span>
                             @if (stage.WarehouseProgress.Count > 0)
                             {
@@ -2151,10 +2151,10 @@ else if (pendingActionTitle is not null)
 
     // ── Editing a transfer request ──────────────────────
     private static readonly string[] RequestEditorRoles =
-        [UserRoles.Admin, UserRoles.StockController, UserRoles.WashBay, UserRoles.DepotController];
+        [UserRoles.Admin, UserRoles.StockController, UserRoles.WashBay, UserRoles.DepotController, UserRoles.ShopStock];
     // Mirrors [Authorize] on POST api/inventorytransfer/request/{docEntry}/convert.
     private static readonly string[] RequestConverterRoles =
-        [UserRoles.Admin, UserRoles.StockController, UserRoles.WashBay, UserRoles.DepotController];
+        [UserRoles.Admin, UserRoles.StockController, UserRoles.WashBay, UserRoles.DepotController, UserRoles.ShopStock];
     private bool isEditingRequestLines = false;
     private bool isSavingRequestEdit = false;
     private bool isDecidingRequestEdit = false;
@@ -4344,8 +4344,10 @@ else if (pendingActionTitle is not null)
                assignedWarehouseCodes.Contains(request.FromWarehouse);
     }
 
+    // Mirrors TransferWarehouseAuthorizer's scoped roles on the API.
     private static bool IsWarehouseScopedRole(string? role) =>
-        string.Equals(role, UserRoles.DepotController, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, UserRoles.DepotController, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, UserRoles.ShopStock, StringComparison.OrdinalIgnoreCase);
 
     private bool CanEditRequestLines(InventoryTransferRequestDto? request)
         => request != null &&
@@ -4996,6 +4998,7 @@ else if (pendingActionTitle is not null)
         "StockController" => "Stock Officer",
         "DepotController" => "Depot Controller",
         "WashBay" => "Wash Bay",
+        "ShopStock" => "Shop Stock",
         "DispatchOfficer" => "Dispatch Officer",
         "ProductionOfficer" => "Production Officer",
         "DistributionOfficer" => "Distribution Officer",

@@ -27,6 +27,7 @@ public sealed class RoleLandingRouteTests
     [InlineData(UserRoles.Lab, "/lab/batch-status")]
     [InlineData(UserRoles.MerchandiserPurchaseOrderViewer, "/reports/merchandiser-purchase-orders")]
     [InlineData(UserRoles.WashBay, "/inventory-transfers")]
+    [InlineData(UserRoles.ShopStock, "/inventory-transfers")]
     public void Each_role_lands_on_its_own_page(string role, string expected)
     {
         Assert.Equal(expected, RoleLandingRoutes.For(role));

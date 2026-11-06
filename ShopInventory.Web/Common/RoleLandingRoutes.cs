@@ -95,6 +95,12 @@ public static class RoleLandingRoutes
             return InventoryTransfers;
         }
 
+        // A shop's stock user has the transfers page and nothing else.
+        if (isInRole(UserRoles.ShopStock) && !isInRole(UserRoles.Admin))
+        {
+            return InventoryTransfers;
+        }
+
         // The factory floor has one page: the transfers between production and dispatch.
         if ((isInRole(UserRoles.ProductionOfficer) || isInRole(UserRoles.DispatchOfficer) || isInRole(UserRoles.DistributionOfficer))
             && !isInRole(UserRoles.Admin))

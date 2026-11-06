@@ -23,8 +23,11 @@ public sealed class GetPendingTransferStockCheckHandler(
         if (pending is null)
             return Errors.InventoryTransfer.PendingTransferNotFound(query.PendingTransferId);
 
-        var scopeCheck = await warehouseAuthorizer.EnsureCanActOnSourceAsync(
-            query.UserId, pending.FromWarehouse, cancellationToken);
+        // Read by whoever may decide the transfer, at either end: the receiving warehouse's approver
+        // needs to see whether the source holds the stock before accepting it.
+        var document = ApprovalDocumentContext.ForPendingTransfer(pending);
+        var scopeCheck = await warehouseAuthorizer.EnsureCanDecideAsync(
+            query.UserId, document.SourceWarehouses, document.DestinationWarehouses, cancellationToken);
         if (scopeCheck.IsError)
             return scopeCheck.Errors;
 
