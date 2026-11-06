@@ -97,6 +97,14 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     private string? submittingAction;
     private bool showAddConfirm;
 
+    /// <summary>
+    /// What the last add said, kept on the page once the drawer closes: SAP deletes the approval
+    /// request when its draft becomes the credit note, so the drawer has nothing left to show.
+    /// </summary>
+    private string? addedNotice;
+    private string? addedNoticeSource;
+    private bool addedNoticeNeedsAttention;
+
     private bool showViewer;
     private bool isLoadingViewer;
     private string? attachmentError;
@@ -438,6 +446,8 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         // Why the add was refused, kept past the reload below. The reason can be a paragraph saying
         // what to do instead (SAP's attachments folder, for one), and a snackbar is gone in seconds.
         string? refusal = null;
+        AddApprovedCreditNoteResultDto? added = null;
+        var cardName = detail.Request.CardName;
 
         try
         {
@@ -451,10 +461,9 @@ public partial class CreditNoteApprovals : IAsyncDisposable
             }
             else
             {
+                added = result.Value;
                 detailError = null;
-                Snackbar.Add(result.Value.Message, result.Value.Fiscalisation.Attempted && !result.Value.Fiscalisation.Success
-                    ? Severity.Warning
-                    : Severity.Success);
+                Snackbar.Add(added.Message, FiscalisationFailed(added) ? Severity.Warning : Severity.Success);
             }
         }
         catch (Exception ex)
@@ -472,6 +481,22 @@ public partial class CreditNoteApprovals : IAsyncDisposable
             showAddConfirm = false;
         }
 
+        if (added is not null)
+        {
+            // SAP deletes the approval request once it has turned the draft into the credit note, so
+            // re-reading the request here answered "SAP approval request N was not found" and left that
+            // error in the drawer under the success. The row leaves the queue too: close the drawer,
+            // keep what the add said on the page, and re-read only the list.
+            addedNotice = added.Message;
+            addedNoticeSource = string.IsNullOrWhiteSpace(cardName)
+                ? $"From approval request {code}"
+                : $"From approval request {code} · {cardName}";
+            addedNoticeNeedsAttention = FiscalisationFailed(added);
+            CloseDetail();
+            await LoadAsync();
+            return;
+        }
+
         await Task.WhenAll(LoadDetailAsync(code), LoadAsync());
 
         // The reload clears detailError when the request reads back. A request that could not be read
@@ -480,6 +505,16 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         {
             detailError = refusal;
         }
+    }
+
+    private static bool FiscalisationFailed(AddApprovedCreditNoteResultDto added) =>
+        added.Fiscalisation is { Attempted: true, Success: false };
+
+    private void DismissAddedNotice()
+    {
+        addedNotice = null;
+        addedNoticeSource = null;
+        addedNoticeNeedsAttention = false;
     }
 
     /// <summary>

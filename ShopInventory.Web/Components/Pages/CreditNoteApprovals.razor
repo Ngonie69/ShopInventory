@@ -58,6 +58,29 @@
             </div>
         }
 
+        @* What the last add said. The drawer closes on a successful add, because SAP deletes the
+           approval request with it, so the credit note's number is kept here rather than only in a
+           snackbar that fades. A failed fiscalisation keeps the notice colour: it needs following up. *@
+        @if (!string.IsNullOrEmpty(addedNotice))
+        {
+            <div class="@(addedNoticeNeedsAttention ? "cna-blocked cna-added" : "cna-done cna-added")" role="status">
+                <i class="ph @(addedNoticeNeedsAttention ? "ph-warning" : "ph-check-circle")" aria-hidden="true"></i>
+                <div class="cna-alert-body">
+                    <div>@addedNotice</div>
+                    @if (!string.IsNullOrEmpty(addedNoticeSource))
+                    {
+                        <div class="cna-added-source">@addedNoticeSource</div>
+                    }
+                </div>
+                <button type="button" class="cna-btn cna-btn-ghost cna-btn-icon-sm" title="Dismiss"
+                        aria-label="Dismiss notice" @onclick="DismissAddedNotice">
+                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                    </svg>
+                </button>
+            </div>
+        }
+
         <section class="cna-filters">
             <div class="cna-field">
                 <label id="cna-f-status-label">Show</label>
