@@ -397,11 +397,23 @@ namespace ShopInventory.Services
 
         private void AddAgingAnalysis(Document document, StatementAgingSummaryDto aging)
         {
-            var sectionTitle = new Paragraph("AGING ANALYSIS")
-                .SetFont(_boldFont)
-                .SetFontSize(11)
-                .SetFontColor(PrimaryColor)
+            var sectionTitle = new Paragraph()
+                .Add(new Text("AGING ANALYSIS")
+                    .SetFont(_boldFont)
+                    .SetFontSize(11)
+                    .SetFontColor(PrimaryColor))
                 .SetMarginBottom(10);
+
+            // The period can run past the day the statement was pulled, and then the aging is
+            // measured from that day rather than the period end. Say which day it is.
+            if (aging.AsAtDate != default)
+            {
+                sectionTitle.Add(new Text($"   as at {aging.AsAtDate:dd MMM yyyy}")
+                    .SetFont(_regularFont)
+                    .SetFontSize(9)
+                    .SetFontColor(TextMuted));
+            }
+
             document.Add(sectionTitle);
 
             var agingTable = new Table(new float[] { 1, 1, 1, 1, 1, 1 })
