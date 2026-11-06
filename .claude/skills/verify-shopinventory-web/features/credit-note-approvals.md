@@ -1,6 +1,6 @@
 # Credit note approvals (SAP)
 
-A/R credit memos raised in the SAP B1 client and held by SAP's own approval procedure: a manager
+A/R credit memos raised in the SAP B1 client and held by SAP's own approval procedure: an approver
 reads the draft and its attachment, approves or rejects it, and adds the approved one as the credit
 note. SAP is the source of truth; nothing is mirrored locally.
 
@@ -14,9 +14,13 @@ note. SAP is the source of truth; nothing is mirrored locally.
 
 ## How to get to it (user POV)
 
-Sign in as an Admin or Manager, open Credit Note Approvals under Sales & Billing, or go straight to
-`/credit-notes/approvals`. A Cashier has no link and is bounced by the role gate — verifying as
-`admin` proves nothing about a Manager's nav; check that separately.
+Sign in as an Admin or WashBay, open Credit Note Approvals under Sales, or go straight to
+`/credit-notes/approvals`. Both decide and add (the wash bay only at its own SAP stage, since
+2026-11-06). A Manager or Cashier has no link and is bounced by the role gate — verifying as `admin`
+proves nothing about the wash bay's view; check that separately. The local database has no WashBay
+account, so drive it against a stub API that logs in as one: `artifacts/verify/20261106-washbay-add/`
+(`stub_api.py`, `drive.py <tag> <expect_add>`) in worktree `epic-bohr-54a60a` approves and adds as
+the wash bay without touching SAP.
 
 ## Driving it with cdp.py
 

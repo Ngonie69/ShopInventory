@@ -54,9 +54,9 @@ public static class ApplicationRoles
     /// <remarks>
     /// Transfers work as they do for <see cref="StockController"/> — any warehouse, including
     /// converting and closing requests — so the role needs no warehouse assignment. Credit memo access
-    /// is narrower than a manager's twice over: it may decide but not add
-    /// (<c>creditnotes.approve</c> without <c>creditnotes.add_approved</c>), and only the requests
-    /// sitting at the SAP stages <c>CreditNoteApprovals:RoleStageScopes</c> names for it.
+    /// is narrower than an administrator's: it decides and adds (<c>creditnotes.approve</c> and
+    /// <c>creditnotes.add_approved</c>) only the requests sitting at the SAP stages
+    /// <c>CreditNoteApprovals:RoleStageScopes</c> names for it.
     /// </remarks>
     public const string WashBay = "WashBay";
 

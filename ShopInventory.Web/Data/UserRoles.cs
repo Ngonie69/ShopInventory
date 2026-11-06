@@ -243,18 +243,17 @@ public static class UserRoles
     /// and post it. Not <see cref="InvoicingRoles"/> — a cashier raises credit notes and must not
     /// thereby approve them. The API agrees through its <c>creditnotes.approve</c> and
     /// <c>creditnotes.add_approved</c> permissions; <c>CreditNoteApprovalAccessTests</c> pins the two.
-    /// The wash bay is here to decide only the requests at its own SAP stage, which the API narrows;
-    /// it cannot add, which <see cref="CreditNoteAddRoles"/> narrows. Not the manager, who decides
-    /// nothing (2026-10-28) and reads credit notes on /credit-notes.
+    /// The wash bay is here to decide and add only the requests at its own SAP stage, which the API
+    /// narrows. Not the manager, who decides nothing (2026-10-28) and reads credit notes on /credit-notes.
     /// </summary>
     public const string CreditNoteApprovalRoles = "Admin,WashBay";
 
     /// <summary>
     /// Who on <see cref="CreditNoteApprovalRoles"/> is offered "Add credit note". Posting the approved
-    /// memo is <c>creditnotes.add_approved</c>, which the wash bay does not hold, so showing it the
-    /// button would only submit into a 403.
+    /// memo is <c>creditnotes.add_approved</c>; a role on the page without it would be shown a button
+    /// that only submits into a 403. The wash bay holds it since 2026-11-06.
     /// </summary>
-    public const string CreditNoteAddRoles = "Admin";
+    public const string CreditNoteAddRoles = "Admin,WashBay";
 
     /// <summary>
     /// Who can open /market-breakages: the office that counts the broken stock a van brings back and

@@ -21,9 +21,9 @@ namespace ShopInventory.Controllers;
 /// SAP is the source of truth. Nothing here is mirrored into the local approval engine behind
 /// <c>/api/approval-process</c>, which governs documents this app posts.
 ///
-/// The reads and the decision pass the caller's user id, never a role claim, to the stage scope: the Web
-/// sends its integration key alongside the user's token, so the request's role claims include the key's
-/// Admin. The add needs no scope — the one stage-scoped role cannot add.
+/// The reads, the decision and the add pass the caller's user id, never a role claim, to the stage
+/// scope: the Web sends its integration key alongside the user's token, so the request's role claims
+/// include the key's Admin.
 /// </remarks>
 [Route("api/credit-note-approvals")]
 [Authorize(Policy = "ApiAccess")]

@@ -50,7 +50,7 @@ curl -sk -H "Cookie: B1SESSION=$SID" "$B/Users?\$filter=UserCode%20eq%20'manager
 | `SAP:ApprovalApproverUsername` | `SAP:Username` | The SAP user decisions are recorded as |
 | `SAP:ApprovalApproverPassword` | `SAP:Password` when the approver is the session user, else omitted from the payload | Its password; never logged |
 | `CreditNoteApprovals:FiscaliseAfterAdd` | `true` | Fiscalise the credit note right after the add. A document added through the Service Layer never passes the fiscalisation platform's B1 print bridge, so with this off it is fiscalised only when somebody next prints it in the B1 client |
-| `CreditNoteApprovals:RoleStageScopes` | `WashBay` → `Wash Bay Approvals` in `appsettings.json`; empty if absent | Role → the SAP stage names it may read and decide; see "Stage scopes" below |
+| `CreditNoteApprovals:RoleStageScopes` | `WashBay` → `Factory Washbay` in `appsettings.json`; empty if absent | Role → the SAP stage names it may read and decide; see "Stage scopes" below |
 | `CreditNoteApprovals:AttachmentReadMode` | `Share` in `appsettings.json`; `ServiceLayer` if the key is absent | `Share` reads the file off `SAP:AttachmentsPath` with the share credentials instead of streaming `$value`, for a Service Layer that cannot serve the folder — which is this landscape, see below |
 
 ## Stage scopes
@@ -58,9 +58,10 @@ curl -sk -H "Cookie: B1SESSION=$SID" "$B/Users?\$filter=UserCode%20eq%20'manager
 The service approver decides every request, so SAP cannot tell one app user from another: anyone holding
 `creditnotes.approve` could decide any stage the service approver sits on. `CreditNoteApprovals:RoleStageScopes`
 narrows a role to named stages. The list is filtered in SAP (`CurrentStage eq …`, so the count and the
-cursor are of the scoped queue), and the detail, the attachment download and the decision refuse any
-other request with `403 CreditNoteApproval.OutsideStageScope`. Names rather than codes, because a stage's
-code differs between company databases.
+cursor are of the scoped queue), and the detail, the attachment download, the decision and the add refuse
+any other request with `403 CreditNoteApproval.OutsideStageScope`. A repeated add replays its first
+answer after SAP has deleted the request, so the replay is checked against the stage that answer
+recorded. Names rather than codes, because a stage's code differs between company databases.
 
 The scope follows the **account's role in the database**, looked up by the caller's user id — never the
 role claims on the request. The Web calls the API with its integration key and the user's token together,
@@ -69,13 +70,24 @@ live run. A request with no user id (an integration key alone) sees every stage;
 account is refused.
 
 The wash bay (`WashBay`) is the role that must be scoped — `ApplicationRoles.RequiresCreditNoteStageScope` —
-so a missing entry refuses its page instead of opening the whole queue. It decides but cannot add. For
-its rows to offer Approve at all, SAP must also list the service approver on the `Wash Bay Approvals` stage.
+so a missing entry refuses its page instead of opening the whole queue. It decides and, since 2026-11-06,
+adds the requests at its stage. For its rows to offer Approve at all, SAP must also list the service
+approver on that stage.
+
+Production, read back 2026-11-06: the one active wash bay template is #89 "Washbay Credit Notes"
+(A/R credit memos), one stage, 44 **`Factory Washbay`**, one approval required of Opsassist, PdnAdmin,
+Finacc, Software and Washbay — so the service approver is listed. Two older wash bay stages serve
+inactive templates: 40 `Washbay` (#85 "Credit Notes to Wash") and 33 `Production WashBay` (#74
+"Factory Credit Notes", which does not list Software). Until that day the setting named
+`Wash Bay Approvals`, which production never had, so the wash bay's page answered
+`StageScopeUnresolved`. A name here is matched against SAP's exactly (case aside); re-read the stages
+when a template changes.
 
 ## The routes
 
-`/api/credit-note-approvals` — see API.md §50. The Web page is `/credit-notes/approvals` (Admin, Manager
-and WashBay; only Admin and Manager are offered the add), and its attachment viewer streams through the Web's own `/download/credit-note-approval/{code}/{lineNum}`
+`/api/credit-note-approvals` — see API.md §50. The Web page is `/credit-notes/approvals` (Admin and
+WashBay, both offered the add; the manager reads credit notes on `/credit-notes` and decides nothing since
+2026-10-28), and its attachment viewer streams through the Web's own `/download/credit-note-approval/{code}/{lineNum}`
 bearer proxy, the same way proof-of-delivery files do.
 
 ## What happens on the add

@@ -27,10 +27,15 @@ namespace ShopInventory.Features.CreditNoteApprovals.Commands.AddApprovedCreditN
 /// call runs on a token the caller cannot cancel. Everything after the add is best effort — a fiscal
 /// failure is an Exception Center incident, a projection failure is repaired by the sync job — and
 /// none of it can fail the add, because the credit note already exists.
+///
+/// A stage-scoped caller — the wash bay — adds only what stands at its own stages, as it decides only
+/// those. The scope is checked on the live request and, for a repeat, on the stage the first answer
+/// recorded, because SAP deletes the request once it is added.
 /// </remarks>
 public sealed class AddApprovedCreditNoteHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sap,
+    ICreditNoteApprovalStageScope stageScope,
     ICreditNoteProjectionSyncService projectionSync,
     SapCreditNoteFiscaliser fiscaliser,
     IStockLedger stockLedger,
@@ -57,7 +62,14 @@ public sealed class AddApprovedCreditNoteHandler(
         var release = false;
         try
         {
-            // The claim comes first and is keyed on the request alone, whoever clicks: a draft is
+            // Before the claim, so a wash bay with no stage configured is refused without holding it.
+            var scope = await stageScope.ResolveAsync(command.UserId, cancellationToken);
+            if (scope.IsError)
+            {
+                return scope.Errors;
+            }
+
+            // The claim comes next and is keyed on the request alone, whoever clicks: a draft is
             // converted exactly once, and a retry of a call that timed out after SAP converted it
             // replays the first answer — the credit note it became — instead of "already added".
             var acquired = await idempotencyRequestStore.TryAcquireAsync<AddApprovedCreditNoteResultDto>(
@@ -68,8 +80,11 @@ public sealed class AddApprovedCreditNoteHandler(
 
             switch (acquired.Outcome)
             {
+                // The request is gone from SAP by now, so the replay is scoped by the stage it was added at.
                 case IdempotencyAcquireOutcome.ReplayAvailable when acquired.Response is not null:
-                    return acquired.Response;
+                    return scope.Value.Admits(acquired.Response.StageCode)
+                        ? acquired.Response
+                        : Errors.CreditNoteApproval.OutsideStageScope(command.Code, scope.Value.Describe());
                 case IdempotencyAcquireOutcome.InProgress:
                     return Errors.CreditNoteApproval.AddInProgress;
                 case IdempotencyAcquireOutcome.RequestMismatch:
@@ -84,6 +99,13 @@ public sealed class AddApprovedCreditNoteHandler(
             if (request is null || !string.Equals(request.ObjectType, SapObjectTypes.CreditNote, StringComparison.Ordinal))
             {
                 return Errors.CreditNoteApproval.NotFound(command.Code);
+            }
+
+            // Before any state is described, as for a decision: a request outside the caller's stages
+            // is not theirs to learn anything about.
+            if (!scope.Value.Admits(request.CurrentStage))
+            {
+                return Errors.CreditNoteApproval.OutsideStageScope(command.Code, scope.Value.Describe());
             }
 
             if (SapApprovalRequestStatuses.IsGenerated(request.Status))
@@ -194,6 +216,7 @@ public sealed class AddApprovedCreditNoteHandler(
                 CreditNoteDocEntry = creditNote?.DocEntry ?? docEntry,
                 CreditNoteDocNum = creditNote?.DocNum,
                 Resolved = docEntry is not null,
+                StageCode = request.CurrentStage,
                 Fiscalisation = fiscalisation,
                 Message = Describe(creditNote, docEntry, fiscalisation)
             };
