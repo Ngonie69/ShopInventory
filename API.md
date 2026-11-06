@@ -5952,7 +5952,7 @@ requests whose current SAP stage carries one of the names configured for it. The
 are filtered in SAP; the detail, the attachment download, the decision and the add answer
 `403 CreditNoteApproval.OutsideStageScope` for any other request. A repeated add is checked against the
 stage the first answer recorded (`stageCode` on the add result), because SAP deletes the request once it
-is added. `WashBay` ships scoped to `Wash Bay Approvals` and holds both `creditnotes.approve` and
+is added. `WashBay` ships scoped to `Factory Washbay` and holds both `creditnotes.approve` and
 `creditnotes.add_approved`; if its entry is missing it is refused the queue
 (`CreditNoteApproval.StageScopeNotConfigured`) rather than shown all of it, and a configured name SAP does
 not have is `CreditNoteApproval.StageScopeUnresolved`.

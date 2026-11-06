@@ -18,13 +18,16 @@ otherwise be surprised.
 
 ### Changed
 
-- **The wash bay now adds the SAP credit memos it approves.** Every `WashBay` account holds
-  `creditnotes.add_approved` as well as `creditnotes.approve`, and `/credit-notes/approvals` offers it
-  "Add credit note", which posts the credit note to SAP and fiscalises it. Both stay limited to the requests
-  at the SAP stages `CreditNoteApprovals:RoleStageScopes` names for the role (`Wash Bay Approvals` as
-  shipped): `POST /api/credit-note-approvals/{code}/add` now answers `403`
-  `CreditNoteApproval.OutsideStageScope` for any other request, as the decision already did, and the add
-  result carries the new field `stageCode`. Administrators are unaffected.
+- **The wash bay now adds the SAP credit memos it approves, and its queue opens.** Every `WashBay`
+  account holds `creditnotes.add_approved` as well as `creditnotes.approve`, and `/credit-notes/approvals`
+  offers it "Add credit note", which posts the credit note to SAP and fiscalises it. Both stay limited to
+  the requests at the SAP stages `CreditNoteApprovals:RoleStageScopes` names for the role:
+  `POST /api/credit-note-approvals/{code}/add` now answers `403` `CreditNoteApproval.OutsideStageScope` for
+  any other request, as the decision already did, and the add result carries the new field `stageCode`.
+  The shipped stage is now `Factory Washbay` (production stage 44, template #89 "Washbay Credit Notes").
+  It was `Wash Bay Approvals`, which production does not have, so the wash bay's page had been answering
+  `CreditNoteApproval.StageScopeUnresolved`. A server that overrides this setting needs the same change.
+  Administrators are unaffected.
 
 - **A customer statement stops waiting for a SAP read after 30 seconds and tries it once more**
   (`GET /api/statement/{cardCode}`, and the PDF at `/api/statement/generate/{cardCode}`). Each read used

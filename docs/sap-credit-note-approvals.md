@@ -50,7 +50,7 @@ curl -sk -H "Cookie: B1SESSION=$SID" "$B/Users?\$filter=UserCode%20eq%20'manager
 | `SAP:ApprovalApproverUsername` | `SAP:Username` | The SAP user decisions are recorded as |
 | `SAP:ApprovalApproverPassword` | `SAP:Password` when the approver is the session user, else omitted from the payload | Its password; never logged |
 | `CreditNoteApprovals:FiscaliseAfterAdd` | `true` | Fiscalise the credit note right after the add. A document added through the Service Layer never passes the fiscalisation platform's B1 print bridge, so with this off it is fiscalised only when somebody next prints it in the B1 client |
-| `CreditNoteApprovals:RoleStageScopes` | `WashBay` → `Wash Bay Approvals` in `appsettings.json`; empty if absent | Role → the SAP stage names it may read and decide; see "Stage scopes" below |
+| `CreditNoteApprovals:RoleStageScopes` | `WashBay` → `Factory Washbay` in `appsettings.json`; empty if absent | Role → the SAP stage names it may read and decide; see "Stage scopes" below |
 | `CreditNoteApprovals:AttachmentReadMode` | `Share` in `appsettings.json`; `ServiceLayer` if the key is absent | `Share` reads the file off `SAP:AttachmentsPath` with the share credentials instead of streaming `$value`, for a Service Layer that cannot serve the folder — which is this landscape, see below |
 
 ## Stage scopes
@@ -72,7 +72,16 @@ account is refused.
 The wash bay (`WashBay`) is the role that must be scoped — `ApplicationRoles.RequiresCreditNoteStageScope` —
 so a missing entry refuses its page instead of opening the whole queue. It decides and, since 2026-11-06,
 adds the requests at its stage. For its rows to offer Approve at all, SAP must also list the service
-approver on the `Wash Bay Approvals` stage.
+approver on that stage.
+
+Production, read back 2026-11-06: the one active wash bay template is #89 "Washbay Credit Notes"
+(A/R credit memos), one stage, 44 **`Factory Washbay`**, one approval required of Opsassist, PdnAdmin,
+Finacc, Software and Washbay — so the service approver is listed. Two older wash bay stages serve
+inactive templates: 40 `Washbay` (#85 "Credit Notes to Wash") and 33 `Production WashBay` (#74
+"Factory Credit Notes", which does not list Software). Until that day the setting named
+`Wash Bay Approvals`, which production never had, so the wash bay's page answered
+`StageScopeUnresolved`. A name here is matched against SAP's exactly (case aside); re-read the stages
+when a template changes.
 
 ## The routes
 

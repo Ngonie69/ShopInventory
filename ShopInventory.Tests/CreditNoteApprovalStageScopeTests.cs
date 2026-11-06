@@ -165,6 +165,13 @@ public sealed class CreditNoteApprovalStageScopeTests : IDisposable
     /// The shipped setting, read the way the host reads it. Without the entry the wash bay is refused
     /// the whole page in production, which a unit test over hand-built settings cannot see.
     /// </summary>
+    /// <remarks>
+    /// A name SAP does not have is as bad as no entry: the page answers StageScopeUnresolved. Until
+    /// 2026-11-06 this pinned "Wash Bay Approvals", which production never had. Read back from
+    /// production that day: stage 44 "Factory Washbay" belongs to the one active wash bay credit memo
+    /// template (#89 "Washbay Credit Notes") and lists the app's SAP approver and a SAP user named
+    /// Washbay. Stages 40 "Washbay" and 33 "Production WashBay" serve inactive templates.
+    /// </remarks>
     [Fact]
     public void The_shipped_settings_scope_the_wash_bay_to_the_production_washbay_stage()
     {
@@ -172,7 +179,7 @@ public sealed class CreditNoteApprovalStageScopeTests : IDisposable
         var settings = new CreditNoteApprovalSettings();
         configuration.GetSection(CreditNoteApprovalSettings.SectionName).Bind(settings);
 
-        Assert.Equal(["Wash Bay Approvals"], CreditNoteApprovalStageScope.ConfiguredStageNames(settings, ApplicationRoles.WashBay));
+        Assert.Equal(["Factory Washbay"], CreditNoteApprovalStageScope.ConfiguredStageNames(settings, ApplicationRoles.WashBay));
         Assert.Empty(CreditNoteApprovalStageScope.ConfiguredStageNames(settings, ApplicationRoles.Manager));
     }
 
