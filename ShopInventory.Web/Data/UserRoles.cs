@@ -110,6 +110,14 @@ public static class UserRoles
     public const string DistributionOfficer = "DistributionOfficer";
 
     /// <summary>
+    /// A shop's stock user, such as the factory shop's (KEFSHOP): accepts the stock sent into the
+    /// shop and sends stock back out, on /inventory-transfers alone. Not a stock officer
+    /// (<see cref="StockController"/>): a different person, scoped by its assigned warehouses the way
+    /// a depot controller is for transfers.
+    /// </summary>
+    public const string ShopStock = "ShopStock";
+
+    /// <summary>
     /// Legacy POD role. Not offered for new accounts, but still runtime-supported and
     /// still landing on the POD list — see <c>RoleLandingRoutes.For</c>.
     /// </summary>
@@ -233,10 +241,10 @@ public static class UserRoles
     /// manager, who reads them on /inventory-transfers (<see cref="InventoryTransferViewRoles"/>) and
     /// does none of it; the API agrees, refusing a manager <c>stock.transfer</c> and every write gate.
     /// </summary>
-    public const string InventoryTransferRoles = "Admin,StockController,WashBay,DepotController";
+    public const string InventoryTransferRoles = "Admin,StockController,WashBay,DepotController,ShopStock";
 
     /// <summary>Who can open /inventory-transfers: <see cref="InventoryTransferRoles"/> and the manager, read only.</summary>
-    public const string InventoryTransferViewRoles = "Admin,Manager,StockController,WashBay,DepotController";
+    public const string InventoryTransferViewRoles = "Admin,Manager,StockController,WashBay,DepotController,ShopStock";
 
     /// <summary>
     /// Who can open /credit-notes/approvals: the people who decide another person's SAP credit memo
@@ -409,6 +417,7 @@ public static class UserRoles
         ProductionOfficer,
         DispatchOfficer,
         DistributionOfficer,
+        ShopStock,
         Lab,
         MerchandiserPurchaseOrderViewer,
         Admin,
@@ -453,7 +462,8 @@ public static class UserRoles
         WashBay,
         ProductionOfficer,
         DispatchOfficer,
-        DistributionOfficer
+        DistributionOfficer,
+        ShopStock
     ];
 
     /// <summary>
@@ -592,12 +602,17 @@ public static class UserRoles
         string.Equals(role, Manager, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(role, StockController, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(role, WashBay, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, ShopStock, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Check if a role requires an assigned warehouse
+    /// Whether the user form asks for at least one assigned warehouse for <paramref name="role"/>:
+    /// the stock roles and the factory floor. The van roles and the cart vendor pick theirs in the
+    /// selling-account section instead.
     /// </summary>
-    public static bool RequiresWarehouseAssignment(string role) =>
+    public static bool RequiresWarehouseAssignment(string? role) =>
         string.Equals(role, StockController, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, ShopStock, StringComparison.OrdinalIgnoreCase) ||
+        IsFactoryRole(role);
 }

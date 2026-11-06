@@ -45,8 +45,11 @@ public sealed class DecidePendingTransferHandler(
         if (pending.Status != PendingInventoryTransferStatuses.AwaitingApproval)
             return Errors.InventoryTransfer.PendingTransferNotActionable(pending.Status);
 
-        var scopeCheck = await warehouseAuthorizer.EnsureCanActOnSourceAsync(
-            command.UserId, pending.FromWarehouse, cancellationToken);
+        // Either end of the transfer, not just the source: a stage aimed at the receiving warehouse
+        // asks the shop's stock user to accept stock leaving Dispatch.
+        var document = ApprovalDocumentContext.ForPendingTransfer(pending);
+        var scopeCheck = await warehouseAuthorizer.EnsureCanDecideAsync(
+            command.UserId, document.SourceWarehouses, document.DestinationWarehouses, cancellationToken);
         if (scopeCheck.IsError)
             return scopeCheck.Errors;
 
@@ -67,7 +70,7 @@ public sealed class DecidePendingTransferHandler(
             }
 
             var decision = await approvalService.SubmitDecisionAsync(
-                ApprovalDocumentContext.ForPendingTransfer(pending),
+                document,
                 command.UserId,
                 approving ? ApprovalDecisionValues.Approved : ApprovalDecisionValues.NotApproved,
                 command.StageId,

@@ -89,7 +89,7 @@ public sealed class ApprovalProcessController(
     /// administrator there.
     /// </remarks>
     [HttpGet("transfers/route-preview")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,ShopStock")]
     public async Task<IActionResult> PreviewTransferRoute(
         [FromQuery(Name = "from")] string[] from,
         [FromQuery(Name = "to")] string[] to,
@@ -106,7 +106,7 @@ public sealed class ApprovalProcessController(
     /// Decide a transfer request
     /// </summary>
     [HttpPost("transfer-requests/{docEntry:int}/decision")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,ShopStock")]
     public async Task<IActionResult> SubmitDecision(
         int docEntry,
         [FromBody] SubmitApprovalDecisionDto request,
@@ -137,7 +137,7 @@ public sealed class ApprovalProcessController(
     /// The final approval posts the transfer to SAP.
     /// </summary>
     [HttpPost("transfers/{pendingTransferId:guid}/decision")]
-    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController,ShopStock")]
     public async Task<IActionResult> SubmitTransferDecision(
         Guid pendingTransferId,
         [FromBody] SubmitPendingTransferDecisionDto request,

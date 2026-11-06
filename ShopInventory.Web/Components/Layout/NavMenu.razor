@@ -202,7 +202,7 @@
             @* ── Inventory ──
                Cashier is in the gate for Stock Monitoring alone, which used to sit
                under Catalogue. *@
-            <AuthorizeView Roles="Admin,Manager,StockController,WashBay,DepotController,Cashier,ProductionOfficer,DispatchOfficer,DistributionOfficer" Context="inventoryCtx">
+            <AuthorizeView Roles="Admin,Manager,StockController,WashBay,DepotController,ShopStock,Cashier,ProductionOfficer,DispatchOfficer,DistributionOfficer" Context="inventoryCtx">
                 <Authorized>
                     <NavSection Title="Inventory">
                         <AuthorizeView Roles="@UserRoles.CatalogueRoles" Context="stockCtx">

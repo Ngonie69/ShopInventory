@@ -185,6 +185,10 @@ Endpoints may require specific permissions checked via the `[RequirePermission]`
 | **Audit** | `audit.view`, `audit.export` |
 | **System** | `sync.view`, `sync.manage`, `system.admin`, `backups.view`, `backups.create`, `backups.restore`, `backups.delete` |
 
+`ShopStock` is a shop's stock user, such as the factory shop's: `stock.transfer` and
+`inventory.transfer` with the stock reads, scoped by `assignedWarehouseCodes` like a DepotController,
+and no other office pages. It is a different account from a `StockController` (Stock Officer).
+
 `Manager` runs the business and leaves the system to `Admin`. Its defaults read invoices, payments,
 sales orders and quotations without raising them (`*.view`, plus `salesorders.approve`), and keep
 purchasing, stock, credit note approvals, reports, customers and the van oversight. They hold nothing
@@ -1855,10 +1859,10 @@ provider's webhook configuration at. `/refund` is the one route on this controll
 | POST | `/api/InventoryTransfer/pending/{id}/record-sap-document` | Record a transfer found in SAP after a timed-out post |
 | POST | `/api/InventoryTransfer/request` | Raise a transfer request — ask a warehouse for stock |
 | GET | `/api/InventoryTransfer/requests` | List transfer requests, newest first (`page`, `pageSize`, `status`) |
-| PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, WashBay, DepotController, Manager |
-| POST | `/api/InventoryTransfer/request/{docEntry}/convert` | Authorize a request and generate the SAP transfer. Admin, StockController, WashBay, DepotController |
-| GET | `/api/InventoryTransfer/request/{docEntry}/stock` | The source warehouse's live stock of each item on a request, and which lines it cannot fill (`fromWarehouse`, `item`). Admin, StockController, WashBay, DepotController, Manager |
-| POST | `/api/InventoryTransfer/request/{docEntry}/close` | Close a request in SAP without converting it. Admin, StockController, WashBay, DepotController |
+| PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, WashBay, DepotController, ShopStock, Manager |
+| POST | `/api/InventoryTransfer/request/{docEntry}/convert` | Authorize a request and generate the SAP transfer. Admin, StockController, WashBay, DepotController, ShopStock |
+| GET | `/api/InventoryTransfer/request/{docEntry}/stock` | The source warehouse's live stock of each item on a request, and which lines it cannot fill (`fromWarehouse`, `item`). Admin, StockController, WashBay, DepotController, ShopStock, Manager |
+| POST | `/api/InventoryTransfer/request/{docEntry}/close` | Close a request in SAP without converting it. Admin, StockController, WashBay, DepotController, ShopStock |
 | GET | `/api/InventoryTransfer/requests/{warehouseCode}` | A warehouse's transfer requests: those raised in the last 90 days (or since `fromDate`), and every one still open |
 | GET | `/api/InventoryTransfer/request/{docEntry}` | One transfer request |
 | GET | `/api/InventoryTransfer/request-edits` | List changes held for approval (`status`, `requestDocEntry`, `page`, `pageSize`) |
@@ -1914,8 +1918,8 @@ an empty `approvalStages`, and `documentStatus` is the only status it carries.
 
 `POST /api/InventoryTransfer/request/{docEntry}/convert` never posts past the request's approval,
 whoever calls it and wherever the request was raised. Admin, StockController and WashBay may convert
-from any source warehouse; a DepotController only from one in their `assignedWarehouseCodes`
-(otherwise 403). Then:
+from any source warehouse; a DepotController or ShopStock only from one in their
+`assignedWarehouseCodes` (otherwise 403). Then:
 
 - **Approved already:** the SAP transfer is generated in this call. The person who raised the
   request may do this; the approval was someone else's.
@@ -2003,7 +2007,7 @@ repeat returns the existing held transfer rather than opening a second approval.
 |--------|----------|-------------|
 | GET | `/api/InventoryTransfer/pending` | List held transfers. `status` (default `AwaitingApproval`, or `all`), `warehouseCode`, `mineOnly`, `page`, `pageSize` |
 | GET | `/api/InventoryTransfer/pending/{id}` | Held transfer with lines and per-stage approval progress |
-| POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject. Admin, StockController, WashBay, DepotController, Manager. The person who raised the transfer, or who sent it back by raising its lines, cannot approve it (403 `InventoryTransfer.SelfApprovalNotAllowed`); they may reject it |
+| POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject. Admin, StockController, WashBay, DepotController, ShopStock, Manager. The person who raised the transfer, or who sent it back by raising its lines, cannot approve it (403 `InventoryTransfer.SelfApprovalNotAllowed`); they may reject it |
 | POST | `/api/InventoryTransfer/pending/{id}/post` | Retry the SAP post after a `PostFailed`. Any attempt after the first looks the transfer up in SAP by its draft number (`U_OrderNumber`) and records the document it finds instead of posting again. A failed lookup posts nothing. A timeout recorded before posts carried the draft number is refused with 409 `InventoryTransfer.PostOutcomeUnsearchable`: record its number or withdraw it |
 | POST | `/api/InventoryTransfer/pending/{id}/cancel` | Withdraw. Submitter or Admin only, while `AwaitingApproval` |
 | GET | `/api/InventoryTransfer/pending/{id}/stock-check` | Each line against the source warehouse now: `InStock`, `Short` (with the available figure) or `Unread` |
@@ -3236,8 +3240,8 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | GET | `/api/DesktopIntegration/transfer-requests/{docEntry}` | (class) | One request |
 | GET | `/api/DesktopIntegration/transfer-requests/warehouse/{warehouseCode}` | (class) | A warehouse's requests: those raised in the last 90 days (or since `fromDate`), and every one still open |
 | GET | `/api/DesktopIntegration/transfer-requests/paged` | (class) | Requests, paginated |
-| POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/convert` | Admin, StockController, WashBay, DepotController | Authorise and generate the transfer |
-| POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/close` | Admin, StockController, WashBay, DepotController | Close without converting |
+| POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/convert` | Admin, StockController, WashBay, DepotController, ShopStock | Authorise and generate the transfer |
+| POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/close` | Admin, StockController, WashBay, DepotController, ShopStock | Close without converting |
 | GET | `/api/DesktopIntegration/transfer-queue` | (class) | The transfer queue (`sourceSystem`, `limit` 100) |
 | GET | `/api/DesktopIntegration/transfer-queue/review` | (class) | Entries needing a look (`limit` 50) |
 | GET | `/api/DesktopIntegration/transfer-queue/stats` | (class) | Queue counts |
@@ -5439,6 +5443,16 @@ Migration `SeedDispatchFactoryShopApprovals` added the **Receiving stock officer
 Officer, `Destination`, per warehouse) and two direct-transfer templates at priority 200: **Dispatch
 to Factory Shop** (DISPCH, DISPYOG, DISPMILK, DISPICE → KEFSHOP) and **Factory Shop returns to
 Dispatch** (the reverse). They are ordinary rows: rename, retarget or delete them like any other.
+
+The factory shop's stock user is not a stock officer, so migration `SeparateFactoryShopStockApproval`
+added a **Factory shop stock** stage (`ShopStock`, `Destination`, per warehouse) and moved **Dispatch
+to Factory Shop** onto it, leaving the returns with the Receiving stock officer stage. It moved the
+template only while it still held the seeded stage. Approvals opened before it keep their stages.
+
+A warehouse-scoped role (DepotController, ShopStock) may decide a held transfer, and read its stock
+check, when one of its `assignedWarehouseCodes` is at **either end**; which end the stage asks for is
+the stage's `warehouseScope`. Its other held-transfer actions (editing lines, retrying or recording
+the post, withdrawing) still need the source warehouse.
 
 `GET /transfers/route-preview?from=DISPCH&from=DISPYOG&to=KEFSHOP` answers which template and stages a
 transfer would get, without opening anything. `matched: false` means no active template fits and the
