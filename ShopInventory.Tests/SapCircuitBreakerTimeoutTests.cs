@@ -173,6 +173,76 @@ public class SapCircuitBreakerTimeoutTests
     }
 
     [Fact]
+    public async Task A_budgeted_report_read_SAP_never_answers_times_out_at_its_budget_and_records_nothing()
+    {
+        // The customer statement's reads. A stuck one used to hold its slot, and the customer, for the
+        // whole five-minute client timeout. Unlike a stock read it is not counted: a few statements
+        // must not be able to open the breaker and refuse every posting.
+        var harness = new Harness(StatementLedgerHangs);
+        var budget = TimeSpan.FromSeconds(30);
+
+        var read = harness.Client.ExecuteParameterisedSqlQueryWithBudgetAsync(
+            StatementLedgerCode,
+            "Statement Ledger Rows",
+            StatementLedgerSql,
+            new Dictionary<string, string> { ["cardCode"] = "C1" },
+            budget);
+        Assert.True(await harness.Sap.WaitForHangAsync(read), "The ledger read was never sent.");
+        harness.Clock.Advance(budget);
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => read);
+        Assert.Contains(StatementLedgerCode, ex.Message);
+        Assert.Equal(1, harness.Sap.CancelledRequests);
+        Assert.Equal(0, harness.Breaker.GetSnapshot().ConsecutiveFailures);
+    }
+
+    [Fact]
+    public async Task A_budgeted_report_read_is_not_cut_short_before_its_budget()
+    {
+        var harness = new Harness(StatementLedgerHangs);
+        var budget = TimeSpan.FromSeconds(30);
+
+        var read = harness.Client.ExecuteParameterisedSqlQueryWithBudgetAsync(
+            StatementLedgerCode,
+            "Statement Ledger Rows",
+            StatementLedgerSql,
+            new Dictionary<string, string> { ["cardCode"] = "C1" },
+            budget);
+        await harness.Sap.WaitForHangAsync(read);
+        harness.Clock.Advance(budget - TimeSpan.FromSeconds(1));
+
+        // A cancellation, had one fired, unwinds through HttpClient asynchronously; give it a moment
+        // so "still running" is an observation rather than a race.
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        Assert.False(read.IsCompleted);
+        Assert.Equal(0, harness.Sap.CancelledRequests);
+
+        harness.Clock.Advance(TimeSpan.FromSeconds(1));
+        await Assert.ThrowsAsync<TimeoutException>(() => read);
+    }
+
+    [Fact]
+    public async Task A_caller_giving_up_on_a_budgeted_report_read_is_a_cancellation_not_a_timeout()
+    {
+        var harness = new Harness(StatementLedgerHangs);
+        using var caller = new CancellationTokenSource();
+
+        var read = harness.Client.ExecuteParameterisedSqlQueryWithBudgetAsync(
+            StatementLedgerCode,
+            "Statement Ledger Rows",
+            StatementLedgerSql,
+            new Dictionary<string, string> { ["cardCode"] = "C1" },
+            TimeSpan.FromSeconds(30),
+            caller.Token);
+        await harness.Sap.WaitForHangAsync(read);
+        caller.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => read);
+        Assert.Equal(1, harness.Sap.CancelledRequests);
+        Assert.Equal(0, harness.Breaker.GetSnapshot().ConsecutiveFailures);
+    }
+
+    [Fact]
     public async Task Five_stock_budgets_running_out_in_a_row_open_the_breaker()
     {
         var harness = new Harness();
@@ -208,6 +278,15 @@ public class SapCircuitBreakerTimeoutTests
         Assert.IsType<TimeoutException>(ex.InnerException);
         Assert.Equal(1, harness.Sap.HungRequests);
     }
+
+    private const string StatementLedgerCode = "STMT_LEDGER_ROWS";
+
+    private const string StatementLedgerSql =
+        "SELECT T1.\"Debit\" FROM \"JDT1\" T1 WHERE T1.\"ShortName\" = :cardCode";
+
+    private static bool StatementLedgerHangs(string path) =>
+        path.Contains(StatementLedgerCode, StringComparison.Ordinal)
+        && path.EndsWith("/List", StringComparison.Ordinal);
 
     private static bool BatchListHangs(string path) =>
         path.Contains(SAPServiceLayerClient.ItemBatchesQueryCode, StringComparison.Ordinal)

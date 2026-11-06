@@ -15,6 +15,16 @@ public static partial class Errors
         public static Error GenerationFailed(string message) =>
             Error.Failure("Statement.GenerationFailed", message);
 
+        /// <summary>
+        /// SAP did not answer one of the reads a statement cannot be shown without, even after a
+        /// retry. Nothing is still running and nothing was kept, so unlike <see cref="Timeout"/> it
+        /// does not suggest the statement is on its way.
+        /// </summary>
+        public static readonly Error SapNotAnswering =
+            Error.Failure(
+                "Statement.SapNotAnswering",
+                "Our accounting system didn't answer in time, so this statement couldn't be built. Please try again in a minute.");
+
         public static readonly Error Timeout =
             Error.Failure(
                 "Statement.Timeout",

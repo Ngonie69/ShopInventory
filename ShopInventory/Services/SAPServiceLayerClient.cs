@@ -5384,14 +5384,74 @@ ORDER BY T0."DistNumber"
         string operation,
         CancellationToken cancellationToken)
     {
-        await EnsureSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
-
         var timeoutSeconds = Math.Clamp(_settings.StockSqlRequestTimeoutSeconds, 5, 300);
+
+        return await ExecuteSqlQueryUnderBudgetAsync(
+            queryCode,
+            queryName,
+            sqlText,
+            parameters,
+            TimeSpan.FromSeconds(timeoutSeconds),
+            budgetCountsAsSapFailure: true,
+            $"SAP stock read exceeded its {timeoutSeconds}-second budget ({operation}).",
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Unlike a stock read, this budget running out is not counted as a circuit-breaker failure. A
+    /// stock read that SAP takes and never answers is the outage the breaker exists for. A single
+    /// stuck report read is weaker evidence: the customer statement's reads answer in under a second
+    /// almost every time, yet at least two in twelve sat out the full five minutes in early November
+    /// 2026. Counting those would let a few statements open the breaker and refuse every posting for
+    /// the break duration — the same reasoning that keeps the price-list budget out of it. The caller
+    /// decides what a timeout means, and may retry.
+    /// </remarks>
+    public async Task<List<Dictionary<string, object?>>> ExecuteParameterisedSqlQueryWithBudgetAsync(
+        string queryCode,
+        string queryName,
+        string sqlText,
+        IReadOnlyDictionary<string, string> parameters,
+        TimeSpan budget,
+        CancellationToken cancellationToken = default)
+        => await ExecuteSqlQueryUnderBudgetAsync(
+            queryCode,
+            queryName,
+            sqlText,
+            parameters,
+            budget,
+            budgetCountsAsSapFailure: false,
+            $"SAP did not answer SQL query '{queryCode}' within {budget.TotalSeconds:0} seconds.",
+            cancellationToken);
+
+    /// <summary>
+    /// Runs one parameterised read, every page, retry and re-authentication of it, under a single
+    /// deadline, and turns that deadline running out — and only that — into a
+    /// <see cref="TimeoutException"/>. Caller cancellation still surfaces as an
+    /// <see cref="OperationCanceledException"/>.
+    /// </summary>
+    /// <remarks>
+    /// The query object is provisioned before the clock starts. The code is fixed, so this is a
+    /// memoised no-op after the first call in a process and a cheap GET after the first on a server;
+    /// only the very first ever is the slow POST, and cutting that off part-way would leave SAP
+    /// committing an object the next caller then tries to create again.
+    /// </remarks>
+    private async Task<List<Dictionary<string, object?>>> ExecuteSqlQueryUnderBudgetAsync(
+        string queryCode,
+        string queryName,
+        string sqlText,
+        IReadOnlyDictionary<string, string> parameters,
+        TimeSpan budget,
+        bool budgetCountsAsSapFailure,
+        string timeoutMessage,
+        CancellationToken cancellationToken)
+    {
+        await EnsureSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
 
         // Kept apart from the caller's token, as in SendStockRequestWithBudgetAsync, so the breaker
         // can read it as the budget alone.
-        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds), _timeProvider);
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
+        using var deadline = new CancellationTokenSource(budget, _timeProvider);
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
 
         try
         {
@@ -5401,14 +5461,12 @@ ORDER BY T0."DistNumber"
                 sqlText,
                 parameters,
                 timeoutSource.Token,
-                breakerDeadline: budget.Token);
+                breakerDeadline: budgetCountsAsSapFailure ? deadline.Token : null);
         }
         catch (OperationCanceledException ex) when (
-            !cancellationToken.IsCancellationRequested && budget.IsCancellationRequested)
+            !cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested)
         {
-            throw new TimeoutException(
-                $"SAP stock read exceeded its {timeoutSeconds}-second budget ({operation}).",
-                ex);
+            throw new TimeoutException(timeoutMessage, ex);
         }
     }
 
