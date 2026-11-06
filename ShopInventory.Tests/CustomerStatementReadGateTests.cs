@@ -62,7 +62,7 @@ public sealed class CustomerStatementReadGateTests
         {
             nameof(ISAPServiceLayerClient.GetPaymentTermsByCodeAsync) =>
                 Read(() => (PaymentTermsDto?)new PaymentTermsDto { GroupNumber = 3, PaymentTermsGroupName = "30 days" }),
-            nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryAsync) =>
+            nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryWithBudgetAsync) =>
                 Read(() => Rows((string)args![0]!)),
             _ => throw new InvalidOperationException(method.Name)
         });

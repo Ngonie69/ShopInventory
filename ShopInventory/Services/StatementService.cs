@@ -90,7 +90,7 @@ namespace ShopInventory.Services
                 AddAccountSummary(document, statement);
 
                 // Add aging analysis from the precomputed statement summary.
-                AddAgingAnalysis(document, statement.Aging);
+                AddAgingAnalysis(document, statement.Aging, statement.AgingAvailable);
 
                 // Add transaction ledger from SAP-backed statement rows.
                 AddTransactionLedger(document, statement);
@@ -395,7 +395,7 @@ namespace ShopInventory.Services
             table.AddCell(cell);
         }
 
-        private void AddAgingAnalysis(Document document, StatementAgingSummaryDto aging)
+        private void AddAgingAnalysis(Document document, StatementAgingSummaryDto aging, bool agingAvailable)
         {
             var sectionTitle = new Paragraph()
                 .Add(new Text("AGING ANALYSIS")
@@ -403,6 +403,22 @@ namespace ShopInventory.Services
                     .SetFontSize(11)
                     .SetFontColor(PrimaryColor))
                 .SetMarginBottom(10);
+
+            // When SAP could not answer the aging read, the buckets are empty rather than the
+            // customer's. Printing them would put "Total Due 0.00" on a statement for an account
+            // that owes money, so the section says what happened instead.
+            if (!agingAvailable)
+            {
+                document.Add(sectionTitle);
+                document.Add(new Paragraph(
+                        "Aging could not be loaded when this statement was generated. "
+                        + "The balances above are complete; download the statement again for the aging.")
+                    .SetFont(_regularFont)
+                    .SetFontSize(9)
+                    .SetFontColor(TextMuted)
+                    .SetMarginBottom(15));
+                return;
+            }
 
             // The period can run past the day the statement was pulled, and then the aging is
             // measured from that day rather than the period end. Say which day it is.

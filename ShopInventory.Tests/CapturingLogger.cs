@@ -26,7 +26,14 @@ public class CapturingLogger : ILogger
         TState state,
         Exception? exception,
         Func<TState, Exception?, string> formatter)
-        => Entries.Add((logLevel, formatter(state, exception), exception));
+    {
+        // Locked: some callers log from concurrent tasks (a statement's SAP reads run two at a time).
+        var entry = (logLevel, formatter(state, exception), exception);
+        lock (Entries)
+        {
+            Entries.Add(entry);
+        }
+    }
 
     /// <summary>Every entry at <paramref name="level"/> or above.</summary>
     public IReadOnlyList<(LogLevel Level, string Message, Exception? Exception)> AtOrAbove(LogLevel level)

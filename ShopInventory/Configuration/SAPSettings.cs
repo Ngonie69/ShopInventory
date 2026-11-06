@@ -96,6 +96,30 @@ public class SAPSettings
     public int PriceListSqlMaxAttempts { get; set; } = 1;
 
     /// <summary>
+    /// How long one attempt at one of a customer statement's SAP reads (opening balance, ledger,
+    /// open items) may take before it is abandoned.
+    /// </summary>
+    /// <remarks>
+    /// Measured in production in early November 2026: those reads answered in 0.1–0.9 s at the
+    /// median, and the slowest one in a statement that finished took 8.6 s. Without a budget of their
+    /// own they inherit <see cref="RequestTimeoutMinutes"/>, and at least two in twelve sat out the
+    /// whole five minutes — the same five minutes the portal waits, so the customer got nothing.
+    /// Thirty seconds is several times the slowest healthy read.
+    /// </remarks>
+    public int StatementSqlRequestTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// How many times a statement read is tried before the statement gives up on it.
+    /// </summary>
+    /// <remarks>
+    /// Two: one retry. The reads are idempotent, and a read that got stuck is very unlikely to get
+    /// stuck again straight away if the retry reaches a different Service Layer node — which it
+    /// usually will, since this app never pins one. That last part is expected rather than measured;
+    /// the "retrying" lines in the API log are where to check it.
+    /// </remarks>
+    public int StatementSqlMaxAttempts { get; set; } = 2;
+
+    /// <summary>
     /// Maximum time allowed for a single stock read against SAP's SQLQueries endpoint.
     /// </summary>
     /// <remarks>
