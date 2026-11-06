@@ -11,7 +11,9 @@ using ShopInventory.Features.CreditNotes.Commands.CreateCreditNoteFromInvoice;
 using ShopInventory.Features.CreditNotes.Commands.DeleteCreditNote;
 using ShopInventory.Features.CreditNotes.Commands.DuplicateCancelledCreditNotes;
 using ShopInventory.Features.CreditNotes.Commands.UpdateCreditNoteStatus;
+using ShopInventory.Features.CreditNotes.Queries.DownloadCreditNotePdf;
 using ShopInventory.Features.CreditNotes.Queries.GetAllCreditNotes;
+using ShopInventory.Features.CreditNotes.Queries.GetCustomerCreditNotes;
 using ShopInventory.Features.CreditNotes.Queries.GetCreditNoteById;
 using ShopInventory.Features.CreditNotes.Queries.GetCreditNoteReasons;
 using ShopInventory.Features.CreditNotes.Queries.GetCreditNoteByNumber;
@@ -115,6 +117,50 @@ public class CreditNoteController(IMediator mediator) : ApiControllerBase
     {
         var result = await mediator.Send(new GetCreditNotesByInvoiceQuery(invoiceId), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The credit notes on one or more customer accounts over a period, with their lines, read from SAP
+    /// </summary>
+    /// <remarks>
+    /// For the customer portal: amounts in each note's own currency, how much of each is used, the
+    /// invoice it credits and its fiscal receipt. Cancelled notes and the documents that cancelled them
+    /// are left out. The period may be at most a year.
+    /// </remarks>
+    [HttpGet("customers")]
+    [RequirePermission(Permission.ViewInvoices)]
+    [ProducesResponseType(typeof(CustomerCreditNotesResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetForCustomers(
+        [FromQuery] string[] cardCodes,
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetCustomerCreditNotesQuery(cardCodes, fromDate, toDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Download a credit note as a PDF
+    /// </summary>
+    /// <remarks>
+    /// Printed on the invoice's sheet, titled as a credit note, with the invoice it credits, its reason
+    /// and its fiscal receipt. Pass <c>cardCode</c> to have a note on any other account answer 404.
+    /// </remarks>
+    [HttpGet("{docEntry:int}/pdf")]
+    [RequirePermission(Permission.ViewInvoices)]
+    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DownloadPdf(
+        int docEntry,
+        [FromQuery] string? cardCode = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new DownloadCreditNotePdfQuery(docEntry, cardCode), cancellationToken);
+        return result.Match(
+            pdf => File(pdf.PdfBytes, "application/pdf", pdf.FileName),
+            Problem);
     }
 
     /// <summary>

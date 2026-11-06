@@ -5,7 +5,11 @@ namespace ShopInventory.Models;
 /// <summary>
 /// SAP Business One Credit Memo (A/R Credit Memo) model
 /// </summary>
-public class SAPCreditNote
+/// <remarks>
+/// Read-only: a credit memo is posted from its own payload, never by serialising this model, so a
+/// field added here is only ever asked for, never sent.
+/// </remarks>
+public class SAPCreditNote : ISapDocumentAmounts
 {
     [JsonPropertyName("DocEntry")]
     public int DocEntry { get; set; }
@@ -62,6 +66,21 @@ public class SAPCreditNote
     [JsonPropertyName("Cancelled")]
     public string? Cancelled { get; set; } // tYES, tNO
 
+    /// <summary>
+    /// <c>csNo</c>; <c>csYes</c> on a memo that has been cancelled; <c>csCancellation</c> on the
+    /// document that cancelled one. <see cref="Cancelled"/> says <c>tNO</c> on that last kind, so it
+    /// alone cannot tell a cancellation from a credit.
+    /// </summary>
+    [JsonPropertyName("CancelStatus")]
+    public string? CancelStatus { get; set; }
+
+    /// <summary>
+    /// How much of the memo has been used — set against invoices or refunded — in local currency
+    /// (USD). A memo closed against its base invoice reads its whole total here.
+    /// </summary>
+    [JsonPropertyName("PaidToDate")]
+    public decimal PaidToDate { get; set; }
+
     [JsonPropertyName("DiscountPercent")]
     public decimal? DiscountPercent { get; set; }
 
@@ -98,12 +117,22 @@ public class SAPCreditNote
 
     [JsonPropertyName("DocumentLines")]
     public List<SAPCreditNoteLine>? DocumentLines { get; set; }
+
+    // The list $select carries DocTotalFc and no other foreign figure, so tax and anything else are
+    // converted at the memo's own ratio of its two totals (Common.Sales.SapDocumentAmounts).
+    decimal? ISapDocumentAmounts.DocTotal => DocTotal;
+    decimal? ISapDocumentAmounts.DocTotalFc => DocTotalFc;
+    decimal? ISapDocumentAmounts.VatSum => VatSum;
+    decimal? ISapDocumentAmounts.VatSumFc => null;
+    decimal? ISapDocumentAmounts.TotalDiscount => TotalDiscount;
+    decimal? ISapDocumentAmounts.TotalDiscountFC => null;
+    decimal? ISapDocumentAmounts.DocRate => null;
 }
 
 /// <summary>
 /// SAP Business One Credit Memo Line model
 /// </summary>
-public class SAPCreditNoteLine
+public class SAPCreditNoteLine : ISapDocumentLineAmounts
 {
     [JsonPropertyName("LineNum")]
     public int LineNum { get; set; }
@@ -186,6 +215,19 @@ public class SAPCreditNoteLine
     /// <summary>Gross line total after the line discount.</summary>
     [JsonPropertyName("GrossTotal")]
     public decimal GrossTotal { get; set; }
+
+    /// <summary>
+    /// <see cref="LineTotal"/> in the document's own currency; zero or absent on a USD memo. Lines come
+    /// back whole whatever the header <c>$select</c> names, so this needs no select of its own.
+    /// </summary>
+    [JsonPropertyName("RowTotalFC")]
+    public decimal? RowTotalFC { get; set; }
+
+    /// <summary><see cref="GrossTotal"/> in the document's own currency; zero or absent on a USD memo.</summary>
+    [JsonPropertyName("GrossTotalFC")]
+    public decimal? GrossTotalFC { get; set; }
+
+    decimal? ISapDocumentLineAmounts.LineTotal => LineTotal;
 
     [JsonPropertyName("DiscountPercent")]
     public decimal? DiscountPercent { get; set; }

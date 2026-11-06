@@ -1969,6 +1969,14 @@
     white-space: nowrap;
 }
 
+/* The heading of a money column sits over its figures. The heading rule above
+   is (0,3,1) and sets text-align: left, which `.cpd-num` alone (0,2,0) could not
+   undo, so every right-aligned column — Amount, Paid, Balance — carried its
+   heading at the left of the figures beneath it. */
+.cpx.customer-shell .cpd-table th.cpd-num {
+    text-align: right;
+}
+
 .cpx .cpd-doc {
     display: flex;
     flex-direction: column;
@@ -2309,10 +2317,15 @@
    root's `min-height: 100vh` through the layout and hang a topbar below the
    fold. Same trap as the staff overlays. */
 
+/* Dialog height, not popover height: the portal's top bar is a MudAppBar at
+   MudBlazor's appbar layer (1300), so at the old 1200 the bar sat over the
+   sheet. On a desktop the sheet is centred well below it and nobody noticed;
+   on a phone the sheet runs nearly full height and the bar hid its title and
+   most of its close button. */
 .cpx .cpd-overlay {
     position: fixed;
     inset: 0;
-    z-index: 1200;
+    z-index: var(--mud-zindex-dialog, 1400);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2751,6 +2764,245 @@
    returned columns and any negative total. */
 .cpx .cpd-minus {
     color: var(--cpd-alert);
+}
+
+/* Credit notes ---------------------------------------------------------------
+   /customer-portal/credit-notes, from the `Portal Credit Notes` design. The
+   page is the invoices page's grammar; these are the few blocks it adds.
+
+   Credit left is good news for the customer, so it takes the brand accent, not
+   the alert: the strip, the figure and the "Not applied" tag are the one teal
+   thread through the page the way the overdue path is the one rose thread on
+   the invoices page. Every value is a `--cpx-*` alias, so dark mode re-resolves
+   with the rest of the portal and needs no block of its own. */
+
+/* The neutral strip with an action on its end, as the overdue strip has. */
+.cpx .cpd-credit-note {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.cpx .cpd-credit-note .cpd-banner-text {
+    color: var(--cpx-ink-2);
+}
+
+/* A link-weight action that is a button, because it changes the list rather
+   than going anywhere. */
+.cpx .cpd-text-btn {
+    flex: none;
+    margin-left: auto;
+    min-height: 32px;
+    padding: 0 var(--cpx-s2);
+    border: none;
+    border-radius: var(--cpx-r-sm);
+    background: transparent;
+    font: inherit;
+    font-size: var(--cpx-text-sm);
+    font-weight: 600;
+    color: var(--cpx-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+}
+
+.cpx .cpd-text-btn:hover {
+    color: var(--cpx-ink);
+}
+
+/* The Find box: a `.cpd-input` with its glyph inset, so it is one height and
+   one edge with the date fields beside it. */
+.cpx .cpd-find {
+    position: relative;
+    display: block;
+}
+
+.cpx .cpd-find > .ph {
+    position: absolute;
+    top: 50%;
+    left: var(--cpx-s4);
+    transform: translateY(-50%);
+    font-size: 16px;
+    color: var(--cpx-mute);
+    pointer-events: none;
+}
+
+.cpx .cpd-find .cpd-input {
+    padding-left: 36px;
+}
+
+/* Segmented filter in the ledger head: All / Credit left / Applied. The
+   pressed segment is lifted onto the surface rather than filled, so three of
+   them read as one control and not as three buttons. */
+.cpx .cpd-seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface-2);
+    box-shadow: inset 0 0 0 1px var(--cpx-edge);
+}
+
+.cpx .cpd-seg-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cpx-s2);
+    min-height: 36px;
+    padding: 0 var(--cpx-s4);
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    font: inherit;
+    font-size: var(--cpx-text-sm);
+    font-weight: 600;
+    color: var(--cpx-mute);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .15s ease, color .15s ease, box-shadow .15s ease;
+}
+
+.cpx .cpd-seg-btn:hover {
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-seg-btn.is-on {
+    background: var(--cpx-surface);
+    box-shadow: 0 0 0 1px var(--cpx-edge), 0 1px 2px rgba(var(--cpx-ink-rgb), .06);
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-seg-count {
+    font-size: .72rem;
+    font-weight: 600;
+    color: var(--cpx-mute);
+}
+
+.cpx .cpd-seg-btn:focus-visible,
+.cpx .cpd-text-btn:focus-visible {
+    outline: 2px solid var(--cpx-accent);
+    outline-offset: 2px;
+}
+
+/* On a phone the control takes the head's whole width and the segments share
+   it, so none is a sliver and all three clear the touch target. */
+@media (max-width: 599.98px) {
+    .cpx .cpd-ledger .cpd-panel-tools {
+        flex: 1 1 100%;
+    }
+
+    .cpx .cpd-seg {
+        display: flex;
+        flex: 1 1 100%;
+    }
+
+    .cpx .cpd-seg-btn {
+        flex: 1 1 0;
+        min-height: 38px;
+        padding-inline: var(--cpx-s2);
+    }
+}
+
+/* Credit still to be used — the accent's text step on its outline. */
+.cpx .cpd-status.is-open {
+    border-color: rgba(var(--cpx-accent-rgb), .5);
+    color: var(--cpx-accent-text);
+}
+
+/* The credit-left figure, ringed in the accent while there is credit left. */
+.cpx .cpd-kpi.is-credit {
+    box-shadow: 0 0 0 1px rgba(var(--cpx-accent-rgb), .45);
+}
+
+.cpx .cpd-kpi.is-credit:hover {
+    box-shadow: 0 0 0 1px var(--cpx-accent);
+}
+
+.cpx .cpd-kpi.is-credit .cpd-kpi-label,
+.cpx .cpd-kpi.is-credit .cpd-kpi-num {
+    color: var(--cpx-accent-text);
+}
+
+.cpx .cpd-kpi.is-credit .cpd-kpi-top i {
+    color: var(--cpx-accent);
+}
+
+.cpx .cpd-def.is-credit .cpd-def-v {
+    color: var(--cpx-accent-text);
+}
+
+/* A second line in a definition: the VAT under the amount, the code under a
+   receipt with no verification address. */
+.cpx .cpd-def-sub {
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+}
+
+.cpx .cpd-ext {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    align-self: flex-start;
+    font-size: var(--cpx-text-sm);
+    font-weight: 600;
+    color: var(--cpx-accent-text);
+    text-decoration: none;
+}
+
+.cpx .cpd-ext:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* The reason column holds SAP's own reason list, sometimes two joined; it
+   wraps rather than pushing the money columns off the panel. */
+.cpx .cpd-reason {
+    display: inline-block;
+    max-width: 22ch;
+}
+
+/* The download button in a ledger row: a square on a desktop, where the
+   column header names it, and "PDF" beside the glyph on a phone, where the row
+   is a card and a lone arrow would say nothing. */
+.cpx .cpd-icon-only {
+    gap: var(--cpx-s2);
+    min-width: 40px;
+}
+
+.cpx .cpd-icon-only .ph {
+    font-size: 17px;
+}
+
+.cpx .cpd-icon-only-label {
+    display: none;
+}
+
+@media (max-width: 991.98px) {
+    .cpx .cpd-icon-only-label {
+        display: inline;
+    }
+
+    .cpx .cpd-rowacts .btn {
+        min-height: 44px;
+    }
+}
+
+/* The sheet foot's leading note: what the PDF will carry. */
+.cpx .cpd-sheet-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpx-s2);
+    margin-right: auto;
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+}
+
+.cpx .cpd-sheet-hint .ph {
+    font-size: 16px;
+    color: var(--cpx-accent);
+}
+
+.cpx .cpd-sheet-head .cpd-status {
+    flex: none;
 }
 
 /* ==========================================================================
