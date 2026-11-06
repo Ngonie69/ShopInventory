@@ -258,6 +258,31 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         Assert.False(Assert.Single(audit.Entries).Success);
     }
 
+    /// <summary>
+    /// Production, 2026-11-05, draft 86380: SAP's Service Layer cannot reach its attachments folder, so
+    /// it will not add a draft that carries a file. Whoever clicked Add is told that nothing was added and
+    /// where to add it instead; SAP's own words stay in the audit for whoever fixes the folder.
+    /// </summary>
+    [Fact]
+    public async Task An_attachments_folder_refusal_says_nothing_was_added_and_to_use_the_sap_client()
+    {
+        const string sapMessage = "Attachments folder not defined, or Attachments folder has been changed or removed [Message 131-102]";
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123)) { RefuseWith = sapMessage };
+        var fiscal = new RecordingFiscalisation();
+        var audit = new RecordingAuditService();
+
+        var result = await Handler(sap, fiscal, audit).Handle(Command(3110), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.AddBlockedByAttachmentsFolder", result.FirstError.Code);
+        Assert.Contains("Nothing was added", result.FirstError.Description);
+        Assert.Contains("SAP Business One client", result.FirstError.Description);
+        Assert.Empty(sap.Projected);
+        Assert.Empty(fiscal.Calls);
+        var entry = Assert.Single(audit.Entries);
+        Assert.False(entry.Success);
+        Assert.Contains(sapMessage, entry.Error);
+    }
+
     [Fact]
     public async Task A_repeat_replays_the_first_answer_without_a_second_save()
     {

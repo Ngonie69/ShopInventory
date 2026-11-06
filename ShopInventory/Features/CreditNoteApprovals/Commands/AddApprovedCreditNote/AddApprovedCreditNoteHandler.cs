@@ -141,7 +141,9 @@ public sealed class AddApprovedCreditNoteHandler(
             {
                 logger.LogWarning(rejected, "SAP refused to add draft {DraftEntry} for approval request {Code}", draftEntry, command.Code);
                 await TryAuditAsync(command, draft, false, $"SAP refused: {rejected.SapMessage}");
-                return Errors.CreditNoteApproval.SapRejected(rejected.SapMessage);
+                return CreditNoteDraftAttachments.IsAttachmentsFolderRefusal(rejected.SapMessage)
+                    ? Errors.CreditNoteApproval.AddBlockedByAttachmentsFolder
+                    : Errors.CreditNoteApproval.SapRejected(rejected.SapMessage);
             }
             catch (Exception exception)
             {

@@ -5931,7 +5931,10 @@ itself `dasApproved`, and `statusNote` in a sentence otherwise. SAP can approve 
 draft Pending; that row cannot be added and has to be raised again in SAP. The decision answer follows
 the same rule: an approval that leaves the draft Pending comes back `status: "Approved"` with
 `canAdd: false` and a message that says so. A decision or an add that SAP refuses comes back as
-`400 CreditNoteApproval.SapRejected` carrying SAP's own message; one that got no clear answer comes back
+`400 CreditNoteApproval.SapRejected` carrying SAP's own message, except an add refused because SAP's
+Service Layer cannot reach its attachments folder (`[Message 131-102]`, a draft with an attachment):
+that is `400 CreditNoteApproval.AddBlockedByAttachmentsFolder`, which says nothing was added and to add
+it in the SAP Business One client instead. One that got no clear answer comes back
 as `CreditNoteApproval.DecisionUncertain` / `AddUncertain`, and the request should be reloaded before
 trying again. Both POSTs own their idempotency: a decision repeated with the same `Idempotency-Key` (or
 `clientRequestId`) replays the first answer, and a draft is added at most once whoever clicks.

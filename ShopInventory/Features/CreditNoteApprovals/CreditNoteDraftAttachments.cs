@@ -24,6 +24,20 @@ internal static class CreditNoteDraftAttachments
 
     public static bool IsViewable(string contentType) => ViewableContentTypes.Contains(contentType);
 
+    /// <summary>
+    /// Whether SAP refused to add a draft because its Service Layer cannot reach its attachments folder.
+    /// </summary>
+    /// <remarks>
+    /// SAP copies a draft's attachment onto the document it becomes, and its Linux Service Layer has no
+    /// mount for that folder: production answered "Attachments folder not defined, or Attachments folder
+    /// has been changed or removed [Message 131-102]" for draft 86380 on 2026-11-05. The message number
+    /// does not change with SAP's language; the English text is the fallback.
+    /// </remarks>
+    public static bool IsAttachmentsFolderRefusal(string? sapMessage) =>
+        !string.IsNullOrWhiteSpace(sapMessage)
+        && (sapMessage.Contains("131-102", StringComparison.Ordinal)
+            || sapMessage.Contains("Attachments folder not defined", StringComparison.OrdinalIgnoreCase));
+
     public static string DownloadUrl(int code, int lineNum) =>
         $"/api/credit-note-approvals/{code}/attachments/{lineNum}/download";
 
