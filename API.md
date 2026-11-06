@@ -1270,6 +1270,8 @@ A partial credit is not a cancellation: use `POST /api/CreditNote/from-invoice/{
 | GET | `/api/CreditNote/{id}` | `invoices.view` | Get by ID |
 | GET | `/api/CreditNote/number/{creditNoteNumber}` | `invoices.view` | Get by credit note number |
 | GET | `/api/CreditNote/by-invoice/{invoiceId}` | `invoices.view` | Credit notes for an invoice |
+| GET | `/api/CreditNote/customers` | `invoices.view` | A customer's credit notes over a period, lines included, from SAP — the customer portal's list |
+| GET | `/api/CreditNote/{docEntry}/pdf` | `invoices.view` | Download a credit note as a PDF |
 | POST | `/api/CreditNote` | `invoices.create` | Create credit note |
 | POST | `/api/CreditNote/from-invoice/{invoiceId}` | `invoices.create` | Create one from an invoice |
 | PATCH | `/api/CreditNote/{id}/status` | `invoices.edit` | Change its status |
@@ -1290,6 +1292,45 @@ view: the whole date range is read, filtered, sorted and then paged, and `totalC
 filters left. `creditNoteNumber` and `customer` (code or name) match anywhere, ignoring case;
 `fiscalStatus` is `Fiscalised`, `Not Fiscalised` or `Unknown`; `sortBy` is `Number`, `Date` or
 `Total`, with the SAP document entry, descending, breaking ties.
+
+**A customer's credit notes**
+
+`GET /api/CreditNote/customers?cardCodes=C20417&cardCodes=C20418&fromDate=2026-10-01&toDate=2026-11-06`
+— one or more accounts (a multi-account customer's main and sub accounts) and a period of at most
+366 days, both dates required and inclusive. Read from SAP, not the projection the list above serves
+from, because a customer opens a credit note for what the projection does not keep: the items, the
+quantities and how much of it is used. Cancelled memos and the documents that cancelled them are left
+out; the rest come newest first:
+
+```json
+{ "creditNotes": [ {
+  "docEntry": 61377, "docNum": 30377, "docDate": "2026-10-22T00:00:00Z",
+  "cardCode": "C20417", "cardName": "Greenfield Supermarket", "currency": "USD",
+  "docTotal": 312.00, "vatTotal": 40.70, "appliedAmount": 150.00, "creditLeft": 162.00,
+  "creditedInvoiceDocNum": 10431, "reason": "Wrong item delivered",
+  "isFiscalised": true, "fiscalReceiptNumber": 47902,
+  "fiscalVerificationCode": "AB12-CD34-EF56-7890", "fiscalVerificationUrl": "https://fdms.zimra.co.zw/…",
+  "lines": [ { "itemCode": "MOZ-2000", "description": "Mozzarella 2 kg", "quantity": 12, "uoMCode": "EA",
+               "unitPrice": 18.50, "lineTotal": 222.00, "reason": "Wrong item delivered" } ] } ] }
+```
+
+- Every amount is in the note's own `currency` — `DocTotalFc` and friends on a ZiG memo, never its USD
+  value under a ZiG label. Line `unitPrice` and `lineTotal` are after the line discount, VAT included.
+- `appliedAmount` is SAP's `PaidToDate` (what has been set against invoices or refunded); a closed memo
+  is fully applied. `creditLeft` is the rest.
+- `reason` is the lines' `U_Reasons`, SAP's own list. The header comments are staff notes and are not
+  sent.
+- `creditedInvoiceDocNum` is 0 when the memo was not raised against an invoice, or against one on
+  another account. `fiscalReceiptNumber` is 0 with no receipt.
+- A fiscal receipt is shown only when the fiscal log row is this account's — by card code, or by total
+  on a row that recorded none. SAP reissued DocNums in September 2026, so a DocNum alone can name
+  another customer's memo, and its QR is not printed or linked.
+
+`GET /api/CreditNote/{docEntry}/pdf?cardCode=C20417` prints the memo on the invoice's A4 sheet, titled
+**Credit Note**, with the invoice it credits, the reason, the customer's VAT and TIN, the items and the
+fiscal block, and no deposit instructions. With `cardCode`, a memo on any other account — or a
+cancelled one — answers **404 `CreditNote.NotFound`**, exactly as one that does not exist; without it
+(staff) any memo prints. File name `CreditNote_{docNum}.pdf`.
 
 **Credit Note Types:** `Return`, `PriceAdjustment`, `Discount`, `Damaged`, `Other`, `Cancellation`  
 **Credit Note Statuses:** `Draft`, `Pending`, `Approved`, `Cancelled`, `Applied`

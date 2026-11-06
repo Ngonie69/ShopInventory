@@ -49,12 +49,16 @@ public static class SapDocumentAmounts
 
     /// <summary>
     /// Converts a local-currency amount at the document's own ratio of its two totals, for a read
-    /// that left the foreign-currency field out of its <c>$select</c>.
+    /// that left the foreign-currency field out of its <c>$select</c>. A local-currency document's
+    /// amount comes back as it went in.
     /// </summary>
-    private static decimal? ToDocumentCurrency(ISapDocumentAmounts document, decimal? localAmount)
+    public static decimal? ToDocumentCurrency(ISapDocumentAmounts document, decimal? localAmount)
     {
         if (localAmount is not { } amount)
             return null;
+
+        if (!IsForeignCurrency(document))
+            return amount;
 
         if (document.DocTotal is not { } localTotal || localTotal == 0m)
             return document.DocRate is { } rate && rate > 0m ? Math.Round(amount * rate, 2) : null;

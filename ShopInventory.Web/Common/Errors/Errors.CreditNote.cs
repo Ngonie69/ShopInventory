@@ -20,5 +20,12 @@ public static partial class Errors
 
         public static Error DuplicateFailed(string message) =>
             Error.Failure("CreditNote.DuplicateFailed", message);
+
+        /// <summary>The account named is not one this portal login reaches.</summary>
+        public static readonly Error NotYourAccount =
+            Error.Forbidden("CreditNote.NotYourAccount", "That credit note is not on your account.");
+
+        public static Error PdfFailed(string message) =>
+            Error.Failure("CreditNote.PdfFailed", message);
     }
 }

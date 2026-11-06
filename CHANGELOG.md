@@ -18,6 +18,16 @@ otherwise be surprised.
 
 ### Changed
 
+- **New: customers can view and download their credit notes in the portal** (`/customer-portal/credit-notes`,
+  under Invoices in the portal's menu). Two endpoints back it, both `invoices.view`:
+  `GET /api/CreditNote/customers?cardCodes=…&fromDate=…&toDate=…` (a year at most, read from SAP with the
+  lines, in each note's own currency, with how much is applied and the credited invoice) and
+  `GET /api/CreditNote/{docEntry}/pdf`, the memo on the invoice's A4 sheet titled **Credit Note** with its
+  fiscal block. With `cardCode` the PDF answers `404` for a memo on another account. A fiscal receipt is
+  printed or linked only when the fiscal log ties it to the memo's own account, since a DocNum alone can
+  name another customer's memo after SAP's September renumbering. Every SAP credit memo read now also
+  selects `PaidToDate` and `CancelStatus`.
+
 - **New: a daily trading cut-off, off until an admin turns it on** (Web → Settings → Trading Cut-off,
   `GET`/`PUT /api/trading-cutoff`). Per channel — shops, vending, vans — a time (CAT) from which no new
   transaction is taken until midnight, with per-account exceptions: never cut off, or an own time. Once a

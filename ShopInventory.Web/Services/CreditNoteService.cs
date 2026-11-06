@@ -22,6 +22,19 @@ public interface ICreditNoteService
     Task<CreateCreditNoteResult> CreateFromInvoiceAsync(int invoiceId, List<CreateCreditNoteLineRequest> lines, string reason, string? clientRequestId = null);
     Task<CreditNoteDto?> ApproveAsync(int id);
     Task<bool> DeleteCreditNoteAsync(int id);
+
+    /// <summary>
+    /// The credit notes on a customer's accounts over a period, lines included, as the customer portal
+    /// shows them. Null when the API could not answer.
+    /// </summary>
+    Task<CustomerCreditNotesResponse?> GetCustomerCreditNotesAsync(
+        IReadOnlyCollection<string> cardCodes, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A credit note's PDF, refused by the API unless it is on <paramref name="cardCode"/>. Null when it
+    /// could not be produced or is not that account's.
+    /// </summary>
+    Task<byte[]?> GetCreditNotePdfAsync(int docEntry, string cardCode, CancellationToken cancellationToken = default);
 }
 
 public class CreditNoteService : ICreditNoteService
@@ -98,6 +111,55 @@ public class CreditNoteService : ICreditNoteService
         {
             _logger.LogError(ex, "Error fetching the credit note reasons");
             return [];
+        }
+    }
+
+    public async Task<CustomerCreditNotesResponse?> GetCustomerCreditNotesAsync(
+        IReadOnlyCollection<string> cardCodes, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var accounts = string.Join("&", cardCodes.Select(code => $"cardCodes={Uri.EscapeDataString(code)}"));
+            return await _httpClient.GetFromJsonAsync<CustomerCreditNotesResponse>(
+                $"api/creditnote/customers?{accounts}&fromDate={fromDate:yyyy-MM-dd}&toDate={toDate:yyyy-MM-dd}",
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching the credit notes of {CardCodes}", string.Join(",", cardCodes));
+            return null;
+        }
+    }
+
+    public async Task<byte[]?> GetCreditNotePdfAsync(int docEntry, string cardCode, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var response = await _httpClient.GetAsync(
+                $"api/creditnote/{docEntry}/pdf?cardCode={Uri.EscapeDataString(cardCode)}",
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("The API answered {StatusCode} for the PDF of credit note {DocEntry}",
+                    (int)response.StatusCode, docEntry);
+                return null;
+            }
+
+            return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching the PDF of credit note {DocEntry}", docEntry);
+            return null;
         }
     }
 

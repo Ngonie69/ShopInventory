@@ -372,7 +372,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // No BaseEntry or BaseType: on an A/R credit memo those live on the line, not the header, and
     // SAP rejects them here. ResolveOriginalInvoiceDocEntry already reads the header field with a
     // fallback to the lines, and the fallback was always what actually answered.
-    private const string CreditNoteSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,UpdateDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,DocumentLines";
+    // PaidToDate and CancelStatus are the two the customer portal needs — how much of a memo is
+    // used, and whether it is a cancellation rather than a credit. Both are proven on the Invoices
+    // $selects above, the same SAP Document type, so asking for them here cannot 400 the read.
+    private const string CreditNoteSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,UpdateDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,SalesPersonCode,DocumentStatus,Cancelled,CancelStatus,PaidToDate,DiscountPercent,TotalDiscount,Address,Address2,DocumentLines";
     // The projection sweep's poll: enough to tell whether a document it holds has moved, and small
     // enough to ask for every two minutes. Only this select asks for UpdateTime, so a Service Layer
     // that refused it would fail the sweep alone and leave every credit-note list and detail read

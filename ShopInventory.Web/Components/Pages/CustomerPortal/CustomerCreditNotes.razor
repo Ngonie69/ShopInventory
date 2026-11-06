@@ -1,0 +1,517 @@
+@page "/customer-portal/credit-notes"
+@using ShopInventory.Web.Models
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@layout CustomerPortalLayout
+@implements IDisposable
+
+<PageTitle>Credit notes - Customer Portal</PageTitle>
+
+@* Built from the `Portal Credit Notes` design on the portal's `cpd` vocabulary — the same hero, filter
+   bar, figures, ledger and detail sheet the invoices page uses. The blocks it adds (the segmented
+   filter, the credit-left tag and figure) are under "Credit notes" in customer-portal.css. *@
+<div class="cpd fade-in">
+    @if (isLoading && customerInfo == null)
+    {
+        <div class="cpd-panel">
+            <div class="cpd-empty">
+                <div class="spinner-border" role="status" style="width: 2.25rem; height: 2.25rem;">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-3 mb-0">Loading credit notes...</p>
+            </div>
+        </div>
+    }
+    else if (customerInfo == null)
+    {
+        <div class="cpd-panel">
+            <div class="cpd-empty">
+                <i class="ph ph-lock-key"></i>
+                <h5>Authentication required</h5>
+                <p>Please sign in to see your credit notes.</p>
+                <a href="/customer-portal/login" class="btn btn-primary">Sign in to the portal</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="cpd-hero">
+            <div class="cpd-hero-text">
+                <h2>Credit notes</h2>
+                <div class="cpd-hero-meta">
+                    <span>@customerInfo.CardName</span>
+                    <span>Account @customerInfo.CardCode</span>
+                    @if (isMultiAccount)
+                    {
+                        <span>@AccountScopeCaption()</span>
+                    }
+                    <span>
+                        @(lastUpdated.HasValue
+                            ? $"Updated {lastUpdated.Value:MMM dd, yyyy 'at' HH:mm} UTC"
+                            : "Not loaded yet")
+                    </span>
+                </div>
+            </div>
+            <div class="cpd-hero-actions">
+                <a href="/customer-portal/dashboard" class="btn btn-outline-primary">
+                    <i class="ph ph-arrow-left"></i> Dashboard
+                </a>
+                <a href="/customer-portal/statements" class="btn btn-primary">View statement</a>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(loadError))
+        {
+            <div class="alert alert-danger mb-0" role="alert">@loadError</div>
+        }
+
+        @* Stated only when there is credit left, and in one sentence: the figure, how many notes it is
+           on, and what it means. Absent otherwise, rather than reporting nothing. *@
+        @if (hasLoaded && NotesWithCreditLeft.Count > 0)
+        {
+            <div class="cpd-note cpd-credit-note" role="status">
+                <i class="ph ph-info"></i>
+                <div class="cpd-banner-text">
+                    <span class="cpd-banner-num">@FormatTotals(NotesWithCreditLeft, note => note.CreditLeft)</span>
+                    of credit is left on @NotesWithCreditLeft.Count @Plural(NotesWithCreditLeft.Count, "credit note").
+                    It hasn't been set against an invoice yet.
+                </div>
+                @if (show != CreditNoteShow.CreditLeft)
+                {
+                    <button type="button" class="cpd-text-btn" @onclick="ShowCreditLeft">Show them</button>
+                }
+            </div>
+        }
+
+        <section class="cpd-panel">
+            <div class="cpd-panel-head">
+                <h5>Period</h5>
+                @if (hasLoaded)
+                {
+                    <span class="cpd-tag">@AccountNotes.Count @Plural(AccountNotes.Count, "credit note")</span>
+                }
+            </div>
+            <div class="cpd-filters">
+                <div class="cpd-field">
+                    <label class="cpd-field-label" for="ccn-f-from">From</label>
+                    <NocturneDateField Id="ccn-f-from" @bind-Date="fromDate" AriaLabel="From date" />
+                </div>
+                <div class="cpd-field">
+                    <label class="cpd-field-label" for="ccn-f-to">To</label>
+                    <NocturneDateField Id="ccn-f-to" @bind-Date="toDate" AriaLabel="To date" />
+                </div>
+                @if (isMultiAccount && linkedAccounts.Any())
+                {
+                    <div class="cpd-field">
+                        <label class="cpd-field-label" for="ccn-f-account">Account</label>
+                        @* The lambda is not a style choice: passing the method group makes TValue
+                           inference fail on an error that names EventCallback. *@
+                        <NocturneSelect Id="ccn-f-account" Class="nsel-block" TValue="string"
+                                        Options="AccountFilterOptions" Value="@selectedAccountFilter"
+                                        ValueChanged="@(code => OnAccountFilterChanged(code ?? string.Empty))"
+                                        Caption="Filter by account" AriaLabel="Filter by account"
+                                        Placeholder="All accounts" />
+                    </div>
+                }
+                <div class="cpd-field">
+                    <label class="cpd-field-label" for="ccn-f-find">Find</label>
+                    <span class="cpd-find">
+                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                        <input id="ccn-f-find" type="search" class="cpd-input" autocomplete="off"
+                               placeholder="Credit note or invoice no."
+                               @bind="findText" @bind:event="oninput" @bind:after="ResetPage" />
+                    </span>
+                </div>
+                <div class="cpd-field cpd-field-action">
+                    <button type="button" class="btn btn-primary" @onclick="LoadCreditNotes"
+                            disabled="@(isLoading || !HasPeriod || PeriodIsInverted || PeriodIsTooLong)">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            <span>Loading</span>
+                        }
+                        else
+                        {
+                            <span>@(hasLoaded ? "Reload credit notes" : "Load credit notes")</span>
+                        }
+                    </button>
+                </div>
+            </div>
+            @if (PeriodIsInverted)
+            {
+                <p class="cpd-filter-note" role="alert">
+                    The From date falls after the To date. Swap them to load credit notes.
+                </p>
+            }
+            else if (PeriodIsTooLong)
+            {
+                <p class="cpd-filter-note" role="alert">
+                    Choose a period of at most a year.
+                </p>
+            }
+        </section>
+
+        @if (hasLoaded)
+        {
+            <section class="cpd-kpis" aria-label="Credit note figures">
+                <div class="cpd-kpi">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Total credited</span>
+                        <i class="ph ph-receipt-x"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@FormatTotals(AccountNotes, note => note.DocTotal)</div>
+                    <div class="cpd-kpi-sub">@PeriodCaption()</div>
+                </div>
+
+                <div class="cpd-kpi">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Credit notes</span>
+                        <i class="ph ph-files"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@AccountNotes.Count</div>
+                    <div class="cpd-kpi-sub">@AppliedCaption()</div>
+                </div>
+
+                <div class="cpd-kpi @(NotesWithCreditLeft.Count > 0 ? "is-credit" : "")">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Credit left</span>
+                        <i class="ph ph-wallet"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@FormatTotals(NotesWithCreditLeft, note => note.CreditLeft)</div>
+                    <div class="cpd-kpi-sub">
+                        @(NotesWithCreditLeft.Count > 0
+                            ? $"On {NotesWithCreditLeft.Count} {Plural(NotesWithCreditLeft.Count, "credit note")}, not yet set against an invoice"
+                            : "Every credit has been applied")
+                    </div>
+                </div>
+
+                <div class="cpd-kpi">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Latest credit</span>
+                        <i class="ph ph-calendar-check"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@(LatestNote is null ? "—" : FormatMoney(LatestNote.DocTotal, LatestNote.Currency))</div>
+                    <div class="cpd-kpi-sub">
+                        @(LatestNote is null
+                            ? "None in this period"
+                            : $"Credit note {LatestNote.DocNum}, issued {LatestNote.DocDate:MMM dd}")
+                    </div>
+                </div>
+            </section>
+
+            <section class="cpd-panel cpd-ledger">
+                <div class="cpd-panel-head">
+                    <h5>Credit notes</h5>
+                    <div class="cpd-panel-tools">
+                        <div class="cpd-seg" role="group" aria-label="Show credit notes">
+                            @foreach (var option in ShowOptions)
+                            {
+                                <button type="button" class="cpd-seg-btn @(show == option.Show ? "is-on" : "")"
+                                        aria-pressed="@(show == option.Show ? "true" : "false")"
+                                        @onclick="() => SetShow(option.Show)">
+                                    <span>@option.Label</span>
+                                    <span class="cpd-seg-count">@CountFor(option.Show)</span>
+                                </button>
+                            }
+                        </div>
+                        <span class="cpd-panel-total">
+                            Credited <strong>@FormatTotals(ShownNotes, note => note.DocTotal)</strong>
+                        </span>
+                    </div>
+                </div>
+
+                @if (pagedNotes.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="cpd-table mobile-card-table">
+                            <thead>
+                                <tr>
+                                    <th>Credit note</th>
+                                    @if (isMultiAccount)
+                                    {
+                                        <th>Account</th>
+                                    }
+                                    <th>Invoice</th>
+                                    <th>Reason</th>
+                                    <th class="cpd-num">Amount</th>
+                                    <th class="cpd-num">Applied</th>
+                                    <th class="cpd-num">Credit left</th>
+                                    <th class="cpd-num">Status</th>
+                                    <th class="cpd-num">Document</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var note in pagedNotes)
+                                {
+                                    var status = Status(note);
+                                    <tr @key="note.DocEntry">
+                                        <td data-label="Credit note">
+                                            @* One element, not two: below 992px each cell becomes a labelled
+                                               grid row, and a second child would land in the label track. *@
+                                            <span class="cpd-doc">
+                                                <span class="cpd-doc-id">@note.DocNum</span>
+                                                <span class="cpd-doc-sub">Issued @note.DocDate.ToString("MMM dd, yyyy")</span>
+                                            </span>
+                                        </td>
+                                        @if (isMultiAccount)
+                                        {
+                                            <td data-label="Account" class="cpd-quiet">
+                                                <span class="cpd-doc">
+                                                    <span class="cpd-doc-id">@note.CardCode</span>
+                                                    <span class="cpd-doc-sub">@note.Currency</span>
+                                                </span>
+                                            </td>
+                                        }
+                                        <td data-label="Invoice" class="cpd-quiet">
+                                            @(note.CreditedInvoiceDocNum > 0 ? note.CreditedInvoiceDocNum.ToString() : "—")
+                                        </td>
+                                        <td data-label="Reason">
+                                            <span class="cpd-reason">@(note.Reason ?? "—")</span>
+                                        </td>
+                                        <td data-label="Amount" class="cpd-num">@FormatMoney(note.DocTotal, note.Currency)</td>
+                                        <td data-label="Applied" class="cpd-num cpd-quiet">@FormatMoney(note.AppliedAmount, note.Currency)</td>
+                                        <td data-label="Credit left" class="cpd-num @(note.CreditLeft > 0 ? "cpd-strong" : "cpd-quiet")">
+                                            @FormatMoney(note.CreditLeft, note.Currency)
+                                        </td>
+                                        <td data-label="Status" class="cpd-num">
+                                            <span class="cpd-status @status.Cls">@status.Text</span>
+                                        </td>
+                                        <td data-label="Document" class="cpd-num">
+                                            <span class="cpd-rowacts">
+                                                <button type="button" class="btn btn-outline-primary btn-sm"
+                                                        aria-label="@($"View credit note {note.DocNum}")"
+                                                        @onclick="() => OpenSheet(note)">
+                                                    View
+                                                </button>
+                                                <button type="button" class="btn btn-outline-primary btn-sm cpd-icon-only"
+                                                        aria-label="@($"Download credit note {note.DocNum} as PDF")"
+                                                        title="Download PDF"
+                                                        disabled="@(downloadingDocEntry == note.DocEntry)"
+                                                        @onclick="() => DownloadPdf(note)">
+                                                    @if (downloadingDocEntry == note.DocEntry)
+                                                    {
+                                                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="ph ph-download-simple" aria-hidden="true"></i>
+                                                    }
+                                                    <span class="cpd-icon-only-label">PDF</span>
+                                                </button>
+                                            </span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @if (totalPages > 1)
+                    {
+                        <div class="cpd-pager">
+                            <div class="cpd-pager-info">
+                                Showing @(((currentPage - 1) * PageSize) + 1)&ndash;@(Math.Min(currentPage * PageSize, ShownNotes.Count))
+                                of @ShownNotes.Count credit notes
+                            </div>
+                            <nav aria-label="Credit note pages">
+                                <ul class="pagination pagination-sm mb-0">
+                                    <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                                        <button class="page-link" @onclick="() => GoToPage(currentPage - 1)"
+                                                disabled="@(currentPage == 1)" aria-label="Previous page">
+                                            <i class="ph ph-caret-left"></i>
+                                        </button>
+                                    </li>
+                                    @for (var pg = 1; pg <= totalPages; pg++)
+                                    {
+                                        var target = pg;
+                                        <li class="page-item @(target == currentPage ? "active" : "")">
+                                            <button class="page-link" @onclick="() => GoToPage(target)">@target</button>
+                                        </li>
+                                    }
+                                    <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                                        <button class="page-link" @onclick="() => GoToPage(currentPage + 1)"
+                                                disabled="@(currentPage == totalPages)" aria-label="Next page">
+                                            <i class="ph ph-caret-right"></i>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </nav>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="cpd-empty">@EmptyLedgerText()</div>
+                }
+            </section>
+        }
+        else if (string.IsNullOrEmpty(loadError))
+        {
+            <div class="cpd-panel">
+                <div class="cpd-empty">
+                    <i class="ph ph-receipt-x"></i>
+                    <h5>Choose a period</h5>
+                    <p>Set the dates above and load your credit notes.</p>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@* The detail sheet renders inside CustomerPortalLayout, so `.cpx` is above it and the tokens resolve. *@
+@if (selectedNote is not null)
+{
+    var sheetStatus = Status(selectedNote);
+    <div class="cpd cpd-overlay" role="dialog" aria-modal="true" aria-labelledby="ccn-sheet-title">
+        <div class="cpd-sheet">
+            <div class="cpd-sheet-head">
+                <i class="ph ph-receipt-x"></i>
+                <h5 id="ccn-sheet-title">Credit note @selectedNote.DocNum</h5>
+                <span class="cpd-status @sheetStatus.Cls">@sheetStatus.Text</span>
+                <button type="button" class="cpd-sheet-close" @onclick="CloseSheet" aria-label="Close">
+                    <i class="ph ph-x"></i>
+                </button>
+            </div>
+
+            <div class="cpd-sheet-body">
+                @if (!string.IsNullOrEmpty(sheetError))
+                {
+                    <div class="alert alert-danger mb-0" role="alert">@sheetError</div>
+                }
+
+                <div class="cpd-defs">
+                    <div class="cpd-def">
+                        <span class="cpd-def-k">Issued</span>
+                        <span class="cpd-def-v">@selectedNote.DocDate.ToString("MMM dd, yyyy")</span>
+                    </div>
+                    <div class="cpd-def">
+                        <span class="cpd-def-k">Against invoice</span>
+                        <span class="cpd-def-v">
+                            @(selectedNote.CreditedInvoiceDocNum > 0 ? $"Invoice {selectedNote.CreditedInvoiceDocNum}" : "—")
+                        </span>
+                    </div>
+                    <div class="cpd-def">
+                        <span class="cpd-def-k">Reason</span>
+                        <span class="cpd-def-v">@(selectedNote.Reason ?? "—")</span>
+                    </div>
+                    <div class="cpd-def">
+                        <span class="cpd-def-k">Amount</span>
+                        <span class="cpd-def-v is-lg">@FormatMoneyWithCode(selectedNote.DocTotal, selectedNote.Currency)</span>
+                        <span class="cpd-def-sub">VAT included @FormatMoneyWithCode(selectedNote.VatTotal, selectedNote.Currency)</span>
+                    </div>
+                    <div class="cpd-def">
+                        <span class="cpd-def-k">Applied</span>
+                        <span class="cpd-def-v">@FormatMoneyWithCode(selectedNote.AppliedAmount, selectedNote.Currency)</span>
+                    </div>
+                    <div class="cpd-def @(selectedNote.CreditLeft > 0 ? "is-credit" : "")">
+                        <span class="cpd-def-k">Credit left</span>
+                        <span class="cpd-def-v">@FormatMoneyWithCode(selectedNote.CreditLeft, selectedNote.Currency)</span>
+                    </div>
+                    <div class="cpd-def">
+                        <span class="cpd-def-k">Fiscal receipt</span>
+                        @if (selectedNote.IsFiscalised)
+                        {
+                            <span class="cpd-def-v">
+                                @(selectedNote.FiscalReceiptNumber > 0 ? $"No. {selectedNote.FiscalReceiptNumber}" : "Issued")
+                            </span>
+                            @if (!string.IsNullOrEmpty(selectedNote.FiscalVerificationUrl))
+                            {
+                                <a class="cpd-ext" href="@selectedNote.FiscalVerificationUrl" target="_blank" rel="noopener noreferrer">
+                                    Verify receipt <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
+                                </a>
+                            }
+                            else if (!string.IsNullOrEmpty(selectedNote.FiscalVerificationCode))
+                            {
+                                <span class="cpd-def-sub">Code @selectedNote.FiscalVerificationCode</span>
+                            }
+                        }
+                        else
+                        {
+                            <span class="cpd-def-v">Not issued yet</span>
+                        }
+                    </div>
+                </div>
+
+                <div>
+                    <div class="cpd-sub-head">
+                        <i class="ph ph-list-bullets"></i> Items credited
+                    </div>
+                    @if (selectedNote.Lines.Any())
+                    {
+                        <div class="table-responsive">
+                            <table class="cpd-table mobile-card-table">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th class="cpd-num">Qty</th>
+                                        <th class="cpd-num">Unit price</th>
+                                        <th class="cpd-num">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in selectedNote.Lines)
+                                    {
+                                        <tr>
+                                            <td data-label="Item">
+                                                <span class="cpd-doc">
+                                                    <span class="cpd-doc-id">@(line.Description ?? line.ItemCode ?? "—")</span>
+                                                    <span class="cpd-doc-sub">@LineSubCaption(line)</span>
+                                                </span>
+                                            </td>
+                                            <td data-label="Qty" class="cpd-num">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
+                                            <td data-label="Unit price" class="cpd-num cpd-quiet">
+                                                @FormatMoneyWithCode(line.UnitPrice, selectedNote.Currency)
+                                            </td>
+                                            <td data-label="Total" class="cpd-num cpd-strong">
+                                                @FormatMoneyWithCode(line.LineTotal, selectedNote.Currency)
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td data-label="Total" colspan="3">Total, VAT included</td>
+                                        <td class="cpd-num">@FormatMoneyWithCode(selectedNote.DocTotal, selectedNote.Currency)</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="cpd-empty">No items are listed on this credit note.</div>
+                    }
+                </div>
+            </div>
+
+            <div class="cpd-sheet-foot">
+                <span class="cpd-sheet-hint">
+                    @if (selectedNote.IsFiscalised)
+                    {
+                        <i class="ph ph-seal-check" aria-hidden="true"></i>
+                        <span>A4 PDF with the fiscal QR code</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-hourglass" aria-hidden="true"></i>
+                        <span>A4 PDF; its fiscal receipt has not been issued yet</span>
+                    }
+                </span>
+                <button type="button" class="btn btn-outline-primary" @onclick="CloseSheet">Close</button>
+                <button type="button" class="btn btn-primary" @onclick="() => DownloadPdf(selectedNote)"
+                        disabled="@(downloadingDocEntry == selectedNote.DocEntry)">
+                    @if (downloadingDocEntry == selectedNote.DocEntry)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <span>Generating</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-download-simple" aria-hidden="true"></i>
+                        <span>Download PDF</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}

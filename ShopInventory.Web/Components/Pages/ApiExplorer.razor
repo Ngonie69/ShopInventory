@@ -304,8 +304,10 @@ Methods = new[] { "DELETE", "GET", "PATCH", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/CreditNote", "Get all credit notes"),
+new("GET", "/api/CreditNote/{docEntry}/pdf", "Download a credit note as a PDF"),
 new("GET", "/api/CreditNote/{id}", "Get credit note by ID"),
 new("GET", "/api/CreditNote/by-invoice/{invoiceId}", "Get credit notes for an invoice"),
+new("GET", "/api/CreditNote/customers", "A customer's credit notes over a period, lines included"),
 new("GET", "/api/CreditNote/number/{creditNoteNumber}", "Get credit note by number"),
 new("GET", "/api/CreditNote/reasons", "Get reasons"),
 new("POST", "/api/CreditNote", "Create a new credit note"),

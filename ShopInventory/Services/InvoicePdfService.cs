@@ -24,7 +24,22 @@ namespace ShopInventory.Services;
 public interface IInvoicePdfService
 {
     Task<byte[]> GenerateInvoicePdfAsync(InvoiceDto invoice, string? fiscalQrCode = null);
+
+    /// <summary>
+    /// Renders a credit memo on the invoice's sheet: the same company, customer, items, fiscal block
+    /// and totals, titled as a credit note, naming the invoice it credits and why, and with no
+    /// deposit instructions — nothing is owed on a credit.
+    /// </summary>
+    /// <param name="creditNote">The memo in the invoice's shape, amounts in the memo's own currency.</param>
+    /// <param name="details">The credited invoice and the reason, which the numbers block prints.</param>
+    /// <param name="fiscalQrCode">The receipt's QR payload; null prints no fiscal block.</param>
+    Task<byte[]> GenerateCreditNotePdfAsync(InvoiceDto creditNote, CreditNotePdfDetails details, string? fiscalQrCode = null);
 }
+
+/// <summary>What a credit note states that an invoice does not.</summary>
+/// <param name="CreditedInvoiceDocNum">The invoice it was raised against; 0 when it was raised against none.</param>
+/// <param name="Reason">The reasons on its lines; null when none was given.</param>
+public sealed record CreditNotePdfDetails(int CreditedInvoiceDocNum, string? Reason);
 
 /// <summary>
 /// Renders an SAP invoice as the Fiscal Tax Invoice PDF.
@@ -56,6 +71,12 @@ public class InvoicePdfService : IInvoicePdfService
     }
 
     public Task<byte[]> GenerateInvoicePdfAsync(InvoiceDto invoice, string? fiscalQrCode = null)
+        => Render(invoice, SheetKind.Invoice, fiscalQrCode, "invoice");
+
+    public Task<byte[]> GenerateCreditNotePdfAsync(InvoiceDto creditNote, CreditNotePdfDetails details, string? fiscalQrCode = null)
+        => Render(creditNote, SheetKind.CreditNote(details), fiscalQrCode, "credit note");
+
+    private Task<byte[]> Render(InvoiceDto document, SheetKind kind, string? fiscalQrCode, string documentName)
     {
         try
         {
@@ -66,24 +87,71 @@ public class InvoicePdfService : IInvoicePdfService
 
             // Not flushed page by page: the page count and where the footer lands are only known once
             // the item table has been laid out, and both are stamped onto pages already filled.
-            var document = new Document(pdf, PageSize.A4, false);
+            var layout = new Document(pdf, PageSize.A4, false);
 
-            new InvoiceSheet(pdf, document, _logger).Render(invoice, fiscalQrCode);
+            new InvoiceSheet(pdf, layout, kind, _logger).Render(document, fiscalQrCode);
 
-            document.Close();
+            layout.Close();
 
             return Task.FromResult(memoryStream.ToArray());
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error generating invoice PDF for DocEntry {DocEntry}: {Message}",
-                invoice.DocEntry, ex.Message);
+            _logger.LogError(ex, "Error generating {Document} PDF for DocEntry {DocEntry}: {Message}",
+                documentName, document.DocEntry, ex.Message);
             throw;
         }
     }
 
     /// <summary>Design CSS pixels to PDF points.</summary>
     private static float Px(float cssPixels) => cssPixels * 0.75f;
+
+    /// <summary>
+    /// What one document prints that the other does not. Everything else on the sheet — company,
+    /// customer, items, fiscal block, totals — is the same drawing for both, so a credit note cannot
+    /// come to state a line or a receipt differently from the invoice it reverses.
+    /// </summary>
+    private sealed record SheetKind(
+        string Title,
+        string AddressHeading,
+        string TotalLabel,
+        bool PrintsDepositAccount,
+        Func<InvoiceDto, (string Label, string Value)[]> Numbers)
+    {
+        private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
+
+        public static readonly SheetKind Invoice = new(
+            "Fiscal Tax Invoice",
+            "INVOICE ADDRESS",
+            "Invoice Total",
+            PrintsDepositAccount: true,
+            invoice =>
+            {
+                var docNumber = invoice.DocNum.ToString(Invariant);
+                return
+                [
+                    ("DOC NUMBER", docNumber),
+                    // REVMax files an SAP invoice under its DocNum, so the fiscal invoice number is the same figure.
+                    ("INVOICE NUMBER", docNumber),
+                    ("REF :", invoice.CardName ?? "-"),
+                    ("DATE", InvoiceSheet.FormatDate(invoice.DocDate)),
+                ];
+            });
+
+        public static SheetKind CreditNote(CreditNotePdfDetails details) => new(
+            "Credit Note",
+            "CUSTOMER ADDRESS",
+            "Credit Total",
+            PrintsDepositAccount: false,
+            creditNote =>
+            [
+                ("CREDIT NOTE NO.", creditNote.DocNum.ToString(Invariant)),
+                ("AGAINST INVOICE", details.CreditedInvoiceDocNum > 0 ? details.CreditedInvoiceDocNum.ToString(Invariant) : "-"),
+                ("REASON", string.IsNullOrWhiteSpace(details.Reason) ? "-" : details.Reason.Trim()),
+                ("REF :", creditNote.CardName ?? "-"),
+                ("DATE", InvoiceSheet.FormatDate(creditNote.DocDate)),
+            ]);
+    }
 
     private sealed class InvoiceSheet
     {
@@ -136,16 +204,18 @@ public class InvoicePdfService : IInvoicePdfService
 
         private readonly PdfDocument _pdf;
         private readonly Document _document;
+        private readonly SheetKind _kind;
         private readonly ILogger _logger;
         // font-weight 400, 600 and 700. A PdfFont belongs to one document, so each sheet makes its own.
         private readonly PdfFont _regular;
         private readonly PdfFont _semibold;
         private readonly PdfFont _bold;
 
-        public InvoiceSheet(PdfDocument pdf, Document document, ILogger logger)
+        public InvoiceSheet(PdfDocument pdf, Document document, SheetKind kind, ILogger logger)
         {
             _pdf = pdf;
             _document = document;
+            _kind = kind;
             _logger = logger;
             _regular = InvoiceFonts.Create(InvoiceFonts.Regular, StandardFonts.HELVETICA, logger);
             _semibold = InvoiceFonts.Create(InvoiceFonts.SemiBold, StandardFonts.HELVETICA_BOLD, logger);
@@ -189,7 +259,7 @@ public class InvoicePdfService : IInvoicePdfService
 
             band.AddCell(TitleBandCell());
             band.AddCell(TitleBandCell().Add(
-                Line("Fiscal Tax Invoice", _bold, Px(20), Ink)
+                Line(_kind.Title, _bold, Px(20), Ink)
                     .SetCharacterSpacing(Tracking(20, 0.01f))
                     .SetTextAlignment(TextAlignment.CENTER)));
 
@@ -306,16 +376,14 @@ public class InvoicePdfService : IInvoicePdfService
                 .Add(Strong("VAT Reg: 220140892").SetTextAlignment(TextAlignment.RIGHT))
                 .Add(Strong("TIN No: 2000022395").SetTextAlignment(TextAlignment.RIGHT).SetMarginTop(Px(4))));
 
-            var docNumber = invoice.DocNum.ToString(Invariant);
             var numbers = new Table(UnitValue.CreatePointArray([Px(140), Px(140)]))
                 .SetWidth(Px(280))
                 .SetFixedLayout();
 
-            DetailRow(numbers, "DOC NUMBER", docNumber);
-            // REVMax files an SAP invoice under its DocNum, so the fiscal invoice number is the same figure.
-            DetailRow(numbers, "INVOICE NUMBER", docNumber);
-            DetailRow(numbers, "REF :", invoice.CardName ?? "-");
-            DetailRow(numbers, "DATE", FormatDate(invoice.DocDate));
+            foreach (var (label, value) in _kind.Numbers(invoice))
+            {
+                DetailRow(numbers, label, value);
+            }
 
             details.AddCell(Bare().Add(numbers));
             return details;
@@ -339,7 +407,7 @@ public class InvoicePdfService : IInvoicePdfService
                 .SetFixedLayout()
                 .SetMarginTop(Px(16));
 
-            boxes.AddCell(AddressBox("INVOICE ADDRESS", boxWidth,
+            boxes.AddCell(AddressBox(_kind.AddressHeading, boxWidth,
                 ("Customer Name:", invoice.CardName),
                 ("Customer Address:", JoinAddress(invoice.BillToAddress)),
                 ("VAT NO:", invoice.CustomerVatNo),
@@ -472,14 +540,18 @@ public class InvoicePdfService : IInvoicePdfService
         private Div Footer(InvoiceDto invoice, string? fiscalQrCode)
         {
             var fiscal = FiscalBlock(invoice, fiscalQrCode);
-            var totals = TotalRows(invoice);
+            var totals = TotalRows(invoice, _kind.TotalLabel);
 
             // grid-template-columns: auto 1fr 320px; gap 24px; align-items: end. A 1fr column never
             // shrinks below its content, so when the bank details cannot fit beside a 320px totals
             // block the totals give way, down to their own content, rather than the account number
             // breaking mid-digit.
             var bankLabelWidth = DepositAccount.Max(row => _semibold.GetWidth(row.Label, BodySize)) + Px(14);
-            var bankContentWidth = bankLabelWidth + DepositAccount.Max(row => _regular.GetWidth(row.Value, BodySize)) + 1f;
+            // A credit note owes nothing, so it prints no deposit account; its column stays as empty
+            // space, and the totals keep the place they have on an invoice.
+            var bankContentWidth = _kind.PrintsDepositAccount
+                ? bankLabelWidth + DepositAccount.Max(row => _regular.GetWidth(row.Value, BodySize)) + 1f
+                : 0f;
 
             var totalsLabelWidth = totals.Max(row => TotalFont(row.Strong).GetWidth(row.Label, BodySize)) + 2 * Px(10) + 1f;
             var totalsValueWidth = Math.Max(
@@ -503,7 +575,9 @@ public class InvoicePdfService : IInvoicePdfService
                 row.AddCell(FooterCell().SetPaddingRight(Px(24)).Add(fiscal));
             }
 
-            row.AddCell(FooterCell().SetPaddingRight(Px(24)).Add(BankDetails(bankLabelWidth, bankWidth - Px(24))));
+            row.AddCell(_kind.PrintsDepositAccount
+                ? FooterCell().SetPaddingRight(Px(24)).Add(BankDetails(bankLabelWidth, bankWidth - Px(24)))
+                : FooterCell());
             row.AddCell(FooterCell().Add(Totals(totals, totalsWidth, totalsValueWidth)));
 
             // The item region's closing hairline, then the design's 18px down to the footer row.
@@ -670,7 +744,7 @@ public class InvoicePdfService : IInvoicePdfService
                 .Add(grid);
         }
 
-        private static (string Label, string Value, bool Strong)[] TotalRows(InvoiceDto invoice)
+        private static (string Label, string Value, bool Strong)[] TotalRows(InvoiceDto invoice, string totalLabel)
         {
             var netTotal = invoice.DocTotal - invoice.VatSum;
             var discount = (invoice.Lines ?? [])
@@ -685,7 +759,7 @@ public class InvoicePdfService : IInvoicePdfService
                 ("Freight", Money(0m), false),
                 ("Total EXC VAT", Money(netTotal), false),
                 ("VAT Total", Money(invoice.VatSum), false),
-                ("Invoice Total", $"{currency} {Money(invoice.DocTotal)}", true),
+                (totalLabel, $"{currency} {Money(invoice.DocTotal)}", true),
             ];
         }
 
@@ -832,7 +906,7 @@ public class InvoicePdfService : IInvoicePdfService
         private static string JoinContact(string? phone, string? email)
             => string.Join(" | ", new[] { phone, email }.Where(part => !string.IsNullOrWhiteSpace(part)));
 
-        private static string FormatDate(string? docDate)
+        internal static string FormatDate(string? docDate)
         {
             if (string.IsNullOrEmpty(docDate))
             {
