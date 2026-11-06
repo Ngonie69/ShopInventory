@@ -448,6 +448,12 @@
 
                     <div class="ops-drawer-foot">
                         <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseDrawer" disabled="@isSubmitting">Close</button>
+                        @* Stamped DRAFT, with the counts typed so far, until the transfer is settled. *@
+                        <button type="button" class="ops-btn ops-btn-ghost" @onclick="PrintAsync" disabled="@isSubmitting"
+                                title="@(DetailIsDraft ? "Print or save as PDF, stamped DRAFT" : "Print the transfer note")">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 9V3h10v6" /><rect x="3" y="9" width="18" height="8" rx="2" /><path d="M7 14h10v7H7z" /></svg>
+                            @(DetailIsDraft ? "Print draft" : "Print")
+                        </button>
                         @if (summary.CanCancel)
                         {
                             <button type="button" class="ops-btn ops-btn-ghost" @onclick="CancelAsync" disabled="@isSubmitting"
@@ -671,6 +677,12 @@
 
                 <div class="ops-drawer-foot">
                     <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseSend" disabled="@isSubmitting">Close</button>
+                    @* What is on the form, stamped DRAFT: a loading or release sheet before anything is posted. *@
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="PrintUnsentAsync" disabled="@(isSubmitting || !CanPrintUnsent)"
+                            title="@(CanPrintUnsent ? "Print what is on this form, stamped DRAFT" : "Add products with quantities to print a draft")">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 9V3h10v6" /><rect x="3" y="9" width="18" height="8" rx="2" /><path d="M7 14h10v7H7z" /></svg>
+                        Print draft
+                    </button>
                     <span class="ops-ds-foot-why">@SendHint</span>
                     <button type="button" class="ops-btn ops-btn-primary fxt-dconfirm" @onclick="SendAsync" disabled="@(isSubmitting || !CanSubmitSend)">
                         @if (submittingAction == "send") { <span class="ops-spin" aria-hidden="true"></span> }
