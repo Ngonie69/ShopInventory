@@ -137,6 +137,104 @@ public class CustomerStatementContractTests
         Assert.Equal(0m, statement.Aging.Over90Days);
     }
 
+    /// <summary>
+    /// A period that runs past today is aged as at today. A 7-day-terms customer's statement for
+    /// 1 Oct – 30 Nov, pulled on 6 Nov, was aged as at 30 Nov, a date that had not happened yet. From
+    /// there every October document looked more than three weeks overdue, so the whole -25.29 printed
+    /// under "Over 21 Days" and the buckets that held October's activity read 0.00. The open items
+    /// below have that account's dates and amounts.
+    /// </summary>
+    [Fact]
+    public async Task A_period_that_ends_after_today_is_aged_as_at_today()
+    {
+        var clock = new ManualClock();
+        // 23:27 UTC on 5 Nov is 01:27 on 6 Nov in Harare, when the PDF was generated.
+        clock.Advance(new DateTimeOffset(2026, 11, 5, 23, 27, 0, TimeSpan.Zero) - clock.GetUtcNow());
+
+        var statement = await BuildStatementAsync(
+            SevenDays,
+            openItems:
+            [
+                OpenItem("20260909", "20260909", credit: 13.99m),
+                OpenItem("20261019", "20261026", debit: 342.94m),
+                OpenItem("20261020", "20261020", credit: 11.30m),
+                OpenItem("20261021", "20261021", credit: 342.94m),
+                OpenItem("20261103", "20261110", debit: 382.59m),
+                OpenItem("20261104", "20261104", credit: 382.59m)
+            ],
+            fromDate: new DateTime(2026, 10, 1),
+            toDate: new DateTime(2026, 11, 30),
+            clock: clock);
+
+        Assert.Equal(new DateTime(2026, 11, 6), statement.Aging.AsAtDate);
+        Assert.Equal(382.59m, statement.Aging.Current);        // invoice due 10 Nov
+        Assert.Equal(-382.59m, statement.Aging.Days1To30);     // receipt due 4 Nov
+        Assert.Equal(342.94m, statement.Aging.Days31To60);     // invoice due 26 Oct
+        Assert.Equal(-354.24m, statement.Aging.Days61To90);    // receipts due 20 and 21 Oct
+        Assert.Equal(-13.99m, statement.Aging.Over90Days);     // credit due 9 Sep
+        Assert.Equal(-25.29m, statement.Aging.Total);
+    }
+
+    /// <summary>
+    /// Buckets follow SAP's Customer Receivables Aging report. These four lines are taken from that
+    /// report for one customer, aged as at 30 Oct 2026. A receipt ages from the day it was posted, not
+    /// a payment-terms later. A line due on the as-at date is already overdue, so the first bucket
+    /// starts at 0.
+    /// </summary>
+    [Fact]
+    public async Task Lines_age_from_their_sap_due_date_and_one_due_on_the_day_is_overdue()
+    {
+        var clock = new ManualClock();
+        clock.Advance(new DateTimeOffset(2026, 11, 6, 8, 0, 0, TimeSpan.Zero) - clock.GetUtcNow());
+
+        var statement = await BuildStatementAsync(
+            SevenDays,
+            openItems:
+            [
+                OpenItem("20261014", "20261014", credit: 2900.00m),  // receipt 16 days old: SAP's 15-28
+                OpenItem("20261022", "20261029", debit: 2866.31m),   // invoice due the day before
+                OpenItem("20261030", "20261030", credit: 1800.00m),  // receipt due on the day
+                OpenItem("20261024", "20261031", debit: 3664.12m)    // invoice due the day after
+            ],
+            fromDate: new DateTime(2026, 10, 1),
+            toDate: new DateTime(2026, 10, 30),
+            clock: clock);
+
+        Assert.Equal("0-7 Days", statement.Aging.Bucket1Label);
+        Assert.Equal(3664.12m, statement.Aging.Current);
+        Assert.Equal(1066.31m, statement.Aging.Days1To30);
+        Assert.Equal(0m, statement.Aging.Days31To60);
+        Assert.Equal(-2900.00m, statement.Aging.Days61To90);
+    }
+
+    /// <summary>A period that has already closed is still aged as at its own end date.</summary>
+    [Fact]
+    public async Task A_closed_period_is_aged_as_at_its_end_date_whatever_today_is()
+    {
+        var clock = new ManualClock();
+        clock.Advance(new DateTimeOffset(2026, 11, 6, 8, 0, 0, TimeSpan.Zero) - clock.GetUtcNow());
+
+        var statement = await BuildStatementAsync(
+            SevenDays,
+            openItems: [OpenItem("20261019", "20261026", debit: 342.94m)],
+            fromDate: new DateTime(2026, 10, 1),
+            toDate: new DateTime(2026, 10, 31),
+            clock: clock);
+
+        // Due 26 Oct, five days overdue at 31 Oct. Measured from 6 Nov it would be eleven.
+        Assert.Equal(new DateTime(2026, 10, 31), statement.Aging.AsAtDate);
+        Assert.Equal(342.94m, statement.Aging.Days1To30);
+        Assert.Equal(0m, statement.Aging.Days31To60);
+    }
+
+    private static readonly PaymentTermsDto SevenDays = new()
+    {
+        GroupNumber = 1,
+        PaymentTermsGroupName = "7DAYS",
+        NumberOfAdditionalMonths = 0,
+        NumberOfAdditionalDays = 7
+    };
+
     /// <summary>An open item SAP has not reconciled, in the shape the open-items query returns.</summary>
     private static Dictionary<string, object?> OpenItem(
         string postingDate,
@@ -153,16 +251,24 @@ public class CustomerStatementContractTests
 
     private static async Task<CustomerStatementResponseDto> BuildStatementAsync(
         PaymentTermsDto? paymentTerms,
-        List<Dictionary<string, object?>>? openItems = null)
+        List<Dictionary<string, object?>>? openItems = null,
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        TimeProvider? clock = null)
     {
         var handler = new GetCustomerStatementHandler(
             BusinessPartners("ABS006", "Absolute Refregiration", payTermGrpCode: paymentTerms?.GroupNumber),
             Sap(paymentTerms, openItems ?? []),
             StatementBuildCaches.Fresh(),
-            NullLogger<GetCustomerStatementHandler>.Instance);
+            NullLogger<GetCustomerStatementHandler>.Instance,
+            clock);
 
         var result = await handler.Handle(
-            new GetCustomerStatementQuery("ABS006", new DateTime(2026, 5, 1), new DateTime(2026, 5, 31), null),
+            new GetCustomerStatementQuery(
+                "ABS006",
+                fromDate ?? new DateTime(2026, 5, 1),
+                toDate ?? new DateTime(2026, 5, 31),
+                null),
             CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : string.Empty);

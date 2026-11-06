@@ -13,7 +13,8 @@ public sealed class GetCustomerStatementHandler(
     IBusinessPartnerService businessPartnerService,
     ISAPServiceLayerClient sapClient,
     IStatementBuildCache statementCache,
-    ILogger<GetCustomerStatementHandler> logger
+    ILogger<GetCustomerStatementHandler> logger,
+    TimeProvider? clock = null
 ) : IRequestHandler<GetCustomerStatementQuery, ErrorOr<CustomerStatementResponseDto>>
 {
     // Fixed codes, not content-addressed ones. Both statements below are constant — the card code
@@ -258,11 +259,20 @@ WHERE T1."ShortName" = :cardCode
             .Sum(line => line.Credit);
         response.ClosingBalance = runningBalance;
         response.Customer.Balance = runningBalance;
-        // Aged as at the statement's own end date, not today. A July statement pulled in August was
-        // otherwise bucketed against the August date, which both aged every July document a few days
-        // further than the document it sat next to and let documents dated after the period end
-        // count towards a period they are not in.
-        response.Aging = BuildAgingSummary(openItemsTask.Result, paymentTerms, toDate);
+        // Aged as at the statement's end date, or today if that date has not arrived yet.
+        //
+        // A closed period keeps its own end date. A July statement pulled in August was otherwise
+        // bucketed against the August date, which aged every July document a few days further than
+        // the document it sat next to.
+        //
+        // A period that runs past today is aged as at today. A 7-day-terms customer's statement for
+        // 1 Oct – 30 Nov, pulled on 6 Nov, was aged as at 30 Nov. From there every October document
+        // looked more than three weeks overdue, so the account's whole balance printed under
+        // "Over 21 Days".
+        // How each line is bucketed from that date is SAP's own rule; see BuildAgingSummary.
+        var today = AuditService.ToCAT((clock ?? TimeProvider.System).GetUtcNow().UtcDateTime).Date;
+        var agingAsAt = toDate < today ? toDate : today;
+        response.Aging = BuildAgingSummary(openItemsTask.Result, paymentTerms, agingAsAt);
 
         logger.LogInformation(
             "Customer statement for {CardCode} built in {ElapsedMs:F0}ms across {AccountCount} account(s) with {LineCount} line(s)",
@@ -449,12 +459,26 @@ WHERE T1."ShortName" = :cardCode
     /// Signed, so credits subtract.
     /// </param>
     /// <param name="paymentTerms">Sizes the buckets; 30-day buckets when the customer has none.</param>
-    /// <param name="asAtDate">The statement's end date — the day the aging speaks for.</param>
+    /// <param name="asAtDate">
+    /// The day the aging speaks for: the statement's end date, or today when the period has not
+    /// finished yet.
+    /// </param>
     /// <remarks>
     /// Every open item is aged by its own date, credits included, so the buckets net and the total
     /// lands on the closing balance. That holds while reconciliation stays inside the period; a July
     /// invoice settled in August leaves the total below the July closing balance, which is the same
     /// answer SAP's Account Balance window gives and the honest one for a back-dated statement.
+    ///
+    /// The rules are SAP's Customer Receivables Aging report, so the two agree line for line:
+    /// <list type="bullet">
+    /// <item><description>Each line ages from its own due date. An invoice's is its posting date plus
+    /// the terms; a receipt's or a credit's is its posting date. This used to add the terms to every
+    /// line, which made each unapplied receipt look a week younger than SAP shows it, and put a
+    /// customer's Current column thousands away from SAP's report.</description></item>
+    /// <item><description>Current means not due yet. A line due on the as-at date is already in the
+    /// first bucket, which is why that bucket starts at 0. Compared against SAP's report, only this
+    /// reading makes its columns add up.</description></item>
+    /// </list>
     /// </remarks>
     private static StatementAgingSummaryDto BuildAgingSummary(
         IReadOnlyList<StatementOpenItemRow> openItems,
@@ -466,7 +490,8 @@ WHERE T1."ShortName" = :cardCode
 
         var aging = new StatementAgingSummaryDto
         {
-            Bucket1Label = $"1-{bucketSize} Days",
+            AsAtDate = asAtDate.Date,
+            Bucket1Label = $"0-{bucketSize} Days",
             Bucket2Label = $"{bucketSize + 1}-{bucketSize * 2} Days",
             Bucket3Label = $"{bucketSize * 2 + 1}-{bucketSize * 3} Days",
             Bucket4Label = $"Over {bucketSize * 3} Days"
@@ -474,15 +499,15 @@ WHERE T1."ShortName" = :cardCode
 
         foreach (var openItem in openItems)
         {
-            var daysOverdue = paymentTermsDays > 0
-                ? CalculateDaysOverdueFromTerms(openItem.PostingDate, paymentTermsDays, asAtDate)
-                : CalculateDaysOverdue(openItem.DueDate, asAtDate);
-
-            if (daysOverdue <= 0)
+            var dueDate = DueDateOf(openItem, paymentTermsDays);
+            if (dueDate is null || dueDate.Value > asAtDate.Date)
             {
                 aging.Current += openItem.Balance;
+                continue;
             }
-            else if (daysOverdue <= bucketSize)
+
+            var daysOverdue = (asAtDate.Date - dueDate.Value).Days;
+            if (daysOverdue <= bucketSize)
             {
                 aging.Days1To30 += openItem.Balance;
             }
@@ -581,27 +606,20 @@ WHERE T1."ShortName" = :cardCode
 
     private static DateTime? ToNullableDate(DateTime value) => SapSqlRow.ToNullableDate(value);
 
-    private static int CalculateDaysOverdue(DateTime? dueDate, DateTime asAtDate)
+    /// <summary>
+    /// The line's own due date from SAP. Only when SAP gives none is one assumed: the posting date
+    /// plus the customer's terms. With neither, the line is treated as not yet due.
+    /// </summary>
+    private static DateTime? DueDateOf(StatementOpenItemRow openItem, int paymentTermsDays)
     {
-        if (!dueDate.HasValue)
+        if (openItem.DueDate is { } dueDate)
         {
-            return 0;
+            return dueDate.Date;
         }
 
-        var days = (asAtDate.Date - dueDate.Value.Date).Days;
-        return days > 0 ? days : 0;
-    }
-
-    private static int CalculateDaysOverdueFromTerms(DateTime docDate, int paymentTermsDays, DateTime asAtDate)
-    {
-        if (docDate == DateTime.MinValue)
-        {
-            return 0;
-        }
-
-        var effectiveDueDate = docDate.AddDays(paymentTermsDays);
-        var days = (asAtDate.Date - effectiveDueDate.Date).Days;
-        return days > 0 ? days : 0;
+        return openItem.PostingDate == DateTime.MinValue
+            ? null
+            : openItem.PostingDate.Date.AddDays(paymentTermsDays);
     }
 
     private sealed record StatementLedgerRow(

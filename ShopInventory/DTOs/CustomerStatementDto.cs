@@ -67,6 +67,11 @@ public class StatementLineDto
 
 public class StatementAgingSummaryDto
 {
+    /// <summary>
+    /// The day the buckets are measured from: the statement's end date, or today when the period
+    /// has not finished yet.
+    /// </summary>
+    public DateTime AsAtDate { get; set; }
     public decimal Current { get; set; }
     public decimal Days1To30 { get; set; }
     public decimal Days31To60 { get; set; }
