@@ -118,10 +118,19 @@ public sealed class AddApprovedSapTransferHandler(
             // SAP refuses the whole transfer for one batch-managed line without a complete pick, so
             // say which lines before asking. Without the flags SAP's own refusal is the answer.
             var management = await TryReadItemManagementAsync(draft, cancellationToken);
-            var (_, missingPicks) = SapTransferApprovalProjection.Lines(draft, management);
+            var (lines, missingPicks) = SapTransferApprovalProjection.Lines(draft, management);
             if (missingPicks.Count > 0)
             {
                 return Errors.SapTransferApproval.SelectionMissing(missingPicks);
+            }
+
+            // A pick made when the draft was keyed may name a batch the factory has issued since, and SAP
+            // answers that with the same -4014 as a missing pick — the first add on KEFALOS_TEST_3 did.
+            // Unreadable stock skips the check: SAP decides, and its refusal is still said in words.
+            var usedUpPicks = await TryFindUsedUpPicksAsync(draft, lines, cancellationToken);
+            if (usedUpPicks.Count > 0)
+            {
+                return Errors.SapTransferApproval.PickedBatchUsedUp(usedUpPicks);
             }
 
             var linked = new List<(int DocEntry, InventoryTransferRequest? Request)>();
@@ -592,6 +601,23 @@ public sealed class AddApprovedSapTransferHandler(
         {
             logger.LogWarning(exception, "Could not read the batch and serial flags for draft {DraftEntry}; SAP will decide at the add", draft.DocEntry);
             return null;
+        }
+    }
+
+    private async Task<List<string>> TryFindUsedUpPicksAsync(
+        SAPStockTransferDraft draft,
+        IReadOnlyList<SapTransferDraftLineDto> lines,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var stock = await SapTransferBatchStock.ReadAsync(sap, draft, cancellationToken);
+            return SapTransferApprovalProjection.UsedUpPicks(draft, stock, lines);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Could not read the picked batches' stock for draft {DraftEntry}; SAP will decide at the add", draft.DocEntry);
+            return [];
         }
     }
 

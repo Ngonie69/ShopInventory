@@ -28,10 +28,12 @@ otherwise be surprised.
   approvals, the transfer request it was copied from) and `POST /api/sap-transfer-approvals/{draftEntry}/add`.
   A depot controller or a shop's stock user sees and adds only the transfers leaving the warehouses on
   its account, as for a conversion. The add is made once per draft whoever clicks; it is refused, in
-  words, for a batch-managed line with no batch picked, for a draft whose transfer request was already
-  converted here, and for units a till has sold that SAP has not invoiced. A transfer request the draft
-  was copied from is closed afterwards. Deciding stays in the B1 client. **The add itself has not yet
-  been run against SAP** — see `docs/sap-transfer-approvals.md` for what to record on the first run.
+  words, for a batch-managed line with no batch picked, for a picked batch the factory has used up since
+  the draft was keyed, for a draft whose transfer request was already converted here, and for units a
+  till has sold that SAP has not invoiced. A transfer request the draft was copied from is closed
+  afterwards. Deciding stays in the B1 client. The first add in the test company was refused by SAP for a
+  used-up batch, which SAP reports in the same words as a missing pick; **a successful add has not been
+  run yet** — see `docs/sap-transfer-approvals.md`.
 
 - **A transfer request now waits for the owner of each warehouse it delivers to before it posts.**
   Every transfer request's approval gains a stage, `Receiving warehouse owner`, after whatever its

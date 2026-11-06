@@ -88,11 +88,31 @@ public sealed class GetSapTransferApprovalHandler(
         var item = SapTransferApprovalProjection.ToListItem(draft, requests, originator, template, stage, caller.Value);
         var (lines, missingPicks) = SapTransferApprovalProjection.Lines(draft, management);
 
+        // Whether each picked batch still holds what the draft takes from it. Unreadable costs the page
+        // that sentence, not its answer; SAP decides at the add.
+        var usedUpPicks = new List<string>();
+        var batchStockUnchecked = false;
+        try
+        {
+            var stock = await SapTransferBatchStock.ReadAsync(sap, draft, cancellationToken);
+            usedUpPicks = SapTransferApprovalProjection.UsedUpPicks(draft, stock, lines);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Could not read the picked batches' stock for draft {DraftEntry}", draft.DocEntry);
+            batchStockUnchecked = true;
+        }
+
         // The list could only see the header; the detail has every line, so it can say more.
         if (item.CanAdd && missingPicks.Count > 0)
         {
             item.CanAdd = false;
             item.StatusNote = Errors.SapTransferApproval.SelectionMissing(missingPicks).Description;
+        }
+        else if (item.CanAdd && usedUpPicks.Count > 0)
+        {
+            item.CanAdd = false;
+            item.StatusNote = Errors.SapTransferApproval.PickedBatchUsedUp(usedUpPicks).Description;
         }
 
         return new SapTransferApprovalDetailDto
@@ -101,7 +121,8 @@ public sealed class GetSapTransferApprovalHandler(
             Lines = lines,
             Approvals = await BuildApprovalsAsync(requests, cancellationToken),
             LinkedRequests = await ReadLinkedRequestsAsync(draft, cancellationToken),
-            SelectionUnchecked = management is null
+            SelectionUnchecked = management is null,
+            BatchStockUnchecked = batchStockUnchecked
         };
     }
 

@@ -168,9 +168,74 @@ public sealed class SapTransferApprovalAddTests : IDisposable
         var result = await Handler(sap, audit: audit).Handle(Command(61875, admin), CancellationToken.None);
 
         Assert.Equal("SapTransferApproval.SelectionMissing", result.FirstError.Code);
-        Assert.Contains("Pick the batches on the draft in SAP Business One", result.FirstError.Description);
+        Assert.Contains("Pick batches that hold the stock on the draft in SAP Business One", result.FirstError.Description);
         Assert.Contains("Nothing was transferred", result.FirstError.Description);
         Assert.False(Assert.Single(audit.Entries).Success);
+    }
+
+    /// <summary>
+    /// What the first add on KEFALOS_TEST_3 met (2026-11-06): draft 79744 picks batch YOG058#M11/23/N,
+    /// which CMFC has since issued, and SAP refused with -4014 — the words it uses for no pick at all.
+    /// The add now names the used-up batch before SAP is asked.
+    /// </summary>
+    [Fact]
+    public async Task A_pick_whose_batch_has_been_used_up_is_refused_before_sap_with_the_batch_named()
+    {
+        var admin = await UserAsync(ApplicationRoles.Admin);
+        var draft = HeldTransfers.Draft(79744, "CMFC", "DISPYOG",
+            HeldTransfers.Line(0, "YOG058", 8m, "CMFC", "DISPYOG", ("YOG058#M11/23/N", 8m)));
+        var sap = new FakeTransferSap(draft, HeldTransfers.Request(74045, 79744))
+        {
+            Management = HeldTransfers.BatchManaged("YOG058")
+        };
+        sap.BatchStock["YOG058|CMFC"] = [("YOG058#M20/23 N", 162m), ("YOG058#M27/23 N", 1109m)];
+
+        var result = await Handler(sap).Handle(Command(79744, admin), CancellationToken.None);
+
+        Assert.Equal("SapTransferApproval.PickedBatchUsedUp", result.FirstError.Code);
+        Assert.Contains("YOG058 picks batch YOG058#M11/23/N for 8, but CMFC holds none of it now", result.FirstError.Description);
+        Assert.Contains("Nothing was transferred", result.FirstError.Description);
+        Assert.Empty(sap.Saves);
+        Assert.Equal([("YOG058", "CMFC")], sap.BatchStockReads);
+    }
+
+    /// <summary>Two lines drawing on one batch need what both take, even when either alone would fit.</summary>
+    [Fact]
+    public async Task Picks_of_one_batch_are_summed_across_lines()
+    {
+        var admin = await UserAsync(ApplicationRoles.Admin);
+        var draft = HeldTransfers.Draft(70001, "CMFC", "CMFS",
+            HeldTransfers.Line(0, "CHE011", 30m, "CMFC", "CMFS", ("CHE011/L18/23", 30m)),
+            HeldTransfers.Line(1, "CHE011", 30m, "CMFC", "CMFS", ("CHE011/L18/23", 30m)));
+        var sap = new FakeTransferSap(draft, HeldTransfers.Request(70002, 70001));
+        sap.BatchStock["CHE011|CMFC"] = [("CHE011/L18/23", 45m)];
+
+        var result = await Handler(sap).Handle(Command(70001, admin), CancellationToken.None);
+
+        Assert.Equal("SapTransferApproval.PickedBatchUsedUp", result.FirstError.Code);
+        Assert.Contains("CHE011/L18/23 for 60, but CMFC holds only 45 of it now", result.FirstError.Description);
+        Assert.Empty(sap.Saves);
+    }
+
+    /// <summary>
+    /// When the batch stock cannot be read the add still asks SAP, and SAP's -4014 is then said with
+    /// both of its causes, since SAP gives the same words for a missing pick and a used-up one.
+    /// </summary>
+    [Fact]
+    public async Task Unreadable_batch_stock_leaves_the_decision_to_sap_and_its_refusal_names_both_causes()
+    {
+        var admin = await UserAsync(ApplicationRoles.Admin);
+        var sap = new FakeTransferSap(HeldTransfers.Draft(79744, "CMFC", "DISPYOG"), HeldTransfers.Request(74045, 79744))
+        {
+            BatchStockUnreadable = true,
+            RefuseWith = "Cannot add row without complete selection of batch/serial numbers"
+        };
+
+        var result = await Handler(sap).Handle(Command(79744, admin), CancellationToken.None);
+
+        Assert.Equal("SapTransferApproval.SelectionMissing", result.FirstError.Code);
+        Assert.Contains("no longer holds that stock", result.FirstError.Description);
+        Assert.NotEmpty(sap.BatchStockReads);
     }
 
     [Fact]

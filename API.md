@@ -6003,12 +6003,15 @@ conversion's own `403 InventoryTransfer.WarehouseNotAssigned`.
 
 Each row carries `canAdd` and, when false, `statusNote`. The list sees only the draft's header; the
 detail reads the draft by key — the only read SAP answers with each line's batch picks — and also
-withholds `canAdd` when a batch- or serial-managed line's pick does not cover it.
+withholds `canAdd` when a batch- or serial-managed line's pick does not cover it, or a picked batch has
+been used up: each batch carries `available` (what it holds now), each line `selectionUsedUp`, and
+`batchStockUnchecked` says the stock could not be read.
 
 **The add.** Refused before anything reaches SAP, in these words, when: the draft is not approved
 (`SapTransferApproval.NotApproved`), an approval request on it is still pending
 (`ApprovalNotSettled`), a batch-managed line has no complete pick (`SelectionMissing`, naming the lines —
-also what SAP's own refusal for a missing pick maps to), the transfer request it was copied from was
+also what SAP's own `-4014` maps to), a picked batch no longer holds the picked quantity in the source
+warehouse (`PickedBatchUsedUp`, naming the batch; SAP reports it as the same `-4014`), the transfer request it was copied from was
 already converted here (`409 AlreadyTransferredByApp`), or a till has sold units out of the source
 warehouse that SAP has not invoiced yet (`TillSalesWouldBeTaken`, the conversion's check). A closed draft
 answers `409 SapTransferApproval.AlreadyAdded`, naming the transfer when SAP's request does and any

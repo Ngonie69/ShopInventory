@@ -363,6 +363,10 @@
 
                     <div>
                         <div class="sta-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Lines</div>
+                        @if (detail.BatchStockUnchecked)
+                        {
+                            <div class="sta-note">The picked batches' stock could not be read, so this page cannot say whether any has been used up since the draft was keyed. SAP checks them when the transfer is added.</div>
+                        }
                         @if (detail.SelectionUnchecked)
                         {
                             <div class="sta-note">SAP did not say which items it manages by batch, so the batch picks could not be checked here. SAP checks them when the transfer is added.</div>
@@ -379,7 +383,7 @@
                             <tbody>
                                 @foreach (var line in detail.Lines)
                                 {
-                                    <tr class="@(line.SelectionMissing ? "sta-lines-missing" : "")">
+                                    <tr class="@(line.SelectionMissing || line.SelectionUsedUp ? "sta-lines-missing" : "")">
                                         <td>
                                             <span class="sta-stack">
                                                 <span class="sta-cust-name">@line.ItemCode</span>
@@ -407,6 +411,13 @@
                                                     @(line.Batches.Count == 0 && line.SerialCount == 0 ? "No batch picked" : "Pick incomplete")
                                                 </span>
                                             }
+                                            else if (line.SelectionUsedUp)
+                                            {
+                                                <span class="sta-missing">
+                                                    <i class="ph ph-warning" aria-hidden="true"></i>
+                                                    Batch used up
+                                                </span>
+                                            }
                                             @if (line.Batches.Count > 0)
                                             {
                                                 <div class="sta-batches">
@@ -415,6 +426,10 @@
                                                         <span class="sta-batch">
                                                             <span class="sta-batch-no">@batch.BatchNumber</span>
                                                             <span class="sta-batch-qty">@QuantityDisplay.Format(batch.Quantity)</span>
+                                                            @if (batch.Available is decimal available && available < batch.Quantity)
+                                                            {
+                                                                <span class="sta-batch-left">@(available <= 0 ? "none left" : $"{QuantityDisplay.Format(available)} left")</span>
+                                                            }
                                                         </span>
                                                     }
                                                 </div>

@@ -168,6 +168,48 @@ public sealed class SapTransferApprovalQueueTests : IDisposable
     }
 
     [Fact]
+    public async Task The_detail_shows_what_each_picked_batch_holds_now_and_withholds_the_add_when_one_is_used_up()
+    {
+        var admin = await UserAsync(ApplicationRoles.Admin);
+        var draft = HeldTransfers.Draft(79744, "CMFC", "DISPYOG",
+            HeldTransfers.Line(0, "YOG058", 8m, "CMFC", "DISPYOG", ("YOG058#M11/23/N", 8m)),
+            HeldTransfers.Line(1, "YOG059", 4m, "CMFC", "DISPYOG", ("YOG059#A", 4m)));
+        var sap = new FakeTransferSap(draft, HeldTransfers.Request(74045, 79744))
+        {
+            Management = HeldTransfers.BatchManaged("YOG058", "YOG059")
+        };
+        sap.BatchStock["YOG058|CMFC"] = [("YOG058#M20/23 N", 162m)];
+        sap.BatchStock["YOG059|CMFC"] = [("YOG059#A", 40m)];
+
+        var result = await Detail(sap).Handle(new GetSapTransferApprovalQuery(79744, admin.Id), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.False(result.Value.Draft.CanAdd);
+        Assert.Contains("YOG058#M11/23/N", result.Value.Draft.StatusNote);
+        Assert.True(result.Value.Lines[0].SelectionUsedUp);
+        Assert.Equal(0m, Assert.Single(result.Value.Lines[0].Batches).Available);
+        Assert.False(result.Value.Lines[1].SelectionUsedUp);
+        Assert.Equal(40m, Assert.Single(result.Value.Lines[1].Batches).Available);
+        Assert.False(result.Value.BatchStockUnchecked);
+    }
+
+    [Fact]
+    public async Task The_detail_says_when_the_batch_stock_could_not_be_read()
+    {
+        var admin = await UserAsync(ApplicationRoles.Admin);
+        var sap = new FakeTransferSap(HeldTransfers.Draft(79744, "CMFC", "DISPYOG"), HeldTransfers.Request(74045, 79744))
+        {
+            BatchStockUnreadable = true
+        };
+
+        var result = await Detail(sap).Handle(new GetSapTransferApprovalQuery(79744, admin.Id), CancellationToken.None);
+
+        Assert.True(result.Value.BatchStockUnchecked);
+        Assert.True(result.Value.Draft.CanAdd, "an unread check leaves the add to SAP rather than refusing it");
+        Assert.Null(result.Value.Lines[0].Batches[0].Available);
+    }
+
+    [Fact]
     public async Task The_detail_says_when_it_could_not_check_the_picks_and_leaves_the_add_to_sap()
     {
         var admin = await UserAsync(ApplicationRoles.Admin);

@@ -60,9 +60,13 @@ A scoped account's queue is filtered — and counted — in SAP on the draft's s
    `AlreadyAdded`, naming the transfer when a request's `ObjectEntry` does, and any copied-from request
    still open. Not `sasApproved`, or a request on it still pending: refused.
 3. **Batch picks.** SAP refuses the whole transfer for one batch- or serial-managed line whose picks do
-   not cover it (`Cannot add row without complete selection of batch/serial numbers`, as it did for a
-   credit memo draft). The add checks first and says which lines; when the item flags cannot be read,
-   SAP's own refusal is turned into the same instruction: pick the batches on the draft in the B1 client.
+   not cover it, **and for a pick whose batch has since been used up** — both with the same
+   `-4014 Cannot add row without complete selection of batch/serial numbers` (see the first run below).
+   The add checks both first and says which line or which batch: a missing pick from the item flags, a
+   used-up one from what each picked batch holds now in the line's source warehouse, read through the
+   fixed `ITEM_BATCHES_V1` query (one read per item and warehouse, three at a time; it mints no
+   SQLQueries object). Picks of one batch are summed across lines. When either read fails, SAP decides,
+   and its refusal is turned into an instruction that names both causes.
 4. **Copied from a transfer request.** The request is held under the conversion lock
    (`transfer-request-conversion-post`, the one `ConvertTransferRequestHandler` uses), and the add is
    refused when this app already converted it — its transfer carries `ITR-{DocEntry}` — because that
@@ -81,23 +85,34 @@ A scoped account's queue is filtered — and counted — in SAP on the draft's s
    result, not thrown: the stock has moved. Lines of the request the B1 user left off the draft are not
    transferred; raise a new request for them.
 
-## The add has not been run against SAP
+## The first add against SAP
 
-The write was not exercised: the session that built this was not permitted to post to the test
-company. What is proven is the reads above (live), the handler's behaviour against a stand-in Service
-Layer (`SapTransferApprovalAddTests`), and the page against the live reads. Before production, run one
-add in `KEFALOS_TEST_3` and record here:
+Run in `KEFALOS_TEST_3` on 2026-11-06 with the user's go-ahead: draft **79744** (request 74045, CMFC →
+DISPYOG, one line of YOG058, 8 units, batch `YOG058#M11/23/N` picked for 8, header and line approved).
 
-- what `SaveDraftToDocument` answers (204, or a body naming the transfer);
-- whether the request is deleted, as for a credit memo, or kept with `ObjectEntry`, as the B1 client
-  keeps it;
-- whether the draft goes `bost_Close` (the recovery path relies on it);
-- what SAP says for draft 61875 (request 56603), whose one batch-managed line has no pick — the add
-  refuses it before SAP, so send that one by hand;
-- whether a draft copied from a request (78464 → request 22788) leaves the request open.
+| | before | after |
+|---|---|---|
+| `POST StockTransferDrafts(79744)/SaveDraftToDocument` (no body) | | **400** `-4014 Cannot add row without complete selection of batch/serial numbers`, in 2.1 s |
+| `ApprovalRequests(74045)` | `arsApproved`, `IsDraft Y`, no `ObjectEntry` | unchanged |
+| `StockTransferDrafts(79744)` | `bost_Open`, `sasApproved` | unchanged |
+| Newest stock transfer | DocEntry 151574 | unchanged — nothing was posted |
 
-Candidates on 2026-11-06: draft 79744 (request 74045, CMFC → DISPYOG, one line of YOG058, 8 units, batch
-picked and released, 1,271 on hand).
+**Why SAP refused.** The line *was* picked. The batch it picked no longer holds anything at CMFC: read
+back through `ITEM_BATCHES_V1`, YOG058 at CMFC holds only `YOG058#M20/23 N` (162) and `YOG058#M27/23 N`
+(1,109). SAP answers a used-up pick with exactly the words it uses for no pick at all. Production's
+approved drafts are weeks old and the factory issues batches first in, first out, so this will be the
+common refusal; the page now finds it before the add and names the batch (`PickedBatchUsedUp`).
+
+**Still not measured**, because the refusal happened before anything was written: what a successful
+`SaveDraftToDocument` answers (204, or a body naming the transfer), whether it keeps the request with
+`ObjectEntry` as the B1 client does or deletes it as the credit memo add does, whether the draft goes
+`bost_Close`, and whether a draft copied from a request leaves that request open. The code handles each
+either way — it names the transfer from SAP's answer, a request's `ObjectEntry` or the draft's lines, and
+settles a lost answer by the draft — but a successful run should confirm them. It needs a draft whose
+picked batches all still hold their quantities; the detail page now says which drafts those are.
+
+A read-only survey for such a draft was cut short when the Service Layer stopped answering from this
+machine (TCP connect timeouts at 10.10.10.6:50000).
 
 ## The page
 

@@ -233,6 +233,77 @@ internal static class SapTransferApprovalProjection
         return null;
     }
 
+    /// <summary>
+    /// The picked batches that no longer hold what the draft picks from them in the warehouse it picks
+    /// them from, as sentences, and each such line and batch marked on <paramref name="lines"/>.
+    /// </summary>
+    /// <param name="draft">The draft, read by key so its lines carry their picks.</param>
+    /// <param name="stock">What <see cref="SapTransferBatchStock.ReadAsync"/> read.</param>
+    /// <param name="lines">The line rows <see cref="Lines"/> built, given each batch's quantity on hand.</param>
+    /// <remarks>
+    /// Picks are summed per batch across the draft's lines before they are compared, because two lines
+    /// of one item drawing on one batch need what both take. SAP answers a used-up pick with the same
+    /// <c>-4014</c> as a missing one, so this is the only place the difference can be said.
+    /// </remarks>
+    public static List<string> UsedUpPicks(
+        SAPStockTransferDraft draft,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, decimal>> stock,
+        IReadOnlyList<SapTransferDraftLineDto> lines)
+    {
+        var picks = (draft.StockTransferLines ?? [])
+            .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode))
+            .SelectMany(line => (line.BatchNumbers ?? [])
+                .Where(batch => !string.IsNullOrWhiteSpace(batch.BatchNumber))
+                .Select(batch => (
+                    Line: line,
+                    Warehouse: (line.FromWarehouseCode ?? draft.FromWarehouse ?? string.Empty).Trim(),
+                    Batch: batch.BatchNumber!.Trim(),
+                    batch.Quantity)))
+            .ToList();
+
+        var usedUp = new List<string>();
+        foreach (var group in picks.GroupBy(
+                     pick => (Item: pick.Line.ItemCode!.Trim().ToUpperInvariant(), Warehouse: pick.Warehouse.ToUpperInvariant(), Batch: pick.Batch.ToUpperInvariant())))
+        {
+            if (!stock.TryGetValue(SapTransferBatchStock.Key(group.Key.Item, group.Key.Warehouse), out var onHand))
+            {
+                // Not read: nothing is said about it, and SAP decides at the add.
+                continue;
+            }
+
+            var available = onHand.TryGetValue(group.First().Batch, out var quantity) ? quantity : 0m;
+            foreach (var pick in group)
+            {
+                var row = lines.FirstOrDefault(line => line.LineNum == pick.Line.LineNum);
+                var batchRow = row?.Batches.FirstOrDefault(batch => string.Equals(batch.BatchNumber?.Trim(), pick.Batch, StringComparison.OrdinalIgnoreCase));
+                if (batchRow is not null)
+                {
+                    batchRow.Available = available;
+                }
+            }
+
+            var picked = group.Sum(pick => pick.Quantity);
+            if (available + PickTolerance >= picked)
+            {
+                continue;
+            }
+
+            foreach (var pick in group)
+            {
+                if (lines.FirstOrDefault(line => line.LineNum == pick.Line.LineNum) is { } row)
+                {
+                    row.SelectionUsedUp = true;
+                }
+            }
+
+            var first = group.First();
+            var holds = available <= 0 ? "holds none of it now" : $"holds only {available:0.######} of it now";
+            usedUp.Add($"{first.Line.ItemCode} picks batch {first.Batch} for {picked:0.######}, but {first.Warehouse} {holds}");
+        }
+
+        return usedUp;
+    }
+
     /// <summary>Whether SAP refused an add because a batch or serial pick was incomplete.</summary>
     public static bool IsSelectionRefusal(string? sapMessage) =>
         !string.IsNullOrWhiteSpace(sapMessage)

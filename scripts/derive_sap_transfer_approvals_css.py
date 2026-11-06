@@ -120,6 +120,14 @@ FOOTER = """
     font-variant-numeric: tabular-nums;
 }
 
+/* What a used-up batch holds now, beside what the draft picks from it. */
+.sta-overlay .sta-batch-left {
+    color: var(--sta-warn-ink);
+    font-size: 11.5px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
 /* A line SAP would refuse for want of a batch or serial pick. The warn family,
    on the line itself as well as in the note, so it is found in a long draft. */
 .sta-overlay .sta-lines-missing td {

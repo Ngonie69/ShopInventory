@@ -85,6 +85,12 @@ public sealed class SapTransferApprovalDetailDto
     /// whether every pick is complete. The add still asks SAP, which decides.
     /// </summary>
     public bool SelectionUnchecked { get; set; }
+
+    /// <summary>
+    /// True when the picked batches' stock could not be read, so the page cannot tell whether any has
+    /// been used up since the draft was keyed. The add still asks SAP, which decides.
+    /// </summary>
+    public bool BatchStockUnchecked { get; set; }
 }
 
 public sealed class SapTransferDraftLineDto
@@ -114,6 +120,13 @@ public sealed class SapTransferDraftLineDto
     /// </summary>
     public bool SelectionMissing { get; set; }
 
+    /// <summary>
+    /// A batch the line picks no longer holds what the draft picks from it in the source warehouse —
+    /// used by other documents since the draft was keyed. SAP refuses the whole transfer for it, with
+    /// the same words as for a missing pick.
+    /// </summary>
+    public bool SelectionUsedUp { get; set; }
+
     /// <summary>The transfer request the line was copied from, when it was.</summary>
     public int? BaseRequestDocEntry { get; set; }
 }
@@ -121,7 +134,12 @@ public sealed class SapTransferDraftLineDto
 public sealed class SapTransferDraftBatchDto
 {
     public string? BatchNumber { get; set; }
+
+    /// <summary>What the draft picks from the batch.</summary>
     public decimal Quantity { get; set; }
+
+    /// <summary>What the batch holds in the line's source warehouse now; null when it was not read.</summary>
+    public decimal? Available { get; set; }
 }
 
 public sealed class SapTransferApprovalRequestDto

@@ -56,11 +56,25 @@ public static partial class Errors
                 $"SAP will not add this transfer: {string.Join("; ", lines)}. Nothing was transferred. " +
                 "Pick the batches on the draft in SAP Business One, then add it.");
 
-        /// <summary>SAP itself refused for a missing batch or serial pick — the same fix, in SAP's words.</summary>
+        /// <summary>
+        /// A picked batch no longer holds what the draft takes from it in the source warehouse. The draft
+        /// was keyed weeks ago and the batch has been issued since; SAP refuses with the same words it
+        /// uses for a missing pick, so this says which batch.
+        /// </summary>
+        public static Error PickedBatchUsedUp(IReadOnlyCollection<string> picks) =>
+            Error.Validation("SapTransferApproval.PickedBatchUsedUp",
+                $"SAP will not add this transfer: {string.Join("; ", picks)}. Nothing was transferred. " +
+                "Pick batches that still hold the stock on the draft in SAP Business One, then add it.");
+
+        /// <summary>
+        /// SAP itself refused for a batch or serial pick. Its <c>-4014</c> is the same for a line with no
+        /// pick and for a pick whose batch has since been used up (measured 2026-11-06), so both are said.
+        /// </summary>
         public static Error SelectionRefusedBySap(string sapMessage) =>
             Error.Validation("SapTransferApproval.SelectionMissing",
-                $"SAP will not add this transfer because a batch or serial number is not picked on every line ({sapMessage}). " +
-                "Nothing was transferred. Pick the batches on the draft in SAP Business One, then add it.");
+                $"SAP will not add this transfer because a line's batch or serial pick is not complete, or a picked batch no longer " +
+                $"holds that stock in the source warehouse ({sapMessage}). Nothing was transferred. " +
+                "Pick batches that hold the stock on the draft in SAP Business One, then add it.");
 
         public static Error AlreadyTransferredByApp(int requestDocNum, int transferDocNum) =>
             Error.Conflict("SapTransferApproval.AlreadyTransferredByApp",

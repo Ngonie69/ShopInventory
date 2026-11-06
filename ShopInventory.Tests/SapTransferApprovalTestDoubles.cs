@@ -58,6 +58,18 @@ internal sealed class FakeTransferSap
     public List<(int DraftEntry, CancellationToken Token)> Saves { get; } = [];
     public List<int> ClosedRequests { get; } = [];
 
+    /// <summary>
+    /// Batches on hand per item and warehouse (key <c>ITEM|WAREHOUSE</c>). An item and warehouse not
+    /// named here answer with exactly what the draft picks, so a test that is not about used-up batches
+    /// never trips over them.
+    /// </summary>
+    public Dictionary<string, List<(string Batch, decimal Quantity)>> BatchStock { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The batch stock read throws, as a Service Layer that is not answering does.</summary>
+    public bool BatchStockUnreadable { get; init; }
+
+    public List<(string Item, string Warehouse)> BatchStockReads { get; } = [];
+
     /// <summary>What the list read was asked for: the warehouse scope and the warehouse filter.</summary>
     public List<(IReadOnlyCollection<string>? Scope, string? Warehouse, int? Before)> ListReads { get; } = [];
 
@@ -88,6 +100,7 @@ internal sealed class FakeTransferSap
         nameof(ISAPServiceLayerClient.CloseInventoryTransferRequestAsync) => Close((int)args![0]!),
         nameof(ISAPServiceLayerClient.SaveStockTransferDraftToDocumentAsync) => Save(args!),
         nameof(ISAPServiceLayerClient.GetApprovedStockTransferDraftsAsync) => List(args!),
+        nameof(ISAPServiceLayerClient.GetBatchNumbersForItemInWarehouseAsync) => Batches((string)args![0]!, (string)args[1]!),
         _ => throw new InvalidOperationException($"{method.Name} was not expected.")
     });
 
@@ -95,6 +108,32 @@ internal sealed class FakeTransferSap
     {
         ListReads.Add(((IReadOnlyCollection<string>?)args[3], (string?)args[4], (int?)args[2]));
         return Task.FromResult((ListDrafts, ListTotal));
+    }
+
+    private Task<List<BatchNumber>> Batches(string item, string warehouse)
+    {
+        lock (BatchStockReads)
+        {
+            BatchStockReads.Add((item, warehouse));
+        }
+
+        if (BatchStockUnreadable)
+        {
+            return Task.FromException<List<BatchNumber>>(new TimeoutException("SAP did not answer the stock read"));
+        }
+
+        var rows = BatchStock.TryGetValue($"{item}|{warehouse}", out var named)
+            ? named
+            : (Draft.StockTransferLines ?? [])
+                .Where(line => string.Equals(line.ItemCode, item, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(line => line.BatchNumbers ?? [])
+                .GroupBy(batch => batch.BatchNumber!)
+                .Select(group => (group.Key, group.Sum(batch => batch.Quantity)))
+                .ToList();
+
+        return Task.FromResult(rows
+            .Select(row => new BatchNumber { ItemCode = item, BatchNum = row.Item1, Quantity = row.Item2, Warehouse = warehouse })
+            .ToList());
     }
 
     private Task Close(int docEntry)

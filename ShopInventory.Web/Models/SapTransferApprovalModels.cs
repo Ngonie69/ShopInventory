@@ -50,6 +50,7 @@ public sealed class SapTransferApprovalDetailDto
     public List<SapTransferApprovalRequestDto> Approvals { get; set; } = [];
     public List<SapTransferLinkedRequestDto> LinkedRequests { get; set; } = [];
     public bool SelectionUnchecked { get; set; }
+    public bool BatchStockUnchecked { get; set; }
 }
 
 public sealed class SapTransferDraftLineDto
@@ -66,6 +67,7 @@ public sealed class SapTransferDraftLineDto
     public List<SapTransferDraftBatchDto> Batches { get; set; } = [];
     public int SerialCount { get; set; }
     public bool SelectionMissing { get; set; }
+    public bool SelectionUsedUp { get; set; }
     public int? BaseRequestDocEntry { get; set; }
 }
 
@@ -73,6 +75,7 @@ public sealed class SapTransferDraftBatchDto
 {
     public string? BatchNumber { get; set; }
     public decimal Quantity { get; set; }
+    public decimal? Available { get; set; }
 }
 
 public sealed class SapTransferApprovalRequestDto
