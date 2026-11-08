@@ -151,7 +151,7 @@ public static class UserRoles
     /// link's href is resolved per role through <c>RoleLandingRoutes.For</c>,
     /// so this list and that chain have to agree.
     /// </summary>
-    public const string DashboardNavRoles = "Admin,SalesRep,DepotController,Cashier,StockController,Manager";
+    public const string DashboardNavRoles = "Admin,SalesRep,DepotController,Cashier,StockController,Manager,WashBay";
     public const string CatalogueRoles = "Admin,Cashier,StockController,Manager";
     public const string InsightsRoles = "Admin,Cashier,StockController,Manager";
     public const string SystemRoles = "Admin,Cashier,StockController,Manager";
@@ -398,6 +398,12 @@ public static class UserRoles
     /// who reads it. Raising a transfer from it stays with <see cref="InventoryTransferRoles"/>.
     /// </summary>
     public const string StockDashboardRoles = "Admin,StockController,Manager";
+
+    /// <summary>
+    /// The wash bay's dashboard. An administrator may open it too; what it shows is scoped by the API
+    /// to the account's own SAP stage and warehouse either way.
+    /// </summary>
+    public const string WashBayDashboardRoles = "Admin,WashBay";
     public const string UserManagementRoles = "Admin,PodOperator,SalesRep";
     public const string MerchandiserAccountManagementRoles = "Admin,SalesRep";
 
