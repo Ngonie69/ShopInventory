@@ -7,8 +7,11 @@ mirrored into the app's local approval engine, which governs the transfers this 
 
 **Why it exists.** Production holds 40 active transfer approval templates, each one SQL condition on
 the source or destination warehouse with one approver stage. Approvers decide them in B1, but nobody
-adds the approved drafts: about 1,302 approved transfer drafts went unadded between 31 Aug and
-26 Oct 2026, so the stock they describe never moved in SAP.
+adds the approved drafts: on 9 Nov 2026, 519 approved transfer drafts were still open, dated back to
+January 2024 (50 of them from 14 Sep – 8 Nov), so the stock they describe never moved in SAP. Count
+them with `DocObjectCode eq '67'`: unfiltered, `StockTransferDrafts` also serves invoice, credit
+note and goods issue drafts (1,337 approved drafts of every kind that day; the figure of 1,302 quoted
+on 26 Oct counted all kinds the same way).
 
 ## The SAP entities
 

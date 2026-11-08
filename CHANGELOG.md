@@ -20,9 +20,9 @@ otherwise be surprised.
 
 - **New: transfers SAP approved and nobody added can be added from the Web** (`/inventory-transfers/sap-approvals`,
   "SAP-Held Transfers" under Transfers). Inventory transfers keyed in the B1 client and approved by SAP's
-  own approval templates sat as drafts until somebody added them in B1, and about 1,302 never were
-  between 31 Aug and 26 Oct 2026. Three endpoints back the page, for the roles that convert a transfer
-  request (`Admin,StockController,WashBay,DepotController,ShopStock`):
+  own approval templates sat as drafts until somebody added them in B1: on 9 Nov 2026, 519 approved
+  transfer drafts dated back to January 2024 had never been added. Three endpoints back the page, for
+  the roles that convert a transfer request (`Admin,StockController,WashBay,DepotController,ShopStock`):
   `GET /api/sap-transfer-approvals` (open, approved drafts; `page`, `pageSize`, `beforeDocEntry`,
   `warehouse`), `GET /api/sap-transfer-approvals/{draftEntry}` (lines with their batch picks, the
   approvals, the transfer request it was copied from) and `POST /api/sap-transfer-approvals/{draftEntry}/add`.
