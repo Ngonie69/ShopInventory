@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using ErrorOr;
 using MediatR;
@@ -60,6 +61,7 @@ public sealed class AddApprovedCreditNoteHandler(
 
         long? idempotencyRequestId = null;
         var release = false;
+        var clock = Stopwatch.StartNew();
         try
         {
             // Before the claim, so a wash bay with no stage configured is refused without holding it.
@@ -123,6 +125,12 @@ public sealed class AddApprovedCreditNoteHandler(
                 return Errors.CreditNoteApproval.NoDraft(command.Code);
             }
 
+            // The line the created credit note must lie past, read alongside the draft rather than
+            // after it: it needs nothing the draft says. SAP names the created document nowhere — the
+            // approval request is deleted by a successful add, and its ObjectEntry is never populated
+            // even before that — so it is recognised afterwards as a credit note past this line.
+            var newestBeforeTask = TryReadNewestCreditNoteDocEntryAsync();
+
             var draft = await sap.GetCreditNoteDraftAsync(draftEntry, cancellationToken);
             if (draft is null)
             {
@@ -146,13 +154,17 @@ public sealed class AddApprovedCreditNoteHandler(
                     $"approved, but its draft's own state is {SapEnumNames.StripPrefix(draft.AuthorizationStatus, "das")}");
             }
 
-            // Which credit note this customer had before the add, so the one it produces can be told
-            // apart afterwards. SAP names the created document nowhere: the approval request is deleted
-            // by a successful add, and its ObjectEntry is never populated even before that.
-            var newestBefore = await TryReadNewestCreditNoteAsync(draft.CardCode);
+            var newestBefore = await newestBeforeTask;
+            var checkedAt = clock.Elapsed;
 
             // The last safe abort: nothing has reached SAP yet.
             cancellationToken.ThrowIfCancellationRequested();
+
+            // The invoice the credit note reverses is on the draft's lines already. Fiscalising needs it,
+            // so it is read while SAP converts the draft rather than after.
+            var invoiceRead = approvalSettings.Value.FiscaliseAfterAdd && OriginalInvoiceDocEntry(draft) is int invoiceEntry
+                ? new SapInvoiceRead(invoiceEntry, TryReadInvoiceAsync(invoiceEntry))
+                : null;
 
             int? createdDocEntry;
             try
@@ -184,14 +196,24 @@ public sealed class AddApprovedCreditNoteHandler(
                 createdDocEntry = null;
             }
 
-            var docEntry = createdDocEntry ?? await TryIdentifyCreatedCreditNoteAsync(draft, newestBefore);
+            var savedAt = clock.Elapsed;
 
-            var creditNote = docEntry is int entry ? await TryReadCreditNoteAsync(entry) : null;
+            // When SAP's answer names no document — the usual case, a 204 — the read that finds the
+            // created credit note returns it whole, so it is not read a second time.
+            var identified = createdDocEntry is null
+                ? await TryIdentifyCreatedCreditNoteAsync(draft, newestBefore)
+                : null;
+            var docEntry = createdDocEntry ?? identified?.DocEntry;
+
+            var creditNote = identified
+                ?? (createdDocEntry is int entry ? await TryReadCreditNoteAsync(entry) : null);
             if (creditNote is not null)
             {
                 await TryProjectAsync(creditNote);
                 await TryReturnUnitsAsync(creditNote);
             }
+
+            var readBackAt = clock.Elapsed;
 
             var fiscalisation = approvalSettings.Value.FiscaliseAfterAdd
                 ? creditNote is null
@@ -201,13 +223,15 @@ public sealed class AddApprovedCreditNoteHandler(
                         Skipped = true,
                         Message = "The credit note could not be read back from SAP, so it was not fiscalised here. The scheduled credit-note fiscalisation will file it."
                     }
-                    : await FiscaliseAsync(creditNote, command)
+                    : await FiscaliseAsync(creditNote, command, invoiceRead)
                 : new CreditNoteApprovalFiscalisationDto
                 {
                     Attempted = false,
                     Skipped = true,
                     Message = "Fiscalisation after add is switched off."
                 };
+
+            var fiscalisedAt = clock.Elapsed;
 
             var result = new AddApprovedCreditNoteResultDto
             {
@@ -222,6 +246,16 @@ public sealed class AddApprovedCreditNoteHandler(
             };
 
             await TryAuditAsync(command, draft, true, result.Message);
+
+            // The API keeps no per-call SAP timings, so this line is how a slow add is attributed.
+            logger.LogInformation(
+                "Added credit note {DocNum} from approval request {Code} in {TotalMs} ms: checks {CheckMs} ms, "
+                + "SAP add {SaveMs} ms, read back {ReadBackMs} ms, fiscalise {FiscalMs} ms",
+                creditNote?.DocNum, command.Code, (long)clock.Elapsed.TotalMilliseconds,
+                (long)checkedAt.TotalMilliseconds,
+                (long)(savedAt - checkedAt).TotalMilliseconds,
+                (long)(readBackAt - savedAt).TotalMilliseconds,
+                (long)(fiscalisedAt - readBackAt).TotalMilliseconds);
 
             if (idempotencyRequestId.HasValue)
             {
@@ -279,7 +313,10 @@ public sealed class AddApprovedCreditNoteHandler(
         return added + fiscal;
     }
 
-    private async Task<CreditNoteApprovalFiscalisationDto> FiscaliseAsync(SAPCreditNote creditNote, AddApprovedCreditNoteCommand command)
+    private async Task<CreditNoteApprovalFiscalisationDto> FiscaliseAsync(
+        SAPCreditNote creditNote,
+        AddApprovedCreditNoteCommand command,
+        SapInvoiceRead? invoiceRead)
     {
         var outcome = await fiscaliser.FiscaliseAsync(
             creditNote,
@@ -290,7 +327,8 @@ public sealed class AddApprovedCreditNoteHandler(
                 CaptureIncidents: true,
                 command.UserId.ToString(),
                 command.Username),
-            CancellationToken.None);
+            CancellationToken.None,
+            invoiceRead);
 
         if (outcome.Result is not { } result)
         {
@@ -375,37 +413,68 @@ public sealed class AddApprovedCreditNoteHandler(
         }
     }
 
-    private async Task<SAPCreditNote?> TryReadNewestCreditNoteAsync(string? cardCode)
+    private async Task<int?> TryReadNewestCreditNoteDocEntryAsync()
     {
-        if (string.IsNullOrWhiteSpace(cardCode))
-        {
-            return null;
-        }
-
         try
         {
-            return await sap.GetNewestCreditNoteForCustomerAsync(cardCode, CancellationToken.None);
+            return await sap.GetNewestCreditNoteDocEntryAsync(CancellationToken.None);
         }
         catch (Exception exception)
         {
-            logger.LogWarning(exception, "Could not read the newest credit note for {CardCode}", cardCode);
+            logger.LogWarning(exception, "Could not read the newest credit note before the add");
+            return null;
+        }
+    }
+
+    /// <summary>The invoice a credit note drawn from this draft reverses, as the fiscaliser finds it.</summary>
+    private static int? OriginalInvoiceDocEntry(SAPCreditNote draft) =>
+        draft.BaseEntry
+        ?? draft.DocumentLines?.FirstOrDefault(line => line.BaseType == 13 && line.BaseEntry.HasValue)?.BaseEntry;
+
+    private async Task<Invoice?> TryReadInvoiceAsync(int docEntry)
+    {
+        try
+        {
+            return await sap.GetInvoiceByDocEntryAsync(docEntry, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            // The fiscaliser reads it again itself.
+            logger.LogWarning(exception, "Could not read invoice {DocEntry} ahead of fiscalising", docEntry);
             return null;
         }
     }
 
     /// <summary>
-    /// The credit note the add produced, identified as a document this customer did not have before
-    /// that carries the draft's total.
+    /// The credit note the add produced, identified as one of this customer's past the newest credit
+    /// note before the add, carrying the draft's total. It comes back whole, lines included.
     /// </summary>
     /// <remarks>
     /// Deliberately not a match on DocNum: drafts and credit notes number from different series, and
     /// on KEFALOS_TEST_3 the credit note carrying a converted draft's DocNum belonged to an entirely
     /// different customer. Adopting that would have put somebody else's document on this screen.
     /// </remarks>
-    private async Task<int?> TryIdentifyCreatedCreditNoteAsync(SAPCreditNote draft, SAPCreditNote? newestBefore)
+    private async Task<SAPCreditNote?> TryIdentifyCreatedCreditNoteAsync(SAPCreditNote draft, int? newestBefore)
     {
-        var newestAfter = await TryReadNewestCreditNoteAsync(draft.CardCode);
-        if (newestAfter is null || newestAfter.DocEntry <= (newestBefore?.DocEntry ?? 0))
+        if (string.IsNullOrWhiteSpace(draft.CardCode))
+        {
+            return null;
+        }
+
+        SAPCreditNote? newestAfter;
+        try
+        {
+            newestAfter = await sap.GetNewestCreditNoteForCustomerAsync(draft.CardCode, newestBefore ?? 0, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not read the newest credit note for {CardCode} after the add", draft.CardCode);
+            return null;
+        }
+
+        // Past the line is the client's filter; it is checked again so a client that ignored it cannot
+        // hand back a document that was already there.
+        if (newestAfter is null || newestAfter.DocEntry <= (newestBefore ?? 0))
         {
             return null;
         }
@@ -419,7 +488,7 @@ public sealed class AddApprovedCreditNoteHandler(
             return null;
         }
 
-        return newestAfter.DocEntry;
+        return newestAfter;
     }
 
     private async Task<SAPCreditNote?> TryReadCreditNoteAsync(int docEntry)

@@ -38,7 +38,8 @@ public sealed class SapCreditNoteFiscaliser(
     public async Task<SapCreditNoteFiscalisationOutcome> FiscaliseAsync(
         SAPCreditNote creditNote,
         SapCreditNoteFiscalisationCaller caller,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SapInvoiceRead? originalInvoiceRead = null)
     {
         // The line-level base entry is what a credit memo raised against an invoice carries; the header
         // one is not selected on credit notes. REVMax needs it to find the receipt being reversed; the
@@ -57,7 +58,7 @@ public sealed class SapCreditNoteFiscaliser(
         {
             // The receipt being reversed is filed under the invoice's DocNum — or, for a sale fiscalised
             // before SAP, under the sale's own reference — never under the BaseEntry this used to send.
-            var original = await ResolveOriginalReceiptAsync(originalInvoiceDocEntry, cancellationToken);
+            var original = await ResolveOriginalReceiptAsync(originalInvoiceDocEntry, originalInvoiceRead, cancellationToken);
 
             if (original.InvoiceNumber is not { } resolved)
             {
@@ -136,6 +137,7 @@ public sealed class SapCreditNoteFiscaliser(
     /// </remarks>
     private async Task<CreditNoteOriginalReceiptNumber> ResolveOriginalReceiptAsync(
         int? originalInvoiceDocEntry,
+        SapInvoiceRead? originalInvoiceRead,
         CancellationToken cancellationToken)
     {
         if (originalInvoiceDocEntry is not > 0)
@@ -144,7 +146,12 @@ public sealed class SapCreditNoteFiscaliser(
                 "the credit note is not based on an invoice, so there is no receipt for it to reverse.");
         }
 
-        var invoice = await sap.GetInvoiceByDocEntryAsync(originalInvoiceDocEntry.Value, cancellationToken);
+        // A read the caller started early is used only if it is for this invoice and it answered;
+        // otherwise the invoice is read here, as it always was.
+        var invoice = originalInvoiceRead is { } early && early.DocEntry == originalInvoiceDocEntry.Value
+            ? await early.Read
+            : null;
+        invoice ??= await sap.GetInvoiceByDocEntryAsync(originalInvoiceDocEntry.Value, cancellationToken);
 
         if (invoice is null)
         {
@@ -255,3 +262,12 @@ public sealed record SapCreditNoteFiscalisationOutcome(
 
     public static SapCreditNoteFiscalisationOutcome Threw(Exception exception) => new(null, null, exception);
 }
+
+/// <summary>
+/// A read of a credit note's original invoice that is already under way, keyed by the DocEntry it reads.
+/// </summary>
+/// <remarks>
+/// The approval add knows the invoice from the draft before SAP converts it, so it starts this read
+/// alongside the conversion rather than after it. The task must not throw: a failed read answers null.
+/// </remarks>
+public sealed record SapInvoiceRead(int DocEntry, Task<Invoice?> Read);
