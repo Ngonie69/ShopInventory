@@ -9,6 +9,8 @@ This runbook defines the minimum HA baseline for the ShopInventory API and the o
 - SAP outages must fail fast and degrade only through durable queues that already have production-grade processors.
 - Health endpoints must remain truthful during dependency outages and saturation events.
 
+This page is the target design. For what production actually has today (a streaming standby, no WAL archive, no current backups) and the recovery steps, see [disaster-recovery.md](disaster-recovery.md).
+
 ## Recommended PostgreSQL Topology
 
 Use a dedicated PostgreSQL HA pair plus a quorum witness:
