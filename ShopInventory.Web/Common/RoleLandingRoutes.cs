@@ -41,8 +41,11 @@ public static class RoleLandingRoutes
     /// <summary>The manager's workspace: purchasing, approvals and the day's trading.</summary>
     public const string ManagerDashboard = "/manager-dashboard";
 
-    /// <summary>Where the wash bay lands: the transfers list.</summary>
+    /// <summary>Where a shop's stock user lands: the transfers list.</summary>
     public const string InventoryTransfers = "/inventory-transfers";
+
+    /// <summary>The wash bay's workspace: its credit memo approvals and its warehouse's transfers.</summary>
+    public const string WashBayDashboard = "/washbay-dashboard";
 
     /// <summary>Where the factory floor lands: production and dispatch handing stock to each other.</summary>
     public const string FactoryTransfers = "/factory-transfers";
@@ -88,11 +91,11 @@ public static class RoleLandingRoutes
             return "/mobile-drafts";
         }
 
-        // No dashboard of its own. Transfers are most of the wash bay's day; its credit memo
-        // approvals are one nav link away.
+        // The wash bay's two jobs side by side: the credit memos waiting at its SAP stage, and the
+        // transfers queued against its warehouse.
         if (isInRole(UserRoles.WashBay) && !isInRole(UserRoles.Admin))
         {
-            return InventoryTransfers;
+            return WashBayDashboard;
         }
 
         // A shop's stock user has the transfers page and nothing else.

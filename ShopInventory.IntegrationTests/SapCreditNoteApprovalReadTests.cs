@@ -69,6 +69,32 @@ public class SapCreditNoteApprovalReadTests(SapClientFixture fixture)
         Assert.True(scopedTotal >= scoped.Count, $"SAP counted {scopedTotal} requests at stage {stage.Code} but returned {scoped.Count}.");
     }
 
+    /// <summary>
+    /// The two reads an add uses to recognise the credit note a draft became: the newest DocEntry in the
+    /// company before the add, and the customer's newest past it afterwards — whole, with its lines, so
+    /// it is not read a second time.
+    /// </summary>
+    [SapFact]
+    public async Task The_reads_that_recognise_an_added_credit_note_are_accepted()
+    {
+        var newest = await fixture.Client.GetNewestCreditNoteDocEntryAsync();
+        Assert.False(newest is null, "SAP holds no credit notes at all, so the add's identification reads cannot be exercised.");
+
+        var top = await fixture.Client.GetCreditNoteByDocEntryAsync(newest!.Value);
+        Assert.NotNull(top);
+        Assert.False(string.IsNullOrWhiteSpace(top.CardCode));
+
+        // Just below the newest of this customer's credit notes, so the filter must find exactly it.
+        var found = await fixture.Client.GetNewestCreditNoteForCustomerAsync(top.CardCode!, newest.Value - 1);
+        Assert.NotNull(found);
+        Assert.Equal(newest.Value, found.DocEntry);
+        Assert.NotNull(found.DocumentLines);
+        Assert.NotEmpty(found.DocumentLines);
+
+        // Nothing past the newest: the filter is honoured rather than ignored.
+        Assert.Null(await fixture.Client.GetNewestCreditNoteForCustomerAsync(top.CardCode!, newest.Value));
+    }
+
     [SapFact]
     public async Task A_request_reads_back_with_its_draft_stage_template_originator_and_attachment()
     {

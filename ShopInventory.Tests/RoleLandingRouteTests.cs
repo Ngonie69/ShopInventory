@@ -26,7 +26,7 @@ public sealed class RoleLandingRouteTests
     [InlineData(UserRoles.DepotController, "/dashboard")]
     [InlineData(UserRoles.Lab, "/lab/batch-status")]
     [InlineData(UserRoles.MerchandiserPurchaseOrderViewer, "/reports/merchandiser-purchase-orders")]
-    [InlineData(UserRoles.WashBay, "/inventory-transfers")]
+    [InlineData(UserRoles.WashBay, "/washbay-dashboard")]
     [InlineData(UserRoles.ShopStock, "/inventory-transfers")]
     public void Each_role_lands_on_its_own_page(string role, string expected)
     {
@@ -106,7 +106,8 @@ public sealed class RoleLandingRouteTests
             RoleLandingRoutes.Dashboard,
             RoleLandingRoutes.CashierDashboard,
             RoleLandingRoutes.StockDashboard,
-            RoleLandingRoutes.ManagerDashboard
+            RoleLandingRoutes.ManagerDashboard,
+            RoleLandingRoutes.WashBayDashboard
         };
 
         foreach (var role in UserRoles.DashboardNavRoles.Split(','))
