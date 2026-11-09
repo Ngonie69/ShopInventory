@@ -19,6 +19,8 @@ public interface ICreditNoteApprovalService
     Task<(bool Success, string Message, CreditNoteApprovalListResponseDto? Value)> GetApprovalsAsync(
         string? status, int page, int pageSize, int? beforeCode = null);
 
+    Task<(bool Success, string Message, CreditNoteApprovalCountsDto? Value)> GetCountsAsync();
+
     Task<(bool Success, string Message, CreditNoteApprovalDetailDto? Value)> GetApprovalAsync(int code);
 
     Task<(bool Success, string Message, CreditNoteApprovalDecisionResultDto? Value)> DecideAsync(
@@ -52,6 +54,20 @@ public sealed class CreditNoteApprovalService(HttpClient httpClient, ILogger<Cre
         catch (Exception ex)
         {
             logger.LogError(ex, "Error fetching SAP credit note approval requests");
+            return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallback), null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, CreditNoteApprovalCountsDto? Value)> GetCountsAsync()
+    {
+        const string fallback = "The queue counts could not be read from SAP.";
+        try
+        {
+            return await ReadAsync<CreditNoteApprovalCountsDto>("api/credit-note-approvals/counts", fallback);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error counting SAP credit note approval requests");
             return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallback), null);
         }
     }

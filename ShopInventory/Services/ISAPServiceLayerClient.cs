@@ -950,6 +950,15 @@ public interface ISAPServiceLayerClient
         IReadOnlyCollection<int>? stageCodes = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// How many credit memo approval requests SAP holds in these statuses — the same filter, stage scope
+    /// included, as <see cref="GetCreditNoteApprovalRequestsAsync"/>, with no rows read.
+    /// </summary>
+    Task<int> CountCreditNoteApprovalRequestsAsync(
+        IReadOnlyCollection<string> sapStatuses,
+        IReadOnlyCollection<int>? stageCodes = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>One approval request with its approver lines; null when SAP has no such code.</summary>
     Task<SAPApprovalRequest?> GetApprovalRequestAsync(int code, CancellationToken cancellationToken = default);
 

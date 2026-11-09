@@ -9,9 +9,12 @@ public static class CreditNoteApprovalStatusFilters
     public const string Open = "open";
     public const string Pending = "pending";
     public const string Approved = "approved";
+
+    /// <summary>Refused by an approver. SAP keeps the draft, so the originator can correct and raise it again.</summary>
+    public const string Rejected = "rejected";
     public const string All = "all";
 
-    public static readonly IReadOnlyList<string> Known = [Open, Pending, Approved, All];
+    public static readonly IReadOnlyList<string> Known = [Open, Pending, Approved, Rejected, All];
 
     public static bool IsKnown(string? filter) =>
         string.IsNullOrWhiteSpace(filter) || Known.Contains(filter.Trim(), StringComparer.OrdinalIgnoreCase);
@@ -23,6 +26,7 @@ public static class CreditNoteApprovalStatusFilters
     {
         Pending => [SapApprovalRequestStatuses.Pending],
         Approved => [SapApprovalRequestStatuses.Approved],
+        Rejected => [SapApprovalRequestStatuses.NotApproved],
         All =>
         [
             SapApprovalRequestStatuses.Pending,
