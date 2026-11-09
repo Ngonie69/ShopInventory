@@ -55,6 +55,47 @@ public sealed class CreditNoteApprovalCountsDto
     public int Rejected { get; set; }
 }
 
+/// <summary>
+/// What the queue is narrowed by in SAP, beyond its status: the day range the request was raised in
+/// and who raised it. Mirrors the API's <c>CreditNoteApprovalRequestFilter</c>.
+/// </summary>
+public sealed record CreditNoteApprovalFilter(DateTime? RaisedFrom = null, DateTime? RaisedTo = null, int? OriginatorId = null)
+{
+    public static readonly CreditNoteApprovalFilter None = new();
+
+    public bool IsEmpty => RaisedFrom is null && RaisedTo is null && OriginatorId is null;
+
+    /// <summary>The query-string pairs, each led by an ampersand; empty when nothing narrows.</summary>
+    public string ToQuery()
+    {
+        var query = string.Empty;
+        if (RaisedFrom is DateTime from)
+        {
+            query += $"&raisedFrom={from:yyyy-MM-dd}";
+        }
+
+        if (RaisedTo is DateTime to)
+        {
+            query += $"&raisedTo={to:yyyy-MM-dd}";
+        }
+
+        if (OriginatorId is int originator)
+        {
+            query += $"&originatorId={originator}";
+        }
+
+        return query;
+    }
+}
+
+/// <summary>One SAP user who has raised a credit memo approval request.</summary>
+public sealed class CreditNoteApprovalOriginatorDto
+{
+    public int Id { get; set; }
+    public string? UserCode { get; set; }
+    public string? Name { get; set; }
+}
+
 public sealed class CreditNoteDraftLineDto
 {
     public int LineNum { get; set; }
@@ -139,6 +180,23 @@ public sealed class CreditNoteApprovalDecisionResultDto
 public sealed class AddApprovedCreditNoteRequestDto
 {
     public string? ClientRequestId { get; set; }
+
+    /// <summary>New quantities for draft lines, written to the draft before it is added.</summary>
+    public List<CreditNoteLineQuantityDto>? LineQuantities { get; set; }
+}
+
+public sealed class CreditNoteLineQuantityDto
+{
+    public int LineNum { get; set; }
+    public decimal Quantity { get; set; }
+}
+
+public sealed class CreditNoteLineQuantityChangeDto
+{
+    public int LineNum { get; set; }
+    public string? ItemCode { get; set; }
+    public decimal From { get; set; }
+    public decimal To { get; set; }
 }
 
 public sealed class CreditNoteApprovalFiscalisationDto
@@ -157,6 +215,7 @@ public sealed class AddApprovedCreditNoteResultDto
     public int? CreditNoteDocEntry { get; set; }
     public int? CreditNoteDocNum { get; set; }
     public bool Resolved { get; set; }
+    public List<CreditNoteLineQuantityChangeDto> QuantityChanges { get; set; } = [];
     public CreditNoteApprovalFiscalisationDto Fiscalisation { get; set; } = new();
     public string Message { get; set; } = string.Empty;
 }

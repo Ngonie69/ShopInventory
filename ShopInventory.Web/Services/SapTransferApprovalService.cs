@@ -12,7 +12,7 @@ namespace ShopInventory.Web.Services;
 public interface ISapTransferApprovalService
 {
     Task<(bool Success, string Message, SapTransferApprovalListResponseDto? Value)> GetApprovalsAsync(
-        int page, int pageSize, int? beforeDocEntry = null, string? warehouse = null);
+        int page, int pageSize, int? beforeDocEntry = null, SapTransferQueueFilter? filter = null);
 
     Task<(bool Success, string Message, SapTransferApprovalDetailDto? Value)> GetApprovalAsync(int draftEntry);
 
@@ -23,7 +23,7 @@ public sealed class SapTransferApprovalService(HttpClient httpClient, ILogger<Sa
     : ISapTransferApprovalService
 {
     public async Task<(bool Success, string Message, SapTransferApprovalListResponseDto? Value)> GetApprovalsAsync(
-        int page, int pageSize, int? beforeDocEntry = null, string? warehouse = null)
+        int page, int pageSize, int? beforeDocEntry = null, SapTransferQueueFilter? filter = null)
     {
         const string fallback = "The transfers SAP is holding could not be read.";
         try
@@ -34,9 +34,9 @@ public sealed class SapTransferApprovalService(HttpClient httpClient, ILogger<Sa
                 query += $"&beforeDocEntry={cursor}";
             }
 
-            if (!string.IsNullOrWhiteSpace(warehouse))
+            if (filter is not null)
             {
-                query += $"&warehouse={Uri.EscapeDataString(warehouse.Trim())}";
+                query += filter.ToQueryString();
             }
 
             return await ReadAsync<SapTransferApprovalListResponseDto>($"api/sap-transfer-approvals?{query}", fallback);

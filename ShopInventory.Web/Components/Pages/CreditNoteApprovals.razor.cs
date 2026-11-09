@@ -1,5 +1,7 @@
+using System.Globalization;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.JSInterop;
 using MudBlazor;
 using ShopInventory.Web.Data;
@@ -7,6 +9,7 @@ using ShopInventory.Web.Features.CreditNoteApprovals.Commands.AddApprovedCreditN
 using ShopInventory.Web.Features.CreditNoteApprovals.Commands.DecideCreditNoteApproval;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApproval;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalCounts;
+using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalOriginators;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovals;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
@@ -18,9 +21,11 @@ namespace ShopInventory.Web.Components.Pages;
 /// one: decide it, and add the approved one as the credit note.
 /// </summary>
 /// <remarks>
-/// Everything on this page is read live from SAP through the API — there is no local mirror — so the
-/// customer filter is applied to the page in hand rather than sent to SAP, and every action reloads
-/// both the row and the list from SAP rather than patching what is on screen.
+/// Everything on this page is read live from SAP through the API — there is no local mirror — and
+/// every action reloads both the row and the list from SAP rather than patching what is on screen.
+/// The raised dates and Raised by are columns of the request, so they go to SAP and narrow the tiles,
+/// the count and the paging together. The customer lives on the draft, and SAP will not count a
+/// search across the two, so the customer box narrows the page in hand.
 /// </remarks>
 public partial class CreditNoteApprovals : IAsyncDisposable
 {
@@ -56,6 +61,8 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private ILogger<CreditNoteApprovals> Logger { get; set; } = default!;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private List<CreditNoteApprovalListItemDto> requests = [];
 
@@ -109,6 +116,25 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
     private int customerFilterVersion;
 
+    /// <summary>Only requests SAP created on or after this day. Sent to SAP.</summary>
+    private DateTime? raisedFrom;
+
+    /// <summary>Only requests SAP created on or before this day. Sent to SAP.</summary>
+    private DateTime? raisedTo;
+
+    /// <summary>The SAP user key chosen under Raised by, as text; empty for anyone. Sent to SAP.</summary>
+    private string? originatorFilter = string.Empty;
+
+    /// <summary>
+    /// The filter the rows on screen were read with. A date typed and then cleared again reads the
+    /// same queue, so nothing is re-read unless this actually changes.
+    /// </summary>
+    private CreditNoteApprovalFilter loadedFilter = CreditNoteApprovalFilter.None;
+
+    /// <summary>Who has raised requests, for Raised by. Null until SAP has answered.</summary>
+    private List<CreditNoteApprovalOriginatorDto>? originators;
+    private bool originatorsFailed;
+
     private int? detailCode;
     private CreditNoteApprovalDetailDto? detail;
     private bool isLoadingDetail;
@@ -118,6 +144,16 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     private bool isSubmitting;
     private string? submittingAction;
     private bool showAddConfirm;
+
+    /// <summary>Whether this person may add credit notes, so the draft's quantities are theirs to change.</summary>
+    private bool mayAdd;
+
+    /// <summary>
+    /// What is typed in each line's quantity box, by line number. A line with no entry keeps the
+    /// draft's quantity. Cleared whenever the drawer reads a request, so nothing typed against one
+    /// draft is ever sent with another.
+    /// </summary>
+    private readonly Dictionary<int, string> quantityInputs = [];
 
     /// <summary>
     /// What the last decision or add said, kept on the page. After an add SAP deletes the approval
@@ -171,16 +207,53 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         }
     }
 
-    private string EmptyMessage => string.IsNullOrWhiteSpace(appliedCustomerFilter)
-        ? statusFilter switch
+    private CreditNoteApprovalFilter CurrentFilter => new(
+        raisedFrom?.Date,
+        raisedTo?.Date,
+        int.TryParse(originatorFilter, NumberStyles.None, CultureInfo.InvariantCulture, out var originatorId) ? originatorId : null);
+
+    private bool HasAnyFilter => !CurrentFilter.IsEmpty || !string.IsNullOrWhiteSpace(customerFilter);
+
+    /// <summary>
+    /// Raised by's choices: anyone, then each person by name with their SAP user code beside it. Until
+    /// SAP has answered, a row that says so, so an empty list never reads as "nobody raised anything".
+    /// </summary>
+    private IReadOnlyList<NocturneSelectOption<string>> OriginatorOptions
+    {
+        get
+        {
+            var options = new List<NocturneSelectOption<string>> { NocturneSelectOption.All("Raised by anyone") };
+            if (originators is null)
+            {
+                options.Add(new(string.Empty, originatorsFailed ? "Could not read who raised requests" : "Reading from SAP…")
+                {
+                    Disabled = true
+                });
+                return options;
+            }
+
+            options.AddRange(originators.Select(originator => new NocturneSelectOption<string>(
+                originator.Id.ToString(CultureInfo.InvariantCulture),
+                originator.Name ?? originator.UserCode ?? $"SAP user {originator.Id}")
+            {
+                Hint = originator.Name is null ? null : originator.UserCode
+            }));
+            return options;
+        }
+    }
+
+    private string EmptyMessage => !string.IsNullOrWhiteSpace(appliedCustomerFilter)
+        ? "No requests on this page match that customer"
+        : !loadedFilter.IsEmpty
+            ? "No requests in this queue match these filters"
+            : statusFilter switch
         {
             "pending" => "Nothing is waiting for a decision in SAP",
             "approved" => "Every approved credit memo has been added",
             "rejected" => "SAP holds no rejected credit memos",
             "all" => "SAP holds no credit memo approval requests",
             _ => "Nothing is waiting on a decision or an add"
-        }
-        : "No requests on this page match that customer";
+        };
 
     private string ListTitle => Queues.FirstOrDefault(queue => queue.Value == statusFilter)?.Label ?? "Requests";
 
@@ -217,8 +290,45 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
     protected override async Task OnInitializedAsync()
     {
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            mayAdd = UserRoles.CreditNoteAddRoles.Split(',').Any(user.IsInRole);
+        }
+
         await LoadAsync();
         await LoadCountsAsync();
+        await LoadOriginatorsAsync();
+    }
+
+    /// <summary>
+    /// Reads who has raised requests, for Raised by — once, last, because it is the one thing on the
+    /// page nobody is waiting for. A failure leaves the filter offering only "anyone".
+    /// </summary>
+    private async Task LoadOriginatorsAsync()
+    {
+        try
+        {
+            var result = await Mediator.Send(new GetCreditNoteApprovalOriginatorsQuery());
+            if (result.IsError)
+            {
+                Logger.LogWarning("Could not list who raised credit note approval requests: {Reason}", result.FirstError.Description);
+                originatorsFailed = true;
+                return;
+            }
+
+            originators = result.Value;
+            originatorsFailed = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not list who raised credit note approval requests");
+            originatorsFailed = true;
+        }
+        finally
+        {
+            StateHasChanged();
+        }
     }
 
     /// <summary>
@@ -230,7 +340,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     {
         try
         {
-            var result = await Mediator.Send(new GetCreditNoteApprovalCountsQuery());
+            var result = await Mediator.Send(new GetCreditNoteApprovalCountsQuery(loadedFilter.IsEmpty ? null : loadedFilter));
             if (result.IsError)
             {
                 Logger.LogWarning("Could not count the credit note approval queues: {Reason}", result.FirstError.Description);
@@ -261,7 +371,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         {
             var cursor = currentPage - 1 < pageCursors.Count ? pageCursors[currentPage - 1] : null;
             var result = await Mediator.Send(
-                new GetCreditNoteApprovalsQuery(statusFilter, currentPage, PageSize, cursor));
+                new GetCreditNoteApprovalsQuery(statusFilter, currentPage, PageSize, cursor, loadedFilter.IsEmpty ? null : loadedFilter));
             if (result.IsError)
             {
                 errorMessage = result.FirstError.Description;
@@ -335,6 +445,41 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     {
         appliedCustomerFilter = customerFilter;
         visibleRequests = null;
+    }
+
+    /// <summary>
+    /// A date or Raised by changed: read the narrowed queue from the top, with its counts. Dates the
+    /// wrong way round are taken as the range they describe rather than refused, since nobody means
+    /// an empty range.
+    /// </summary>
+    private async Task OnSapFilterChangedAsync()
+    {
+        if (raisedFrom is DateTime from && raisedTo is DateTime to && to < from)
+        {
+            (raisedFrom, raisedTo) = (to, from);
+        }
+
+        var filter = CurrentFilter;
+        if (filter == loadedFilter)
+        {
+            return;
+        }
+
+        // The open request was found under the old filter and may not be in the new rows.
+        CloseDetail();
+        loadedFilter = filter;
+        RestartPaging();
+        await LoadAsync();
+        await LoadCountsAsync();
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        ClearCustomerFilter();
+        raisedFrom = null;
+        raisedTo = null;
+        originatorFilter = string.Empty;
+        await OnSapFilterChangedAsync();
     }
 
     /// <summary>
@@ -431,6 +576,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         detailError = null;
         attachmentError = null;
         decisionRemarks = null;
+        quantityInputs.Clear();
         isLoadingDetail = true;
         StateHasChanged();
 
@@ -458,6 +604,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
             detail = result.Value;
             detailError = null;
+            quantityInputs.Clear();
         }
         catch (Exception ex)
         {
@@ -485,6 +632,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         detailError = null;
         attachmentError = null;
         decisionRemarks = null;
+        quantityInputs.Clear();
         isLoadingDetail = false;
         showAddConfirm = false;
     }
@@ -584,7 +732,92 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         await LoadCountsAsync();
     }
 
-    private void OpenAddConfirm() => showAddConfirm = true;
+    private void OpenAddConfirm()
+    {
+        if (!HasInvalidQuantity)
+        {
+            showAddConfirm = true;
+        }
+    }
+
+    /// <summary>The draft's quantities may be changed: the request is ready to add and this person may add it.</summary>
+    private bool CanEditQuantities => mayAdd && detail?.Request.CanAdd == true;
+
+    private static string FormatQuantityInput(decimal quantity) =>
+        quantity.ToString("0.######", CultureInfo.InvariantCulture);
+
+    private string QuantityInput(CreditNoteDraftLineDto line) =>
+        quantityInputs.TryGetValue(line.LineNum, out var typed) ? typed : FormatQuantityInput(line.Quantity);
+
+    private void SetQuantity(CreditNoteDraftLineDto line, string? typed) => quantityInputs[line.LineNum] = typed ?? string.Empty;
+
+    private void ResetQuantities() => quantityInputs.Clear();
+
+    private static string QuantityLabel(CreditNoteDraftLineDto line) => $"Quantity for {line.ItemCode ?? $"line {line.LineNum + 1}"}";
+
+    private string QuantityChangeCount =>
+        QuantityEdits.Count == 1 ? "1 quantity changed" : $"{QuantityEdits.Count} quantities changed";
+
+    private decimal LineTotalShown(CreditNoteDraftLineDto line) =>
+        CanEditQuantities && IsQuantityChanged(line) ? EditedLineTotal(line, EditedQuantity(line)!.Value) : line.LineTotal;
+
+    /// <summary>The quantity a line will be added with, or null when what is typed is not one SAP would take.</summary>
+    private decimal? EditedQuantity(CreditNoteDraftLineDto line)
+    {
+        if (!quantityInputs.TryGetValue(line.LineNum, out var typed))
+        {
+            return line.Quantity;
+        }
+
+        var text = typed.Trim().Replace(",", string.Empty);
+        if (!decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var quantity)
+            || quantity <= 0m
+            || decimal.Round(quantity, 6) != quantity)
+        {
+            return null;
+        }
+
+        return quantity;
+    }
+
+    private bool IsQuantityInvalid(CreditNoteDraftLineDto line) => EditedQuantity(line) is null;
+
+    private bool IsQuantityChanged(CreditNoteDraftLineDto line) =>
+        EditedQuantity(line) is decimal quantity && quantity != line.Quantity;
+
+    private bool HasInvalidQuantity => CanEditQuantities && detail!.Lines.Any(IsQuantityInvalid);
+
+    private List<(CreditNoteDraftLineDto Line, decimal Quantity)> QuantityEdits =>
+        !CanEditQuantities
+            ? []
+            : detail!.Lines
+                .Where(IsQuantityChanged)
+                .Select(line => (line, EditedQuantity(line)!.Value))
+                .ToList();
+
+    /// <summary>The line's net total at the quantity typed, at the draft's own unit value.</summary>
+    private static decimal EditedLineTotal(CreditNoteDraftLineDto line, decimal quantity) =>
+        line.Quantity != 0m ? decimal.Round(line.LineTotal / line.Quantity * quantity, 2) : decimal.Round(line.UnitPrice * quantity, 2);
+
+    /// <summary>
+    /// The credit total the new quantities come to, VAT included: an estimate, since SAP recalculates
+    /// and rounds the document itself when the draft changes.
+    /// </summary>
+    private decimal EditedDocTotal
+    {
+        get
+        {
+            if (detail is null)
+            {
+                return 0m;
+            }
+
+            var change = QuantityEdits.Sum(edit => edit.Line.Quantity != 0m
+                ? (edit.Line.LineTotal + edit.Line.VatSum) / edit.Line.Quantity * (edit.Quantity - edit.Line.Quantity)
+                : edit.Line.UnitPrice * (edit.Quantity - edit.Line.Quantity));
+            return decimal.Round(detail.Request.DocTotal + change, 2);
+        }
+    }
 
     private void CloseAddConfirm() => showAddConfirm = false;
 
@@ -606,7 +839,10 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
         try
         {
-            var result = await Mediator.Send(new AddApprovedCreditNoteCommand(code, Guid.NewGuid().ToString("N")));
+            var lineQuantities = QuantityEdits
+                .Select(edit => new CreditNoteLineQuantityDto { LineNum = edit.Line.LineNum, Quantity = edit.Quantity })
+                .ToList();
+            var result = await Mediator.Send(new AddApprovedCreditNoteCommand(code, Guid.NewGuid().ToString("N"), lineQuantities));
 
             if (result.IsError)
             {

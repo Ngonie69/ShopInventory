@@ -90,9 +90,11 @@ public static class VendingDepots
         PartnerByWarehouse(await LoadAsync(context, cancellationToken));
 
     /// <summary>
-    /// The SAP name of each partner, as its latest named till sale carries it (the API keeps no
-    /// partner table), so a renamed depot reads as it does now. A partner that has never sold is
-    /// missing from the result and callers fall back to its code.
+    /// The SAP name of each partner ("Cortina Graniteside Vending" for COR006). It is read from the
+    /// partner copy the price-catalog sync keeps (<c>BusinessPartnerPriceProfiles</c>), so a renamed
+    /// depot reads as SAP has it now. A partner that copy does not hold yet falls back to the name its
+    /// latest till sale carried; a till that sent the code as the name does not count. A partner found
+    /// in neither is missing from the result and callers fall back to its code.
     /// </summary>
     public static async Task<Dictionary<string, string>> PartnerNamesAsync(
         ApplicationDbContext context,
@@ -104,24 +106,54 @@ public static class VendingDepots
             .Select(code => code.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (codes.Count == 0)
         {
-            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            return names;
         }
 
-        var named = await context.DesktopSales
+        var fromSap = await context.BusinessPartnerPriceProfiles
             .AsNoTracking()
-            .Where(sale => codes.Contains(sale.CardCode) && sale.CardName != null && sale.CardName != "")
+            .Where(profile => codes.Contains(profile.CardCode) && profile.CardName != null && profile.CardName != "")
+            .Select(profile => new { profile.CardCode, profile.CardName })
+            .ToListAsync(cancellationToken);
+
+        foreach (var profile in fromSap)
+        {
+            AddIfName(names, profile.CardCode, profile.CardName);
+        }
+
+        var unnamed = codes.Where(code => !names.ContainsKey(code)).ToList();
+        if (unnamed.Count == 0)
+        {
+            return names;
+        }
+
+        var fromSales = await context.DesktopSales
+            .AsNoTracking()
+            .Where(sale => unnamed.Contains(sale.CardCode) && sale.CardName != null && sale.CardName != "")
             .GroupBy(sale => new { sale.CardCode, sale.CardName })
             .Select(group => new { group.Key.CardCode, group.Key.CardName, LastSale = group.Max(sale => sale.Id) })
             .ToListAsync(cancellationToken);
 
-        return named
-            .GroupBy(sale => sale.CardCode.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                group => group.Key,
-                group => group.OrderByDescending(sale => sale.LastSale).First().CardName!.Trim(),
-                StringComparer.OrdinalIgnoreCase);
+        foreach (var sale in fromSales
+                     .Where(sale => !string.Equals(sale.CardName!.Trim(), sale.CardCode.Trim(), StringComparison.OrdinalIgnoreCase))
+                     .OrderByDescending(sale => sale.LastSale))
+        {
+            AddIfName(names, sale.CardCode, sale.CardName);
+        }
+
+        return names;
+    }
+
+    private static void AddIfName(Dictionary<string, string> names, string cardCode, string? cardName)
+    {
+        var code = cardCode.Trim();
+        var name = cardName?.Trim();
+        if (!string.IsNullOrEmpty(name) && !string.Equals(name, code, StringComparison.OrdinalIgnoreCase))
+        {
+            names.TryAdd(code, name);
+        }
     }
 
     /// <summary>

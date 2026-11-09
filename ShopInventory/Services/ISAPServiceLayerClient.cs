@@ -941,6 +941,9 @@ public interface ISAPServiceLayerClient
     /// every stage; an empty collection is refused, because a scope that names nothing must not read as
     /// "everything".
     /// </param>
+    /// <param name="filter">
+    /// Raised dates and originator, applied in SAP to the rows and the count alike. Null narrows nothing.
+    /// </param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     Task<(List<SAPApprovalRequest> Items, int TotalCount)> GetCreditNoteApprovalRequestsAsync(
         IReadOnlyCollection<string> sapStatuses,
@@ -948,6 +951,7 @@ public interface ISAPServiceLayerClient
         int pageSize,
         int? beforeCode = null,
         IReadOnlyCollection<int>? stageCodes = null,
+        CreditNoteApprovalRequestFilter? filter = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -955,6 +959,16 @@ public interface ISAPServiceLayerClient
     /// included, as <see cref="GetCreditNoteApprovalRequestsAsync"/>, with no rows read.
     /// </summary>
     Task<int> CountCreditNoteApprovalRequestsAsync(
+        IReadOnlyCollection<string> sapStatuses,
+        IReadOnlyCollection<int>? stageCodes = null,
+        CreditNoteApprovalRequestFilter? filter = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The SAP users (<c>Users.InternalKey</c>) who raised a credit memo approval request in these
+    /// statuses and stages — the choices for the queue's "raised by" filter. Ascending, distinct.
+    /// </summary>
+    Task<List<int>> GetCreditNoteApprovalOriginatorIdsAsync(
         IReadOnlyCollection<string> sapStatuses,
         IReadOnlyCollection<int>? stageCodes = null,
         CancellationToken cancellationToken = default);
@@ -1071,6 +1085,20 @@ public interface ISAPServiceLayerClient
     Task<int?> SaveDraftToDocumentAsync(int draftDocEntry, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// A draft's lines with their batch and serial allocations, read whole. Null when the draft does not exist.
+    /// </summary>
+    Task<SAPDraftAllocations?> GetDraftAllocationsAsync(int draftDocEntry, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Changes line quantities on a draft (<c>PATCH Drafts(n)</c>), moving each line's batches by the
+    /// deltas given. An approved draft stays approved: measured on KEFALOS_TEST_3, 2026-11-09.
+    /// </summary>
+    Task UpdateDraftLineQuantitiesAsync(
+        int draftDocEntry,
+        IReadOnlyList<SapDraftLineQuantityChange> changes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Streams one attached file through the Service Layer (<c>Attachments2(n)/$value</c>). The stream
     /// owns the SAP response; dispose it when done.
     /// </summary>
@@ -1103,14 +1131,14 @@ public interface ISAPServiceLayerClient
     /// warehouse; an empty collection is refused, because a scope that names nothing must not read as
     /// "everything".
     /// </param>
-    /// <param name="warehouse">Only drafts leaving or entering this warehouse.</param>
+    /// <param name="filter">What else the queue is narrowed to — warehouses, creation day, attachment, number.</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     Task<(List<SAPStockTransferDraft> Items, int TotalCount)> GetApprovedStockTransferDraftsAsync(
         int page,
         int pageSize,
         int? beforeDocEntry = null,
         IReadOnlyCollection<string>? fromWarehouses = null,
-        string? warehouse = null,
+        SapTransferDraftFilter? filter = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -5925,12 +5925,13 @@ Nothing is mirrored into the local approval engine (§44), which governs documen
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
-| GET | `/api/credit-note-approvals` | `creditnotes.approve` or `creditnotes.add_approved` | The held requests: `status` open (default), pending, approved, rejected or all; `page` 1, `pageSize` 25, `beforeCode` for cursor paging |
-| GET | `/api/credit-note-approvals/counts` | either | How many requests are pending, approved (not yet added) and rejected, in the caller's stage scope: `{ "pending": 12, "approved": 41, "rejected": 3 }`. Three SAP `$count` reads, one after another |
+| GET | `/api/credit-note-approvals` | `creditnotes.approve` or `creditnotes.add_approved` | The held requests: `status` open (default), pending, approved, rejected or all; `page` 1, `pageSize` 25, `beforeCode` for cursor paging. Optional `raisedFrom` / `raisedTo` (days, inclusive) and `originatorId` (SAP user key) narrow the rows, the count and the cursor in SAP |
+| GET | `/api/credit-note-approvals/counts` | either | How many requests are pending, approved (not yet added) and rejected, in the caller's stage scope: `{ "pending": 12, "approved": 41, "rejected": 3 }`. Three SAP `$count` reads, one after another. Takes the list's `raisedFrom`, `raisedTo` and `originatorId`, so a tile counts what it opens |
+| GET | `/api/credit-note-approvals/originators` | either | The SAP users who have raised a request in the caller's stage scope, in any status, for the list's `originatorId`: `[{ "id": 31, "userCode": "…", "name": "…" }]`. One `$apply=groupby` read; `name` is null when SAP could not name the user |
 | GET | `/api/credit-note-approvals/{code}` | either | One request: draft header and lines, attachments, approver lines, current stage |
 | GET | `/api/credit-note-approvals/{code}/attachments/{lineNum}/download` | either | The bytes of one attached file, streamed from SAP |
 | POST | `/api/credit-note-approvals/{code}/decision` | `creditnotes.approve` | Approve or reject: `{ "decision": "Approved" or "NotApproved", "remarks": "…", "clientRequestId": "…" }` |
-| POST | `/api/credit-note-approvals/{code}/add` | `creditnotes.add_approved` | Convert the approved draft into the credit note, then project and fiscalise it |
+| POST | `/api/credit-note-approvals/{code}/add` | `creditnotes.add_approved` | Convert the approved draft into the credit note, then project and fiscalise it. Optional `{ "lineQuantities": [{ "lineNum": 0, "quantity": 80 }] }` changes those lines' quantities on the SAP draft first (up or down, above 0); the answer's `quantityChanges` lists what changed |
 
 **Paging the queue.** There are two ways, and they are not equivalent. `page` offsets from the top,
 which is fine for a single read. `beforeCode` — the previous answer's `nextCursor` — continues below
@@ -5991,7 +5992,7 @@ mirrored into the local approval engine (§44). See `docs/sap-transfer-approvals
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/sap-transfer-approvals` | The approved drafts waiting to be added, newest first: `page` 1, `pageSize` 25, `beforeDocEntry` for cursor paging, `warehouse` for drafts leaving or entering one warehouse |
+| GET | `/api/sap-transfer-approvals` | The approved drafts waiting to be added, newest first: `page` 1, `pageSize` 25, `beforeDocEntry` for cursor paging, `warehouse` for drafts leaving or entering one warehouse; `from` and `to` (repeatable) for drafts leaving or entering any of several; `createdFrom`/`createdTo` (`yyyy-MM-dd`, SAP's `CreationDate`); `attachedOnly`; `draftNum`. Every filter is applied in SAP, so `totalCount` is of the filtered queue |
 | GET | `/api/sap-transfer-approvals/{draftEntry}` | One draft: lines with their batch picks, the approval requests and approver lines, and the transfer requests it was copied from |
 | POST | `/api/sap-transfer-approvals/{draftEntry}/add` | Add the approved draft as the inventory transfer, then close any transfer request it was copied from. Body `{ "clientRequestId": "…" }` or an `Idempotency-Key` header |
 

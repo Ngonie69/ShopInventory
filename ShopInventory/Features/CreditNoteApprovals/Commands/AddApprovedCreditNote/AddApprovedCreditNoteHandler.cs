@@ -154,11 +154,51 @@ public sealed class AddApprovedCreditNoteHandler(
                     $"approved, but its draft's own state is {SapEnumNames.StripPrefix(draft.AuthorizationStatus, "das")}");
             }
 
+            // The quantities the person typed, checked against the draft they were typed against.
+            var quantityChanges = CreditNoteDraftQuantityPlan.Validate(draft.DocumentLines ?? [], command.LineQuantities);
+            if (quantityChanges.IsError)
+            {
+                return quantityChanges.Errors;
+            }
+
+            IReadOnlyList<SapDraftLineQuantityChange> lineChanges = [];
+            if (quantityChanges.Value.Count > 0)
+            {
+                // Batches come back only on a whole-draft read, so this is a second read of the draft.
+                var allocations = await sap.GetDraftAllocationsAsync(draftEntry, cancellationToken);
+                if (allocations is null)
+                {
+                    return Errors.CreditNoteApproval.DraftMissing(draftEntry);
+                }
+
+                var plan = CreditNoteDraftQuantityPlan.Build(quantityChanges.Value, allocations);
+                if (plan.IsError)
+                {
+                    return plan.Errors;
+                }
+
+                lineChanges = plan.Value;
+            }
+
             var newestBefore = await newestBeforeTask;
             var checkedAt = clock.Elapsed;
 
             // The last safe abort: nothing has reached SAP yet.
             cancellationToken.ThrowIfCancellationRequested();
+
+            // From here on the writes run on a token the caller cannot cancel: a change of quantities
+            // abandoned halfway would leave the draft edited and not added.
+            if (lineChanges.Count > 0)
+            {
+                var changed = await ChangeQuantitiesAsync(command, draft, lineChanges, quantityChanges.Value);
+                if (changed.IsError)
+                {
+                    return changed.Errors;
+                }
+
+                // The add is recognised afterwards by the draft's total, which the new quantities changed.
+                draft = changed.Value;
+            }
 
             // The invoice the credit note reverses is on the draft's lines already. Fiscalising needs it,
             // so it is read while SAP converts the draft rather than after.
@@ -241,8 +281,9 @@ public sealed class AddApprovedCreditNoteHandler(
                 CreditNoteDocNum = creditNote?.DocNum,
                 Resolved = docEntry is not null,
                 StageCode = request.CurrentStage,
+                QuantityChanges = quantityChanges.Value.ToList(),
                 Fiscalisation = fiscalisation,
-                Message = Describe(creditNote, docEntry, fiscalisation)
+                Message = Describe(creditNote, docEntry, fiscalisation, quantityChanges.Value)
             };
 
             await TryAuditAsync(command, draft, true, result.Message);
@@ -294,7 +335,11 @@ public sealed class AddApprovedCreditNoteHandler(
         }
     }
 
-    private static string Describe(SAPCreditNote? creditNote, int? docEntry, CreditNoteApprovalFiscalisationDto fiscalisation)
+    private static string Describe(
+        SAPCreditNote? creditNote,
+        int? docEntry,
+        CreditNoteApprovalFiscalisationDto fiscalisation,
+        IReadOnlyList<CreditNoteLineQuantityChangeDto> quantityChanges)
     {
         var added = creditNote is not null
             ? $"Credit note #{creditNote.DocNum} added to SAP."
@@ -310,7 +355,71 @@ public sealed class AddApprovedCreditNoteHandler(
                 : $" Fiscalisation failed and has been logged for review: {fiscalisation.Message}"
             : string.Empty;
 
-        return added + fiscal;
+        var quantities = quantityChanges.Count > 0
+            ? $" Quantities changed before adding: {CreditNoteDraftQuantityPlan.Describe(quantityChanges)}."
+            : string.Empty;
+
+        return added + quantities + fiscal;
+    }
+
+    /// <summary>
+    /// Writes the new quantities to the draft and reads it back. Returns the draft as it now stands,
+    /// or why it must not be added.
+    /// </summary>
+    /// <remarks>
+    /// SAP keeps an approved draft approved when its quantities change, and the credit note it adds
+    /// carries them: measured on KEFALOS_TEST_3, 2026-11-09 (draft 79079, 26 → 24, credit note 84478).
+    /// The read-back is the check that both still hold here.
+    /// </remarks>
+    private async Task<ErrorOr<SAPCreditNote>> ChangeQuantitiesAsync(
+        AddApprovedCreditNoteCommand command,
+        SAPCreditNote draft,
+        IReadOnlyList<SapDraftLineQuantityChange> lineChanges,
+        IReadOnlyList<CreditNoteLineQuantityChangeDto> quantityChanges)
+    {
+        var described = CreditNoteDraftQuantityPlan.Describe(quantityChanges);
+        try
+        {
+            await sap.UpdateDraftLineQuantitiesAsync(draft.DocEntry, lineChanges, CancellationToken.None);
+        }
+        catch (SapRequestRejectedException rejected)
+        {
+            logger.LogWarning(rejected, "SAP refused new quantities on draft {DraftEntry} for approval request {Code}", draft.DocEntry, command.Code);
+            await TryAuditAsync(command, draft, false, $"SAP refused the new quantities ({described}): {rejected.SapMessage}");
+            return Errors.CreditNoteApproval.SapRejected(rejected.SapMessage);
+        }
+        catch (Exception exception)
+        {
+            // Not retried: the change may have landed, and batches are moved by differences.
+            logger.LogError(exception, "Changing quantities on draft {DraftEntry} got no clear answer from SAP", draft.DocEntry);
+            await TryAuditAsync(command, draft, false, $"No clear answer from SAP to the new quantities ({described}): {exception.Message}");
+            return Errors.CreditNoteApproval.QuantitiesNotApplied(draft.DocEntry);
+        }
+
+        var after = await TryReadDraftAsync(draft.DocEntry);
+        var byLine = after?.DocumentLines?.ToDictionary(line => line.LineNum);
+        if (after is null || byLine is null
+            || quantityChanges.Any(change => !byLine.TryGetValue(change.LineNum, out var line) || line.Quantity != change.To))
+        {
+            await TryAuditAsync(command, draft, false, $"New quantities ({described}) were not confirmed on the draft");
+            return Errors.CreditNoteApproval.QuantitiesNotApplied(draft.DocEntry);
+        }
+
+        if (!CreditNoteApprovalProjection.IsOpen(after)
+            || (!string.IsNullOrWhiteSpace(after.AuthorizationStatus)
+                && !string.Equals(after.AuthorizationStatus, SapDocumentAuthorizationStatuses.Approved, StringComparison.OrdinalIgnoreCase)))
+        {
+            var state = CreditNoteApprovalProjection.IsOpen(after)
+                ? SapEnumNames.StripPrefix(after.AuthorizationStatus, "das")
+                : "closed";
+            await TryAuditAsync(command, after, false, $"New quantities ({described}) saved, but the draft is now {state}");
+            return Errors.CreditNoteApproval.ApprovalLostAfterQuantityChange(draft.DocEntry, state);
+        }
+
+        logger.LogInformation(
+            "Changed quantities on draft {DraftEntry} for approval request {Code} before adding: {Changes}; total {Before} → {After}",
+            draft.DocEntry, command.Code, described, draft.DocTotal, after.DocTotal);
+        return after;
     }
 
     private async Task<CreditNoteApprovalFiscalisationDto> FiscaliseAsync(

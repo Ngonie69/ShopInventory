@@ -1485,6 +1485,67 @@
     color: var(--cna-mute-3);
 }
 
+/* The date fields and Raised by sit in the search box's row, so they take its
+   height, edge and fill through the components' own fallbacks rather than being
+   restyled — the calendar and the menu stay the same objects as everywhere else. */
+.cna-q .cna-filters {
+    --ndf-h: 44px;
+    --ndf-fs: 14px;
+    --ndf-radius: var(--cna-r-md);
+    --ndf-fill: var(--cna-field);
+    --ndf-edge: var(--cna-field-edge);
+    --ndf-edge-hi: var(--cna-field-edge-hi);
+    --nsel-h: 44px;
+    --nsel-fs: 14px;
+    --nsel-radius: var(--cna-r-md);
+    --nsel-fill: var(--cna-field);
+    --nsel-edge: var(--cna-field-edge);
+    --nsel-edge-hi: var(--cna-field-edge-hi);
+    --nsel-min-w: 200px;
+    gap: var(--cna-s3);
+}
+
+.cna-filter-range {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s2);
+}
+
+.cna-filter-cap {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--cna-mute);
+}
+
+.cna-filter-dash {
+    color: var(--cna-mute-3);
+}
+
+.cna-filter-date {
+    flex: 0 0 140px;
+}
+
+.cna-filter-by {
+    flex: 0 1 auto;
+}
+
+@media (max-width: 860px) {
+    .cna-search,
+    .cna-filter-range {
+        flex-basis: 100%;
+        max-width: none;
+    }
+
+    .cna-filter-date {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    .cna-filter-by {
+        flex: 1 1 100%;
+    }
+}
+
 /* ── The list ────────────────────────────────────────────────────────── */
 
 .cna-list-title {
@@ -1967,4 +2028,112 @@
     .cna-drawer-draft {
         display: none;
     }
+}
+
+/* ── Quantities the wash bay may change before adding ────────────────── */
+
+.cna-qty-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cna-s2);
+    margin-bottom: var(--cna-s2);
+    font-size: 12.5px;
+    color: var(--cna-mute);
+}
+
+.cna-qty-hint > i {
+    margin-top: 1px;
+    font-size: 14px;
+    color: var(--cna-accent-text);
+}
+
+.cna-lines .cna-qty-cell {
+    width: 96px;
+    vertical-align: top;
+}
+
+/* Two classes deep, as every control here, to beat app.css's dark input fill. */
+.cna-overlay .cna-qty-input {
+    width: 84px;
+    min-height: 30px;
+    padding: 4px 8px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.cna-overlay .cna-qty-input.is-changed {
+    border-color: var(--cna-accent);
+    background: rgba(var(--cna-accent-rgb), .08);
+}
+
+.cna-overlay .cna-qty-input.is-invalid {
+    border-color: var(--cna-bad);
+    background: var(--cna-bad-bg);
+}
+
+.cna-qty-was,
+.cna-qty-error {
+    margin-top: 2px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.cna-qty-was {
+    color: var(--cna-mute);
+}
+
+.cna-qty-error {
+    color: var(--cna-bad);
+}
+
+.cna-lines tbody tr.is-changed td {
+    color: var(--cna-ink);
+}
+
+.cna-qty-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--cna-s2);
+    margin-top: var(--cna-s2);
+    padding: var(--cna-s2) var(--cna-s3);
+    border-radius: var(--cna-r-md);
+    border: 1px solid rgba(var(--cna-accent-rgb), .35);
+    background: rgba(var(--cna-accent-rgb), .06);
+    font-size: 12.5px;
+    color: var(--cna-ink-2);
+}
+
+.cna-qty-summary strong {
+    color: var(--cna-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.cna-qty-changes {
+    margin-top: var(--cna-s3);
+}
+
+.cna-qty-changes ul {
+    list-style: none;
+    margin: var(--cna-s1) 0 0;
+    padding: 0;
+}
+
+.cna-qty-changes li {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--cna-s3);
+    padding: var(--cna-s1) 0;
+    font-size: 13px;
+    color: var(--cna-ink-2);
+    background: linear-gradient(var(--cna-rowline), var(--cna-rowline)) no-repeat bottom / 100% 1px;
+}
+
+.cna-qty-change {
+    font-variant-numeric: tabular-nums;
+}
+
+.cna-qty-change strong {
+    color: var(--cna-ink);
 }

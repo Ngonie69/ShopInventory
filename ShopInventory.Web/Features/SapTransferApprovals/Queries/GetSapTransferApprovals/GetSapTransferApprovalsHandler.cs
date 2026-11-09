@@ -18,7 +18,7 @@ public sealed class GetSapTransferApprovalsHandler(
         try
         {
             var (success, message, response) = await approvalService.GetApprovalsAsync(
-                request.Page, request.PageSize, request.BeforeDocEntry, request.Warehouse);
+                request.Page, request.PageSize, request.BeforeDocEntry, request.Filter);
             if (!success || response is null)
             {
                 return Errors.SapTransferApproval.LoadFailed(message);

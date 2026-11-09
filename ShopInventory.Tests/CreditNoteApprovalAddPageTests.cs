@@ -104,13 +104,78 @@ public sealed class CreditNoteApprovalAddPageTests
         Assert.Equal(2, sap.DetailReads);
     }
 
+    /// <summary>
+    /// The wash bay counted 80 white crates where the draft claims 100. The drawer shows the change and
+    /// what it does to the total, and the add carries the new quantity — and only the changed line.
+    /// </summary>
+    [Fact]
+    public async Task A_changed_quantity_shows_in_the_drawer_and_goes_with_the_add()
+    {
+        var sap = new FakeApprovalQueue(new AddApprovedCreditNoteResultDto
+        {
+            Code = Code,
+            CreditNoteDocNum = 55303,
+            Resolved = true,
+            Message = "Credit note #55303 added to SAP. Quantities changed before adding: CRA001 100 → 80."
+        })
+        { Lines = CrateLines() };
+
+        string? edited = null;
+        await OpenThenAddAsync(sap, role: "WashBay", beforeAdd: async (renderer, page, output) =>
+        {
+            Assert.Contains("cna-qty-input", await renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+
+            await renderer.Dispatcher.InvokeAsync(() => InvokeSync(page, "SetQuantity", CrateLines()[0], "80"));
+            edited = await renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        });
+
+        Assert.NotNull(edited);
+        Assert.Contains("was 100", edited);
+        Assert.Contains("1 quantity changed", edited);
+        // 412.60 less 20 crates at 1.15 gross each.
+        Assert.Contains("389.60", edited);
+
+        var sent = Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<CreditNoteLineQuantityDto>>(sap.LastAdd!.LineQuantities));
+        Assert.Equal((0, 80m), (sent.LineNum, sent.Quantity));
+    }
+
+    /// <summary>A quantity of nothing cannot be added: the button is off and the confirm will not open.</summary>
+    [Fact]
+    public async Task A_zero_quantity_holds_the_add_back()
+    {
+        var sap = new FakeApprovalQueue(added: null) { Lines = CrateLines() };
+
+        string? edited = null;
+        await OpenThenAddAsync(sap, role: "WashBay", press: false, beforeAdd: async (renderer, page, output) =>
+        {
+            await renderer.Dispatcher.InvokeAsync(() => InvokeSync(page, "SetQuantity", CrateLines()[0], "0"));
+            await renderer.Dispatcher.InvokeAsync(() => InvokeSync(page, "OpenAddConfirm"));
+            edited = await renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        });
+
+        Assert.Contains("is-invalid", edited);
+        Assert.Contains("Every quantity must be above 0", edited);
+        Assert.DoesNotContain("cna-dialog", edited);
+        Assert.Equal(0, sap.Adds);
+    }
+
+    private static List<CreditNoteDraftLineDto> CrateLines() =>
+    [
+        new() { LineNum = 0, ItemCode = "CRA001", ItemDescription = "Crates White Yoghurt", Quantity = 100m, UnitPrice = 1m, LineTotal = 100m, VatSum = 15m },
+        new() { LineNum = 1, ItemCode = "CRA002", ItemDescription = "Crates Black Yoghurt", Quantity = 50m, UnitPrice = 1m, LineTotal = 50m, VatSum = 7.5m }
+    ];
+
     /// <summary>Renders the page, opens request <see cref="Code"/>, presses Add, and returns the HTML.</summary>
     /// <remarks>
     /// HtmlRenderer cannot click, so the two handlers the drawer and the confirm dialog bind are called
     /// on the renderer's dispatcher, as a click would run them. They are found by name; a rename fails
     /// here with that name rather than passing quietly.
     /// </remarks>
-    private static async Task<string> OpenThenAddAsync(FakeApprovalQueue sap)
+    private static async Task<string> OpenThenAddAsync(
+        FakeApprovalQueue sap,
+        string role = "Admin",
+        bool press = true,
+        Func<InteractivePageRenderer, CreditNoteApprovals, Microsoft.AspNetCore.Components.Web.HtmlRendering.HtmlRootComponent, Task>? beforeAdd = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -124,7 +189,7 @@ public sealed class CreditNoteApprovalAddPageTests
         await using var renderer = new InteractivePageRenderer(provider);
 
         CreditNoteApprovals? page = null;
-        var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "Admin")], "Test"));
+        var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "Test"));
         RenderFragment content = builder =>
         {
             builder.OpenComponent<CreditNoteApprovals>(0);
@@ -150,8 +215,29 @@ public sealed class CreditNoteApprovalAddPageTests
         Assert.Contains("cna-drawer", drawer);
         Assert.Contains(Customer, drawer);
 
-        await renderer.Dispatcher.InvokeAsync(() => Invoke(page!, "AddAsync"));
+        if (beforeAdd is not null)
+        {
+            await beforeAdd(renderer, page!, output);
+        }
+
+        if (press)
+        {
+            await renderer.Dispatcher.InvokeAsync(() => Invoke(page!, "AddAsync"));
+        }
+
         return await renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+    }
+
+    /// <summary>Runs a synchronous handler the way a click or a keystroke does, then re-renders.</summary>
+    internal static void InvokeSync(CreditNoteApprovals page, string name, params object[] args)
+    {
+        var method = typeof(CreditNoteApprovals).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"CreditNoteApprovals.{name} no longer exists.");
+        method.Invoke(page, args);
+
+        typeof(ComponentBase)
+            .GetMethod("StateHasChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(page, null);
     }
 
     /// <summary>
@@ -196,6 +282,11 @@ public sealed class CreditNoteApprovalAddPageTests
         public int DetailReads { get; private set; }
         public int Adds { get; private set; }
 
+        /// <summary>The draft's lines, which the drawer shows.</summary>
+        public List<CreditNoteDraftLineDto> Lines { get; init; } = [];
+
+        public AddApprovedCreditNoteCommand? LastAdd { get; private set; }
+
         public IMediator Mediator() =>
             StubProxy.For<IMediator>((method, args) => method.Name == nameof(IMediator.Send) && args is [var request, ..]
                 ? Answer(request)
@@ -220,14 +311,18 @@ public sealed class CreditNoteApprovalAddPageTests
                     return Task.FromResult<ErrorOr<CreditNoteApprovalCountsDto>>(
                         new CreditNoteApprovalCountsDto { Approved = deleted ? 0 : 1 });
 
+                case ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalOriginators.GetCreditNoteApprovalOriginatorsQuery:
+                    return Task.FromResult<ErrorOr<List<CreditNoteApprovalOriginatorDto>>>(new List<CreditNoteApprovalOriginatorDto>());
+
                 case GetCreditNoteApprovalQuery:
                     DetailReads++;
                     return Task.FromResult<ErrorOr<CreditNoteApprovalDetailDto>>(deleted
                         ? WebErrors.CreditNoteApproval.LoadFailed(NotFound)
-                        : new CreditNoteApprovalDetailDto { Request = Item() });
+                        : new CreditNoteApprovalDetailDto { Request = Item(), Lines = Lines });
 
-                case AddApprovedCreditNoteCommand:
+                case AddApprovedCreditNoteCommand add:
                     Adds++;
+                    LastAdd = add;
                     if (added is null)
                     {
                         return Task.FromResult<ErrorOr<AddApprovedCreditNoteResultDto>>(

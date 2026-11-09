@@ -133,6 +133,34 @@ public sealed class CreditNoteApprovalListRoundTripTests
         Assert.Single(filters, filter => filter.Contains($"Status eq '{SapApprovalRequestStatuses.NotApproved}'"));
     }
 
+    /// <summary>A tile counts what it opens: the list's raised dates and originator narrow all three.</summary>
+    [Fact]
+    public async Task The_queue_counts_carry_the_lists_filter()
+    {
+        var sap = FakeSap.WithPage(rows: 0, total: 2);
+        var settings = new SAPSettings
+        {
+            Enabled = true,
+            Username = "manager",
+            ServiceLayerUrl = "https://sap.invalid/b1s/v1/"
+        };
+        var handler = new GetCreditNoteApprovalCountsHandler(
+            CreateClient(sap, settings), FixedStageScope.Stages("Wash Bay Approvals", 4), Options.Create(settings));
+        var filter = new CreditNoteApprovalRequestFilter(new DateTime(2026, 11, 1), null, 31);
+
+        var result = await handler.Handle(new GetCreditNoteApprovalCountsQuery(Guid.NewGuid(), filter), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        var filters = sap.Recorded.Select(call => Uri.UnescapeDataString(call.Query)).ToList();
+        Assert.Equal(3, filters.Count);
+        Assert.All(filters, query =>
+        {
+            Assert.Contains("CreationDate ge '2026-11-01'", query);
+            Assert.DoesNotContain("CreationDate le", query);
+            Assert.Contains("OriginatorID eq 31", query);
+        });
+    }
+
     private static GetCreditNoteApprovalsHandler CreateHandler(FakeSap sap)
     {
         var settings = new SAPSettings

@@ -39,7 +39,7 @@ public partial class SAPServiceLayerClient
         int pageSize,
         int? beforeDocEntry = null,
         IReadOnlyCollection<string>? fromWarehouses = null,
-        string? warehouse = null,
+        SapTransferDraftFilter? filter = null,
         CancellationToken cancellationToken = default)
     {
         var sources = fromWarehouses?
@@ -70,11 +70,7 @@ public partial class SAPServiceLayerClient
             baseFilter += $" and ({string.Join(" or ", sources.Select(code => $"FromWarehouse eq '{EscapeODataStringLiteral(code)}'"))})";
         }
 
-        if (!string.IsNullOrWhiteSpace(warehouse))
-        {
-            var literal = EscapeODataStringLiteral(warehouse.Trim());
-            baseFilter += $" and (FromWarehouse eq '{literal}' or ToWarehouse eq '{literal}')";
-        }
+        baseFilter += DraftQueueFilterClauses(filter);
 
         var countUrl = $"StockTransferDrafts/$count?$filter={Uri.EscapeDataString(baseFilter)}";
 
@@ -93,6 +89,67 @@ public partial class SAPServiceLayerClient
         await Task.WhenAll(pageTask, countTask);
 
         return ((await pageTask)?.Value ?? [], await countTask);
+    }
+
+    /// <summary>
+    /// The page's filters as <c> and …</c> clauses on the draft header, each one only when it narrows.
+    /// Internal so the exact OData can be pinned by a unit test.
+    /// </summary>
+    internal static string DraftQueueFilterClauses(SapTransferDraftFilter? filter)
+    {
+        if (filter is null)
+        {
+            return string.Empty;
+        }
+
+        var clauses = new System.Text.StringBuilder();
+
+        if (!string.IsNullOrWhiteSpace(filter.Warehouse))
+        {
+            var literal = EscapeODataStringLiteral(filter.Warehouse.Trim());
+            clauses.Append($" and (FromWarehouse eq '{literal}' or ToWarehouse eq '{literal}')");
+        }
+
+        AppendAnyOf(clauses, "FromWarehouse", filter.FromWarehouses);
+        AppendAnyOf(clauses, "ToWarehouse", filter.ToWarehouses);
+
+        if (filter.CreatedFrom is DateTime from)
+        {
+            clauses.Append($" and CreationDate ge '{from:yyyy-MM-dd}'");
+        }
+
+        if (filter.CreatedTo is DateTime to)
+        {
+            clauses.Append($" and CreationDate le '{to:yyyy-MM-dd}'");
+        }
+
+        if (filter.AttachedOnly)
+        {
+            clauses.Append(" and AttachmentEntry gt 0");
+        }
+
+        if (filter.DraftNum is int draftNum)
+        {
+            clauses.Append($" and DocNum eq {draftNum}");
+        }
+
+        return clauses.ToString();
+
+        static void AppendAnyOf(System.Text.StringBuilder into, string field, IReadOnlyCollection<string>? codes)
+        {
+            var distinct = codes?
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Select(code => code.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (distinct is not { Count: > 0 })
+            {
+                return;
+            }
+
+            into.Append($" and ({string.Join(" or ", distinct.Select(code => $"{field} eq '{EscapeODataStringLiteral(code)}'"))})");
+        }
     }
 
     public async Task<List<SAPApprovalRequest>> GetStockTransferApprovalRequestsAsync(

@@ -70,6 +70,42 @@ public class SapCreditNoteApprovalReadTests(SapClientFixture fixture)
     }
 
     /// <summary>
+    /// The queue's filters: raised dates and originator in the rows and the count, and the grouped read
+    /// behind the Raised by choices. Narrowed to the newest request's own day and originator, so the
+    /// filter has something to find whatever the company holds.
+    /// </summary>
+    [SapFact]
+    public async Task The_raised_date_and_originator_filters_and_the_originator_list_are_accepted()
+    {
+        var originators = await fixture.Client.GetCreditNoteApprovalOriginatorIdsAsync(AllStatuses);
+        Assert.NotEmpty(originators);
+
+        var (newest, _) = await fixture.Client.GetCreditNoteApprovalRequestsAsync(AllStatuses, 1, 1);
+        var row = Assert.Single(newest);
+        Assert.NotNull(row.OriginatorID);
+        Assert.Contains(row.OriginatorID.Value, originators);
+
+        var day = RaisedDay(row);
+        var filter = new CreditNoteApprovalRequestFilter(day, day, row.OriginatorID);
+
+        var (items, total) = await fixture.Client.GetCreditNoteApprovalRequestsAsync(AllStatuses, 1, 5, filter: filter);
+        Assert.Contains(items, item => item.Code == row.Code);
+        Assert.All(items, item =>
+        {
+            Assert.Equal(row.OriginatorID, item.OriginatorID);
+            Assert.Equal(day, RaisedDay(item));
+        });
+
+        var count = await fixture.Client.CountCreditNoteApprovalRequestsAsync(AllStatuses, filter: filter);
+        var everything = await fixture.Client.CountCreditNoteApprovalRequestsAsync(AllStatuses);
+        Assert.Equal(total, count);
+        Assert.True(count < everything, $"The filter counted {count} of {everything}: it narrowed nothing.");
+    }
+
+    private static DateTime RaisedDay(SAPApprovalRequest request) =>
+        DateTime.ParseExact(request.CreationDate![..10], "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
     /// The two reads an add uses to recognise the credit note a draft became: the newest DocEntry in the
     /// company before the add, and the customer's newest past it afterwards — whole, with its lines, so
     /// it is not read a second time.

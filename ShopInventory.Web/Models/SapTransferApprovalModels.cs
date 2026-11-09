@@ -32,6 +32,60 @@ public sealed class SapTransferApprovalListItemDto
     public string? StatusNote { get; set; }
 }
 
+/// <summary>
+/// The page's filters, sent as the list route's query parameters (<c>warehouse</c>, repeated
+/// <c>from</c>/<c>to</c>, <c>createdFrom</c>/<c>createdTo</c>, <c>attachedOnly</c>, <c>draftNum</c>).
+/// Every one is applied in SAP, so the count that comes back is of the filtered queue.
+/// </summary>
+public sealed record SapTransferQueueFilter
+{
+    /// <summary>Leaving or entering this warehouse — the search box's text when it is not a number.</summary>
+    public string? Warehouse { get; init; }
+
+    public IReadOnlyList<string> FromWarehouses { get; init; } = [];
+    public IReadOnlyList<string> ToWarehouses { get; init; } = [];
+    public DateTime? CreatedFrom { get; init; }
+    public DateTime? CreatedTo { get; init; }
+    public bool AttachedOnly { get; init; }
+
+    /// <summary>One draft, by the number the B1 client shows — the search box's text when it is one.</summary>
+    public int? DraftNum { get; init; }
+
+    public string ToQueryString()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(Warehouse))
+        {
+            parts.Add($"warehouse={Uri.EscapeDataString(Warehouse.Trim())}");
+        }
+
+        parts.AddRange(FromWarehouses.Where(code => !string.IsNullOrWhiteSpace(code)).Select(code => $"from={Uri.EscapeDataString(code.Trim())}"));
+        parts.AddRange(ToWarehouses.Where(code => !string.IsNullOrWhiteSpace(code)).Select(code => $"to={Uri.EscapeDataString(code.Trim())}"));
+
+        if (CreatedFrom is DateTime from)
+        {
+            parts.Add($"createdFrom={from:yyyy-MM-dd}");
+        }
+
+        if (CreatedTo is DateTime to)
+        {
+            parts.Add($"createdTo={to:yyyy-MM-dd}");
+        }
+
+        if (AttachedOnly)
+        {
+            parts.Add("attachedOnly=true");
+        }
+
+        if (DraftNum is int draftNum)
+        {
+            parts.Add($"draftNum={draftNum}");
+        }
+
+        return parts.Count == 0 ? string.Empty : "&" + string.Join('&', parts);
+    }
+}
+
 public sealed class SapTransferApprovalListResponseDto
 {
     public List<SapTransferApprovalListItemDto> Items { get; set; } = [];

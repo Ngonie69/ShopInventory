@@ -9,6 +9,7 @@ using ShopInventory.Features.CreditNoteApprovals.Commands.DecideCreditNoteApprov
 using ShopInventory.Features.CreditNoteApprovals.Queries.DownloadCreditNoteDraftAttachment;
 using ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApproval;
 using ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalCounts;
+using ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalOriginators;
 using ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovals;
 using ShopInventory.Models;
 
@@ -52,24 +53,57 @@ public sealed class CreditNoteApprovalController(IMediator mediator) : ApiContro
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
         [FromQuery] int? beforeCode = null,
+        [FromQuery] DateTime? raisedFrom = null,
+        [FromQuery] DateTime? raisedTo = null,
+        [FromQuery] int? originatorId = null,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetCreditNoteApprovalsQuery(status, page, pageSize, beforeCode, UserClaimReader.GetUserId(User)), cancellationToken);
+            new GetCreditNoteApprovalsQuery(
+                status, page, pageSize, beforeCode, UserClaimReader.GetUserId(User),
+                Narrowing(raisedFrom, raisedTo, originatorId)),
+            cancellationToken);
         return result.Match(Ok, Problem);
     }
 
     /// <summary>
     /// How many requests are pending, approved (not yet added) and rejected, in the caller's stage
-    /// scope. Three SAP counts, read one after another.
+    /// scope. Three SAP counts, read one after another. <c>raisedFrom</c>, <c>raisedTo</c> and
+    /// <c>originatorId</c> narrow them exactly as they narrow the list, so a tile counts what it opens.
     /// </summary>
     [HttpGet("counts")]
     [RequirePermission(Permission.ApproveSapCreditNotes, Permission.AddApprovedCreditNotes)]
     [ProducesResponseType(typeof(CreditNoteApprovalCountsDto), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetCounts(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetCounts(
+        [FromQuery] DateTime? raisedFrom = null,
+        [FromQuery] DateTime? raisedTo = null,
+        [FromQuery] int? originatorId = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetCreditNoteApprovalCountsQuery(UserClaimReader.GetUserId(User)), cancellationToken);
+        var result = await mediator.Send(
+            new GetCreditNoteApprovalCountsQuery(UserClaimReader.GetUserId(User), Narrowing(raisedFrom, raisedTo, originatorId)),
+            cancellationToken);
         return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// The SAP users who have raised a credit memo approval request in the caller's stage scope, in
+    /// any status — the choices for the list's <c>originatorId</c>. One grouped SAP read.
+    /// </summary>
+    [HttpGet("originators")]
+    [RequirePermission(Permission.ApproveSapCreditNotes, Permission.AddApprovedCreditNotes)]
+    [ProducesResponseType(typeof(List<CreditNoteApprovalOriginatorDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetOriginators(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetCreditNoteApprovalOriginatorsQuery(UserClaimReader.GetUserId(User)), cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>Null when nothing narrows, so an unfiltered call reads exactly as it did before.</summary>
+    private static CreditNoteApprovalRequestFilter? Narrowing(DateTime? raisedFrom, DateTime? raisedTo, int? originatorId)
+    {
+        var filter = new CreditNoteApprovalRequestFilter(raisedFrom?.Date, raisedTo?.Date, originatorId);
+        return filter.IsEmpty ? null : filter;
     }
 
     /// <summary>One request with the draft it holds, its lines, attachments, approver lines and stage.</summary>
@@ -155,7 +189,8 @@ public sealed class CreditNoteApprovalController(IMediator mediator) : ApiContro
                 code,
                 userId.Value,
                 User.Identity?.Name ?? "unknown",
-                ClientRequestId(request?.ClientRequestId)),
+                ClientRequestId(request?.ClientRequestId),
+                request?.LineQuantities),
             cancellationToken);
 
         return result.Match(Ok, Problem);
