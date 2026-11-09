@@ -94,6 +94,8 @@ public partial class WhatsAppDeliveries : ComponentBase, IDisposable
 
     [Inject] private IMediator Mediator { get; set; } = default!;
 
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+
     private bool IsRefreshing => isLoadingStatus || isLoadingLog;
 
     private int TotalPages => log is null || log.TotalCount == 0 ? 1 : (int)Math.Ceiling(log.TotalCount / (double)PageSize);
@@ -116,6 +118,13 @@ public partial class WhatsAppDeliveries : ComponentBase, IDisposable
 
     protected override async Task OnInitializedAsync()
     {
+        // /whatsapp-contacts links here with ?search=<card code> to show one customer's sends.
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(Navigation.ToAbsoluteUri(Navigation.Uri).Query);
+        if (query.TryGetValue("search", out var search) && !string.IsNullOrWhiteSpace(search))
+        {
+            searchText = search.ToString().Trim();
+        }
+
         await Task.WhenAll(LoadStatusAsync(), LoadLogAsync());
     }
 

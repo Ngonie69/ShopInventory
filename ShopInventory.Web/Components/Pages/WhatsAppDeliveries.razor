@@ -222,7 +222,15 @@
                                         }
                                     </td>
                                     <td>
-                                        <span class="wdl-num">@delivery.RecipientMasked</span>
+                                        @if (delivery.ContactId is { } contactId)
+                                        {
+                                            <a class="wdl-num wdl-recipient-link" href="@($"/whatsapp-contacts?contact={contactId}")"
+                                               title="Who added this number, and its other sends">@delivery.RecipientMasked</a>
+                                        }
+                                        else
+                                        {
+                                            <span class="wdl-num">@delivery.RecipientMasked</span>
+                                        }
                                         @if (!string.IsNullOrWhiteSpace(delivery.RecipientName))
                                         {
                                             <span class="wdl-cell-sub">@delivery.RecipientName</span>

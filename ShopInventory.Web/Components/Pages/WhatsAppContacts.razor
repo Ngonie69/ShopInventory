@@ -1,0 +1,483 @@
+@page "/whatsapp-contacts"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Components.CustomerDocuments
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = UserRoles.CustomerWhatsAppRoles)]
+@rendermode InteractiveServer
+
+<PageTitle>WhatsApp contacts - Shop Inventory</PageTitle>
+
+@* Every WhatsApp number saved on a customer, in one list; open one for who added it, its sends and
+   its history, and to change it. Styled by wwwroot/css/whatsapp-deliveries.css under `wdl-`, the
+   same sheet as /whatsapp-deliveries, so the two pages read as one tool; what only this page uses
+   sits in that sheet's "Contacts" section under `wcn-`. A state is always a word as well as a
+   colour. Numbers are added on a customer's page (/customers), where the shop's other currency
+   cards can be offered; this page finds, explains and changes what is already saved. *@
+
+<div class="wdl">
+
+    <header class="wdl-head">
+        <div class="wdl-head-main">
+            <nav class="wdl-crumb" aria-label="Breadcrumb">
+                <span>Customers</span>
+                <span aria-hidden="true">/</span>
+                <span class="wdl-crumb-here" aria-current="page">WhatsApp contacts</span>
+            </nav>
+            <h1 class="wdl-title">WhatsApp contacts</h1>
+            <div class="wdl-lede">
+                Every WhatsApp number saved on a customer for their invoices. Search any part of a number — the last
+                four digits are enough — and open one to see who added it and everything since.
+            </div>
+        </div>
+        <div class="wdl-head-actions">
+            @if (loadedAtUtc.HasValue)
+            {
+                <span class="wdl-stamp">Read @CustomerDocumentDisplay.Stamp(loadedAtUtc)</span>
+            }
+            <AuthorizeView Roles="Admin" Context="adminCtx">
+                <Authorized>
+                    <a class="wdl-btn wdl-btn-quiet" href="/whatsapp-deliveries">
+                        <i class="ph ph-paper-plane-tilt" aria-hidden="true"></i>
+                        <span>Delivery log</span>
+                    </a>
+                </Authorized>
+            </AuthorizeView>
+            <button type="button" class="wdl-btn" @onclick="RefreshAsync" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="wdl-spin" aria-hidden="true"></span>
+                }
+                else
+                {
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                }
+                <span>Refresh</span>
+            </button>
+        </div>
+    </header>
+
+    @if (register is not null)
+    {
+        var summary = register.Summary;
+        <section class="wdl-figures wcn-figures" aria-label="The register">
+            @Figure("", "Linked", summary.Linked, "numbers on a customer")
+            @Figure("auto", "Automatic", summary.Automatic, "new invoices go by themselves")
+            @Figure("request", "On request", summary.OnRequest, "sent when someone presses Send")
+            @Figure("optedout", "Opted out", summary.OptedOut, "receive nothing")
+            @Figure("notonwhatsapp", "Not on WhatsApp", summary.NotOnWhatsApp, "at the last check", warn: summary.NotOnWhatsApp > 0)
+            @Figure("removed", "Removed", summary.Removed, "kept for the sends on record")
+        </section>
+    }
+
+    <section aria-label="WhatsApp contacts">
+        <div class="wdl-filters">
+            <div class="wdl-filter wdl-filter-search wdl-filter-search-wide">
+                <label class="wdl-filter-label" for="wcn-search">Number, customer or who added it</label>
+                <input id="wcn-search" class="wdl-input" type="search" maxlength="100"
+                       placeholder="Last digits, shop name or card code…" @bind="searchText" @bind:after="ApplyFiltersAsync" />
+            </div>
+            <div class="wdl-filter wdl-filter-status">
+                <span class="wdl-filter-label">State</span>
+                <NocturneSelect Class="nsel-block" TValue="string" Options="StateOptions" @bind-Value="stateFilter"
+                                OnChanged="ApplyFiltersAsync" Caption="Filter by state" AriaLabel="Filter by state"
+                                Placeholder="Linked" />
+            </div>
+            <div class="wdl-filter wdl-filter-trigger">
+                <span class="wdl-filter-label">Added on</span>
+                <NocturneSelect Class="nsel-block" TValue="string" Options="SourceOptions" @bind-Value="sourceFilter"
+                                OnChanged="ApplyFiltersAsync" Caption="Filter by where it was added" AriaLabel="Filter by where it was added"
+                                Placeholder="Anywhere" />
+            </div>
+            @if (HasFilters)
+            {
+                <div class="wdl-filter-actions">
+                    <button type="button" class="wdl-btn wdl-btn-quiet" @onclick="ClearFiltersAsync">Clear</button>
+                </div>
+            }
+        </div>
+
+        @if (loadError is not null)
+        {
+            <div class="wdl-alert wdl-alert-bad" role="alert">
+                <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                <span class="wdl-alert-body">@loadError</span>
+            </div>
+        }
+
+        @if (isLoading && register is null)
+        {
+            <div class="wdl-loading"><span class="wdl-spin" aria-hidden="true"></span>Loading the numbers…</div>
+        }
+        else if (register is not null && register.Items.Count == 0)
+        {
+            <div class="wdl-empty">
+                <div class="wdl-empty-title">@(HasFilters ? "No number matches" : "No WhatsApp number has been saved yet")</div>
+                <div class="wdl-empty-note">
+                    @(HasFilters
+                        ? "Try fewer digits, or clear the filters."
+                        : "Add one from a customer's page under Customers, with the customer's agreement.")
+                </div>
+            </div>
+        }
+        else if (register is not null)
+        {
+            <div class="wdl-section-head">
+                <h2 class="wdl-section-title">@StateTitle</h2>
+                <span class="wdl-section-note">
+                    @register.TotalCount.ToString("N0") @(register.TotalCount == 1 ? "number" : "numbers"), newest first · open one for its history and actions
+                </span>
+            </div>
+
+            <div class="wdl-table-wrap wcn-table-wrap">
+                <table class="wdl-table wcn-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Number</th>
+                            <th scope="col">Customer</th>
+                            <th scope="col">Invoices</th>
+                            <th scope="col">Consent recorded by</th>
+                            <th scope="col" class="wcn-th-end">Sent</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in register.Items)
+                        {
+                            var contact = item.Contact;
+                            <tr class="wcn-row @(contact.IsRemoved || contact.IsOptedOut ? "wcn-row-off" : null) @(openContactId == contact.Id ? "is-open" : null)"
+                                @onclick="() => OpenAsync(contact.Id)">
+                                <td class="wdl-nowrap">
+                                    <button type="button" class="wcn-open wdl-num" aria-label="@($"Open {contact.PhoneE164}, {contact.OwnerName}")"
+                                            @onclick="() => OpenAsync(contact.Id)" @onclick:stopPropagation="true">
+                                        @Highlighted(contact.PhoneE164)
+                                    </button>
+                                    <span class="wdl-cell-sub">@(contact.ContactName ?? "No name given")</span>
+                                </td>
+                                <td>
+                                    <span class="wdl-cell-strong">@contact.OwnerName</span>
+                                    <span class="wdl-cell-sub wdl-num">@OwnerCode(contact, item.RouteCustomerCode)</span>
+                                </td>
+                                <td class="wcn-cell-state">
+                                    <span class="wdl-chip wdl-chip-@StateTone(contact)">@StateLabel(contact)</span>
+                                    @if (!contact.IsRemoved && contact.WhatsAppExists == false)
+                                    {
+                                        <span class="wdl-chip wdl-chip-warn">Not on WhatsApp</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="wcn-by">@contact.ConsentRecordedBy</span>
+                                    <span class="wdl-cell-sub">
+                                        @SourceLabel(contact.ConsentSource) · <span class="wdl-num">@CustomerDocumentDisplay.Stamp(contact.ConsentRecordedAtUtc)</span>
+                                    </span>
+                                </td>
+                                <td class="wdl-nowrap wcn-cell-end">
+                                    <span class="wdl-num">@item.SentCount.ToString("N0")</span>
+                                    <span class="wdl-cell-sub @(item.WaitingCount > 0 ? "wcn-waiting" : null)">
+                                        @(item.WaitingCount > 0 ? $"{item.WaitingCount} waiting" : item.LastSentAtUtc is null ? "none yet" : $"last {CustomerDocumentDisplay.Stamp(item.LastSentAtUtc)}")
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @* The phone's version of the same rows: a table is unreadable at 390px even in a scroll box. *@
+            <ul class="wcn-cards" aria-label="WhatsApp numbers">
+                @foreach (var item in register.Items)
+                {
+                    var contact = item.Contact;
+                    <li>
+                        <button type="button" class="wcn-card @(contact.IsRemoved || contact.IsOptedOut ? "wcn-row-off" : null)"
+                                @onclick="() => OpenAsync(contact.Id)">
+                            <span class="wcn-card-top">
+                                <span class="wcn-card-main">
+                                    <span class="wcn-card-num wdl-num">@Highlighted(contact.PhoneE164)</span>
+                                    <span class="wdl-cell-sub">@contact.OwnerName · @OwnerCode(contact, item.RouteCustomerCode)</span>
+                                </span>
+                                <span class="wdl-chip wdl-chip-@StateTone(contact)">@StateLabel(contact)</span>
+                            </span>
+                            <span class="wcn-card-by">
+                                <span class="wcn-by">@contact.ConsentRecordedBy</span>
+                                <span class="wdl-cell-sub">@SourceLabel(contact.ConsentSource) · @CustomerDocumentDisplay.Stamp(contact.ConsentRecordedAtUtc)</span>
+                            </span>
+                            <span class="wcn-card-foot">
+                                <span>@item.SentCount.ToString("N0") sent@(item.LastSentAtUtc is null ? "" : $" · last {CustomerDocumentDisplay.Stamp(item.LastSentAtUtc)}")</span>
+                                @if (item.WaitingCount > 0)
+                                {
+                                    <span class="wcn-waiting">@item.WaitingCount waiting</span>
+                                }
+                            </span>
+                        </button>
+                    </li>
+                }
+            </ul>
+
+            @if (TotalPages > 1)
+            {
+                <div class="wdl-pager">
+                    <span class="wdl-pager-info">Page @pageNumber of @TotalPages</span>
+                    <div class="wdl-pager-end">
+                        <button type="button" class="wdl-btn wdl-btn-sm" disabled="@(pageNumber <= 1 || isLoading)"
+                                @onclick="() => GoToPageAsync(pageNumber - 1)">
+                            Newer
+                        </button>
+                        <button type="button" class="wdl-btn wdl-btn-sm" disabled="@(pageNumber >= TotalPages || isLoading)"
+                                @onclick="() => GoToPageAsync(pageNumber + 1)">
+                            Older
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+    </section>
+</div>
+
+@if (openContactId is not null)
+{
+    <div class="wcn-scrim" @onclick="CloseDrawer"></div>
+    <aside class="wdl wcn-drawer" role="dialog" aria-modal="true" aria-labelledby="wcn-drawer-title" @onkeydown="OnDrawerKey">
+        @if (detail is null)
+        {
+            <div class="wcn-drawer-head">
+                <div class="wcn-drawer-heading">
+                    <span class="wcn-eyebrow">WhatsApp number</span>
+                    <h2 id="wcn-drawer-title" class="wcn-drawer-title">@(detailError is null ? "Loading…" : "Not loaded")</h2>
+                </div>
+                <button type="button" class="wcn-close" aria-label="Close" @onclick="CloseDrawer"><i class="ph ph-x" aria-hidden="true"></i></button>
+            </div>
+            <div class="wcn-drawer-body">
+                @if (detailError is not null)
+                {
+                    <div class="wdl-alert wdl-alert-bad" role="alert"><span class="wdl-alert-body">@detailError</span></div>
+                }
+                else
+                {
+                    <div class="wdl-loading"><span class="wdl-spin" aria-hidden="true"></span>Reading the number…</div>
+                }
+            </div>
+        }
+        else
+        {
+            var contact = detail.Contact;
+            <div class="wcn-drawer-head">
+                <div class="wcn-drawer-heading">
+                    <span class="wcn-eyebrow">WhatsApp number</span>
+                    <h2 id="wcn-drawer-title" class="wcn-drawer-title wdl-num">@contact.PhoneE164</h2>
+                    <span class="wcn-drawer-sub">
+                        @if (!string.IsNullOrWhiteSpace(contact.ContactName)
+                             && !string.Equals(contact.ContactName.Trim(), contact.OwnerName.Trim(), StringComparison.OrdinalIgnoreCase))
+                        {
+                            @($"{contact.ContactName} · ")
+                        }
+                        @contact.OwnerName <span class="wdl-num">@OwnerCode(contact, detail.RouteCustomerCode)</span>
+                    </span>
+                    <span class="wcn-drawer-chips">
+                        <span class="wdl-chip wdl-chip-@StateTone(contact)">@StateLabel(contact)</span>
+                        @if (!contact.IsRemoved && contact.WhatsAppExists == false)
+                        {
+                            <span class="wdl-chip wdl-chip-warn">Not on WhatsApp</span>
+                        }
+                    </span>
+                </div>
+                <button type="button" class="wcn-close" aria-label="Close" @onclick="CloseDrawer"><i class="ph ph-x" aria-hidden="true"></i></button>
+            </div>
+
+            <div class="wcn-drawer-body">
+                @if (notice is not null)
+                {
+                    <div class="wdl-alert @(noticeIsError ? "wdl-alert-bad" : "wdl-alert-good")" role="@(noticeIsError ? "alert" : "status")">
+                        <span class="wdl-alert-body">@notice</span>
+                    </div>
+                }
+
+                <section class="wcn-added" aria-labelledby="wcn-added-title">
+                    <h3 id="wcn-added-title" class="wcn-eyebrow">Added by</h3>
+                    <div class="wcn-added-who">
+                        <span class="wcn-avatar" aria-hidden="true">@Initials(detail.AddedBy)</span>
+                        <span class="wcn-added-text">
+                            <span class="wcn-added-name">@(detail.AddedBy ?? "Not recorded")</span>
+                            <span class="wcn-added-meta">
+                                @(detail.AddedVia is null ? "" : $"{SourceLabel(detail.AddedVia)} · ")<span class="wdl-num">@CustomerDocumentDisplay.Stamp(detail.AddedAtUtc)</span>
+                            </span>
+                        </span>
+                    </div>
+                    @if (detail.AddedBy is null)
+                    {
+                        <span class="wcn-added-note">
+                            The first save was made before saves were recorded, or from somewhere that does not record
+                            who. The history below shows everything that was kept.
+                        </span>
+                    }
+                    @if (!string.Equals(detail.AddedBy, contact.ConsentRecordedBy, StringComparison.Ordinal)
+                         || contact.ConsentRecordedAtUtc > detail.AddedAtUtc.AddMinutes(2))
+                    {
+                        <span class="wcn-added-note">
+                            Latest agreement recorded by <strong>@contact.ConsentRecordedBy</strong>, @SourceLabel(contact.ConsentSource),
+                            <span class="wdl-num">@CustomerDocumentDisplay.Stamp(contact.ConsentRecordedAtUtc)</span>.
+                        </span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(contact.ConsentNote))
+                    {
+                        <span class="wcn-added-note">How they agreed: “@contact.ConsentNote”</span>
+                    }
+                </section>
+
+                <section class="wcn-section" aria-labelledby="wcn-inv-title">
+                    <h3 id="wcn-inv-title" class="wcn-eyebrow">Invoices</h3>
+                    @if (contact.IsRemoved)
+                    {
+                        <span class="wcn-plain">Taken off the customer@(contact.IsOptedOut ? ", and opted out" : ""). Nothing is sent here.</span>
+                    }
+                    else if (contact.IsOptedOut)
+                    {
+                        <span class="wcn-plain">Opted out: nothing is sent to this number, on any customer it is saved on.</span>
+                    }
+                    else
+                    {
+                        <label class="wdl-switch wcn-switch">
+                            <input type="checkbox" class="wdl-switch-input" role="switch" checked="@contact.AutoSendInvoices"
+                                   disabled="@isBusy" @onchange="ToggleAutoSendAsync" />
+                            <span class="wdl-switch-track" aria-hidden="true"></span>
+                            <span class="wcn-switch-text">
+                                <span>Send new invoices automatically</span>
+                                <span class="wcn-plain-sub">
+                                    @(contact.AutoSendInvoices
+                                        ? "Each new invoice goes here once its fiscal receipt is confirmed."
+                                        : "Only when someone presses Send on an invoice.")
+                                </span>
+                                @if (contact.AutoSendInvoices && detail.WaitingCount > 0)
+                                {
+                                    <span class="wcn-plain-sub wcn-waiting">
+                                        Turning it off withdraws the @(detail.WaitingCount == 1 ? "invoice" : $"{detail.WaitingCount} invoices") still waiting to go.
+                                    </span>
+                                }
+                            </span>
+                        </label>
+                    }
+                    <div class="wcn-check-row">
+                        <span class="wcn-plain-sub">@CheckLine(contact)</span>
+                        @if (!contact.IsRemoved && !contact.IsOptedOut)
+                        {
+                            <button type="button" class="wdl-btn wdl-btn-sm" disabled="@isBusy" @onclick="RecheckAsync"
+                                    title="Asks WhatsApp now whether the number has an account">
+                                Check on WhatsApp
+                            </button>
+                        }
+                    </div>
+                </section>
+
+                <section class="wcn-section" aria-labelledby="wcn-sends-title">
+                    <div class="wcn-section-head">
+                        <h3 id="wcn-sends-title" class="wcn-eyebrow">Sent here · @detail.SentCount.ToString("N0")@(detail.WaitingCount > 0 ? $" · {detail.WaitingCount} waiting" : "")</h3>
+                        <AuthorizeView Roles="Admin" Context="logCtx">
+                            <Authorized>
+                                <a class="wcn-link" href="@($"/whatsapp-deliveries?search={Uri.EscapeDataString(contact.CardCode ?? contact.OwnerName)}")">In the delivery log</a>
+                            </Authorized>
+                        </AuthorizeView>
+                    </div>
+                    @if (detail.RecentDeliveries.Count == 0)
+                    {
+                        <span class="wcn-plain-sub">Nothing has been sent to this number yet.</span>
+                    }
+                    else
+                    {
+                        <ul class="wcn-sends">
+                            @foreach (var delivery in detail.RecentDeliveries)
+                            {
+                                <li class="wcn-send">
+                                    <span class="wcn-send-doc wdl-num">@delivery.DocumentNumber</span>
+                                    <span class="wcn-send-when wdl-num">
+                                        @CustomerDocumentDisplay.Stamp(delivery.SentAtUtc ?? delivery.CreatedAtUtc) · @CustomerDocumentDisplay.Money(delivery.DocumentTotal, delivery.Currency)
+                                    </span>
+                                    <span class="wdl-chip wdl-chip-@CustomerDocumentDisplay.StatusTone(delivery.Status)">@CustomerDocumentDisplay.StatusLabel(delivery.Status)</span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </section>
+
+                <section class="wcn-section" aria-labelledby="wcn-hist-title">
+                    <h3 id="wcn-hist-title" class="wcn-eyebrow">History</h3>
+                    <ol class="wcn-history">
+                        @foreach (var entry in detail.History)
+                        {
+                            <li class="wcn-event wcn-event-@entry.Kind.ToLowerInvariant()">
+                                <span class="wcn-event-dot" aria-hidden="true"></span>
+                                <span class="wcn-event-body">
+                                    <span class="wcn-event-what">@entry.What</span>
+                                    <span class="wcn-event-meta">
+                                        @EventWho(entry) · <span class="wdl-num">@CustomerDocumentDisplay.Stamp(entry.AtUtc)</span>
+                                    </span>
+                                </span>
+                            </li>
+                        }
+                    </ol>
+                </section>
+            </div>
+
+            @if (!contact.IsRemoved)
+            {
+                <div class="wcn-drawer-foot">
+                    @if (confirming is not null)
+                    {
+                        <div class="wcn-confirm" role="group" aria-label="Confirm">
+                            <span>
+                                @(confirming == DrawerAction.OptOut
+                                    ? "Stop every document to this number, on every customer it is saved on? Anything waiting for it is withdrawn."
+                                    : $"Take this number off {contact.OwnerName}? What was already sent stays on record.")
+                            </span>
+                            <span class="wcn-confirm-buttons">
+                                <button type="button" class="wdl-btn wdl-btn-quiet" disabled="@isBusy" @onclick="() => confirming = null">Keep it</button>
+                                <button type="button" class="wdl-btn wcn-btn-bad" disabled="@isBusy" @onclick="ConfirmAsync">
+                                    @(confirming == DrawerAction.OptOut ? "Opt out" : "Remove")
+                                </button>
+                            </span>
+                        </div>
+                    }
+                    else
+                    {
+                        @if (!contact.IsOptedOut)
+                        {
+                            <button type="button" class="wdl-btn wcn-btn-bad" disabled="@isBusy" @onclick="() => confirming = DrawerAction.OptOut">
+                                Customer asked to stop
+                            </button>
+                        }
+                        <button type="button" class="wdl-btn wcn-btn-bad" disabled="@isBusy" @onclick="() => confirming = DrawerAction.Remove">
+                            Remove from @contact.OwnerName
+                        </button>
+                    }
+                </div>
+            }
+        }
+    </aside>
+}
+
+@code {
+    private RenderFragment Figure(string state, string label, int value, string note, bool warn = false) => __builder =>
+    {
+        var active = string.Equals(stateFilter ?? string.Empty, state, StringComparison.Ordinal);
+        <button type="button" class="wdl-figure wcn-figure @(active ? "is-active" : null) @(warn ? "wcn-figure-warn" : null)"
+                aria-pressed="@(active ? "true" : "false")" @onclick="() => ShowStateAsync(state)">
+            <span class="wdl-figure-label">@label</span>
+            <span class="wdl-figure-value">@value.ToString("N0")</span>
+            <span class="wdl-figure-note">@note</span>
+        </button>
+    };
+
+    /// <summary>The number, with the digits being searched for marked.</summary>
+    private RenderFragment Highlighted(string phone) => __builder =>
+    {
+        foreach (var (text, hit) in PhoneSegments(phone, SearchDigits))
+        {
+            if (hit)
+            {
+                <mark class="wcn-hit">@text</mark>
+            }
+            else
+            {
+                @text
+            }
+        }
+    };
+}

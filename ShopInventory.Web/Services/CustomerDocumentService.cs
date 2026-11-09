@@ -17,6 +17,12 @@ public interface ICustomerDocumentService
 {
     Task<List<CustomerWhatsAppContactModel>> GetContactsAsync(string? cardCode, int? routeCustomerId, CancellationToken cancellationToken = default);
 
+    Task<CustomerWhatsAppContactRegisterModel> GetContactRegisterAsync(
+        string? search, string? state, string? source, int? contactId, int page, int pageSize,
+        CancellationToken cancellationToken = default);
+
+    Task<CustomerWhatsAppContactDetailModel> GetContactDetailAsync(int contactId, CancellationToken cancellationToken = default);
+
     Task<WhatsAppNumberCheckResultModel> CheckPhoneAsync(string phone, string? cardCode, int? routeCustomerId, CancellationToken cancellationToken = default);
 
     Task<List<CustomerWhatsAppContactModel>> SaveContactAsync(SaveCustomerWhatsAppContactModel request, CancellationToken cancellationToken = default);
@@ -62,6 +68,26 @@ public sealed class CustomerDocumentService(
         ReadAsync<List<CustomerWhatsAppContactModel>>(
             ContactsUrl + Query(("cardCode", cardCode), ("routeCustomerId", Number(routeCustomerId))),
             "The customer's WhatsApp numbers could not be loaded.",
+            cancellationToken);
+
+    public Task<CustomerWhatsAppContactRegisterModel> GetContactRegisterAsync(
+        string? search, string? state, string? source, int? contactId, int page, int pageSize,
+        CancellationToken cancellationToken = default) =>
+        ReadAsync<CustomerWhatsAppContactRegisterModel>(
+            $"{ContactsUrl}/register" + Query(
+                ("search", search),
+                ("state", state),
+                ("source", source),
+                ("contactId", Number(contactId)),
+                ("page", Number(page)),
+                ("pageSize", Number(pageSize))),
+            "The WhatsApp contacts could not be loaded.",
+            cancellationToken);
+
+    public Task<CustomerWhatsAppContactDetailModel> GetContactDetailAsync(int contactId, CancellationToken cancellationToken = default) =>
+        ReadAsync<CustomerWhatsAppContactDetailModel>(
+            $"{ContactsUrl}/{contactId}",
+            "The WhatsApp number could not be loaded.",
             cancellationToken);
 
     public Task<WhatsAppNumberCheckResultModel> CheckPhoneAsync(string phone, string? cardCode, int? routeCustomerId, CancellationToken cancellationToken = default) =>

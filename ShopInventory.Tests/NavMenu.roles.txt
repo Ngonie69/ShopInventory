@@ -172,6 +172,7 @@ Sales
     Create Credit Note  /credit-notes/create
 Customers & Products
     Customers  /customers
+    WhatsApp Contacts  /whatsapp-contacts
     Products  /products
     Price List  /prices
 Inventory
@@ -325,6 +326,7 @@ Sales
     Credit Note Approvals  /credit-notes/approvals
 Customers & Products
     Customers  /customers
+    WhatsApp Contacts  /whatsapp-contacts
     Products  /products
     Price List  /prices
 Inventory

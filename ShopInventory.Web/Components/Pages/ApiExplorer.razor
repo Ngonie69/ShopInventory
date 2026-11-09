@@ -1714,7 +1714,9 @@ Methods = new[] { "DELETE", "GET", "POST", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/customer-whatsapp-contacts", "A customer's WhatsApp numbers"),
+new("GET", "/api/customer-whatsapp-contacts/{id}", "Get detail"),
 new("GET", "/api/customer-whatsapp-contacts/phone-check", "Normalise a typed number and say whether it is opted out"),
+new("GET", "/api/customer-whatsapp-contacts/register", "Get register"),
 new("POST", "/api/customer-whatsapp-contacts", "Save a number, with consent"),
 new("DELETE", "/api/customer-whatsapp-contacts/{id}", "Take a number off the customer"),
 new("PUT", "/api/customer-whatsapp-contacts/{id}", "Rename it, or switch automatic invoices"),
@@ -1852,6 +1854,20 @@ new("GET", "/api/report-product-groups", "List product groups with their members
 new("POST", "/api/report-product-groups", "Create a product group"),
 new("DELETE", "/api/report-product-groups/{id}", "Delete a product group"),
 new("PUT", "/api/report-product-groups/{id}", "Replace a product group and its members")
+}
+},
+new ApiModule
+{
+Name = "Revmax",
+BasePath = "/api/revmax",
+Description = "2 endpoints under /api/revmax.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Info,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/revmax/invoices/{invoiceNumber}", "Get invoice"),
+new("POST", "/api/revmax/transact-m-ext", "Transact m ext")
 }
 },
 new ApiModule

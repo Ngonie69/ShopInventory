@@ -31,6 +31,59 @@ public sealed class CustomerWhatsAppContactModel
     public DateTime UpdatedAtUtc { get; set; }
 }
 
+/// <summary>A page of every WhatsApp number saved on a customer. Mirrors the API's CustomerWhatsAppContactRegisterDto.</summary>
+public sealed class CustomerWhatsAppContactRegisterModel
+{
+    public List<CustomerWhatsAppContactRegisterItemModel> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public CustomerWhatsAppContactRegisterSummaryModel Summary { get; set; } = new();
+}
+
+public sealed class CustomerWhatsAppContactRegisterItemModel
+{
+    public CustomerWhatsAppContactModel Contact { get; set; } = new();
+    public string? RouteCustomerCode { get; set; }
+    public int SentCount { get; set; }
+    public DateTime? LastSentAtUtc { get; set; }
+    public int WaitingCount { get; set; }
+}
+
+public sealed class CustomerWhatsAppContactRegisterSummaryModel
+{
+    public int Linked { get; set; }
+    public int Automatic { get; set; }
+    public int OnRequest { get; set; }
+    public int OptedOut { get; set; }
+    public int NotOnWhatsApp { get; set; }
+    public int Removed { get; set; }
+}
+
+/// <summary>One saved number in full. Mirrors the API's CustomerWhatsAppContactDetailDto.</summary>
+public sealed class CustomerWhatsAppContactDetailModel
+{
+    public CustomerWhatsAppContactModel Contact { get; set; } = new();
+    public string? RouteCustomerCode { get; set; }
+    public string? AddedBy { get; set; }
+    public DateTime AddedAtUtc { get; set; }
+    public string? AddedVia { get; set; }
+    public int SentCount { get; set; }
+    public int WaitingCount { get; set; }
+    public DateTime? LastSentAtUtc { get; set; }
+    public List<CustomerDocumentDeliveryModel> RecentDeliveries { get; set; } = [];
+    public List<CustomerWhatsAppContactEventModel> History { get; set; } = [];
+}
+
+public sealed class CustomerWhatsAppContactEventModel
+{
+    public DateTime AtUtc { get; set; }
+    public string Kind { get; set; } = string.Empty;
+    public string What { get; set; } = string.Empty;
+    public string? Who { get; set; }
+    public string? Via { get; set; }
+}
+
 /// <summary>Save a number a customer gave for their documents.</summary>
 public sealed class SaveCustomerWhatsAppContactModel
 {

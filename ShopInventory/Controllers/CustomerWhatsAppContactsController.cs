@@ -10,6 +10,8 @@ using ShopInventory.Features.CustomerDocuments.Commands.RemoveCustomerWhatsAppCo
 using ShopInventory.Features.CustomerDocuments.Commands.SaveCustomerWhatsAppContact;
 using ShopInventory.Features.CustomerDocuments.Commands.UpdateCustomerWhatsAppContact;
 using ShopInventory.Features.CustomerDocuments.Queries.CheckWhatsAppNumber;
+using ShopInventory.Features.CustomerDocuments.Queries.GetCustomerWhatsAppContactDetail;
+using ShopInventory.Features.CustomerDocuments.Queries.GetCustomerWhatsAppContactRegister;
 using ShopInventory.Features.CustomerDocuments.Queries.GetCustomerWhatsAppContacts;
 using ShopInventory.Models;
 
@@ -41,6 +43,42 @@ public sealed class CustomerWhatsAppContactsController(ISender mediator) : ApiCo
         var result = await mediator.Send(
             new GetCustomerWhatsAppContactsQuery(cardCode, routeCustomerId, includeRemoved),
             cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// Every number saved on any customer, newest consent first, for the page that keeps them all.
+    /// <c>search</c> takes a name, a code, who recorded it, or any run of the number's digits.
+    /// </summary>
+    [HttpGet("register")]
+    [RequirePermission(Permission.ManageCustomerWhatsApp)]
+    [ProducesResponseType(typeof(CustomerWhatsAppContactRegisterDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetRegister(
+        [FromQuery] string? search = null,
+        [FromQuery] string? state = null,
+        [FromQuery] string? source = null,
+        [FromQuery] int? contactId = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetCustomerWhatsAppContactRegisterQuery(search, state, source, contactId, page, pageSize),
+            cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// One saved number in full: who first added it, its latest sends, and its history from the audit
+    /// trail and the row itself, newest first.
+    /// </summary>
+    [HttpGet("{id:int}")]
+    [RequirePermission(Permission.ManageCustomerWhatsApp)]
+    [ProducesResponseType(typeof(CustomerWhatsAppContactDetailDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetDetail(int id, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetCustomerWhatsAppContactDetailQuery(id), cancellationToken);
         return result.Match(Ok, Problem);
     }
 

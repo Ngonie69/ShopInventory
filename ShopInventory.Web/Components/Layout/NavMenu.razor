@@ -183,6 +183,16 @@
                             </span>
                             <span class="snav-text">Customers</span>
                         </NavLink>
+                        <AuthorizeView Roles="@UserRoles.CustomerWhatsAppRoles" Context="whatsAppContactsCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/whatsapp-contacts" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-whatsapp-logo" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">WhatsApp Contacts</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
                         <NavLink class="snav-link" href="/products" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
                                 <i class="ph ph-package" aria-hidden="true"></i>

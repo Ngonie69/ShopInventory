@@ -105,8 +105,10 @@
     border-bottom: 1px solid var(--noct-divider);
 }
 
+/* A 320px basis, not 0: on a phone the title and lede take the whole row and
+   the buttons wrap below, rather than the lede squeezing into a column beside them. */
 .wdl-head-main {
-    flex: 1;
+    flex: 1 1 320px;
     min-width: 0;
 }
 
@@ -958,6 +960,587 @@
     border-top: 1px solid var(--noct-rule);
 }
 
+/* ── Contacts ─────────────────────────────────────────────────────────── */
+/* /whatsapp-contacts wears this sheet's `wdl-` classes so the two WhatsApp
+   pages read as one tool; what only it needs is here, under `wcn-`. Its
+   figures, number cells and phone cards are buttons, so the bare `button`
+   rule MudBlazor loads last (centred, position: relative) is answered two
+   classes deep. The drawer wears `.wdl` itself, like the retry dialog, to
+   reach the same descendant rules from outside the page. */
+
+.wdl a.wdl-btn {
+    text-decoration: none;
+}
+
+/* The log's recipient, linked to the number's drawer on /whatsapp-contacts. */
+.wdl .wdl-recipient-link {
+    color: var(--noct-accent-text);
+    text-decoration: underline;
+    text-decoration-color: rgba(var(--noct-accent-rgb), .4);
+    text-underline-offset: 2px;
+}
+
+.wdl .wdl-recipient-link:hover {
+    color: var(--noct-accent);
+    text-decoration-color: currentColor;
+}
+
+.wdl .wcn-figure {
+    font: inherit;
+    text-align: left;
+    justify-content: flex-start;
+    align-items: flex-start;
+    color: inherit;
+    border: 0;
+    cursor: pointer;
+    transition: box-shadow .12s ease, background-color .12s ease;
+}
+
+.wdl .wcn-figure:hover {
+    background: var(--noct-hover);
+}
+
+.wdl .wcn-figure.is-active {
+    box-shadow: 0 0 0 1px var(--noct-accent), 0 0 0 3px rgba(var(--noct-accent-rgb), .16);
+}
+
+.wdl .wcn-figure-warn .wdl-figure-value {
+    color: var(--noct-fam-warn);
+}
+
+.wdl-filter-search-wide {
+    flex: 2 1 260px;
+    max-width: 420px;
+}
+
+/* ── Contacts: the list ── */
+
+.wcn-table {
+    min-width: 860px;
+}
+
+.wdl .wcn-row {
+    cursor: pointer;
+}
+
+.wdl .wcn-row.is-open td {
+    background: rgba(var(--noct-accent-rgb), .1);
+}
+
+.wdl .wcn-row.is-open td:first-child {
+    box-shadow: inset 3px 0 0 var(--noct-accent);
+}
+
+.wdl .wcn-open {
+    display: block;
+    padding: 0;
+    font: inherit;
+    font-weight: 500;
+    text-align: left;
+    color: var(--noct-ink);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.wdl .wcn-open:hover {
+    color: var(--noct-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* The digits being searched for: a tint and a colour, never the colour alone. */
+.wdl .wcn-hit {
+    padding: 0 1px;
+    border-radius: 3px;
+    color: var(--noct-accent-text);
+    background: rgba(var(--noct-accent-rgb), .22);
+}
+
+.wcn-cell-state {
+    min-width: 170px;
+}
+
+.wcn-cell-state .wdl-chip + .wdl-chip {
+    margin-left: 4px;
+}
+
+.wdl .wcn-table .wcn-th-end,
+.wcn-cell-end {
+    text-align: right;
+}
+
+.wdl .wcn-waiting {
+    color: var(--noct-fam-info);
+}
+
+.wcn-by {
+    font-weight: 500;
+    color: var(--noct-ink);
+}
+
+/* An opted-out or removed number stays legible (it is often the one being
+   looked for) but steps back from the live ones. */
+.wdl .wcn-row-off td {
+    color: var(--noct-mute-2);
+}
+
+.wdl .wcn-row-off .wdl-cell-strong,
+.wdl .wcn-row-off .wcn-open {
+    color: var(--noct-mute);
+}
+
+.wdl .wcn-btn-bad {
+    color: var(--noct-fam-bad);
+    border-color: rgba(var(--noct-fam-bad-rgb), .45);
+}
+
+.wdl .wcn-btn-bad:hover:not(:disabled) {
+    background: rgba(var(--noct-fam-bad-rgb), .1);
+    border-color: var(--noct-fam-bad);
+}
+
+/* The cards a phone shows instead of the table: hidden until 700px. */
+.wcn-cards {
+    display: none;
+    flex-direction: column;
+    gap: var(--noct-s3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.wdl .wcn-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+    padding: var(--noct-s4);
+    font: inherit;
+    text-align: left;
+    color: var(--noct-ink);
+    background: var(--noct-surface);
+    border: 0;
+    border-radius: 12px;
+    box-shadow: var(--wdl-ring);
+    cursor: pointer;
+}
+
+.wcn-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--noct-s3);
+}
+
+.wcn-card-main {
+    min-width: 0;
+}
+
+.wcn-card-num {
+    display: block;
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.wcn-card-by {
+    display: block;
+    padding-top: 10px;
+    border-top: 1px solid var(--noct-rule);
+}
+
+.wcn-card-by .wcn-by {
+    display: block;
+    font-size: 13px;
+}
+
+.wcn-card-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--noct-s3);
+    font-size: 12px;
+    color: var(--noct-mute-2);
+}
+
+/* ── Contacts: the drawer ── */
+
+.wcn-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9999;
+    background: var(--noct-scrim);
+}
+
+.wdl.wcn-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    bottom: 0;
+    z-index: 10000;
+    width: min(460px, 100%);
+    display: flex;
+    flex-direction: column;
+    background: var(--noct-surface);
+    border-left: 1px solid var(--noct-divider);
+    box-shadow: var(--noct-shadow-pop);
+}
+
+.wcn-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--noct-s3);
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--noct-rule);
+}
+
+.wcn-drawer-heading {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.wdl .wcn-eyebrow {
+    margin: 0;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--noct-mute-3);
+}
+
+.wdl .wcn-drawer-title {
+    margin: 4px 0 2px;
+    font-family: inherit;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.25;
+    letter-spacing: -.01em;
+    color: var(--noct-ink);
+}
+
+.wcn-drawer-sub {
+    font-size: 13px;
+    color: var(--noct-mute-2);
+}
+
+.wcn-drawer-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 10px;
+}
+
+.wdl .wcn-close {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    font-size: 18px;
+    color: var(--noct-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--noct-r-md);
+    cursor: pointer;
+}
+
+.wdl .wcn-close:hover {
+    color: var(--noct-ink);
+    background: var(--noct-hover);
+}
+
+.wcn-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 20px 24px;
+}
+
+.wdl .wcn-drawer-body .wdl-alert {
+    margin-bottom: 0;
+}
+
+.wcn-added {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: var(--noct-s4);
+    border-radius: var(--noct-r-md);
+    background: var(--noct-bg);
+    box-shadow: 0 0 0 1px var(--noct-rule);
+}
+
+.wcn-added-who {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+}
+
+.wcn-avatar {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--noct-accent-text);
+    background: rgba(var(--noct-accent-rgb), .18);
+}
+
+.wcn-added-text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.wcn-added-name {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--noct-ink);
+}
+
+.wcn-added-meta {
+    font-size: 12px;
+    color: var(--noct-mute-2);
+}
+
+.wcn-added-note {
+    font-size: 12.5px;
+    color: var(--noct-mute);
+}
+
+.wdl .wcn-added-note strong {
+    font-weight: 500;
+    color: var(--noct-ink);
+}
+
+.wcn-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.wcn-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--noct-s3);
+}
+
+.wdl .wcn-link {
+    font-size: 12px;
+    color: var(--noct-accent-text);
+}
+
+.wcn-plain {
+    font-size: 12.5px;
+    color: var(--noct-mute);
+}
+
+.wcn-plain-sub {
+    font-size: 11.5px;
+    color: var(--noct-mute-3);
+}
+
+.wdl .wcn-switch {
+    align-items: flex-start;
+}
+
+.wdl .wcn-switch .wdl-switch-track {
+    margin-top: 2px;
+}
+
+.wcn-switch-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.wcn-check-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--noct-s3);
+}
+
+.wcn-sends {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.wcn-send {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--noct-rule);
+    font-size: 12.5px;
+}
+
+.wcn-send-doc {
+    flex: none;
+    width: 64px;
+    font-weight: 500;
+    color: var(--noct-ink);
+}
+
+.wcn-send-when {
+    flex: 1;
+    min-width: 0;
+    color: var(--noct-mute-2);
+}
+
+.wcn-history {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.wcn-event {
+    position: relative;
+    display: flex;
+    gap: var(--noct-s3);
+    padding-bottom: 14px;
+}
+
+/* The thread between dots; the last event has none below it. */
+.wcn-event::before {
+    content: "";
+    position: absolute;
+    top: 16px;
+    bottom: 0;
+    left: 4px;
+    width: 1px;
+    background: var(--noct-divider);
+}
+
+.wcn-event:last-child::before {
+    display: none;
+}
+
+.wcn-event-dot {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: var(--noct-accent);
+}
+
+.wcn-event-changed .wcn-event-dot,
+.wcn-event-checked .wcn-event-dot {
+    background: var(--noct-fam-neutral);
+}
+
+.wcn-event-optedout .wcn-event-dot {
+    background: var(--noct-fam-warn);
+}
+
+.wcn-event-removed .wcn-event-dot {
+    background: var(--noct-fam-bad);
+}
+
+.wcn-event-body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.wcn-event-what {
+    font-size: 12.5px;
+    color: var(--noct-ink);
+}
+
+.wcn-event-meta {
+    font-size: 11px;
+    color: var(--noct-mute-3);
+}
+
+.wcn-drawer-foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--noct-s2);
+    padding: var(--noct-s4) 24px;
+    border-top: 1px solid var(--noct-rule);
+}
+
+.wcn-confirm {
+    display: flex;
+    flex-direction: column;
+    gap: var(--noct-s3);
+    width: 100%;
+    font-size: 13px;
+    color: var(--noct-mute);
+}
+
+.wcn-confirm-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--noct-s2);
+}
+
+/* ── Contacts: phone ── */
+
+@media (max-width: 700px) {
+    .wcn-table-wrap {
+        display: none;
+    }
+
+    .wcn-cards {
+        display: flex;
+    }
+
+    /* Six tiles would push the list off the first screen, so they become one
+       scrolling row of chips: still buttons, still filters. */
+    .wdl .wcn-figures {
+        display: flex;
+        gap: var(--noct-s2);
+        overflow-x: auto;
+        margin: 0 -16px var(--noct-s4);
+        padding: 2px 16px;
+    }
+
+    .wdl .wcn-figure {
+        flex: none;
+        flex-direction: row;
+        align-items: baseline;
+        gap: 6px;
+        min-height: 44px;
+        padding: 0 14px;
+        border-radius: 999px;
+    }
+
+    .wdl .wcn-figure .wdl-figure-label {
+        font-size: 12.5px;
+        letter-spacing: 0;
+        text-transform: none;
+        color: var(--noct-mute);
+        line-height: 44px;
+    }
+
+    .wdl .wcn-figure .wdl-figure-value {
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 44px;
+    }
+
+    .wdl .wcn-figure .wdl-figure-note {
+        display: none;
+    }
+
+    .wdl .wcn-figures + section .wdl-section-note {
+        display: none;
+    }
+}
+
 /* ── Scrollbars ───────────────────────────────────────────────────────── */
 
 .wdl-table-wrap::-webkit-scrollbar {
@@ -998,6 +1581,7 @@
     .wdl-filter-status,
     .wdl-filter-trigger,
     .wdl-filter-search,
+    .wdl-filter-search-wide,
     .wdl-filter-date {
         width: 100%;
         max-width: none;
