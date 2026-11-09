@@ -267,6 +267,8 @@ public sealed class WebPageGatePermissionAlignmentTests
     /// </summary>
     [Theory]
     [InlineData(nameof(CustomerWhatsAppContactsController.GetContacts))]
+    [InlineData(nameof(CustomerWhatsAppContactsController.GetRegister))]
+    [InlineData(nameof(CustomerWhatsAppContactsController.GetDetail))]
     [InlineData(nameof(CustomerWhatsAppContactsController.Save))]
     [InlineData(nameof(CustomerWhatsAppContactsController.Update))]
     [InlineData(nameof(CustomerWhatsAppContactsController.OptOut))]

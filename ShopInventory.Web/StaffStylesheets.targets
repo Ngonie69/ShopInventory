@@ -110,7 +110,8 @@
          see scripts/derive_daily_payments_css.py. -->
     <StaffStylesheetLate Include="wwwroot/css/daily-payments.css" />
     <StaffStylesheetLate Include="wwwroot/css/whatsapp-console.css" />
-    <!-- /whatsapp-deliveries — the documents sent to customers on WhatsApp, for administrators.
+    <!-- /whatsapp-deliveries and /whatsapp-contacts — the documents sent to customers on WhatsApp
+         and the numbers they go to. The contacts page wears the same `wdl-` classes plus a few `wcn-`.
          Derived from fiscal-console.css's header, filter bar and table, under `wdl-`; reads
          nocturne-tokens.css directly. -->
     <StaffStylesheetLate Include="wwwroot/css/whatsapp-deliveries.css" />
