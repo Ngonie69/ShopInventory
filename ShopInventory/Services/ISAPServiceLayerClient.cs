@@ -1087,14 +1087,14 @@ public interface ISAPServiceLayerClient
     /// warehouse; an empty collection is refused, because a scope that names nothing must not read as
     /// "everything".
     /// </param>
-    /// <param name="warehouse">Only drafts leaving or entering this warehouse.</param>
+    /// <param name="filter">What else the queue is narrowed to — warehouses, creation day, attachment, number.</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     Task<(List<SAPStockTransferDraft> Items, int TotalCount)> GetApprovedStockTransferDraftsAsync(
         int page,
         int pageSize,
         int? beforeDocEntry = null,
         IReadOnlyCollection<string>? fromWarehouses = null,
-        string? warehouse = null,
+        SapTransferDraftFilter? filter = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

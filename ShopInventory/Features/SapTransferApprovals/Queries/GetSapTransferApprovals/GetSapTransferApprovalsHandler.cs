@@ -59,7 +59,7 @@ public sealed class GetSapTransferApprovalsHandler(
                 query.PageSize,
                 query.BeforeDocEntry,
                 caller.Value.SourceWarehouses,
-                query.Warehouse,
+                query.EffectiveFilter,
                 cancellationToken);
 
             requests = drafts.Count == 0

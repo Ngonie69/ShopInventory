@@ -42,7 +42,7 @@ public class SapTransferApprovalReadTests(SapClientFixture fixture)
         Assert.All(scoped, item => Assert.Equal(source, item.FromWarehouse, ignoreCase: true));
         Assert.True(scopedTotal >= scoped.Count);
 
-        var (either, _) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 5, warehouse: source);
+        var (either, _) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 5, filter: new SapTransferDraftFilter { Warehouse = source });
         Assert.All(either, item => Assert.True(
             string.Equals(item.FromWarehouse, source, StringComparison.OrdinalIgnoreCase)
             || string.Equals(item.ToWarehouse, source, StringComparison.OrdinalIgnoreCase)));
@@ -50,6 +50,53 @@ public class SapTransferApprovalReadTests(SapClientFixture fixture)
         var cursor = items[0].DocEntry;
         var (below, _) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 5, beforeDocEntry: cursor);
         Assert.All(below, item => Assert.True(item.DocEntry < cursor));
+    }
+
+    /// <summary>
+    /// The page's filters are clauses on the draft header; SAP must accept each one and apply it to the
+    /// rows. Built from the newest drafts themselves, so every filter is known to match at least one.
+    /// </summary>
+    [SapFact]
+    public async Task The_page_filters_are_accepted_and_narrow_the_rows()
+    {
+        var (items, total) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 20);
+        Assert.False(items.Count == 0, "SAP holds no approved transfer drafts, so the filters cannot be exercised.");
+        var sample = items.First(item => !string.IsNullOrWhiteSpace(item.FromWarehouse) && !string.IsNullOrWhiteSpace(item.ToWarehouse));
+
+        var (byRoute, routeTotal) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 5, filter: new SapTransferDraftFilter
+        {
+            FromWarehouses = [sample.FromWarehouse!],
+            ToWarehouses = [sample.ToWarehouse!]
+        });
+        Assert.NotEmpty(byRoute);
+        Assert.All(byRoute, item =>
+        {
+            Assert.Equal(sample.FromWarehouse, item.FromWarehouse, ignoreCase: true);
+            Assert.Equal(sample.ToWarehouse, item.ToWarehouse, ignoreCase: true);
+        });
+        Assert.True(routeTotal <= total);
+
+        var created = DateTime.Parse(sample.CreationDate!, System.Globalization.CultureInfo.InvariantCulture).Date;
+        var (sameDay, _) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 20, filter: new SapTransferDraftFilter
+        {
+            CreatedFrom = created,
+            CreatedTo = created
+        });
+        Assert.Contains(sameDay, item => item.DocEntry == sample.DocEntry);
+        Assert.All(sameDay, item => Assert.Equal(created, DateTime.Parse(item.CreationDate!, System.Globalization.CultureInfo.InvariantCulture).Date));
+
+        var (byNumber, numberTotal) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 5, filter: new SapTransferDraftFilter
+        {
+            DraftNum = sample.DocNum
+        });
+        Assert.Equal(sample.DocEntry, Assert.Single(byNumber).DocEntry);
+        Assert.Equal(1, numberTotal);
+
+        var (attached, _) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 5, filter: new SapTransferDraftFilter
+        {
+            AttachedOnly = true
+        });
+        Assert.All(attached, item => Assert.True(item.AttachmentEntry > 0));
     }
 
     [SapFact]

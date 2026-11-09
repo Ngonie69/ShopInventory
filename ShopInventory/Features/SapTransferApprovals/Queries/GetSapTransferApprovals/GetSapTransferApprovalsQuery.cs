@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 
 namespace ShopInventory.Features.SapTransferApprovals.Queries.GetSapTransferApprovals;
 
@@ -16,10 +17,23 @@ namespace ShopInventory.Features.SapTransferApprovals.Queries.GetSapTransferAppr
 /// The caller's account, whose role and warehouses decide which drafts they see — see
 /// <see cref="ISapTransferApprovalAccess"/>. Null is a service caller and sees every warehouse.
 /// </param>
+/// <param name="Filter">
+/// The page's other filters — source and destination warehouses, creation day, attachment, draft
+/// number. Its <c>Warehouse</c> is ignored in favour of <paramref name="Warehouse"/>.
+/// </param>
 public sealed record GetSapTransferApprovalsQuery(
     int Page,
     int PageSize,
     int? BeforeDocEntry = null,
     string? Warehouse = null,
-    Guid? CallerUserId = null)
-    : IRequest<ErrorOr<SapTransferApprovalListResponseDto>>;
+    Guid? CallerUserId = null,
+    SapTransferDraftFilter? Filter = null)
+    : IRequest<ErrorOr<SapTransferApprovalListResponseDto>>
+{
+    /// <summary>Everything SAP is asked to narrow by, in one value.</summary>
+    public SapTransferDraftFilter EffectiveFilter =>
+        (Filter ?? new SapTransferDraftFilter()) with
+        {
+            Warehouse = string.IsNullOrWhiteSpace(Warehouse) ? null : Warehouse.Trim()
+        };
+}

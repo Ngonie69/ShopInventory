@@ -130,3 +130,35 @@ public class SAPStockTransferDraftSerial
 
 /// <summary>Whether SAP manages an item by batch or by serial number — what a transfer line must pick.</summary>
 public sealed record SapItemManagement(string ItemCode, bool ManagesBatches, bool ManagesSerials);
+
+/// <summary>
+/// What the queue of approved transfer drafts is narrowed to, on top of the caller's warehouse scope.
+/// Every field is a draft header field, so SAP applies it to the rows and the count alike.
+/// </summary>
+/// <remarks>
+/// The approval stage and the originator are deliberately absent: they live on the approval request,
+/// not the draft, and SAP cannot filter one entity set by another's fields in one read.
+/// </remarks>
+public sealed record SapTransferDraftFilter
+{
+    /// <summary>Only drafts leaving or entering this warehouse.</summary>
+    public string? Warehouse { get; init; }
+
+    /// <summary>Only drafts leaving one of these warehouses. Empty or null does not narrow.</summary>
+    public IReadOnlyCollection<string>? FromWarehouses { get; init; }
+
+    /// <summary>Only drafts entering one of these warehouses. Empty or null does not narrow.</summary>
+    public IReadOnlyCollection<string>? ToWarehouses { get; init; }
+
+    /// <summary>Only drafts created on or after this day (SAP's <c>CreationDate</c>).</summary>
+    public DateTime? CreatedFrom { get; init; }
+
+    /// <summary>Only drafts created on or before this day.</summary>
+    public DateTime? CreatedTo { get; init; }
+
+    /// <summary>Only drafts that carry an attachment.</summary>
+    public bool AttachedOnly { get; init; }
+
+    /// <summary>Only the draft with this number — the one the B1 client shows.</summary>
+    public int? DraftNum { get; init; }
+}

@@ -98,7 +98,7 @@ public sealed class SapTransferApprovalQueueTests : IDisposable
         Assert.False(result.IsError);
         var read = Assert.Single(sap.ListReads);
         Assert.Equal(["CMFS"], read.Scope);
-        Assert.Equal("cmfc", read.Warehouse);
+        Assert.Equal("cmfc", read.Filter?.Warehouse);
 
         Assert.Equal(48, result.Value.TotalCount);
         Assert.Equal(["CMFS"], result.Value.ScopedWarehouses);

@@ -104,3 +104,13 @@ picked and released, 1,271 on hand).
 `/inventory-transfers/sap-approvals` (Web), for `UserRoles.SapTransferApprovalRoles` — the transfer roles.
 Nocturne, generated from the credit memo queue's sheet by `scripts/derive_sap_transfer_approvals_css.py`
 under the `sta-` prefix; edit the script, never the sheet. The routes are API.md §50a.
+
+Laid out from the "SAP-Held Transfers Redesign" design canvas (November 2026): rows grouped by the day the
+draft was created, the route as each row's headline, a Review drawer that confirms the add in its own
+footer, and a numbered pager. The search box takes a warehouse code (leaving or entering) or a draft
+number. The Filters panel offers source and destination warehouses (several each), a "Raised" window and
+"Has attachment"; every one is a clause on the draft header (`SAPServiceLayerClient.DraftQueueFilterClauses`),
+so SAP filters and counts. Two filters the design drew are not offered: the approval stage and the
+originator live on the approval request, not the draft, and SAP cannot filter one entity set by another's
+fields in a single read. A Ready/Held split is not counted either: the queue is already the approved, open
+drafts in the caller's warehouses, so a held row is rare and only the row itself can say so.

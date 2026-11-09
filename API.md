@@ -5988,7 +5988,7 @@ mirrored into the local approval engine (§44). See `docs/sap-transfer-approvals
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/sap-transfer-approvals` | The approved drafts waiting to be added, newest first: `page` 1, `pageSize` 25, `beforeDocEntry` for cursor paging, `warehouse` for drafts leaving or entering one warehouse |
+| GET | `/api/sap-transfer-approvals` | The approved drafts waiting to be added, newest first: `page` 1, `pageSize` 25, `beforeDocEntry` for cursor paging, `warehouse` for drafts leaving or entering one warehouse; `from` and `to` (repeatable) for drafts leaving or entering any of several; `createdFrom`/`createdTo` (`yyyy-MM-dd`, SAP's `CreationDate`); `attachedOnly`; `draftNum`. Every filter is applied in SAP, so `totalCount` is of the filtered queue |
 | GET | `/api/sap-transfer-approvals/{draftEntry}` | One draft: lines with their batch picks, the approval requests and approver lines, and the transfer requests it was copied from |
 | POST | `/api/sap-transfer-approvals/{draftEntry}/add` | Add the approved draft as the inventory transfer, then close any transfer request it was copied from. Body `{ "clientRequestId": "…" }` or an `Idempotency-Key` header |
 
