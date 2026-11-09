@@ -13,7 +13,7 @@ on any row. They change nothing.
 |---|---|---|
 | Streaming standby | `10.10.10.58` streams from `.9`, asynchronous, ~1 ms behind, slot `shopinventory_failback_1058`. It copies every database on the instance. | Losing `.9` (disk, VM, host). **Not** bad data: a wrong `DELETE` reaches `.58` in milliseconds. |
 | WAL archiving | **Off.** `archive_mode=off`, nothing ever archived. | Nothing. There is no point-in-time recovery. |
-| Nightly database dump | **None.** | Nothing. |
+| Nightly database dump | **None running.** The tooling exists (see [Nightly dumps](#nightly-dumps)) but had not been installed on `.9` as of 2026-11-09. | Nothing until installed. Then: bad data, back to last night. |
 | AOMEI Backupper (Technician Plus 7.1.1) | One task, `System Backup(1)`, to `\\10.10.10.254\svr_backup\AOMEI_DATA\internaldev20241028`. **Last run 28/10/2024**, shows a warning. | Nothing current. |
 | In-app backups (Settings → Backups) | Four, made by hand, last 2026-09-07. About ten small tables (users, config, webhooks, audit). Stored on `.9`'s own `C:`. `Restore` validates the zip and writes nothing back. | Nothing you could recover the business from. |
 | VMware snapshots | `.9` is a VMware VM. Whether anything snapshots it is **unknown**. | Unknown. Ask whoever runs vSphere. |
@@ -37,6 +37,57 @@ Each writes a transcript beside itself. Things to read first:
 - `replication slots`: `retained_wal` near 0. A growing number means `.58` stopped reading and `.9`
   is keeping WAL for it. `.9` has one 300 GB `C:` drive, and a full disk stops the primary.
 - `Quartz cluster members` and `ClusterNodes`: which machines run background jobs, and on which build.
+- `Nightly pg_dump`: both tasks installed, the last dump `succeeded` under 26 hours ago, the last
+  restore check `passed` under 8 days ago. Red on any of those means there is no recent restore point.
+
+## Nightly dumps
+
+Four scripts in `scripts/`, Windows PowerShell 5.1, tested against PostgreSQL 17 (production runs
+17.7):
+
+| Script | Does |
+|---|---|
+| `Invoke-PostgresNightlyDump.ps1` | `pg_dump -Fc` of each database to `C:\ShopInventoryBackups\staging\<UTC time>Z\`, reads each file back with `pg_restore --list`, hashes it, copies the set to the share, checks every hash there, then writes `manifest.json`. A folder without a manifest is an incomplete copy. Prunes sets older than 14 days, only after a good night, never below 3 sets. |
+| `Test-PostgresDumpRestore.ps1` | Restores the newest set into `restorecheck_<name>` databases, counts every table in the copy and in live, then drops the copies. It only ever creates or drops `restorecheck_*` databases. |
+| `Register-PostgresNightlyDump.ps1` | Copies the scripts to `C:\ShopInventoryBackups\scripts`, locks that folder to administrators and the task account, and registers `\ShopInventory\PostgreSQL nightly dump` (daily 01:30) and `\ShopInventory\PostgreSQL restore check` (Sunday 03:30). |
+| `PostgresBackup.Common.ps1` | Shared: finds `pg_dump`, reads the connection string from the live API slot's `web.config` on every run (so a password change needs nothing else). |
+
+Results go to `last-run.json` (staging folder and share), `last-restore-check.json` (share), logs in
+`C:\ShopInventoryBackups\logs`, and the Application event log, source `ShopInventoryBackup`:
+1000 dump succeeded, 1001 dump failed, 1010 restore check passed, 1011 restore check failed.
+
+**What the restore check fails on:** a hash that does not match the manifest, any `pg_restore`
+error, a table listed in the dump but missing from the copy, a table empty in the copy while live
+holds 1,000 rows or more, or a copy with under half the live rows. Rows written since the dump, a
+queue that filled overnight, and a table a migration added after the dump are printed as notes.
+
+**If the share is down** the dump still completes on `C:` (a local set with its own manifest, which
+a restore can use) and the night is reported as failed with the reason.
+
+### Install
+
+On `.9`, elevated Windows PowerShell 5.1, from a checkout:
+
+```powershell
+# 1. Prove it by hand first, to the share, as yourself.
+.\scripts\Invoke-PostgresNightlyDump.ps1 -Destination '\\10.10.10.254\svr_backup\ShopInventory-pgdump'
+.\scripts\Test-PostgresDumpRestore.ps1   -Root        '\\10.10.10.254\svr_backup\ShopInventory-pgdump'
+
+# 2. Then schedule it, as an account that can write to the share.
+.\scripts\Register-PostgresNightlyDump.ps1 -Destination '\\10.10.10.254\svr_backup\ShopInventory-pgdump' -Credential (Get-Credential)
+```
+
+Before step 1, check:
+
+- **Room.** The dump stages on `C:` and refuses to start without the databases' total size plus 5 GB
+  free; the restore check needs about the size again plus 10 GB. `Get-DisasterRecoveryState.ps1`
+  prints both the database sizes and the free space.
+- **The share.** The account the task runs as needs write access. SYSTEM can only reach the NAS if
+  the share grants `KFL-DNS2$`.
+- **Locks.** `pg_dump` holds ACCESS SHARE locks for its whole run, so an EF migration that alters a
+  table waits for it. 01:30 is well clear of the 19:30 deploy window.
+- **workshopdb** is not included. Add it with `-Databases ShopInventory, ShopInventoryWeb, workshopdb`
+  once the Workshop app's owner agrees.
 
 ## Before you need it
 
@@ -176,9 +227,35 @@ What to do now:
 2. Work out the scope: which tables, which rows, since when.
 3. Repair from SAP, from the audit log, or by hand. Record what could not be recovered.
 
-Once nightly dumps exist, the procedure becomes: restore the last good dump to a new database name,
-compare, then copy the affected rows back or swap the databases. Write that down here when the
-dump job is in place, and prove it with a restore before calling it done.
+### Once the nightly dumps are installed
+
+1. Pick the last set from **before** the damage: the folder names under the share are the UTC time
+   each dump started. Its `manifest.json` gives `startedUtc`. Everything written after that is not
+   in it.
+2. Restore it beside live, without touching live:
+
+   ```powershell
+   .\scripts\Test-PostgresDumpRestore.ps1 -SetPath '\\10.10.10.254\svr_backup\ShopInventory-pgdump\<set>' -Databases ShopInventory -Keep
+   ```
+
+   That leaves `restorecheck_shopinventory` holding the night's data, and prints how each table
+   differs from live, which is a first measure of the damage.
+3. **Narrow damage** (some rows of some tables): copy the rows back from `restorecheck_shopinventory`
+   into `ShopInventory` with SQL. Anything written to those rows since the dump is lost, so check
+   the audit log for it first.
+4. **Wide damage** (a bad migration, a whole table): stop both API slots' and both Web slots' app
+   pools, then swap the databases. Everything written since the dump is lost unless SAP or the
+   audit log has it.
+
+   ```sql
+   ALTER DATABASE "ShopInventory" RENAME TO "ShopInventory_damaged_<yyyymmdd>";
+   ALTER DATABASE "restorecheck_shopinventory" RENAME TO "ShopInventory";
+   ```
+
+   A rename fails while anything is connected to either database; the client-address list in
+   `Get-DisasterRecoveryState.ps1` shows who is. The standby replicates the rename. Start the app pools and check `/health/ready`. Keep the
+   damaged copy until the business has confirmed nothing else is missing.
+5. Drop `restorecheck_shopinventory` when finished, if it was not swapped in.
 
 ## Scenario C: `.58` is lost
 
@@ -201,9 +278,10 @@ Rules" in [postgresql-ha.md](postgresql-ha.md).
 
 In the order they close the biggest gap. Update this page as each one lands.
 
-1. **Nightly `pg_dump`** of `ShopInventory` and `ShopInventoryWeb` (and `workshopdb` if the Workshop
-   app's owner agrees) to `\\10.10.10.254\svr_backup`, keeping 14 days, with an alert when the
-   newest dump is over 26 hours old. Then restore one to prove it works.
+1. **Nightly `pg_dump`**: built and tested (see [Nightly dumps](#nightly-dumps)); **install it on
+   `.9`** and run the restore check once by hand. Still open after that: something that *tells*
+   someone when a night fails. Today a failure lands in the event log (1001/1011) and in
+   `Get-DisasterRecoveryState.ps1`, which only helps if someone looks.
 2. **WAL archiving** to storage off `.9`, which gives point-in-time recovery. Needs a PostgreSQL
    restart on `.9`.
 3. **AOMEI**: find out why `System Backup(1)` stopped in October 2024, and either schedule it

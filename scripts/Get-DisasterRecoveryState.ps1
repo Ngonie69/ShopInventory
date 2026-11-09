@@ -169,6 +169,34 @@ try {
     $tasks | Select-Object TaskPath, TaskName, State | Format-Table -AutoSize | Out-String | Write-Host
 } catch { Write-Host "Could not list scheduled tasks: $($_.Exception.Message)" -ForegroundColor Yellow }
 
+Write-Section 'Nightly pg_dump (Register-PostgresNightlyDump.ps1)'
+$nowUtc = [DateTime]::UtcNow
+foreach ($name in @('PostgreSQL nightly dump', 'PostgreSQL restore check')) {
+    $task = Get-ScheduledTask -TaskPath '\ShopInventory\' -TaskName $name -ErrorAction SilentlyContinue
+    if (-not $task) { Write-Host "Task \ShopInventory\$name : NOT INSTALLED" -ForegroundColor Yellow; continue }
+    $info = $task | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
+    Write-Host "Task \ShopInventory\$name : $($task.State), runs as $($task.Principal.UserId), last run $($info.LastRunTime) result $($info.LastTaskResult), next $($info.NextRunTime)"
+}
+$lastRunPath = 'C:\ShopInventoryBackups\staging\last-run.json'
+if (Test-Path $lastRunPath) {
+    $lastRun = Get-Content $lastRunPath -Raw | ConvertFrom-Json
+    $age = $nowUtc - [DateTime]::Parse($lastRun.finishedUtc).ToUniversalTime()
+    $colour = if ($lastRun.result -eq 'succeeded' -and $age.TotalHours -le 26) { 'Green' } else { 'Red' }
+    Write-Host ("Last dump  : {0}, set {1}, {2:N1} hours ago, to {3}" -f $lastRun.result, $lastRun.set, $age.TotalHours, $lastRun.destination) -ForegroundColor $colour
+    if ($lastRun.error) { Write-Host "  error: $($lastRun.error)" -ForegroundColor Red }
+    if ($age.TotalHours -gt 26) { Write-Host '  OVER 26 HOURS OLD: the nightly dump has stopped.' -ForegroundColor Red }
+    foreach ($db in @($lastRun.databases)) { Write-Host ("  {0}: {1:N1} MB in {2} s" -f $db.database, ($db.bytes / 1MB), $db.seconds) }
+    $checkPath = Join-Path "$($lastRun.destination)" 'last-restore-check.json'
+    if (Test-Path $checkPath) {
+        $check = Get-Content $checkPath -Raw | ConvertFrom-Json
+        $checkAge = $nowUtc - [DateTime]::Parse($check.finishedUtc).ToUniversalTime()
+        $colour = if ($check.result -eq 'passed' -and $checkAge.TotalDays -le 8) { 'Green' } else { 'Red' }
+        Write-Host ("Last restore check: {0}, {1:N1} days ago, set {2}" -f $check.result, $checkAge.TotalDays, $check.set) -ForegroundColor $colour
+    } else { Write-Host "Last restore check: none found at $checkPath" -ForegroundColor Yellow }
+} else {
+    Write-Host "No $lastRunPath : the nightly dump has never run on this server." -ForegroundColor Yellow
+}
+
 Write-Section 'Backup agents (services)'
 $agents = Get-Service -ErrorAction SilentlyContinue | Where-Object {
     $_.Name -match 'veeam|acronis|backup|wbengine|arcserve|commvault|altaro|nakivo|cohesity|rubrik|azure.*recovery' -or

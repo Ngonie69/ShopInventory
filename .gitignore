@@ -111,3 +111,9 @@ ShopInventory.Tests/NavMenu.roles.actual.txt
 
 # Generated at build time by ShopInventory.Web/StaffStylesheets.targets
 ShopInventory.Web/wwwroot/css/*.bundle.css
+
+# Server-side reports written beside the scripts when run from a checkout. They name hosts, shares
+# and SAP query codes, so they stay on the server.
+scripts/dr-state-*.txt
+scripts/aomei-state-*.txt
+scripts/sap-sqlqueries-census/
