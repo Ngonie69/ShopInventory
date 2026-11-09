@@ -115,6 +115,22 @@ public static partial class Errors
             Error.Failure("CreditNoteApproval.AddUncertain",
                 "SAP did not answer in time. The credit note may already exist — check the request in SAP before adding again.");
 
+        public static Error InvalidQuantities(string message) =>
+            Error.Validation("CreditNoteApproval.InvalidQuantities", $"{message} Nothing was changed or added.");
+
+        public static Error QuantityNotEditable(string message) =>
+            Error.Validation("CreditNoteApproval.QuantityNotEditable", $"{message} Nothing was changed or added.");
+
+        /// <summary>The quantities were written but the draft did not read back with them, so it is not added.</summary>
+        public static Error QuantitiesNotApplied(int draftEntry) =>
+            Error.Failure("CreditNoteApproval.QuantitiesNotApplied",
+                $"SAP did not confirm the new quantities on draft {draftEntry}, so the credit note was not added. Reload the request and check its lines before adding.");
+
+        /// <summary>The quantities were written, and the draft is no longer approved and open.</summary>
+        public static Error ApprovalLostAfterQuantityChange(int draftEntry, string state) =>
+            Error.Failure("CreditNoteApproval.ApprovalLostAfterQuantityChange",
+                $"The new quantities were saved on draft {draftEntry}, but SAP now reports it as {state}, so the credit note was not added.");
+
         public static Error AttachmentNotFound(int code, int lineNum) =>
             Error.NotFound("CreditNoteApproval.AttachmentNotFound", $"Approval request {code} has no attachment line {lineNum}.");
 

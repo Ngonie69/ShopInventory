@@ -1071,6 +1071,20 @@ public interface ISAPServiceLayerClient
     Task<int?> SaveDraftToDocumentAsync(int draftDocEntry, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// A draft's lines with their batch and serial allocations, read whole. Null when the draft does not exist.
+    /// </summary>
+    Task<SAPDraftAllocations?> GetDraftAllocationsAsync(int draftDocEntry, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Changes line quantities on a draft (<c>PATCH Drafts(n)</c>), moving each line's batches by the
+    /// deltas given. An approved draft stays approved: measured on KEFALOS_TEST_3, 2026-11-09.
+    /// </summary>
+    Task UpdateDraftLineQuantitiesAsync(
+        int draftDocEntry,
+        IReadOnlyList<SapDraftLineQuantityChange> changes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Streams one attached file through the Service Layer (<c>Attachments2(n)/$value</c>). The stream
     /// owns the SAP response; dispose it when done.
     /// </summary>

@@ -336,8 +336,17 @@
                     {
                         <div>
                             <div class="cna-sect">Draft lines</div>
+                            @if (CanEditQuantities)
+                            {
+                                @* The wash bay counts what actually came back; the draft says what was claimed.
+                                   The new quantities are written to the SAP draft when the credit note is added. *@
+                                <div class="cna-qty-hint">
+                                    <i class="ph ph-pencil-simple" aria-hidden="true"></i>
+                                    <span>If the count differs from the draft, change the quantity before adding. SAP's draft is updated when you add.</span>
+                                </div>
+                            }
                             <div class="cna-lines-wrap">
-                                <table class="cna-lines">
+                                <table class="cna-lines @(CanEditQuantities ? "is-editable" : "")">
                                     <thead>
                                         <tr>
                                             <th>Item</th>
@@ -350,17 +359,54 @@
                                     <tbody>
                                         @foreach (var line in detail.Lines)
                                         {
-                                            <tr>
+                                            var changed = CanEditQuantities && IsQuantityChanged(line);
+                                            var invalid = CanEditQuantities && IsQuantityInvalid(line);
+                                            <tr class="@(changed ? "is-changed" : "")">
                                                 <td class="cna-line-item">@line.ItemCode</td>
                                                 <td>@line.ItemDescription</td>
-                                                <td class="cna-num">@QuantityDisplay.Format(line.Quantity)</td>
+                                                @if (CanEditQuantities)
+                                                {
+                                                    <td class="cna-num cna-qty-cell">
+                                                        <input type="text" inputmode="decimal" autocomplete="off"
+                                                               class="cna-input cna-qty-input @(changed ? "is-changed" : "") @(invalid ? "is-invalid" : "")"
+                                                               value="@QuantityInput(line)"
+                                                               @oninput="e => SetQuantity(line, e.Value?.ToString())"
+                                                               disabled="@isSubmitting"
+                                                               aria-invalid="@(invalid ? "true" : "false")"
+                                                               aria-label="@QuantityLabel(line)" />
+                                                        @if (changed)
+                                                        {
+                                                            <div class="cna-qty-was">was @QuantityDisplay.Format(line.Quantity)</div>
+                                                        }
+                                                        else if (invalid)
+                                                        {
+                                                            <div class="cna-qty-error">Above 0</div>
+                                                        }
+                                                    </td>
+                                                }
+                                                else
+                                                {
+                                                    <td class="cna-num">@QuantityDisplay.Format(line.Quantity)</td>
+                                                }
                                                 <td class="cna-num">@line.UnitPrice.ToString("N2")</td>
-                                                <td class="cna-num">@line.LineTotal.ToString("N2")</td>
+                                                <td class="cna-num">@LineTotalShown(line).ToString("N2")</td>
                                             </tr>
                                         }
                                     </tbody>
                                 </table>
                             </div>
+                            @if (CanEditQuantities && QuantityEdits.Count > 0)
+                            {
+                                <div class="cna-qty-summary">
+                                    <span>
+                                        @QuantityChangeCount
+                                        · new credit total about <strong>@FormatMoney(EditedDocTotal, detail.Request.DocCurrency)</strong>
+                                    </span>
+                                    <button type="button" class="cna-btn cna-btn-ghost cna-btn-sm" @onclick="ResetQuantities" disabled="@isSubmitting">
+                                        Undo changes
+                                    </button>
+                                </div>
+                            }
                         </div>
                     }
 
@@ -492,9 +538,20 @@
                         <div class="cna-drawer-foot cna-decide">
                             <div class="cna-foot-note">
                                 <i class="ph ph-info" aria-hidden="true"></i>
-                                <span>Approved and waiting to be added. Adding posts the credit note in SAP and sends it for fiscalisation.</span>
+                                @if (HasInvalidQuantity)
+                                {
+                                    <span>Every quantity must be above 0 before the credit note can be added.</span>
+                                }
+                                else if (QuantityEdits.Count > 0)
+                                {
+                                    <span>Approved. Adding writes the new quantities to the SAP draft, posts the credit note and sends it for fiscalisation.</span>
+                                }
+                                else
+                                {
+                                    <span>Approved and waiting to be added. Adding posts the credit note in SAP and sends it for fiscalisation.</span>
+                                }
                             </div>
-                            <button type="button" class="cna-btn cna-btn-fill cna-btn-lg" @onclick="OpenAddConfirm" disabled="@isSubmitting">
+                            <button type="button" class="cna-btn cna-btn-fill cna-btn-lg" @onclick="OpenAddConfirm" disabled="@(isSubmitting || HasInvalidQuantity)">
                                 <i class="ph ph-plus-circle" aria-hidden="true"></i>
                                 <span>Add credit note</span>
                             </button>
@@ -525,11 +582,40 @@
                     <dl class="cna-confirm-facts">
                         <div><dt>Customer</dt><dd>@detail.Request.CardName</dd></div>
                         <div><dt>Draft</dt><dd>@(detail.Request.DraftNum?.ToString() ?? "—")</dd></div>
-                        <div class="cna-confirm-total">
-                            <dt>Credit total</dt>
-                            <dd>@FormatMoney(detail.Request.DocTotal, detail.Request.DocCurrency)</dd>
-                        </div>
+                        @if (QuantityEdits.Count > 0)
+                        {
+                            <div class="cna-confirm-total">
+                                <dt>Credit total</dt>
+                                <dd>about @FormatMoney(EditedDocTotal, detail.Request.DocCurrency)</dd>
+                            </div>
+                            <div>
+                                <dt>Approved total</dt>
+                                <dd>@FormatMoney(detail.Request.DocTotal, detail.Request.DocCurrency)</dd>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="cna-confirm-total">
+                                <dt>Credit total</dt>
+                                <dd>@FormatMoney(detail.Request.DocTotal, detail.Request.DocCurrency)</dd>
+                            </div>
+                        }
                     </dl>
+                    @if (QuantityEdits.Count > 0)
+                    {
+                        <div class="cna-qty-changes">
+                            <div class="cna-dt">Quantities changed</div>
+                            <ul>
+                                @foreach (var edit in QuantityEdits)
+                                {
+                                    <li>
+                                        <span class="cna-line-item">@edit.Line.ItemCode</span>
+                                        <span class="cna-qty-change">@QuantityDisplay.Format(edit.Line.Quantity) → <strong>@QuantityDisplay.Format(edit.Quantity)</strong></span>
+                                    </li>
+                                }
+                            </ul>
+                        </div>
+                    }
                     <div class="cna-blocked">
                         <i class="ph ph-warning" aria-hidden="true"></i>
                         <div class="cna-alert-body">The document is created in SAP and fiscalised. This cannot be undone.</div>

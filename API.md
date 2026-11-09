@@ -5928,7 +5928,7 @@ Nothing is mirrored into the local approval engine (§44), which governs documen
 | GET | `/api/credit-note-approvals/{code}` | either | One request: draft header and lines, attachments, approver lines, current stage |
 | GET | `/api/credit-note-approvals/{code}/attachments/{lineNum}/download` | either | The bytes of one attached file, streamed from SAP |
 | POST | `/api/credit-note-approvals/{code}/decision` | `creditnotes.approve` | Approve or reject: `{ "decision": "Approved" or "NotApproved", "remarks": "…", "clientRequestId": "…" }` |
-| POST | `/api/credit-note-approvals/{code}/add` | `creditnotes.add_approved` | Convert the approved draft into the credit note, then project and fiscalise it |
+| POST | `/api/credit-note-approvals/{code}/add` | `creditnotes.add_approved` | Convert the approved draft into the credit note, then project and fiscalise it. Optional `{ "lineQuantities": [{ "lineNum": 0, "quantity": 80 }] }` changes those lines' quantities on the SAP draft first (up or down, above 0); the answer's `quantityChanges` lists what changed |
 
 **Paging the queue.** There are two ways, and they are not equivalent. `page` offsets from the top,
 which is fine for a single read. `beforeCode` — the previous answer's `nextCursor` — continues below

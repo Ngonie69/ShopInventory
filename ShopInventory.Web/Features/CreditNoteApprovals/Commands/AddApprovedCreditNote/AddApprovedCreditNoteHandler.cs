@@ -19,7 +19,7 @@ public sealed class AddApprovedCreditNoteHandler(
     {
         try
         {
-            var (success, message, value) = await approvalService.AddAsync(request.Code, request.ClientRequestId);
+            var (success, message, value) = await approvalService.AddAsync(request.Code, request.ClientRequestId, request.LineQuantities);
 
             await TryAuditAsync(request, success, message);
 
@@ -38,6 +38,11 @@ public sealed class AddApprovedCreditNoteHandler(
         }
     }
 
+    private static string Quantities(AddApprovedCreditNoteCommand request) =>
+        request.LineQuantities is { Count: > 0 } lines
+            ? $" with new quantities ({string.Join(", ", lines.Select(line => $"line {line.LineNum + 1} → {line.Quantity:0.######}"))})"
+            : string.Empty;
+
     private async Task TryAuditAsync(AddApprovedCreditNoteCommand request, bool success, string message)
     {
         try
@@ -46,7 +51,7 @@ public sealed class AddApprovedCreditNoteHandler(
                 AuditActions.AddApprovedSapCreditNote,
                 "SapApprovalRequest",
                 request.Code.ToString(),
-                $"Add the approved credit memo draft for SAP approval request {request.Code}. {message}",
+                $"Add the approved credit memo draft for SAP approval request {request.Code}{Quantities(request)}. {message}",
                 success,
                 success ? null : message);
         }

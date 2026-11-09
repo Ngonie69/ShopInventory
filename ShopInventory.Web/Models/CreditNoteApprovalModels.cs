@@ -139,6 +139,23 @@ public sealed class CreditNoteApprovalDecisionResultDto
 public sealed class AddApprovedCreditNoteRequestDto
 {
     public string? ClientRequestId { get; set; }
+
+    /// <summary>New quantities for draft lines, written to the draft before it is added.</summary>
+    public List<CreditNoteLineQuantityDto>? LineQuantities { get; set; }
+}
+
+public sealed class CreditNoteLineQuantityDto
+{
+    public int LineNum { get; set; }
+    public decimal Quantity { get; set; }
+}
+
+public sealed class CreditNoteLineQuantityChangeDto
+{
+    public int LineNum { get; set; }
+    public string? ItemCode { get; set; }
+    public decimal From { get; set; }
+    public decimal To { get; set; }
 }
 
 public sealed class CreditNoteApprovalFiscalisationDto
@@ -157,6 +174,7 @@ public sealed class AddApprovedCreditNoteResultDto
     public int? CreditNoteDocEntry { get; set; }
     public int? CreditNoteDocNum { get; set; }
     public bool Resolved { get; set; }
+    public List<CreditNoteLineQuantityChangeDto> QuantityChanges { get; set; } = [];
     public CreditNoteApprovalFiscalisationDto Fiscalisation { get; set; } = new();
     public string Message { get; set; } = string.Empty;
 }
