@@ -152,6 +152,68 @@ public sealed class CounterMonthOnMonthTests : IDisposable
         Assert.Equal("Cortina Bulawayo Vending", depot.ShopName);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("COR006")]
+    public async Task A_vending_point_takes_its_SAP_name_when_its_sales_carry_none(string? nameOnSale)
+    {
+        _context.Users.Add(new User
+        {
+            Username = "granite-cart",
+            PasswordHash = "x",
+            Role = ApplicationRoles.CartVendor,
+            IsActive = true,
+            AssignedBusinessPartnerCode = "COR006",
+            AssignedWarehouseCodes = "[\"KEFBYC\"]"
+        });
+        var sale = Sale("VEND-COR006", "KEFBYC", new DateTime(2026, 10, 20), "Cash", 5m, ("YOG145", 1m, 4.35m), SaleSourceSystems.Vending);
+        sale.CardCode = "COR006";
+        sale.CardName = nameOnSale;
+        _context.DesktopSales.Add(sale);
+        _context.BusinessPartnerPriceProfiles.Add(new BusinessPartnerPriceProfileEntity
+        {
+            CardCode = "COR006",
+            CardName = "Cortina Graniteside Vending",
+            PriceListNum = 1,
+            SyncedFromSAP = true
+        });
+        await _context.SaveChangesAsync();
+
+        var depot = (await Read()).Places.Single(p => p.WarehouseCode == "KEFBYC");
+
+        Assert.Equal("Cortina Graniteside Vending", depot.ShopName);
+    }
+
+    [Fact]
+    public async Task SAPs_current_name_wins_over_an_older_name_on_a_sale()
+    {
+        _context.Users.Add(new User
+        {
+            Username = "byo-cart",
+            PasswordHash = "x",
+            Role = ApplicationRoles.CartVendor,
+            IsActive = true,
+            AssignedBusinessPartnerCode = "COR008",
+            AssignedWarehouseCodes = "[\"KEFBYC\"]"
+        });
+        var sale = Sale("VEND-OLD", "KEFBYC", new DateTime(2026, 10, 20), "Cash", 5m, ("YOG145", 1m, 4.35m), SaleSourceSystems.Vending);
+        sale.CardCode = "COR008";
+        sale.CardName = "Bulawayo Cart";
+        _context.DesktopSales.Add(sale);
+        _context.BusinessPartnerPriceProfiles.Add(new BusinessPartnerPriceProfileEntity
+        {
+            CardCode = "COR008",
+            CardName = "Cortina Bulawayo Vending",
+            PriceListNum = 1,
+            SyncedFromSAP = true
+        });
+        await _context.SaveChangesAsync();
+
+        var depot = (await Read()).Places.Single(p => p.WarehouseCode == "KEFBYC");
+
+        Assert.Equal("Cortina Bulawayo Vending", depot.ShopName);
+    }
+
     [Fact]
     public async Task A_place_states_its_trading_days_and_the_first_day_it_ever_sold()
     {
