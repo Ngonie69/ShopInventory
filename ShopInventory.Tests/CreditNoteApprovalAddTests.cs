@@ -123,6 +123,44 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
     }
 
     /// <summary>
+    /// The add is SAP-bound, and SAP's latency is heavy-tailed, so every round trip the user waits on
+    /// counts. The boundary read goes alongside the draft read, the original invoice is read while SAP
+    /// converts the draft, and the read that finds the created credit note returns it whole.
+    /// </summary>
+    [Fact]
+    public async Task An_add_overlaps_its_reads_and_reads_the_created_credit_note_once()
+    {
+        var draft = OpenDraft(88123);
+        draft.DocumentLines = [new SAPCreditNoteLine { LineNum = 0, ItemCode = "CHE011", Quantity = 4, BaseType = 13, BaseEntry = 77001 }];
+        var sap = new RecordingSap(Approved(3110), draft)
+        {
+            SaveReturns = null,
+            NewestBefore = new SAPCreditNote { DocEntry = 8000, DocTotal = -100m },
+            NewestAfter = new SAPCreditNote { DocEntry = 9002, DocTotal = 245.60m }
+        };
+        var fiscal = new RecordingFiscalisation();
+
+        var result = await Handler(sap, fiscal, new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Equal(9002, result.Value.CreditNoteDocEntry);
+        Assert.Single(fiscal.Calls);
+        Assert.Equal("5501", fiscal.Calls[0].OriginalInvoiceNumber);
+
+        var save = sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync));
+        Assert.True(
+            sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.GetNewestCreditNoteDocEntryAsync))
+                < sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.GetCreditNoteDraftAsync)),
+            "the boundary is read alongside the draft, not after it: " + string.Join(", ", sap.Calls));
+        Assert.True(
+            sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync)) < save,
+            "the original invoice is read while SAP converts the draft: " + string.Join(", ", sap.Calls));
+        Assert.Single(sap.Calls, call => call == nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync));
+        Assert.DoesNotContain(nameof(ISAPServiceLayerClient.GetCreditNoteByDocEntryAsync), sap.Calls);
+        Assert.Single(sap.Calls, call => call == nameof(ISAPServiceLayerClient.GetNewestCreditNoteForCustomerAsync));
+    }
+
+    /// <summary>
     /// The customer's newest credit note is only the created one if it is genuinely new and matches
     /// the draft. A document that was already there, or one whose total differs, must not be claimed:
     /// on KEFALOS_TEST_3 a DocNum match found a different customer's credit note entirely.
@@ -641,14 +679,46 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         public List<(int DraftEntry, CancellationToken Token)> Saves { get; } = [];
         public List<SAPCreditNote> Projected { get; } = [];
 
-        public ISAPServiceLayerClient AsClient() => StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
+        /// <summary>Every SAP call, in the order it was made.</summary>
+        public List<string> Calls { get; } = [];
+
+        public ISAPServiceLayerClient AsClient() => StubProxy.For<ISAPServiceLayerClient>((method, args) =>
+        {
+            lock (Calls)
+            {
+                Calls.Add(method.Name);
+            }
+
+            return Answer(method, args);
+        });
+
+        /// <summary>
+        /// The customer's newest credit note past <paramref name="after"/>, whole, as the client's
+        /// filtered read returns it.
+        /// </summary>
+        private SAPCreditNote? NewestPast(int after)
+        {
+            var newest = _saved ? NewestAfter : NewestBefore;
+            if (newest is null || newest.DocEntry <= after)
+            {
+                return null;
+            }
+
+            var whole = CreditNote(newest.DocEntry, Lines);
+            whole.DocTotal = newest.DocTotal;
+            return whole;
+        }
+
+        private object? Answer(System.Reflection.MethodInfo method, object?[]? args) => method.Name switch
         {
             nameof(ISAPServiceLayerClient.GetApprovalRequestAsync)
                 => Task.FromResult<SAPApprovalRequest?>(current),
             nameof(ISAPServiceLayerClient.GetCreditNoteDraftAsync)
                 => Task.FromResult(_saved ? DraftAfterSave ?? draft : draft),
+            nameof(ISAPServiceLayerClient.GetNewestCreditNoteDocEntryAsync)
+                => Task.FromResult(_saved ? NewestAfter?.DocEntry : NewestBefore?.DocEntry),
             nameof(ISAPServiceLayerClient.GetNewestCreditNoteForCustomerAsync)
-                => Task.FromResult(_saved ? NewestAfter : NewestBefore),
+                => Task.FromResult(NewestPast((int)args![1]!)),
             nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync) => Save(args!),
             nameof(ISAPServiceLayerClient.GetCreditNoteByDocEntryAsync)
                 => Task.FromResult<SAPCreditNote?>((int)args![0]! == (CreditNoteDocEntry ?? SaveReturns) ? CreditNote((int)args[0]!, Lines) : null),
@@ -659,7 +729,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
                     ? new Invoice { DocEntry = 77001, DocNum = 5501, Comments = BaseInvoiceComments }
                     : null),
             _ => throw new InvalidOperationException($"{method.Name} was not expected.")
-        });
+        };
 
         public ICreditNoteProjectionSyncService AsProjection() => StubProxy.For<ICreditNoteProjectionSyncService>((method, args) =>
         {

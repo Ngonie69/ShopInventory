@@ -35,9 +35,6 @@ public partial class SAPServiceLayerClient
     private const string SapUserSelect = "$select=InternalKey,UserCode,UserName";
     private const string AttachmentSelect = "$select=AbsoluteEntry,Attachments2_Lines";
 
-    /// <summary>Just enough of a credit note to recognise the one an add produced.</summary>
-    private const string NewestCreditNoteSelect = "$select=DocEntry,DocNum,DocDate,CardCode,DocTotal,DocCurrency";
-
     /// <summary>How many draft keys go into one <c>DocEntry eq … or …</c> filter.</summary>
     private const int DraftKeyChunkSize = 20;
 
@@ -221,8 +218,20 @@ public partial class SAPServiceLayerClient
     public Task<SAPCreditNote?> GetCreditNoteDraftAsync(int docEntry, CancellationToken cancellationToken = default)
         => ReadSapJsonAsync<SAPCreditNote>($"Drafts({docEntry})?{DraftDetailSelect}", $"read draft {docEntry}", cancellationToken);
 
+    public async Task<int?> GetNewestCreditNoteDocEntryAsync(CancellationToken cancellationToken = default)
+    {
+        var page = await ReadSapJsonAsync<SAPResponse<SAPCreditNote>>(
+            "CreditNotes?$select=DocEntry&$orderby=DocEntry desc&$top=1",
+            "read the newest credit note",
+            cancellationToken,
+            pageSize: 1);
+
+        return page?.Value?.FirstOrDefault()?.DocEntry;
+    }
+
     public async Task<SAPCreditNote?> GetNewestCreditNoteForCustomerAsync(
         string cardCode,
+        int afterDocEntry,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(cardCode))
@@ -230,9 +239,12 @@ public partial class SAPServiceLayerClient
             return null;
         }
 
-        var filter = Uri.EscapeDataString($"CardCode eq '{EscapeODataStringLiteral(cardCode.Trim())}'");
+        // The whole document, lines included, so the caller needs no second read to project, restock
+        // and fiscalise the credit note it has just found.
+        var filter = Uri.EscapeDataString(
+            $"CardCode eq '{EscapeODataStringLiteral(cardCode.Trim())}' and DocEntry gt {Math.Max(afterDocEntry, 0)}");
         var page = await ReadSapJsonAsync<SAPResponse<SAPCreditNote>>(
-            $"CreditNotes?$filter={filter}&{NewestCreditNoteSelect}&$orderby=DocEntry desc&$top=1",
+            $"CreditNotes?$filter={filter}&{CreditNoteSelect}&$orderby=DocEntry desc&$top=1",
             $"read the newest credit note for {cardCode}",
             cancellationToken,
             pageSize: 1);

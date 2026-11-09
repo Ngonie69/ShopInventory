@@ -707,6 +707,16 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
     {
         _logger.LogInformation("NotifyUserAuthentication called for user: {Username}, role: {Role}", username, role);
 
+        // The sign-in has just stored the whole user. Publishing only the name and role dropped its
+        // assigned warehouses, so a warehouse-scoped page opened straight after sign-in (the wash bay
+        // and stock dashboards) read "no warehouse assigned" until the page was reloaded.
+        if (_cachedUserInfo is { } stored &&
+            string.Equals(stored.Username, username, StringComparison.OrdinalIgnoreCase))
+        {
+            NotifyAuthenticationStateChanged(Task.FromResult(CreateAuthState(stored)));
+            return;
+        }
+
         var claims = new List<Claim>
         {
             new Claim(ClaimTypes.Name, username),

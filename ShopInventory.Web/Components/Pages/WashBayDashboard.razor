@@ -1,0 +1,240 @@
+@page "/washbay-dashboard"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = UserRoles.WashBayDashboardRoles)]
+@rendermode InteractiveServer
+@inject PageLifetime PageLifetime
+
+<PageTitle>Wash bay - Kefalos Cheese</PageTitle>
+
+@* The wash bay's dashboard, and the page it lands on when it signs in (see
+   RoleLandingRoutes). It used to land on the transfers list, with no
+   dashboard at all.
+
+   Its two jobs side by side: the credit memos SAP holds at the wash bay's own
+   approval stage — the API scopes that list to the account's stage, so this
+   page never filters it — and the transfers queued against its warehouse.
+
+   Built on the dashboard kit shared with the stock controller's page —
+   wwwroot/css/dashboard.css carries both palettes. *@
+
+<div class="dsh">
+
+    <header class="dsh-head">
+        <div class="dsh-head-inner">
+            <nav class="dsh-crumbs" aria-label="Breadcrumb">
+                <span>Overview</span>
+                <span class="dsh-crumb-sep" aria-hidden="true">/</span>
+                <span class="dsh-crumb-now" aria-current="page">Wash bay</span>
+            </nav>
+
+            <div class="dsh-head-meta">
+                @if (warehouseOptions.Count > 1)
+                {
+                    <NocturneSelect TValue="string" Class="nsel-auto" Options="warehouseOptions"
+                                    @bind-Value="warehouse" OnChanged="OnWarehouseChangedAsync"
+                                    Caption="Warehouse" AriaLabel="Warehouse"
+                                    Placeholder="Pick a warehouse" />
+                }
+
+                <span class="dsh-synced">
+                    <span class="dsh-synced-dot" aria-hidden="true"></span>
+                    @if (loadedAt is { } stamp)
+                    {
+                        @($"Read at {stamp:HH:mm}")
+                    }
+                    else
+                    {
+                        @("Reading…")
+                    }
+                </span>
+
+                <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="/credit-notes/approvals">
+                    <DashIcon Name="clipboard-check" Size="15" />
+                    Credit note approvals
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <div class="dsh-body">
+
+        <section class="dsh-hero">
+            <div>
+                <div class="dsh-kicker">@WarehouseLabel</div>
+                <h1>@GreetingText, @GreetingName</h1>
+                <p>
+                    The credit notes SAP is holding for the wash bay, and the transfers
+                    queued against your warehouse.
+                </p>
+            </div>
+        </section>
+
+        <section class="dsh-stats" aria-label="Credit notes at the wash bay's stage">
+            <StatCard Label="To approve"
+                      Value="@Figure(pendingCreditCount)"
+                      ValueLabel="Credit notes awaiting your decision"
+                      Tone="@WaitingTone(pendingCreditCount)"
+                      ToneNote="@CreditNote(pendingCreditCount, creditError)"
+                      Icon="clipboard-check"
+                      IsLead="true" />
+            <StatCard Label="Approved, not added"
+                      Value="@Figure(approvedCreditCount)"
+                      ValueLabel="Approved credit notes to add to SAP"
+                      Tone="@WaitingTone(approvedCreditCount)"
+                      ToneNote="@(approvedCreditCount is > 0 ? "Ready to add" : approvedCreditCount == 0 ? "Nothing to add" : null)"
+                      Icon="note-add" />
+            <StatCard Label="Transfers awaiting approval"
+                      Value="@Figure(pendingTransferCount)"
+                      ValueLabel="@(warehouse is null ? "No warehouse assigned" : "Transfers needing a decision")"
+                      Tone="@WaitingTone(pendingTransferCount)"
+                      ToneNote="@WaitingNote(pendingTransferCount)"
+                      Icon="swap" />
+        </section>
+
+        <section class="dsh-panels" aria-label="Queues">
+
+            <section class="dsh-panel" aria-labelledby="credit-heading">
+                <header class="dsh-panel-head">
+                    <span class="dsh-panel-icon">
+                        <DashIcon Name="clipboard-check" Size="15" />
+                    </span>
+                    <h2 id="credit-heading">Credit notes waiting</h2>
+                    <a class="dsh-panel-link" href="/credit-notes/approvals">
+                        View all
+                        <DashIcon Name="chevron" Size="13" />
+                    </a>
+                </header>
+
+                @if (isLoadingCredits)
+                {
+                    <div class="dsh-state" role="status">
+                        <span class="dsh-spin" aria-hidden="true"></span>
+                        <span>Reading SAP's approval queue&#8230;</span>
+                    </div>
+                }
+                else if (creditError is not null)
+                {
+                    <div class="dsh-state">@creditError</div>
+                }
+                else if (waitingCredits is { Count: > 0 })
+                {
+                    <div class="dsh-scroll">
+                        <table class="dsh-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Customer</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col" class="dsh-th-money">Total</th>
+                                    <th scope="col">Waiting</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var request in waitingCredits)
+                                {
+                                    <tr>
+                                        <td class="dsh-name" title="@request.CardName">@(request.CardName ?? request.CardCode ?? "—")</td>
+                                        <td>
+                                            <span class="dsh-tag @(request.CanAdd ? "dsh-tag-ok" : null)">
+                                                @(request.CanAdd ? "Approved" : "Awaiting")
+                                            </span>
+                                        </td>
+                                        <td class="dsh-money">@Money(request)</td>
+                                        <td class="dsh-when">@Age(request.CreatedDate)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="dsh-state">No credit notes waiting at the wash bay</div>
+                }
+            </section>
+
+            <section class="dsh-panel" aria-labelledby="transfers-heading">
+                <header class="dsh-panel-head">
+                    <span class="dsh-panel-icon">
+                        <DashIcon Name="swap" Size="15" />
+                    </span>
+                    <h2 id="transfers-heading">Transfers waiting on a decision</h2>
+                    <a class="dsh-panel-link" href="/inventory-transfers">
+                        View all
+                        <DashIcon Name="chevron" Size="13" />
+                    </a>
+                </header>
+
+                @if (warehouse is null)
+                {
+                    <div class="dsh-state">This account has no warehouse assigned.</div>
+                }
+                else if (isLoadingTransfers)
+                {
+                    <div class="dsh-state" role="status">
+                        <span class="dsh-spin" aria-hidden="true"></span>
+                        <span>Loading the transfer queue&#8230;</span>
+                    </div>
+                }
+                else if (pendingTransfers is { Count: > 0 })
+                {
+                    <div class="dsh-scroll">
+                        <table class="dsh-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Draft</th>
+                                    <th scope="col">Route</th>
+                                    <th scope="col" class="dsh-th-money">Lines</th>
+                                    <th scope="col">Waiting</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var transfer in pendingTransfers)
+                                {
+                                    <tr>
+                                        <td class="dsh-doc">@(transfer.DraftNumber ?? "—")</td>
+                                        <td class="dsh-name" title="@Route(transfer)">@Route(transfer)</td>
+                                        <td class="dsh-money">@transfer.LineCount</td>
+                                        <td class="dsh-when">@Age(transfer.CreatedAtUtc)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="dsh-state">Nothing waiting on a decision</div>
+                }
+            </section>
+
+        </section>
+
+        <section class="dsh-panel" aria-labelledby="washbay-actions-heading">
+            <header class="dsh-panel-head">
+                <span class="dsh-panel-icon">
+                    <DashIcon Name="bolt" Size="15" />
+                </span>
+                <h2 id="washbay-actions-heading">Quick actions</h2>
+            </header>
+            <div class="dsh-quick">
+                <QuickAction Title="Credit note approvals"
+                             Description="Approve and add held credit notes"
+                             Href="/credit-notes/approvals"
+                             Icon="clipboard-check" />
+                <QuickAction Title="Create transfer"
+                             Description="Move stock between warehouses"
+                             Href="/inventory-transfer/create"
+                             Icon="swap" />
+                <QuickAction Title="Transfers"
+                             Description="Every transfer and request"
+                             Href="/inventory-transfers"
+                             Icon="list-check" />
+                <QuickAction Title="SAP-held transfers"
+                             Description="Transfers SAP holds for approval"
+                             Href="/inventory-transfers/sap-approvals"
+                             Icon="clipboard-data" />
+            </div>
+        </section>
+
+    </div>
+</div>

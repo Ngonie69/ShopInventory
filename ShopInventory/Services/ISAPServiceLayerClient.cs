@@ -969,10 +969,17 @@ public interface ISAPServiceLayerClient
     Task<SAPAttachment?> GetAttachmentAsync(int absoluteEntry, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The highest-numbered credit note this customer has, or null if they have none. Used to
-    /// recognise the document a draft became: SAP names it nowhere else.
+    /// The highest credit note DocEntry in the company, or null if there are none. Read before a draft
+    /// is added, it is the line the created credit note must lie past.
     /// </summary>
-    Task<SAPCreditNote?> GetNewestCreditNoteForCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
+    Task<int?> GetNewestCreditNoteDocEntryAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// This customer's highest-numbered credit note past <paramref name="afterDocEntry"/>, in full with
+    /// its lines, or null if there is none. Used to recognise the document a draft became: SAP names it
+    /// nowhere else.
+    /// </summary>
+    Task<SAPCreditNote?> GetNewestCreditNoteForCustomerAsync(string cardCode, int afterDocEntry, CancellationToken cancellationToken = default);
 
     Task<SAPUser?> GetSapUserAsync(int internalKey, CancellationToken cancellationToken = default);
     Task<SAPUser?> GetSapUserByCodeAsync(string userCode, CancellationToken cancellationToken = default);
