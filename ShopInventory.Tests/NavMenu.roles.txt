@@ -257,6 +257,8 @@ Account
     Security  /security
 
 ## WashBay
+Overview
+    Dashboard  /washbay-dashboard
 Sales
     Credit Note Approvals  /credit-notes/approvals
 Inventory
