@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Caching;
 using ShopInventory.Configuration;
 using ShopInventory.Features.CreditNoteApprovals;
+using ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalCounts;
 using ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovals;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -95,6 +96,41 @@ public sealed class CreditNoteApprovalListRoundTripTests
         Assert.True(
             draftReads.Count == 1 || earliest < latest,
             $"The {draftReads.Count} draft reads ran one after another.\n{sap.Describe()}");
+    }
+
+    /// <summary>
+    /// The queue tiles' numbers: one SAP count per queue through the list's own filter, stage scope
+    /// included, and never more than one at a time — they are asked for after the list has answered,
+    /// and nobody is waiting on them.
+    /// </summary>
+    [Fact]
+    public async Task The_queue_counts_are_three_scoped_counts_read_one_at_a_time()
+    {
+        var sap = FakeSap.WithPage(rows: 0, total: 7);
+        var settings = new SAPSettings
+        {
+            Enabled = true,
+            Username = "manager",
+            ServiceLayerUrl = "https://sap.invalid/b1s/v1/"
+        };
+        var handler = new GetCreditNoteApprovalCountsHandler(
+            CreateClient(sap, settings), FixedStageScope.Stages("Wash Bay Approvals", 4), Options.Create(settings));
+
+        var result = await handler.Handle(new GetCreditNoteApprovalCountsQuery(Guid.NewGuid()), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Equal((7, 7, 7), (result.Value.Pending, result.Value.Approved, result.Value.Rejected));
+
+        var report = sap.Describe();
+        Assert.Equal(3, sap.CountOf("/ApprovalRequests/$count"));
+        Assert.Equal(3, report.Calls);
+        Assert.True(report.PeakConcurrency == 1, report.ToString());
+
+        var filters = sap.Recorded.Select(call => Uri.UnescapeDataString(call.Query)).ToList();
+        Assert.All(filters, filter => Assert.Contains("CurrentStage eq 4", filter));
+        Assert.Single(filters, filter => filter.Contains($"Status eq '{SapApprovalRequestStatuses.Pending}'"));
+        Assert.Single(filters, filter => filter.Contains($"Status eq '{SapApprovalRequestStatuses.Approved}'"));
+        Assert.Single(filters, filter => filter.Contains($"Status eq '{SapApprovalRequestStatuses.NotApproved}'"));
     }
 
     private static GetCreditNoteApprovalsHandler CreateHandler(FakeSap sap)

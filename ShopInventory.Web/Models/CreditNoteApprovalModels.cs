@@ -48,6 +48,13 @@ public sealed class CreditNoteApprovalListResponseDto
     public int? NextCursor { get; set; }
 }
 
+public sealed class CreditNoteApprovalCountsDto
+{
+    public int Pending { get; set; }
+    public int Approved { get; set; }
+    public int Rejected { get; set; }
+}
+
 public sealed class CreditNoteDraftLineDto
 {
     public int LineNum { get; set; }

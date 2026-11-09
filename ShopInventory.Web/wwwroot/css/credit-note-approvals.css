@@ -1310,3 +1310,661 @@
     font-size: 11px;
     color: var(--cna-mute-3);
 }
+
+
+/* ── The decision queue ───────────────────────────────────────────────────
+   The page as a queue to work through: tiles that are the status filter
+   with each queue's length on them, one two-line row per request with the
+   reason in full, and the request in the drawer with its decision pinned to
+   the drawer's foot. Additive on purpose: sap-transfer-approvals.css and
+   shops.css are generated from this sheet, and the table, segmented control
+   and drawer rules above are theirs as much as this page's. Where this
+   section changes a class those pages share, it does so under `.cna-q`,
+   which only this page's root and drawer carry — renamed `sta-q` in the
+   transfer sheet, it matches nothing there.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.cna-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Touch-sized: the decisions, the tiles and the drawer's controls are what a
+   finger on a tablet lands on. */
+.cna .cna-btn-lg,
+.cna-overlay .cna-btn-lg {
+    height: 44px;
+    padding-inline: 16px;
+}
+
+.cna-overlay .cna-btn-icon.cna-btn-quiet {
+    width: 44px;
+    height: 44px;
+    color: var(--cna-mute-2);
+}
+
+.cna-overlay .cna-btn-icon.cna-btn-quiet:hover:not(:disabled) {
+    background: var(--cna-hover);
+    color: var(--cna-ink);
+}
+
+.cna-overlay .cna-btn-icon.cna-btn-quiet svg {
+    width: 17px;
+    height: 17px;
+}
+
+/* Filled, for the one action a footer exists for. The label takes the
+   surface colour, so it flips with the theme without a block of its own. */
+.cna-overlay .cna-btn-approve {
+    color: var(--cna-surface);
+    background: var(--cna-approved);
+    border-color: var(--cna-approved);
+    font-weight: 600;
+}
+
+.cna-overlay .cna-btn-fill {
+    color: var(--cna-surface);
+    background: var(--cna-accent);
+    border-color: var(--cna-accent);
+    font-weight: 600;
+}
+
+.cna-overlay .cna-btn-approve:hover:not(:disabled),
+.cna-overlay .cna-btn-fill:hover:not(:disabled) {
+    filter: brightness(1.07);
+}
+
+.cna-q .cna-btn i {
+    font-size: 15px;
+}
+
+/* ── Queue tiles ─────────────────────────────────────────────────────── */
+
+.cna-queues {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: var(--cna-s3);
+}
+
+.cna .cna-queue {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 4px;
+    padding: var(--cna-s4) 18px;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--cna-ink);
+    text-align: left;
+    background: var(--cna-surface);
+    border: 1px solid var(--cna-rowline);
+    border-radius: var(--cna-r-lg);
+    cursor: pointer;
+    transition: border-color .15s, background-color .15s, box-shadow .15s;
+}
+
+.cna .cna-queue:hover:not(.is-on) {
+    box-shadow: 0 0 0 1px var(--cna-divider);
+}
+
+.cna .cna-queue.is-on {
+    border-color: var(--cna-accent);
+    background: rgba(var(--cna-accent-rgb), .1);
+}
+
+.cna-queue-label {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s2);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--cna-mute);
+}
+
+.cna-queue-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--cna-settled);
+}
+
+.cna-queue-dot.is-pending { background: var(--cna-pending); }
+.cna-queue-dot.is-approved { background: var(--cna-approved); }
+.cna-queue-dot.is-rejected { background: var(--cna-rejected); }
+
+.cna-queue-count {
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.cna-queue-hint {
+    font-size: 12px;
+    color: var(--cna-mute-3);
+}
+
+/* ── Search ──────────────────────────────────────────────────────────── */
+
+.cna-q .cna-filters {
+    align-items: center;
+}
+
+.cna-search {
+    position: relative;
+    flex: 1 1 260px;
+    max-width: 380px;
+}
+
+.cna-search > i {
+    position: absolute;
+    left: 13px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    color: var(--cna-mute-3);
+    pointer-events: none;
+}
+
+.cna .cna-search .cna-input {
+    height: 44px;
+    padding-left: 38px;
+}
+
+.cna-filter-note {
+    font-size: 12px;
+    color: var(--cna-mute-3);
+}
+
+/* ── The list ────────────────────────────────────────────────────────── */
+
+.cna-list-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--cna-ink);
+}
+
+.cna-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--cna-rowline);
+}
+
+.cna-item {
+    border-bottom: 1px solid var(--cna-rowline);
+}
+
+.cna-item.is-dim {
+    opacity: .7;
+}
+
+.cna-item-skel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cna-s2);
+    padding: 18px var(--cna-s6);
+}
+
+/* The whole row is the control. MudBlazor's sheet loads last with a bare
+   `button` rule that centres a button's contents and sets position, so the
+   layout is stated here two classes deep. */
+.cna .cna-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: var(--cna-s2) var(--cna-s6);
+    width: 100%;
+    padding: var(--cna-s4) var(--cna-s6);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--cna-ink);
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    cursor: pointer;
+}
+
+.cna .cna-row:hover {
+    background: var(--cna-hover);
+}
+
+.cna .cna-row:hover .cna-row-name {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.cna .cna-item.is-open-row .cna-row,
+.cna .cna-item.is-open-row .cna-row:hover {
+    background: rgba(var(--cna-accent-rgb), .1);
+}
+
+.cna-item.is-open-row .cna-row-name {
+    color: var(--cna-accent-text);
+}
+
+.cna .cna-row:focus-visible {
+    outline-offset: -2px;
+}
+
+.cna-row-main {
+    flex: 1 1 300px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.cna-row-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.cna-row-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14.5px;
+    font-weight: 600;
+}
+
+/* The reason is what the decision is made on, so it gets two lines rather
+   than a column-width ellipsis. */
+.cna-row-reason {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 13px;
+    color: var(--cna-ink-2);
+}
+
+.cna-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 14px;
+    font-size: 12px;
+    color: var(--cna-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.cna-row-clip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cna-row-side {
+    flex: 0 0 auto;
+    margin-left: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    text-align: right;
+}
+
+.cna-row-amount {
+    font-size: 16px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.cna-row-cur {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--cna-mute-3);
+}
+
+.cna-row-date {
+    font-size: 12px;
+    color: var(--cna-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.cna-row-age {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--cna-mute-3);
+    white-space: nowrap;
+}
+
+.cna-row-age.is-late,
+.cna-dd.is-late {
+    color: var(--cna-pending);
+}
+
+.cna-row-chev {
+    flex: none;
+    align-self: center;
+    font-size: 15px;
+    color: var(--cna-mute-3);
+}
+
+/* Status as a pill: the word on a wash of its own hue. */
+.cna-pill {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1.6;
+    white-space: nowrap;
+    color: var(--cna-settled);
+    background: var(--cna-hover);
+}
+
+.cna-pill.is-pending {
+    color: var(--cna-pending);
+    background: rgba(var(--cna-pending-rgb), .14);
+}
+
+.cna-pill.is-approved {
+    color: var(--cna-approved);
+    background: rgba(var(--cna-approved-rgb), .13);
+}
+
+.cna-pill.is-rejected {
+    color: var(--cna-rejected);
+    background: rgba(var(--cna-rejected-rgb), .12);
+}
+
+/* ── The drawer ──────────────────────────────────────────────────────── */
+
+.cna-q .cna-drawer {
+    width: min(600px, 100vw);
+}
+
+.cna-q .cna-drawer-head {
+    gap: 10px;
+    padding: var(--cna-s2) var(--cna-s3) var(--cna-s2) var(--cna-s6);
+    font-variant-numeric: tabular-nums;
+}
+
+.cna-q .cna-drawer-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.cna-drawer-draft,
+.cna-drawer-pos {
+    font-size: 12px;
+    color: var(--cna-mute-3);
+    white-space: nowrap;
+}
+
+.cna-drawer-nav {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.cna-drawer-pos {
+    margin-right: 6px;
+}
+
+.cna-drawer-sep {
+    width: 1px;
+    height: 22px;
+    margin: 0 4px;
+    background: var(--cna-divider);
+}
+
+.cna-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.cna-summary-name {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -.01em;
+}
+
+.cna-summary-sub {
+    font-size: 12.5px;
+    color: var(--cna-mute-2);
+}
+
+.cna-summary-total {
+    display: flex;
+    align-items: baseline;
+    gap: var(--cna-s2);
+    margin-top: var(--cna-s2);
+}
+
+.cna-summary-amount {
+    font-size: 32px;
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.cna-summary-cur {
+    font-size: 14px;
+    color: var(--cna-mute-2);
+}
+
+.cna-summary-label {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--cna-mute-3);
+}
+
+.cna-reason-box {
+    font-size: 13.5px;
+}
+
+/* SAP's comments keep the line breaks they were typed with. */
+.cna-reason-full {
+    white-space: pre-line;
+}
+
+.cna-q .cna-sect {
+    color: var(--cna-accent-text);
+}
+
+.cna-lines-wrap {
+    overflow-x: auto;
+}
+
+.cna-line-item {
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* The approval path: one dot per step on a thread that runs down to the
+   next, so a multi-stage template reads as a sequence. */
+.cna-path {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.cna-path-step {
+    position: relative;
+    display: flex;
+    gap: var(--cna-s3);
+    padding-bottom: var(--cna-s4);
+}
+
+.cna-path-step:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    left: 4.5px;
+    top: 16px;
+    bottom: 0;
+    width: 1px;
+    background: var(--cna-divider);
+}
+
+.cna-path-dot {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: var(--cna-settled);
+}
+
+.cna-path-dot.is-raised { background: var(--cna-accent); }
+.cna-path-dot.is-pending { background: var(--cna-pending); }
+.cna-path-dot.is-approved { background: var(--cna-approved); }
+.cna-path-dot.is-rejected { background: var(--cna-rejected); }
+
+.cna-path-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.cna-path-who {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.cna-path-meta {
+    font-size: 12px;
+    color: var(--cna-mute-3);
+}
+
+.cna-path-remark {
+    margin-top: 2px;
+    font-size: 12.5px;
+    font-style: italic;
+    color: var(--cna-mute-2);
+}
+
+/* The decision, pinned to the drawer's foot so it is in reach however far
+   the request scrolls. */
+.cna-overlay .cna-drawer-foot.cna-decide {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: var(--cna-s3);
+    padding: var(--cna-s4) var(--cna-s6) var(--cna-s6);
+    background: var(--cna-hover);
+}
+
+.cna-overlay .cna-decide .cna-field > label {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--cna-s3);
+    font-weight: 500;
+}
+
+.cna-field-aside {
+    font-weight: 400;
+    color: var(--cna-mute-3);
+}
+
+.cna-overlay .cna-decide .cna-textarea {
+    min-height: 64px;
+}
+
+.cna-decide-actions {
+    display: flex;
+    gap: var(--cna-s2);
+}
+
+.cna-overlay .cna-decide-reject {
+    flex: 1 1 0;
+    font-weight: 600;
+}
+
+.cna-overlay .cna-decide-approve {
+    flex: 2 1 0;
+}
+
+.cna-foot-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--cna-ink-2);
+}
+
+.cna-foot-note > i {
+    margin-top: 2px;
+    font-size: 16px;
+    color: var(--cna-accent);
+}
+
+/* ── The add confirm ─────────────────────────────────────────────────── */
+
+.cna-confirm-facts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cna-s2);
+    margin: 0;
+    padding: var(--cna-s3) var(--cna-s4);
+    border-radius: var(--cna-r-md);
+    background: var(--cna-hover);
+}
+
+.cna-confirm-facts > div {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--cna-s3);
+    font-size: 13px;
+}
+
+.cna-confirm-facts dt {
+    font-weight: 400;
+    color: var(--cna-mute-2);
+}
+
+.cna-confirm-facts dd {
+    margin: 0;
+    text-align: right;
+    color: var(--cna-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.cna-confirm-total dd {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+@media (max-width: 860px) {
+    .cna-filter-note {
+        display: none;
+    }
+
+    .cna-q .cna-drawer-head {
+        padding-left: var(--cna-s4);
+    }
+
+    .cna-drawer-pos,
+    .cna-drawer-draft {
+        display: none;
+    }
+}

@@ -6,6 +6,7 @@ using ShopInventory.Web.Data;
 using ShopInventory.Web.Features.CreditNoteApprovals.Commands.AddApprovedCreditNote;
 using ShopInventory.Web.Features.CreditNoteApprovals.Commands.DecideCreditNoteApproval;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApproval;
+using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalCounts;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovals;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
@@ -28,13 +29,27 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     /// <summary>How long the typing rests before the rows are narrowed to it.</summary>
     private static readonly TimeSpan FilterDebounce = TimeSpan.FromMilliseconds(200);
 
-    private static readonly (string Value, string Label)[] StatusOptions =
+    /// <summary>
+    /// The four queues, drawn as tiles across the top. Each is one status word the API's list route
+    /// takes, so a tile and the rows it opens are the same read.
+    /// </summary>
+    /// <remarks>
+    /// Awaiting a decision is the default rather than the API's own "open" (awaiting or approved):
+    /// the page is a decision queue, and mixing the approved rows in buried the requests that still
+    /// need somebody. Approved is one tile away.
+    /// </remarks>
+    private static readonly QueueTile[] Queues =
     [
-        ("open", "Awaiting or approved"),
-        ("pending", "Awaiting approval"),
-        ("approved", "Approved, not added"),
-        ("all", "All")
+        new("pending", "Awaiting decision", "is-pending", "Waiting for your decision"),
+        new("approved", "Approved, not added", "is-approved", "Ready to post as credit notes"),
+        new("rejected", "Rejected", "is-rejected", "Drafts stay in SAP for the originator"),
+        new("all", "All requests", string.Empty, "Every status, added ones too")
     ];
+
+    private sealed record QueueTile(string Value, string Label, string Modifier, string Hint);
+
+    /// <summary>One step of the approval path the drawer draws.</summary>
+    private sealed record PathStep(string Who, string Meta, string? Remark, string Modifier);
 
     [Inject] private IMediator Mediator { get; set; } = default!;
     [Inject] private IAuditService AuditService { get; set; } = default!;
@@ -68,7 +83,14 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     private bool isLoading = true;
     private string? errorMessage;
 
-    private string statusFilter = "open";
+    private string statusFilter = "pending";
+
+    /// <summary>How long each queue is, for the tiles. Null until SAP has answered.</summary>
+    private CreditNoteApprovalCountsDto? counts;
+    private bool countsFailed;
+
+    /// <summary>When the list was last read from SAP, said in the header.</summary>
+    private DateTime? listReadAt;
 
     /// <summary>What is in the box. The table filters on <see cref="appliedCustomerFilter"/> instead.</summary>
     private string? customerFilter;
@@ -98,12 +120,13 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     private bool showAddConfirm;
 
     /// <summary>
-    /// What the last add said, kept on the page once the drawer closes: SAP deletes the approval
-    /// request when its draft becomes the credit note, so the drawer has nothing left to show.
+    /// What the last decision or add said, kept on the page. After an add SAP deletes the approval
+    /// request, and after a decision the drawer moves on to the next request, so in neither case is
+    /// the drawer still showing the request the message is about.
     /// </summary>
-    private string? addedNotice;
-    private string? addedNoticeSource;
-    private bool addedNoticeNeedsAttention;
+    private string? notice;
+    private string? noticeSource;
+    private bool noticeNeedsAttention;
 
     private bool showViewer;
     private bool isLoadingViewer;
@@ -151,14 +174,83 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     private string EmptyMessage => string.IsNullOrWhiteSpace(appliedCustomerFilter)
         ? statusFilter switch
         {
-            "pending" => "No credit memos are awaiting approval in SAP",
-            "approved" => "No approved credit memos are waiting to be added",
+            "pending" => "Nothing is waiting for a decision in SAP",
+            "approved" => "Every approved credit memo has been added",
+            "rejected" => "SAP holds no rejected credit memos",
             "all" => "SAP holds no credit memo approval requests",
             _ => "Nothing is waiting on a decision or an add"
         }
         : "No requests on this page match that customer";
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    private string ListTitle => Queues.FirstOrDefault(queue => queue.Value == statusFilter)?.Label ?? "Requests";
+
+    /// <summary>
+    /// The number on a tile. The All tile has no count of its own — it would be a fourth count of the
+    /// whole table — so it shows the list's total only while it is the queue being read.
+    /// </summary>
+    private string QueueCount(string queue)
+    {
+        int? value = queue switch
+        {
+            "pending" => counts?.Pending,
+            "approved" => counts?.Approved,
+            "rejected" => counts?.Rejected,
+            _ => statusFilter == "all" && !isLoading ? totalCount : null
+        };
+
+        if (value is int known)
+        {
+            return known.ToString("N0");
+        }
+
+        return countsFailed || queue == "all" ? "—" : "…";
+    }
+
+    /// <summary>Where the open request sits in the rows on screen, or -1 when it is not among them.</summary>
+    private int OpenIndex => detailCode is int code ? VisibleRequests.FindIndex(request => request.Code == code) : -1;
+
+    private bool CanOpenPrevious => OpenIndex > 0 && !isSubmitting;
+
+    private bool CanOpenNext => OpenIndex >= 0 && OpenIndex < VisibleRequests.Count - 1 && !isSubmitting;
+
+    private string OpenPosition => OpenIndex >= 0 ? $"{OpenIndex + 1} of {VisibleRequests.Count}" : string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        await LoadCountsAsync();
+    }
+
+    /// <summary>
+    /// Reads the tiles' counts. After the list, never beside it: they are three more SAP reads, and
+    /// the rows are what the person is waiting for. A failure leaves dashes on the tiles and the
+    /// list as it is.
+    /// </summary>
+    private async Task LoadCountsAsync()
+    {
+        try
+        {
+            var result = await Mediator.Send(new GetCreditNoteApprovalCountsQuery());
+            if (result.IsError)
+            {
+                Logger.LogWarning("Could not count the credit note approval queues: {Reason}", result.FirstError.Description);
+                countsFailed = counts is null;
+                return;
+            }
+
+            counts = result.Value;
+            countsFailed = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not count the credit note approval queues");
+            countsFailed = counts is null;
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
 
     private async Task LoadAsync()
     {
@@ -183,6 +275,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
             SetRequests(result.Value.Items);
             totalCount = result.Value.TotalCount;
             nextCursor = result.Value.NextCursor;
+            listReadAt = DateTime.Now;
         }
         catch (Exception ex)
         {
@@ -261,7 +354,11 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         nextCursor = null;
     }
 
-    private Task RefreshAsync() => LoadAsync();
+    private async Task RefreshAsync()
+    {
+        await LoadAsync();
+        await LoadCountsAsync();
+    }
 
     private async Task SetStatusFilterAsync(string status)
     {
@@ -270,9 +367,27 @@ public partial class CreditNoteApprovals : IAsyncDisposable
             return;
         }
 
+        // The open request belongs to the queue being left; it would be read against the wrong rows.
+        CloseDetail();
         statusFilter = status;
         RestartPaging();
         await LoadAsync();
+    }
+
+    private async Task OpenPreviousAsync()
+    {
+        if (CanOpenPrevious)
+        {
+            await OpenAsync(VisibleRequests[OpenIndex - 1].Code);
+        }
+    }
+
+    private async Task OpenNextAsync()
+    {
+        if (CanOpenNext)
+        {
+            await OpenAsync(VisibleRequests[OpenIndex + 1].Code);
+        }
     }
 
     private async Task PreviousPageAsync()
@@ -389,6 +504,18 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         submittingAction = action;
         StateHasChanged();
 
+        // The request to move on to once this one is decided, taken from the rows as they stand now:
+        // the reload below may drop this one from the queue, and with it any way to say what was next.
+        var visible = VisibleRequests;
+        var index = visible.FindIndex(request => request.Code == code);
+        int? following = index < 0
+            ? null
+            : index + 1 < visible.Count ? visible[index + 1].Code
+            : index > 0 ? visible[index - 1].Code
+            : null;
+        var cardName = detail.Request.CardName;
+        var decided = false;
+
         try
         {
             // A new key per attempt: a retry of a call that timed out after SAP recorded the decision
@@ -403,12 +530,15 @@ public partial class CreditNoteApprovals : IAsyncDisposable
             }
             else
             {
+                decided = true;
                 detailError = null;
                 decisionRemarks = null;
+                notice = result.Value.Message;
+                noticeSource = string.IsNullOrWhiteSpace(cardName)
+                    ? $"Approval request {code}"
+                    : $"Approval request {code} · {cardName}";
                 // An approval SAP recorded without approving the draft is not a success anybody can act on.
-                Snackbar.Add(result.Value.Message, result.Value.Status == "Approved" && !result.Value.CanAdd
-                    ? Severity.Warning
-                    : Severity.Success);
+                noticeNeedsAttention = result.Value.Status == "Approved" && !result.Value.CanAdd;
             }
         }
         catch (Exception ex)
@@ -423,10 +553,35 @@ public partial class CreditNoteApprovals : IAsyncDisposable
             submittingAction = null;
         }
 
-        // SAP is the source of truth for what the request is now, so re-read rather than assume —
-        // but the row and the list are independent reads, and this is the manager's inner loop.
-        // Awaiting one and then the other made every decision cost two waits instead of one.
-        await Task.WhenAll(LoadDetailAsync(code), LoadAsync());
+        if (!decided)
+        {
+            // SAP is the source of truth for what the request is now, so re-read rather than assume —
+            // the row and the list are independent reads, so they go together. The re-read clears
+            // the drawer's error when the request reads back, so the refusal is put back after it,
+            // where it stays rather than fading with the snackbar.
+            var refusal = detailError;
+            await Task.WhenAll(LoadDetailAsync(code), LoadAsync());
+            if (refusal is not null && detailCode == code && detail is not null)
+            {
+                detailError = refusal;
+            }
+
+            return;
+        }
+
+        // Decided: what it said stays on the page, and the drawer moves on to the next request, so
+        // working through the queue is one decision after another rather than open, decide, close.
+        await LoadAsync();
+        if (following is int next && VisibleRequests.Any(request => request.Code == next))
+        {
+            await OpenAsync(next);
+        }
+        else
+        {
+            CloseDetail();
+        }
+
+        await LoadCountsAsync();
     }
 
     private void OpenAddConfirm() => showAddConfirm = true;
@@ -487,13 +642,14 @@ public partial class CreditNoteApprovals : IAsyncDisposable
             // re-reading the request here answered "SAP approval request N was not found" and left that
             // error in the drawer under the success. The row leaves the queue too: close the drawer,
             // keep what the add said on the page, and re-read only the list.
-            addedNotice = added.Message;
-            addedNoticeSource = string.IsNullOrWhiteSpace(cardName)
+            notice = added.Message;
+            noticeSource = string.IsNullOrWhiteSpace(cardName)
                 ? $"From approval request {code}"
                 : $"From approval request {code} · {cardName}";
-            addedNoticeNeedsAttention = FiscalisationFailed(added);
+            noticeNeedsAttention = FiscalisationFailed(added);
             CloseDetail();
             await LoadAsync();
+            await LoadCountsAsync();
             return;
         }
 
@@ -510,11 +666,11 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     private static bool FiscalisationFailed(AddApprovedCreditNoteResultDto added) =>
         added.Fiscalisation is { Attempted: true, Success: false };
 
-    private void DismissAddedNotice()
+    private void DismissNotice()
     {
-        addedNotice = null;
-        addedNoticeSource = null;
-        addedNoticeNeedsAttention = false;
+        notice = null;
+        noticeSource = null;
+        noticeNeedsAttention = false;
     }
 
     /// <summary>
@@ -682,44 +838,94 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         request.CreatedDate ?? request.DocDate;
 
     /// <summary>
-    /// How long the request has been waiting, said the way the queue reads it. Blank rather than
-    /// "0 days ago" when SAP gave no date, because an invented age is worse than none.
+    /// How long a request has been in the queue, said the way the queue reads it. Blank rather than
+    /// "0 days" when SAP gave no date, because an invented age is worse than none. A request still
+    /// waiting says it is waiting; a decided one says only when it was raised.
     /// </summary>
-    private static string AgeText(DateTime? raised)
+    private static string AgeText(CreditNoteApprovalListItemDto request)
     {
-        if (raised is null)
+        if (DaysWaiting(request) is not int days)
         {
             return string.Empty;
         }
 
-        var days = (DateTime.UtcNow.Date - raised.Value.Date).Days;
+        if (IsPending(request.Status))
+        {
+            return days switch
+            {
+                <= 0 => "Raised today",
+                1 => "Waiting since yesterday",
+                _ => $"{days} days waiting"
+            };
+        }
+
         return days switch
         {
-            <= 0 => "today",
-            1 => "yesterday",
-            _ => $"{days} days ago"
+            <= 0 => "Raised today",
+            1 => "Raised yesterday",
+            _ => $"Raised {days} days ago"
         };
     }
 
     /// <summary>
-    /// The request and draft numbers, folded under the customer name. They held their own columns
-    /// before; the queue is read by customer, and the numbers are what you quote once you are in SAP.
+    /// A pending request that has waited three days or more. The tile colour, not an alarm: the queue
+    /// is worked oldest-first by eye, and this is what the eye should land on.
     /// </summary>
-    private static string RowMeta(CreditNoteApprovalListItemDto request)
+    private static bool IsLate(CreditNoteApprovalListItemDto request) =>
+        IsPending(request.Status) && DaysWaiting(request) is >= 3;
+
+    private static int? DaysWaiting(CreditNoteApprovalListItemDto request) =>
+        RaisedDate(request) is DateTime raised ? (DateTime.Now.Date - raised.Date).Days : null;
+
+    private static bool IsPending(string? status) =>
+        string.Equals(status, "Pending", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>SAP's status word as the page says it. SAP's own word for a refusal is NotApproved.</summary>
+    private static string StatusLabel(string? status) => status?.ToLowerInvariant() switch
     {
-        var parts = new List<string> { $"#{request.Code}" };
+        "notapproved" => "Rejected",
+        "generated" or "generatedbyauthorizer" => "Added",
+        null or "" => "—",
+        _ => status!
+    };
 
-        if (request.DraftNum is int draftNum)
+    /// <summary>
+    /// The request's way through SAP's approval procedure, top to bottom: who raised it, each approver
+    /// line SAP holds, and the add still to come once it is approved.
+    /// </summary>
+    private static List<PathStep> ApprovalPath(CreditNoteApprovalDetailDto detail)
+    {
+        var request = detail.Request;
+        var steps = new List<PathStep>
         {
-            parts.Add($"draft {draftNum}");
+            new(
+                $"Raised by {request.OriginatorName ?? request.OriginatorUserCode ?? "an unknown user"}",
+                FormatDate(RaisedDate(request)),
+                null,
+                "is-raised")
+        };
+
+        foreach (var decision in detail.Decisions)
+        {
+            var meta = $"{decision.StageName ?? $"Stage {decision.StageCode}"} · {StatusLabel(decision.Status)}";
+            if (decision.DecidedDate is not null)
+            {
+                meta += $" · {FormatDate(decision.DecidedDate)}";
+            }
+
+            steps.Add(new(
+                decision.UserName ?? decision.UserCode ?? $"User {decision.UserId}",
+                meta,
+                string.IsNullOrWhiteSpace(decision.Remarks) ? null : decision.Remarks,
+                StatusModifier(decision.Status)));
         }
 
-        if (!string.IsNullOrWhiteSpace(request.CardCode))
+        if (request.CanAdd)
         {
-            parts.Add(request.CardCode);
+            steps.Add(new("Add to SAP", "Posts the credit note and sends it for fiscalisation", null, string.Empty));
         }
 
-        return string.Join("  ·  ", parts);
+        return steps;
     }
 
     public async ValueTask DisposeAsync() => await RevokeViewerUrlAsync();

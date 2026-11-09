@@ -63,7 +63,7 @@ public sealed class CreditNoteApprovalListResponseDto
     public int Page { get; set; }
     public int PageSize { get; set; }
 
-    /// <summary>The filter the list was read with: open, pending, approved or all.</summary>
+    /// <summary>The filter the list was read with: open, pending, approved, rejected or all.</summary>
     public string Status { get; set; } = string.Empty;
 
     /// <summary>
@@ -76,6 +76,22 @@ public sealed class CreditNoteApprovalListResponseDto
     /// row this reader has already seen onto their next page.
     /// </remarks>
     public int? NextCursor { get; set; }
+}
+
+/// <summary>
+/// How many requests each queue on the approvals page holds, in the caller's stage scope. Read
+/// separately from the list so a page of one queue can say how long the others are.
+/// </summary>
+public sealed class CreditNoteApprovalCountsDto
+{
+    /// <summary>Waiting for a decision.</summary>
+    public int Pending { get; set; }
+
+    /// <summary>Approved and not yet added as the credit note.</summary>
+    public int Approved { get; set; }
+
+    /// <summary>Refused by an approver; SAP keeps the draft.</summary>
+    public int Rejected { get; set; }
 }
 
 public sealed class CreditNoteDraftLineDto

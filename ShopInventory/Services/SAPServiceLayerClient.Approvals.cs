@@ -102,39 +102,11 @@ public partial class SAPServiceLayerClient
         IReadOnlyCollection<int>? stageCodes = null,
         CancellationToken cancellationToken = default)
     {
-        // The statuses go into the filter as literals, so they are whitelisted rather than escaped.
-        var unknown = sapStatuses.Where(status => !KnownApprovalRequestStatuses.Contains(status)).ToList();
-        if (unknown.Count > 0)
-        {
-            throw new ArgumentException(
-                $"Unknown SAP approval request status(es): {string.Join(", ", unknown)}", nameof(sapStatuses));
-        }
-
-        var statuses = sapStatuses.Distinct(StringComparer.Ordinal).ToList();
-        if (statuses.Count == 0)
-        {
-            throw new ArgumentException("At least one SAP approval request status is required.", nameof(sapStatuses));
-        }
-
-        var stages = stageCodes?.Distinct().Order().ToList();
-        if (stages is { Count: 0 })
-        {
-            throw new ArgumentException("A stage filter must name at least one stage; pass null to read every stage.", nameof(stageCodes));
-        }
+        var baseFilter = CreditNoteApprovalFilter(sapStatuses, stageCodes);
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, DocumentListPageSize);
         var skip = (page - 1) * pageSize;
-
-        var statusFilter = string.Join(" or ", statuses.Select(status => $"Status eq '{status}'"));
-        var baseFilter = $"ObjectType eq '{SapObjectTypes.CreditNote}' and ({statusFilter})";
-
-        // Part of the base filter, so the count is of the scoped queue too: a count of the whole queue
-        // over a scoped page would promise pages that never come.
-        if (stages is not null)
-        {
-            baseFilter += $" and ({string.Join(" or ", stages.Select(code => $"CurrentStage eq {code}"))})";
-        }
 
         // The count is of the whole queue, so it never carries the cursor — the page label says how
         // far through the queue this page is, not how much of it is below the cursor.
@@ -164,6 +136,60 @@ public partial class SAPServiceLayerClient
         await Task.WhenAll(pageTask, countTask);
 
         return ((await pageTask)?.Value ?? [], await countTask);
+    }
+
+    public async Task<int> CountCreditNoteApprovalRequestsAsync(
+        IReadOnlyCollection<string> sapStatuses,
+        IReadOnlyCollection<int>? stageCodes = null,
+        CancellationToken cancellationToken = default)
+    {
+        var filter = CreditNoteApprovalFilter(sapStatuses, stageCodes);
+        await EnsureAuthenticatedAsync(cancellationToken);
+        return await ReadSapCountAsync(
+            $"ApprovalRequests/$count?$filter={Uri.EscapeDataString(filter)}",
+            "count credit note approval requests",
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The OData filter for the credit memo approval requests in these statuses and stages — shared
+    /// by the list and the count, so the two always describe the same queue.
+    /// </summary>
+    private static string CreditNoteApprovalFilter(
+        IReadOnlyCollection<string> sapStatuses,
+        IReadOnlyCollection<int>? stageCodes)
+    {
+        // The statuses go into the filter as literals, so they are whitelisted rather than escaped.
+        var unknown = sapStatuses.Where(status => !KnownApprovalRequestStatuses.Contains(status)).ToList();
+        if (unknown.Count > 0)
+        {
+            throw new ArgumentException(
+                $"Unknown SAP approval request status(es): {string.Join(", ", unknown)}", nameof(sapStatuses));
+        }
+
+        var statuses = sapStatuses.Distinct(StringComparer.Ordinal).ToList();
+        if (statuses.Count == 0)
+        {
+            throw new ArgumentException("At least one SAP approval request status is required.", nameof(sapStatuses));
+        }
+
+        var stages = stageCodes?.Distinct().Order().ToList();
+        if (stages is { Count: 0 })
+        {
+            throw new ArgumentException("A stage filter must name at least one stage; pass null to read every stage.", nameof(stageCodes));
+        }
+
+        var statusFilter = string.Join(" or ", statuses.Select(status => $"Status eq '{status}'"));
+        var filter = $"ObjectType eq '{SapObjectTypes.CreditNote}' and ({statusFilter})";
+
+        // Part of the base filter, so the count is of the scoped queue too: a count of the whole queue
+        // over a scoped page would promise pages that never come.
+        if (stages is not null)
+        {
+            filter += $" and ({string.Join(" or ", stages.Select(code => $"CurrentStage eq {code}"))})";
+        }
+
+        return filter;
     }
 
     public Task<SAPApprovalRequest?> GetApprovalRequestAsync(int code, CancellationToken cancellationToken = default)

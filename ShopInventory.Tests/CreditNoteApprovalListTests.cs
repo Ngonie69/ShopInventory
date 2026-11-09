@@ -167,6 +167,8 @@ public sealed class CreditNoteApprovalListTests
     {
         Assert.Equal(new[] { SapApprovalRequestStatuses.Pending }, CreditNoteApprovalStatusFilters.ToSapStatuses("pending").ToArray());
         Assert.Equal(new[] { SapApprovalRequestStatuses.Approved }, CreditNoteApprovalStatusFilters.ToSapStatuses("Approved").ToArray());
+        Assert.Equal(new[] { SapApprovalRequestStatuses.NotApproved }, CreditNoteApprovalStatusFilters.ToSapStatuses("rejected").ToArray());
+        Assert.True(CreditNoteApprovalStatusFilters.IsKnown("rejected"));
         Assert.Equal(
             new[] { SapApprovalRequestStatuses.Pending, SapApprovalRequestStatuses.Approved },
             CreditNoteApprovalStatusFilters.ToSapStatuses(null).ToArray());

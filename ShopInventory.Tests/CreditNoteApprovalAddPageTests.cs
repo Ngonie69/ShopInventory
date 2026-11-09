@@ -13,6 +13,7 @@ using MudBlazor;
 using ShopInventory.Web.Components.Pages;
 using ShopInventory.Web.Features.CreditNoteApprovals.Commands.AddApprovedCreditNote;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApproval;
+using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalCounts;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovals;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
@@ -157,7 +158,7 @@ public sealed class CreditNoteApprovalAddPageTests
     /// A static renderer that mounts an <c>@rendermode InteractiveServer</c> page in place, which
     /// <see cref="HtmlRenderer"/> refuses to do.
     /// </summary>
-    private sealed class InteractivePageRenderer(IServiceProvider services)
+    internal sealed class InteractivePageRenderer(IServiceProvider services)
         : StaticHtmlRenderer(services, NullLoggerFactory.Instance)
     {
         protected override IComponent ResolveComponentForRenderMode(
@@ -172,7 +173,7 @@ public sealed class CreditNoteApprovalAddPageTests
     /// Runs a handler the way a click does: await it, then re-render, as
     /// <c>ComponentBase.HandleEventAsync</c> does once an event handler's task completes.
     /// </summary>
-    private static async Task Invoke(CreditNoteApprovals page, string name, params object[] args)
+    internal static async Task Invoke(CreditNoteApprovals page, string name, params object[] args)
     {
         var method = typeof(CreditNoteApprovals).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException($"CreditNoteApprovals.{name} no longer exists.");
@@ -215,6 +216,10 @@ public sealed class CreditNoteApprovalAddPageTests
                         Status = "open"
                     });
 
+                case GetCreditNoteApprovalCountsQuery:
+                    return Task.FromResult<ErrorOr<CreditNoteApprovalCountsDto>>(
+                        new CreditNoteApprovalCountsDto { Approved = deleted ? 0 : 1 });
+
                 case GetCreditNoteApprovalQuery:
                     DetailReads++;
                     return Task.FromResult<ErrorOr<CreditNoteApprovalDetailDto>>(deleted
@@ -255,7 +260,7 @@ public sealed class CreditNoteApprovalAddPageTests
         };
     }
 
-    private sealed class SilentSnackbar : ISnackbar
+    internal sealed class SilentSnackbar : ISnackbar
     {
         public IEnumerable<Snackbar> ShownSnackbars => [];
 

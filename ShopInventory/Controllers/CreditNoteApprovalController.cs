@@ -8,6 +8,7 @@ using ShopInventory.Features.CreditNoteApprovals.Commands.AddApprovedCreditNote;
 using ShopInventory.Features.CreditNoteApprovals.Commands.DecideCreditNoteApproval;
 using ShopInventory.Features.CreditNoteApprovals.Queries.DownloadCreditNoteDraftAttachment;
 using ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApproval;
+using ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalCounts;
 using ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovals;
 using ShopInventory.Models;
 
@@ -32,7 +33,7 @@ public sealed class CreditNoteApprovalController(IMediator mediator) : ApiContro
 {
     /// <summary>
     /// The requests SAP holds. <c>status</c> is open (the default: pending, or approved and not yet
-    /// added), pending, approved or all.
+    /// added), pending, approved, rejected or all.
     /// </summary>
     /// <remarks>
     /// Two ways to page, and the second is the one to use when walking the queue. <c>page</c>
@@ -55,6 +56,19 @@ public sealed class CreditNoteApprovalController(IMediator mediator) : ApiContro
     {
         var result = await mediator.Send(
             new GetCreditNoteApprovalsQuery(status, page, pageSize, beforeCode, UserClaimReader.GetUserId(User)), cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// How many requests are pending, approved (not yet added) and rejected, in the caller's stage
+    /// scope. Three SAP counts, read one after another.
+    /// </summary>
+    [HttpGet("counts")]
+    [RequirePermission(Permission.ApproveSapCreditNotes, Permission.AddApprovedCreditNotes)]
+    [ProducesResponseType(typeof(CreditNoteApprovalCountsDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetCounts(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetCreditNoteApprovalCountsQuery(UserClaimReader.GetUserId(User)), cancellationToken);
         return result.Match(Ok, Problem);
     }
 

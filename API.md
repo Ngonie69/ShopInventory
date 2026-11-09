@@ -5923,7 +5923,8 @@ Nothing is mirrored into the local approval engine (§44), which governs documen
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
-| GET | `/api/credit-note-approvals` | `creditnotes.approve` or `creditnotes.add_approved` | The held requests: `status` open (default), pending, approved or all; `page` 1, `pageSize` 25, `beforeCode` for cursor paging |
+| GET | `/api/credit-note-approvals` | `creditnotes.approve` or `creditnotes.add_approved` | The held requests: `status` open (default), pending, approved, rejected or all; `page` 1, `pageSize` 25, `beforeCode` for cursor paging |
+| GET | `/api/credit-note-approvals/counts` | either | How many requests are pending, approved (not yet added) and rejected, in the caller's stage scope: `{ "pending": 12, "approved": 41, "rejected": 3 }`. Three SAP `$count` reads, one after another |
 | GET | `/api/credit-note-approvals/{code}` | either | One request: draft header and lines, attachments, approver lines, current stage |
 | GET | `/api/credit-note-approvals/{code}/attachments/{lineNum}/download` | either | The bytes of one attached file, streamed from SAP |
 | POST | `/api/credit-note-approvals/{code}/decision` | `creditnotes.approve` | Approve or reject: `{ "decision": "Approved" or "NotApproved", "remarks": "…", "clientRequestId": "…" }` |
