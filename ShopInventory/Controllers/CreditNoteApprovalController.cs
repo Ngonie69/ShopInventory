@@ -155,7 +155,8 @@ public sealed class CreditNoteApprovalController(IMediator mediator) : ApiContro
                 code,
                 userId.Value,
                 User.Identity?.Name ?? "unknown",
-                ClientRequestId(request?.ClientRequestId)),
+                ClientRequestId(request?.ClientRequestId),
+                request?.LineQuantities),
             cancellationToken);
 
         return result.Match(Ok, Problem);

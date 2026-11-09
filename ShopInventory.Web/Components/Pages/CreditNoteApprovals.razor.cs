@@ -1,5 +1,7 @@
+using System.Globalization;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.JSInterop;
 using MudBlazor;
 using ShopInventory.Web.Data;
@@ -56,6 +58,8 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private ILogger<CreditNoteApprovals> Logger { get; set; } = default!;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private List<CreditNoteApprovalListItemDto> requests = [];
 
@@ -118,6 +122,16 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     private bool isSubmitting;
     private string? submittingAction;
     private bool showAddConfirm;
+
+    /// <summary>Whether this person may add credit notes, so the draft's quantities are theirs to change.</summary>
+    private bool mayAdd;
+
+    /// <summary>
+    /// What is typed in each line's quantity box, by line number. A line with no entry keeps the
+    /// draft's quantity. Cleared whenever the drawer reads a request, so nothing typed against one
+    /// draft is ever sent with another.
+    /// </summary>
+    private readonly Dictionary<int, string> quantityInputs = [];
 
     /// <summary>
     /// What the last decision or add said, kept on the page. After an add SAP deletes the approval
@@ -217,6 +231,12 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
     protected override async Task OnInitializedAsync()
     {
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            mayAdd = UserRoles.CreditNoteAddRoles.Split(',').Any(user.IsInRole);
+        }
+
         await LoadAsync();
         await LoadCountsAsync();
     }
@@ -431,6 +451,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         detailError = null;
         attachmentError = null;
         decisionRemarks = null;
+        quantityInputs.Clear();
         isLoadingDetail = true;
         StateHasChanged();
 
@@ -458,6 +479,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
             detail = result.Value;
             detailError = null;
+            quantityInputs.Clear();
         }
         catch (Exception ex)
         {
@@ -485,6 +507,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         detailError = null;
         attachmentError = null;
         decisionRemarks = null;
+        quantityInputs.Clear();
         isLoadingDetail = false;
         showAddConfirm = false;
     }
@@ -584,7 +607,92 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         await LoadCountsAsync();
     }
 
-    private void OpenAddConfirm() => showAddConfirm = true;
+    private void OpenAddConfirm()
+    {
+        if (!HasInvalidQuantity)
+        {
+            showAddConfirm = true;
+        }
+    }
+
+    /// <summary>The draft's quantities may be changed: the request is ready to add and this person may add it.</summary>
+    private bool CanEditQuantities => mayAdd && detail?.Request.CanAdd == true;
+
+    private static string FormatQuantityInput(decimal quantity) =>
+        quantity.ToString("0.######", CultureInfo.InvariantCulture);
+
+    private string QuantityInput(CreditNoteDraftLineDto line) =>
+        quantityInputs.TryGetValue(line.LineNum, out var typed) ? typed : FormatQuantityInput(line.Quantity);
+
+    private void SetQuantity(CreditNoteDraftLineDto line, string? typed) => quantityInputs[line.LineNum] = typed ?? string.Empty;
+
+    private void ResetQuantities() => quantityInputs.Clear();
+
+    private static string QuantityLabel(CreditNoteDraftLineDto line) => $"Quantity for {line.ItemCode ?? $"line {line.LineNum + 1}"}";
+
+    private string QuantityChangeCount =>
+        QuantityEdits.Count == 1 ? "1 quantity changed" : $"{QuantityEdits.Count} quantities changed";
+
+    private decimal LineTotalShown(CreditNoteDraftLineDto line) =>
+        CanEditQuantities && IsQuantityChanged(line) ? EditedLineTotal(line, EditedQuantity(line)!.Value) : line.LineTotal;
+
+    /// <summary>The quantity a line will be added with, or null when what is typed is not one SAP would take.</summary>
+    private decimal? EditedQuantity(CreditNoteDraftLineDto line)
+    {
+        if (!quantityInputs.TryGetValue(line.LineNum, out var typed))
+        {
+            return line.Quantity;
+        }
+
+        var text = typed.Trim().Replace(",", string.Empty);
+        if (!decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var quantity)
+            || quantity <= 0m
+            || decimal.Round(quantity, 6) != quantity)
+        {
+            return null;
+        }
+
+        return quantity;
+    }
+
+    private bool IsQuantityInvalid(CreditNoteDraftLineDto line) => EditedQuantity(line) is null;
+
+    private bool IsQuantityChanged(CreditNoteDraftLineDto line) =>
+        EditedQuantity(line) is decimal quantity && quantity != line.Quantity;
+
+    private bool HasInvalidQuantity => CanEditQuantities && detail!.Lines.Any(IsQuantityInvalid);
+
+    private List<(CreditNoteDraftLineDto Line, decimal Quantity)> QuantityEdits =>
+        !CanEditQuantities
+            ? []
+            : detail!.Lines
+                .Where(IsQuantityChanged)
+                .Select(line => (line, EditedQuantity(line)!.Value))
+                .ToList();
+
+    /// <summary>The line's net total at the quantity typed, at the draft's own unit value.</summary>
+    private static decimal EditedLineTotal(CreditNoteDraftLineDto line, decimal quantity) =>
+        line.Quantity != 0m ? decimal.Round(line.LineTotal / line.Quantity * quantity, 2) : decimal.Round(line.UnitPrice * quantity, 2);
+
+    /// <summary>
+    /// The credit total the new quantities come to, VAT included: an estimate, since SAP recalculates
+    /// and rounds the document itself when the draft changes.
+    /// </summary>
+    private decimal EditedDocTotal
+    {
+        get
+        {
+            if (detail is null)
+            {
+                return 0m;
+            }
+
+            var change = QuantityEdits.Sum(edit => edit.Line.Quantity != 0m
+                ? (edit.Line.LineTotal + edit.Line.VatSum) / edit.Line.Quantity * (edit.Quantity - edit.Line.Quantity)
+                : edit.Line.UnitPrice * (edit.Quantity - edit.Line.Quantity));
+            return decimal.Round(detail.Request.DocTotal + change, 2);
+        }
+    }
 
     private void CloseAddConfirm() => showAddConfirm = false;
 
@@ -606,7 +714,10 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
         try
         {
-            var result = await Mediator.Send(new AddApprovedCreditNoteCommand(code, Guid.NewGuid().ToString("N")));
+            var lineQuantities = QuantityEdits
+                .Select(edit => new CreditNoteLineQuantityDto { LineNum = edit.Line.LineNum, Quantity = edit.Quantity })
+                .ToList();
+            var result = await Mediator.Send(new AddApprovedCreditNoteCommand(code, Guid.NewGuid().ToString("N"), lineQuantities));
 
             if (result.IsError)
             {

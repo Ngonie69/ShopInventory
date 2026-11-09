@@ -199,6 +199,27 @@ public sealed class CreditNoteApprovalDecisionResultDto
 public sealed class AddApprovedCreditNoteRequestDto
 {
     public string? ClientRequestId { get; set; }
+
+    /// <summary>
+    /// New quantities for draft lines, written to the draft before it is added. Lines left out, or
+    /// given their current quantity, are left alone.
+    /// </summary>
+    public List<CreditNoteLineQuantityDto>? LineQuantities { get; set; }
+}
+
+public sealed class CreditNoteLineQuantityDto
+{
+    public int LineNum { get; set; }
+    public decimal Quantity { get; set; }
+}
+
+/// <summary>A line whose quantity was changed on the draft before it was added.</summary>
+public sealed class CreditNoteLineQuantityChangeDto
+{
+    public int LineNum { get; set; }
+    public string? ItemCode { get; set; }
+    public decimal From { get; set; }
+    public decimal To { get; set; }
 }
 
 public sealed class CreditNoteApprovalFiscalisationDto
@@ -232,6 +253,9 @@ public sealed class AddApprovedCreditNoteResultDto
     /// has deleted the request, so it is what a stage-scoped caller's replay is checked against.
     /// </summary>
     public int? StageCode { get; set; }
+
+    /// <summary>The lines whose quantities were changed on the draft before it was added.</summary>
+    public List<CreditNoteLineQuantityChangeDto> QuantityChanges { get; set; } = [];
     public CreditNoteApprovalFiscalisationDto Fiscalisation { get; set; } = new();
     public string Message { get; set; } = string.Empty;
 }

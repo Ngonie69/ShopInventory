@@ -537,6 +537,157 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
 
     // ── Harness ──────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// The wash bay counts what came back and may find it differs from the draft. The new quantities
+    /// are written to the SAP draft, on a token the caller cannot cancel, before it is converted —
+    /// SAP keeps the draft approved and the credit note carries them (KEFALOS_TEST_3, 2026-11-09).
+    /// </summary>
+    [Fact]
+    public async Task New_quantities_are_written_to_the_draft_before_it_is_added()
+    {
+        var sap = new RecordingSap(Approved(3110), CrateDraft(88123, 100m, 50m))
+        {
+            SaveReturns = 9001,
+            DraftAfterQuantityChange = CrateDraft(88123, 80m, 50m),
+            DraftAfterSave = ClosedDraft(88123)
+        };
+        var audit = new RecordingAuditService();
+
+        var result = await Handler(sap, new RecordingFiscalisation(), audit)
+            .Handle(Command(3110, (0, 80m), (1, 50m)), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+
+        var update = Assert.Single(sap.QuantityUpdates);
+        Assert.Equal(88123, update.DraftEntry);
+        Assert.False(update.Token.CanBeCanceled, "the quantity change must run on a token the caller cannot cancel");
+        var change = Assert.Single(update.Changes);
+        Assert.Equal(0, change.LineNum);
+        Assert.Equal(80m, change.Quantity);
+        Assert.Empty(change.BatchDeltas);
+
+        Assert.True(
+            sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.UpdateDraftLineQuantitiesAsync))
+                < sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync)),
+            "the quantities must reach the draft before it is converted");
+        Assert.Single(sap.Saves);
+
+        var changed = Assert.Single(result.Value.QuantityChanges);
+        Assert.Equal(("CRA001", 100m, 80m), (changed.ItemCode, changed.From, changed.To));
+        Assert.Contains("CRA001 100 → 80", result.Value.Message);
+        Assert.Contains(audit.Entries, entry => entry.Success && entry.Details!.Contains("CRA001 100 → 80"));
+    }
+
+    /// <summary>
+    /// The created credit note is recognised by the draft's total, and new quantities change it. The
+    /// total compared is the one the draft reads back with after the change.
+    /// </summary>
+    [Fact]
+    public async Task The_credit_note_is_recognised_by_the_total_the_new_quantities_came_to()
+    {
+        var sap = new RecordingSap(Approved(3110), CrateDraft(88123, 100m, 50m))
+        {
+            SaveReturns = null,
+            DraftAfterQuantityChange = CrateDraft(88123, 80m, 50m),
+            DraftAfterSave = ClosedDraft(88123),
+            NewestBefore = new SAPCreditNote { DocEntry = 8000, DocTotal = -1m },
+            NewestAfter = new SAPCreditNote { DocEntry = 9002, DocTotal = 130m },
+            CreditNoteDocEntry = 9002
+        };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService())
+            .Handle(Command(3110, (0, 80m)), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.True(result.Value.Resolved);
+        Assert.Equal(9002, result.Value.CreditNoteDocEntry);
+    }
+
+    [Fact]
+    public async Task Quantities_sap_did_not_keep_are_never_added()
+    {
+        var sap = new RecordingSap(Approved(3110), CrateDraft(88123, 100m, 50m))
+        {
+            SaveReturns = 9001,
+            // SAP answered the change, but the draft reads back as it was.
+            DraftAfterQuantityChange = CrateDraft(88123, 100m, 50m)
+        };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService())
+            .Handle(Command(3110, (0, 80m)), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("CreditNoteApproval.QuantitiesNotApplied", result.FirstError.Code);
+        Assert.Empty(sap.Saves);
+    }
+
+    [Fact]
+    public async Task A_draft_no_longer_approved_after_the_change_is_not_added()
+    {
+        var after = CrateDraft(88123, 80m, 50m);
+        after.AuthorizationStatus = SapDocumentAuthorizationStatuses.Pending;
+        var sap = new RecordingSap(Approved(3110), CrateDraft(88123, 100m, 50m))
+        {
+            SaveReturns = 9001,
+            DraftAfterQuantityChange = after
+        };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService())
+            .Handle(Command(3110, (0, 80m)), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("CreditNoteApproval.ApprovalLostAfterQuantityChange", result.FirstError.Code);
+        Assert.Empty(sap.Saves);
+    }
+
+    [Fact]
+    public async Task Sap_refusing_the_quantities_adds_nothing()
+    {
+        var sap = new RecordingSap(Approved(3110), CrateDraft(88123, 100m, 50m))
+        {
+            SaveReturns = 9001,
+            RefuseQuantitiesWith = "Quantity exceeds the open quantity of the base document"
+        };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService())
+            .Handle(Command(3110, (0, 120m)), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("CreditNoteApproval.SapRejected", result.FirstError.Code);
+        Assert.Contains("open quantity", result.FirstError.Description);
+        Assert.Empty(sap.Saves);
+    }
+
+    [Fact]
+    public async Task A_zero_quantity_is_refused_before_anything_reaches_sap()
+    {
+        var sap = new RecordingSap(Approved(3110), CrateDraft(88123, 100m, 50m)) { SaveReturns = 9001 };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService())
+            .Handle(Command(3110, (0, 0m)), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("CreditNoteApproval.InvalidQuantities", result.FirstError.Code);
+        Assert.DoesNotContain(nameof(ISAPServiceLayerClient.UpdateDraftLineQuantitiesAsync), sap.Calls);
+        Assert.DoesNotContain(nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync), sap.Calls);
+    }
+
+    /// <summary>Quantities that match the draft change nothing, so the draft is added untouched.</summary>
+    [Fact]
+    public async Task Quantities_equal_to_the_drafts_leave_the_draft_alone()
+    {
+        var sap = new RecordingSap(Approved(3110), CrateDraft(88123, 100m, 50m)) { SaveReturns = 9001, DraftAfterSave = ClosedDraft(88123) };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService())
+            .Handle(Command(3110, (0, 100m), (1, 50m)), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Empty(result.Value.QuantityChanges);
+        Assert.DoesNotContain(nameof(ISAPServiceLayerClient.GetDraftAllocationsAsync), sap.Calls);
+        Assert.DoesNotContain(nameof(ISAPServiceLayerClient.UpdateDraftLineQuantitiesAsync), sap.Calls);
+        Assert.Single(sap.Saves);
+    }
+
     private AddApprovedCreditNoteHandler Handler(
         RecordingSap sap,
         RecordingFiscalisation fiscal,
@@ -598,6 +749,24 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
 
     private static AddApprovedCreditNoteCommand Command(int code) => new(code, Ngoni, "ngoni", null);
 
+    private static AddApprovedCreditNoteCommand Command(int code, params (int LineNum, decimal Quantity)[] quantities) =>
+        new(code, Ngoni, "ngoni", null,
+            quantities.Select(line => new CreditNoteLineQuantityDto { LineNum = line.LineNum, Quantity = line.Quantity }).ToList());
+
+    /// <summary>A wash bay crate return: two crate lines at 1.00 each, no VAT, the total their sum.</summary>
+    private static SAPCreditNote CrateDraft(int docEntry, decimal white, decimal black)
+    {
+        var draft = OpenDraft(docEntry);
+        draft.DocTotal = white + black;
+        draft.VatSum = 0m;
+        draft.DocumentLines =
+        [
+            new SAPCreditNoteLine { LineNum = 0, ItemCode = "CRA001", Quantity = white, UnitPrice = 1m, LineTotal = white, WarehouseCode = "WASHBAY" },
+            new SAPCreditNoteLine { LineNum = 1, ItemCode = "CRA002", Quantity = black, UnitPrice = 1m, LineTotal = black, WarehouseCode = "WASHBAY" }
+        ];
+        return draft;
+    }
+
     private static SAPApprovalRequest Pending(int code) => WithStatus(code, SapApprovalRequestStatuses.Pending);
 
     private static SAPApprovalRequest Approved(int code) => WithStatus(code, SapApprovalRequestStatuses.Approved);
@@ -657,6 +826,17 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
     private sealed class RecordingSap(SAPApprovalRequest current, SAPCreditNote draft)
     {
         private bool _saved;
+        private bool _quantitiesChanged;
+
+        /// <summary>The draft's lines with their batches, as the whole-draft read returns them. Defaults to the draft's own lines, unbatched.</summary>
+        public SAPDraftAllocations? Allocations { get; init; }
+
+        /// <summary>The draft as SAP reports it once the new quantities are written. Defaults to the draft unchanged.</summary>
+        public SAPCreditNote? DraftAfterQuantityChange { get; init; }
+
+        public string? RefuseQuantitiesWith { get; init; }
+
+        public List<(int DraftEntry, IReadOnlyList<SapDraftLineQuantityChange> Changes, CancellationToken Token)> QuantityUpdates { get; } = [];
 
         public int? SaveReturns { get; init; }
         public int? CreditNoteDocEntry { get; init; }
@@ -714,7 +894,18 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
             nameof(ISAPServiceLayerClient.GetApprovalRequestAsync)
                 => Task.FromResult<SAPApprovalRequest?>(current),
             nameof(ISAPServiceLayerClient.GetCreditNoteDraftAsync)
-                => Task.FromResult(_saved ? DraftAfterSave ?? draft : draft),
+                => Task.FromResult(_saved
+                    ? DraftAfterSave ?? CurrentDraft
+                    : CurrentDraft),
+            nameof(ISAPServiceLayerClient.GetDraftAllocationsAsync)
+                => Task.FromResult(Allocations ?? new SAPDraftAllocations
+                {
+                    DocEntry = draft.DocEntry,
+                    DocumentLines = (draft.DocumentLines ?? [])
+                        .Select(line => new SAPDraftAllocationLine { LineNum = line.LineNum, ItemCode = line.ItemCode, Quantity = line.Quantity })
+                        .ToList()
+                }),
+            nameof(ISAPServiceLayerClient.UpdateDraftLineQuantitiesAsync) => UpdateQuantities(args!),
             nameof(ISAPServiceLayerClient.GetNewestCreditNoteDocEntryAsync)
                 => Task.FromResult(_saved ? NewestAfter?.DocEntry : NewestBefore?.DocEntry),
             nameof(ISAPServiceLayerClient.GetNewestCreditNoteForCustomerAsync)
@@ -741,6 +932,20 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
             Projected.AddRange((IReadOnlyCollection<SAPCreditNote>)args![0]!);
             return Task.CompletedTask;
         });
+
+        private SAPCreditNote? CurrentDraft => _quantitiesChanged ? DraftAfterQuantityChange ?? draft : draft;
+
+        private Task UpdateQuantities(object?[] args)
+        {
+            if (RefuseQuantitiesWith is not null)
+            {
+                throw new SapRequestRejectedException("change quantities", HttpStatusCode.BadRequest, RefuseQuantitiesWith);
+            }
+
+            QuantityUpdates.Add(((int)args[0]!, (IReadOnlyList<SapDraftLineQuantityChange>)args[1]!, (CancellationToken)args[2]!));
+            _quantitiesChanged = true;
+            return Task.CompletedTask;
+        }
 
         private Task<int?> Save(object?[] args)
         {

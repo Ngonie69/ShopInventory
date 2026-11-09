@@ -26,7 +26,10 @@ public interface ICreditNoteApprovalService
     Task<(bool Success, string Message, CreditNoteApprovalDecisionResultDto? Value)> DecideAsync(
         int code, string decision, string? remarks, string clientRequestId);
 
-    Task<(bool Success, string Message, AddApprovedCreditNoteResultDto? Value)> AddAsync(int code, string clientRequestId);
+    Task<(bool Success, string Message, AddApprovedCreditNoteResultDto? Value)> AddAsync(
+        int code,
+        string clientRequestId,
+        IReadOnlyList<CreditNoteLineQuantityDto>? lineQuantities = null);
 }
 
 public sealed class CreditNoteApprovalService(HttpClient httpClient, ILogger<CreditNoteApprovalService> logger)
@@ -138,14 +141,21 @@ public sealed class CreditNoteApprovalService(HttpClient httpClient, ILogger<Cre
         }
     }
 
-    public async Task<(bool Success, string Message, AddApprovedCreditNoteResultDto? Value)> AddAsync(int code, string clientRequestId)
+    public async Task<(bool Success, string Message, AddApprovedCreditNoteResultDto? Value)> AddAsync(
+        int code,
+        string clientRequestId,
+        IReadOnlyList<CreditNoteLineQuantityDto>? lineQuantities = null)
     {
         const string fallback = "The credit note could not be added in SAP.";
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, $"api/credit-note-approvals/{code}/add")
             {
-                Content = JsonContent.Create(new AddApprovedCreditNoteRequestDto { ClientRequestId = clientRequestId })
+                Content = JsonContent.Create(new AddApprovedCreditNoteRequestDto
+                {
+                    ClientRequestId = clientRequestId,
+                    LineQuantities = lineQuantities is { Count: > 0 } ? [.. lineQuantities] : null
+                })
             };
             request.Headers.Add("Idempotency-Key", clientRequestId);
 

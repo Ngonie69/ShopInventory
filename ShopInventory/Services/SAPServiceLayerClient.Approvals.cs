@@ -444,6 +444,63 @@ public partial class SAPServiceLayerClient
         return ReadDocEntry(body);
     }
 
+    // No $select: only a by-key read without one returns the lines' BatchNumbers.
+    public Task<SAPDraftAllocations?> GetDraftAllocationsAsync(int draftDocEntry, CancellationToken cancellationToken = default)
+        => ReadSapJsonAsync<SAPDraftAllocations>($"Drafts({draftDocEntry})", $"read draft {draftDocEntry} allocations", cancellationToken);
+
+    public async Task UpdateDraftLineQuantitiesAsync(
+        int draftDocEntry,
+        IReadOnlyList<SapDraftLineQuantityChange> changes,
+        CancellationToken cancellationToken = default)
+    {
+        if (changes.Count == 0)
+        {
+            return;
+        }
+
+        var lines = new JsonArray();
+        foreach (var change in changes)
+        {
+            var line = new JsonObject
+            {
+                ["LineNum"] = change.LineNum,
+                ["Quantity"] = change.Quantity
+            };
+
+            if (change.BatchDeltas.Count > 0)
+            {
+                var batches = new JsonArray();
+                foreach (var batch in change.BatchDeltas)
+                {
+                    batches.Add(new JsonObject
+                    {
+                        ["BatchNumber"] = batch.BatchNumber,
+                        ["Quantity"] = batch.Delta
+                    });
+                }
+
+                line["BatchNumbers"] = batches;
+            }
+
+            lines.Add(line);
+        }
+
+        var json = new JsonObject { ["DocumentLines"] = lines }.ToJsonString();
+        var operation = $"change {changes.Count} line quantit{(changes.Count == 1 ? "y" : "ies")} on draft {draftDocEntry}";
+        _logger.LogInformation("Changing {Count} line quantities on SAP draft {DraftEntry}", changes.Count, draftDocEntry);
+
+        using var response = await SendSapRequestAsync(
+            () => CreateSapJsonRequest(HttpMethod.Patch, $"Drafts({draftDocEntry})", json),
+            HttpCompletionOption.ResponseContentRead,
+            operation,
+            cancellationToken,
+            // One attempt: batch quantities are sent as differences, so a retry after a lost reply
+            // would move them twice.
+            maxAttempts: 1);
+
+        await EnsureSapSuccessAsync(response, operation, cancellationToken);
+    }
+
     /// <summary>The <c>DocEntry</c> of a document body, or null when the answer is not one.</summary>
     private static int? ReadDocEntry(string body)
     {
@@ -686,24 +743,26 @@ public partial class SAPServiceLayerClient
         Func<HttpRequestMessage> requestFactory,
         HttpCompletionOption completionOption,
         string operation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int maxAttempts = 3)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
         var response = await SendSapRequestWithTransientRetryAsync(
-            _httpClient, requestFactory, completionOption, operation, cancellationToken);
+            _httpClient, requestFactory, completionOption, operation, cancellationToken, maxAttempts);
 
         if (response.StatusCode != HttpStatusCode.Unauthorized)
         {
             return response;
         }
 
+        // A 401 was refused before SAP did anything, so sending again is safe even for a write that is not.
         response.Dispose();
         await HandleAuthFailureAsync(currentSession, cancellationToken);
 
         return await SendSapRequestWithTransientRetryAsync(
-            _httpClient, requestFactory, completionOption, $"{operation} after SAP re-authentication", cancellationToken);
+            _httpClient, requestFactory, completionOption, $"{operation} after SAP re-authentication", cancellationToken, maxAttempts);
     }
 
     /// <summary>A JSON GET; null on a 404, a <see cref="SapRequestRejectedException"/> on any other failure.</summary>

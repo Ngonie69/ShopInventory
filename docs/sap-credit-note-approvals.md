@@ -92,6 +92,14 @@ bearer proxy, the same way proof-of-delivery files do.
 
 ## What happens on the add
 
+0. **Quantities, if the person changed any.** The page offers each line's quantity as a box once the
+   request is approved and the person may add it, so the wash bay can enter what it actually counted.
+   The new quantities go up or down but stay above 0; a line is taken off in SAP, not here. Just before
+   the add they are written to the draft with `PATCH Drafts(n)`, which is then read back: if a quantity
+   did not stick, or the draft is no longer open and approved, nothing is added. A line holding one batch
+   moves that batch by the same amount (in the inventory unit); a line split across batches or carrying
+   serial numbers is refused. If SAP then refuses the add itself, the draft keeps the new quantities.
+
 1. `DraftsService_SaveDraftToDocument` on a token the caller cannot cancel. A transport failure after it
    is answered by reading the request back: generated means it landed.
 2. The new credit note's DocEntry comes from SAP's answer when it names the document, else from the
@@ -120,6 +128,8 @@ measured, not inferred; several answers changed the design.
 | Is `ApproverPassword` mandatory on the decision PATCH? | **Only when an approver is named.** Naming nobody decides as the session user with no credential at all. |
 | How long is `ApprovalRequestDecision.Remarks`? | **200 characters.** 201 is refused outright, and SAP rejects the whole decision rather than truncating. |
 | What does `DraftsService_SaveDraftToDocument` answer? | **204 No Content.** It names the document it created nowhere. |
+| Can an approved draft's quantities change before the add? (2026-11-09, draft 79079) | **Yes.** `PATCH Drafts(n)` with `DocumentLines[{LineNum, Quantity}]` answers 204, the draft stays `dasApproved` and its request `arsApproved`, and the credit note added from it (84478) carried the new quantity, 24 for 26. |
+| How does that PATCH treat a batch the line already holds? | **It adds to it.** Sending 24 to a batch holding 26 left 50, with or without `B1S-ReplaceCollectionsFieldsOnPatch`; the add then fails `-4014`. Send the difference (−2). Batches read back only on a by-key `Drafts(n)` read with no `$select`. |
 | Does `ApprovalRequests(code).ObjectEntry` name the credit note afterwards? | **No.** It is never populated, and a successful add **deletes the approval request** — reading it back afterwards returns 404. |
 
 ### The decision: name nobody, send nothing
