@@ -9,6 +9,7 @@ using ShopInventory.Web.Features.CreditNoteApprovals.Commands.AddApprovedCreditN
 using ShopInventory.Web.Features.CreditNoteApprovals.Commands.DecideCreditNoteApproval;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApproval;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalCounts;
+using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalOriginators;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovals;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
@@ -20,9 +21,11 @@ namespace ShopInventory.Web.Components.Pages;
 /// one: decide it, and add the approved one as the credit note.
 /// </summary>
 /// <remarks>
-/// Everything on this page is read live from SAP through the API — there is no local mirror — so the
-/// customer filter is applied to the page in hand rather than sent to SAP, and every action reloads
-/// both the row and the list from SAP rather than patching what is on screen.
+/// Everything on this page is read live from SAP through the API — there is no local mirror — and
+/// every action reloads both the row and the list from SAP rather than patching what is on screen.
+/// The raised dates and Raised by are columns of the request, so they go to SAP and narrow the tiles,
+/// the count and the paging together. The customer lives on the draft, and SAP will not count a
+/// search across the two, so the customer box narrows the page in hand.
 /// </remarks>
 public partial class CreditNoteApprovals : IAsyncDisposable
 {
@@ -113,6 +116,25 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
     private int customerFilterVersion;
 
+    /// <summary>Only requests SAP created on or after this day. Sent to SAP.</summary>
+    private DateTime? raisedFrom;
+
+    /// <summary>Only requests SAP created on or before this day. Sent to SAP.</summary>
+    private DateTime? raisedTo;
+
+    /// <summary>The SAP user key chosen under Raised by, as text; empty for anyone. Sent to SAP.</summary>
+    private string? originatorFilter = string.Empty;
+
+    /// <summary>
+    /// The filter the rows on screen were read with. A date typed and then cleared again reads the
+    /// same queue, so nothing is re-read unless this actually changes.
+    /// </summary>
+    private CreditNoteApprovalFilter loadedFilter = CreditNoteApprovalFilter.None;
+
+    /// <summary>Who has raised requests, for Raised by. Null until SAP has answered.</summary>
+    private List<CreditNoteApprovalOriginatorDto>? originators;
+    private bool originatorsFailed;
+
     private int? detailCode;
     private CreditNoteApprovalDetailDto? detail;
     private bool isLoadingDetail;
@@ -185,16 +207,53 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         }
     }
 
-    private string EmptyMessage => string.IsNullOrWhiteSpace(appliedCustomerFilter)
-        ? statusFilter switch
+    private CreditNoteApprovalFilter CurrentFilter => new(
+        raisedFrom?.Date,
+        raisedTo?.Date,
+        int.TryParse(originatorFilter, NumberStyles.None, CultureInfo.InvariantCulture, out var originatorId) ? originatorId : null);
+
+    private bool HasAnyFilter => !CurrentFilter.IsEmpty || !string.IsNullOrWhiteSpace(customerFilter);
+
+    /// <summary>
+    /// Raised by's choices: anyone, then each person by name with their SAP user code beside it. Until
+    /// SAP has answered, a row that says so, so an empty list never reads as "nobody raised anything".
+    /// </summary>
+    private IReadOnlyList<NocturneSelectOption<string>> OriginatorOptions
+    {
+        get
+        {
+            var options = new List<NocturneSelectOption<string>> { NocturneSelectOption.All("Raised by anyone") };
+            if (originators is null)
+            {
+                options.Add(new(string.Empty, originatorsFailed ? "Could not read who raised requests" : "Reading from SAP…")
+                {
+                    Disabled = true
+                });
+                return options;
+            }
+
+            options.AddRange(originators.Select(originator => new NocturneSelectOption<string>(
+                originator.Id.ToString(CultureInfo.InvariantCulture),
+                originator.Name ?? originator.UserCode ?? $"SAP user {originator.Id}")
+            {
+                Hint = originator.Name is null ? null : originator.UserCode
+            }));
+            return options;
+        }
+    }
+
+    private string EmptyMessage => !string.IsNullOrWhiteSpace(appliedCustomerFilter)
+        ? "No requests on this page match that customer"
+        : !loadedFilter.IsEmpty
+            ? "No requests in this queue match these filters"
+            : statusFilter switch
         {
             "pending" => "Nothing is waiting for a decision in SAP",
             "approved" => "Every approved credit memo has been added",
             "rejected" => "SAP holds no rejected credit memos",
             "all" => "SAP holds no credit memo approval requests",
             _ => "Nothing is waiting on a decision or an add"
-        }
-        : "No requests on this page match that customer";
+        };
 
     private string ListTitle => Queues.FirstOrDefault(queue => queue.Value == statusFilter)?.Label ?? "Requests";
 
@@ -239,6 +298,37 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
         await LoadAsync();
         await LoadCountsAsync();
+        await LoadOriginatorsAsync();
+    }
+
+    /// <summary>
+    /// Reads who has raised requests, for Raised by — once, last, because it is the one thing on the
+    /// page nobody is waiting for. A failure leaves the filter offering only "anyone".
+    /// </summary>
+    private async Task LoadOriginatorsAsync()
+    {
+        try
+        {
+            var result = await Mediator.Send(new GetCreditNoteApprovalOriginatorsQuery());
+            if (result.IsError)
+            {
+                Logger.LogWarning("Could not list who raised credit note approval requests: {Reason}", result.FirstError.Description);
+                originatorsFailed = true;
+                return;
+            }
+
+            originators = result.Value;
+            originatorsFailed = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not list who raised credit note approval requests");
+            originatorsFailed = true;
+        }
+        finally
+        {
+            StateHasChanged();
+        }
     }
 
     /// <summary>
@@ -250,7 +340,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     {
         try
         {
-            var result = await Mediator.Send(new GetCreditNoteApprovalCountsQuery());
+            var result = await Mediator.Send(new GetCreditNoteApprovalCountsQuery(loadedFilter.IsEmpty ? null : loadedFilter));
             if (result.IsError)
             {
                 Logger.LogWarning("Could not count the credit note approval queues: {Reason}", result.FirstError.Description);
@@ -281,7 +371,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         {
             var cursor = currentPage - 1 < pageCursors.Count ? pageCursors[currentPage - 1] : null;
             var result = await Mediator.Send(
-                new GetCreditNoteApprovalsQuery(statusFilter, currentPage, PageSize, cursor));
+                new GetCreditNoteApprovalsQuery(statusFilter, currentPage, PageSize, cursor, loadedFilter.IsEmpty ? null : loadedFilter));
             if (result.IsError)
             {
                 errorMessage = result.FirstError.Description;
@@ -355,6 +445,41 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     {
         appliedCustomerFilter = customerFilter;
         visibleRequests = null;
+    }
+
+    /// <summary>
+    /// A date or Raised by changed: read the narrowed queue from the top, with its counts. Dates the
+    /// wrong way round are taken as the range they describe rather than refused, since nobody means
+    /// an empty range.
+    /// </summary>
+    private async Task OnSapFilterChangedAsync()
+    {
+        if (raisedFrom is DateTime from && raisedTo is DateTime to && to < from)
+        {
+            (raisedFrom, raisedTo) = (to, from);
+        }
+
+        var filter = CurrentFilter;
+        if (filter == loadedFilter)
+        {
+            return;
+        }
+
+        // The open request was found under the old filter and may not be in the new rows.
+        CloseDetail();
+        loadedFilter = filter;
+        RestartPaging();
+        await LoadAsync();
+        await LoadCountsAsync();
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        ClearCustomerFilter();
+        raisedFrom = null;
+        raisedTo = null;
+        originatorFilter = string.Empty;
+        await OnSapFilterChangedAsync();
     }
 
     /// <summary>

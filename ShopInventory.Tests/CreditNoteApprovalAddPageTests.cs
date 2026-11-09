@@ -311,6 +311,9 @@ public sealed class CreditNoteApprovalAddPageTests
                     return Task.FromResult<ErrorOr<CreditNoteApprovalCountsDto>>(
                         new CreditNoteApprovalCountsDto { Approved = deleted ? 0 : 1 });
 
+                case ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalOriginators.GetCreditNoteApprovalOriginatorsQuery:
+                    return Task.FromResult<ErrorOr<List<CreditNoteApprovalOriginatorDto>>>(new List<CreditNoteApprovalOriginatorDto>());
+
                 case GetCreditNoteApprovalQuery:
                     DetailReads++;
                     return Task.FromResult<ErrorOr<CreditNoteApprovalDetailDto>>(deleted

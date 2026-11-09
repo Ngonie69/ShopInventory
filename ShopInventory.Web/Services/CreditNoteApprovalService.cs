@@ -17,9 +17,11 @@ public interface ICreditNoteApprovalService
     /// "could not be read from SAP", which sends somebody to check a connection that is fine.
     /// </remarks>
     Task<(bool Success, string Message, CreditNoteApprovalListResponseDto? Value)> GetApprovalsAsync(
-        string? status, int page, int pageSize, int? beforeCode = null);
+        string? status, int page, int pageSize, int? beforeCode = null, CreditNoteApprovalFilter? filter = null);
 
-    Task<(bool Success, string Message, CreditNoteApprovalCountsDto? Value)> GetCountsAsync();
+    Task<(bool Success, string Message, CreditNoteApprovalCountsDto? Value)> GetCountsAsync(CreditNoteApprovalFilter? filter = null);
+
+    Task<(bool Success, string Message, List<CreditNoteApprovalOriginatorDto>? Value)> GetOriginatorsAsync();
 
     Task<(bool Success, string Message, CreditNoteApprovalDetailDto? Value)> GetApprovalAsync(int code);
 
@@ -36,7 +38,7 @@ public sealed class CreditNoteApprovalService(HttpClient httpClient, ILogger<Cre
     : ICreditNoteApprovalService
 {
     public async Task<(bool Success, string Message, CreditNoteApprovalListResponseDto? Value)> GetApprovalsAsync(
-        string? status, int page, int pageSize, int? beforeCode = null)
+        string? status, int page, int pageSize, int? beforeCode = null, CreditNoteApprovalFilter? filter = null)
     {
         const string fallback = "The held credit notes could not be read from SAP.";
         try
@@ -52,6 +54,8 @@ public sealed class CreditNoteApprovalService(HttpClient httpClient, ILogger<Cre
                 query += $"&beforeCode={cursor}";
             }
 
+            query += filter?.ToQuery();
+
             return await ReadAsync<CreditNoteApprovalListResponseDto>($"api/credit-note-approvals?{query}", fallback);
         }
         catch (Exception ex)
@@ -61,16 +65,33 @@ public sealed class CreditNoteApprovalService(HttpClient httpClient, ILogger<Cre
         }
     }
 
-    public async Task<(bool Success, string Message, CreditNoteApprovalCountsDto? Value)> GetCountsAsync()
+    public async Task<(bool Success, string Message, CreditNoteApprovalCountsDto? Value)> GetCountsAsync(
+        CreditNoteApprovalFilter? filter = null)
     {
         const string fallback = "The queue counts could not be read from SAP.";
         try
         {
-            return await ReadAsync<CreditNoteApprovalCountsDto>("api/credit-note-approvals/counts", fallback);
+            // The route takes no other query, so the first pair opens it with '?' rather than '&'.
+            var query = filter?.ToQuery() is { Length: > 0 } narrowing ? "?" + narrowing[1..] : string.Empty;
+            return await ReadAsync<CreditNoteApprovalCountsDto>($"api/credit-note-approvals/counts{query}", fallback);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error counting SAP credit note approval requests");
+            return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallback), null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, List<CreditNoteApprovalOriginatorDto>? Value)> GetOriginatorsAsync()
+    {
+        const string fallback = "The people who raised credit notes could not be read from SAP.";
+        try
+        {
+            return await ReadAsync<List<CreditNoteApprovalOriginatorDto>>("api/credit-note-approvals/originators", fallback);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error listing SAP credit note approval originators");
             return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallback), null);
         }
     }

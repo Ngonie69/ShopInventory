@@ -44,6 +44,8 @@ public partial class SAPServiceLayerClient
     /// </summary>
     private const int DraftChunkConcurrency = 3;
 
+    private const int OriginatorGroupPageSize = 1000;
+
     private const string SaveDraftToDocumentOperation = "DraftsService_SaveDraftToDocument";
 
     /// <summary>
@@ -85,6 +87,9 @@ public partial class SAPServiceLayerClient
     /// Only the requests whose <c>CurrentStage</c> is one of these, in the rows and the count alike. Null
     /// reads every stage; an empty collection is refused before anything is sent.
     /// </param>
+    /// <param name="filter">
+    /// Raised dates and originator, in the rows and the count alike. Null or empty narrows nothing.
+    /// </param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <remarks>
     /// The queue is ordered <c>Code desc</c> and it is live: a credit memo raised while somebody is
@@ -100,9 +105,10 @@ public partial class SAPServiceLayerClient
         int pageSize,
         int? beforeCode = null,
         IReadOnlyCollection<int>? stageCodes = null,
+        CreditNoteApprovalRequestFilter? filter = null,
         CancellationToken cancellationToken = default)
     {
-        var baseFilter = CreditNoteApprovalFilter(sapStatuses, stageCodes);
+        var baseFilter = CreditNoteApprovalFilter(sapStatuses, stageCodes, filter);
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, DocumentListPageSize);
@@ -141,14 +147,43 @@ public partial class SAPServiceLayerClient
     public async Task<int> CountCreditNoteApprovalRequestsAsync(
         IReadOnlyCollection<string> sapStatuses,
         IReadOnlyCollection<int>? stageCodes = null,
+        CreditNoteApprovalRequestFilter? filter = null,
         CancellationToken cancellationToken = default)
     {
-        var filter = CreditNoteApprovalFilter(sapStatuses, stageCodes);
+        var odataFilter = CreditNoteApprovalFilter(sapStatuses, stageCodes, filter);
         await EnsureAuthenticatedAsync(cancellationToken);
         return await ReadSapCountAsync(
-            $"ApprovalRequests/$count?$filter={Uri.EscapeDataString(filter)}",
+            $"ApprovalRequests/$count?$filter={Uri.EscapeDataString(odataFilter)}",
             "count credit note approval requests",
             cancellationToken);
+    }
+
+    /// <remarks>
+    /// One grouped read rather than a walk of the rows: <c>$apply=groupby</c> is answered by SAP in a
+    /// single round trip however many thousand requests the statuses cover (0.1–0.7s measured against
+    /// KEFALOS_TEST_3 on 2026-11-09, for eleven originators over every status).
+    /// </remarks>
+    public async Task<List<int>> GetCreditNoteApprovalOriginatorIdsAsync(
+        IReadOnlyCollection<string> sapStatuses,
+        IReadOnlyCollection<int>? stageCodes = null,
+        CancellationToken cancellationToken = default)
+    {
+        var odataFilter = CreditNoteApprovalFilter(sapStatuses, stageCodes, narrowing: null);
+        var apply = $"filter({odataFilter})/groupby((OriginatorID))";
+        var response = await ReadSapJsonAsync<SAPResponse<SAPApprovalRequest>>(
+            $"ApprovalRequests?$apply={Uri.EscapeDataString(apply)}",
+            "list the originators of credit note approval requests",
+            cancellationToken,
+            // A grouped answer is paged like any other, at 20 unless asked; one row per person, so a
+            // thousand is every originator the company will ever have.
+            pageSize: OriginatorGroupPageSize);
+
+        return (response?.Value ?? [])
+            .Select(row => row.OriginatorID)
+            .OfType<int>()
+            .Distinct()
+            .Order()
+            .ToList();
     }
 
     /// <summary>
@@ -157,7 +192,8 @@ public partial class SAPServiceLayerClient
     /// </summary>
     private static string CreditNoteApprovalFilter(
         IReadOnlyCollection<string> sapStatuses,
-        IReadOnlyCollection<int>? stageCodes)
+        IReadOnlyCollection<int>? stageCodes,
+        CreditNoteApprovalRequestFilter? narrowing)
     {
         // The statuses go into the filter as literals, so they are whitelisted rather than escaped.
         var unknown = sapStatuses.Where(status => !KnownApprovalRequestStatuses.Contains(status)).ToList();
@@ -187,6 +223,24 @@ public partial class SAPServiceLayerClient
         if (stages is not null)
         {
             filter += $" and ({string.Join(" or ", stages.Select(code => $"CurrentStage eq {code}"))})";
+        }
+
+        // Dates go in as day literals, which SAP compares against CreationDate's midnight, so a
+        // one-day range (from = to) is that day. The originator is an int, so nothing here is text
+        // from the caller.
+        if (narrowing?.RaisedFrom is DateTime raisedFrom)
+        {
+            filter += $" and CreationDate ge '{raisedFrom:yyyy-MM-dd}'";
+        }
+
+        if (narrowing?.RaisedTo is DateTime raisedTo)
+        {
+            filter += $" and CreationDate le '{raisedTo:yyyy-MM-dd}'";
+        }
+
+        if (narrowing?.OriginatorId is int originatorId)
+        {
+            filter += $" and OriginatorID eq {originatorId}";
         }
 
         return filter;

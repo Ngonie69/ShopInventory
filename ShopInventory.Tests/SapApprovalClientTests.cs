@@ -159,6 +159,72 @@ public sealed class SapApprovalClientTests
     }
 
     [Fact]
+    public async Task Raised_dates_and_originator_narrow_the_rows_and_the_count_alike()
+    {
+        var sap = new FakeServiceLayer();
+        sap.On(r => r.Method == HttpMethod.Get && r.Path.EndsWith("/ApprovalRequests"),
+            _ => Json("""{"value":[{"Code":5,"ObjectType":"14","Status":"arsPending","OriginatorID":31}]}"""));
+        sap.On(r => r.Path.EndsWith("/ApprovalRequests/$count"), _ => Text("1"));
+        var client = CreateClient(sap);
+
+        // A time of day on the date is dropped: the filter is by day, as SAP keeps CreationDate.
+        var filter = new CreditNoteApprovalRequestFilter(new DateTime(2026, 10, 1, 15, 30, 0), new DateTime(2026, 10, 31), 31);
+        await client.GetCreditNoteApprovalRequestsAsync(
+            [SapApprovalRequestStatuses.Pending], page: 2, pageSize: 5, beforeCode: 90, filter: filter);
+        await client.CountCreditNoteApprovalRequestsAsync([SapApprovalRequestStatuses.Pending], filter: filter);
+
+        const string narrowed = "ObjectType eq '14' and (Status eq 'arsPending')"
+            + " and CreationDate ge '2026-10-01' and CreationDate le '2026-10-31' and OriginatorID eq 31";
+        var list = Assert.Single(sap.Requests, r => r.Path.EndsWith("/ApprovalRequests"));
+        Assert.Contains(narrowed + " and Code lt 90", Uri.UnescapeDataString(list.Query));
+
+        // Both counts — the list's own and the tile's — describe the narrowed queue, without the cursor.
+        var counts = sap.Requests.Where(r => r.Path.EndsWith("/$count")).ToList();
+        Assert.Equal(2, counts.Count);
+        Assert.All(counts, count =>
+        {
+            var query = Uri.UnescapeDataString(count.Query);
+            Assert.Contains(narrowed, query);
+            Assert.DoesNotContain("Code lt", query);
+        });
+    }
+
+    [Fact]
+    public async Task An_empty_filter_adds_nothing_to_the_query()
+    {
+        var sap = new FakeServiceLayer();
+        sap.On(r => r.Path.EndsWith("/ApprovalRequests/$count"), _ => Text("4"));
+        var client = CreateClient(sap);
+
+        await client.CountCreditNoteApprovalRequestsAsync([SapApprovalRequestStatuses.Pending], filter: CreditNoteApprovalRequestFilter.None);
+
+        var count = Assert.Single(sap.Requests);
+        Assert.EndsWith("ObjectType eq '14' and (Status eq 'arsPending')", Uri.UnescapeDataString(count.Query));
+    }
+
+    [Fact]
+    public async Task Originators_are_one_grouped_read_in_scope_paged_past_saps_default()
+    {
+        var sap = new FakeServiceLayer();
+        sap.On(r => r.Method == HttpMethod.Get && r.Path.EndsWith("/ApprovalRequests"),
+            _ => Json("""{"value":[{"odata.id":null,"OriginatorID":31},{"odata.id":null,"OriginatorID":15},{"odata.id":null,"OriginatorID":null}]}"""));
+        var client = CreateClient(sap);
+
+        var ids = await client.GetCreditNoteApprovalOriginatorIdsAsync(
+            [SapApprovalRequestStatuses.Pending, SapApprovalRequestStatuses.Approved], stageCodes: [4]);
+
+        Assert.Equal([15, 31], ids);
+        var get = Assert.Single(sap.Requests);
+        Assert.Equal(
+            "$apply=filter(ObjectType eq '14' and (Status eq 'arsPending' or Status eq 'arsApproved') and (CurrentStage eq 4))/groupby((OriginatorID))",
+            Uri.UnescapeDataString(get.Query.TrimStart('?')));
+
+        // SAP pages a grouped answer at 20 like any other; a company with more originators than that
+        // would silently lose the rest from the filter.
+        Assert.Equal("odata.maxpagesize=1000", get.Prefer);
+    }
+
+    [Fact]
     public async Task An_empty_stage_filter_is_refused_rather_than_read_as_every_stage()
     {
         var sap = new FakeServiceLayer();

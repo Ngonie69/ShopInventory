@@ -393,12 +393,44 @@ public sealed class CreditNoteApprovalListTests
         Assert.Equal(84120, sap.RequestedBeforeCode);
     }
 
+    [Fact]
+    public async Task The_raised_dates_and_originator_go_to_sap_with_the_page()
+    {
+        var request = Pending(code: 84119, draftEntry: 88123, stage: 4, originator: 12, template: 7);
+        var sap = new RecordingSapClient([request], total: 1, [Draft(88123, "SPA059", "Spar Avondale", 10m, attachmentEntry: null)]);
+        var handler = Handler(sap, LookupsWithStage(4, "Finance review", 1, 9));
+        var filter = new CreditNoteApprovalRequestFilter(new DateTime(2026, 11, 1), new DateTime(2026, 11, 9), 12);
+
+        var result = await handler.Handle(new GetCreditNoteApprovalsQuery("pending", 1, 25, Filter: filter), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Equal(filter, sap.RequestedFilter);
+    }
+
+    [Fact]
+    public void Raised_to_before_raised_from_is_refused()
+    {
+        var validator = new GetCreditNoteApprovalsValidator();
+
+        var backwards = validator.Validate(new GetCreditNoteApprovalsQuery(
+            "pending", 1, 25, Filter: new CreditNoteApprovalRequestFilter(new DateTime(2026, 11, 9), new DateTime(2026, 11, 1))));
+        var sameDay = validator.Validate(new GetCreditNoteApprovalsQuery(
+            "pending", 1, 25, Filter: new CreditNoteApprovalRequestFilter(new DateTime(2026, 11, 9), new DateTime(2026, 11, 9))));
+        var badOriginator = validator.Validate(new GetCreditNoteApprovalsQuery(
+            "pending", 1, 25, Filter: new CreditNoteApprovalRequestFilter(OriginatorId: 0)));
+
+        Assert.False(backwards.IsValid);
+        Assert.True(sameDay.IsValid);
+        Assert.False(badOriginator.IsValid);
+    }
+
     private sealed class RecordingSapClient(List<SAPApprovalRequest> requests, int total, List<SAPCreditNote> drafts)
     {
         public IReadOnlyCollection<string>? RequestedStatuses { get; private set; }
         public IReadOnlyCollection<int>? RequestedDraftEntries { get; private set; }
         public int? RequestedBeforeCode { get; private set; }
         public IReadOnlyCollection<int>? RequestedStageCodes { get; private set; }
+        public CreditNoteApprovalRequestFilter? RequestedFilter { get; private set; }
 
         public ISAPServiceLayerClient AsClient() => StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
@@ -412,6 +444,7 @@ public sealed class CreditNoteApprovalListTests
             RequestedStatuses = (IReadOnlyCollection<string>)args[0]!;
             RequestedBeforeCode = (int?)args[3];
             RequestedStageCodes = (IReadOnlyCollection<int>?)args[4];
+            RequestedFilter = (CreditNoteApprovalRequestFilter?)args[5];
             return Task.FromResult((requests, total));
         }
 

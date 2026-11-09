@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 
 namespace ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovals;
 
@@ -19,5 +20,12 @@ namespace ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprov
 /// The caller's account, whose role decides which SAP stages of the queue they see — see
 /// <see cref="ICreditNoteApprovalStageScope"/>. Null is a service caller and sees every stage.
 /// </param>
-public sealed record GetCreditNoteApprovalsQuery(string? Status, int Page, int PageSize, int? BeforeCode = null, Guid? CallerUserId = null)
+/// <param name="Filter">Raised dates and originator, applied in SAP. Null narrows nothing.</param>
+public sealed record GetCreditNoteApprovalsQuery(
+    string? Status,
+    int Page,
+    int PageSize,
+    int? BeforeCode = null,
+    Guid? CallerUserId = null,
+    CreditNoteApprovalRequestFilter? Filter = null)
     : IRequest<ErrorOr<CreditNoteApprovalListResponseDto>>;

@@ -1485,6 +1485,67 @@
     color: var(--cna-mute-3);
 }
 
+/* The date fields and Raised by sit in the search box's row, so they take its
+   height, edge and fill through the components' own fallbacks rather than being
+   restyled — the calendar and the menu stay the same objects as everywhere else. */
+.cna-q .cna-filters {
+    --ndf-h: 44px;
+    --ndf-fs: 14px;
+    --ndf-radius: var(--cna-r-md);
+    --ndf-fill: var(--cna-field);
+    --ndf-edge: var(--cna-field-edge);
+    --ndf-edge-hi: var(--cna-field-edge-hi);
+    --nsel-h: 44px;
+    --nsel-fs: 14px;
+    --nsel-radius: var(--cna-r-md);
+    --nsel-fill: var(--cna-field);
+    --nsel-edge: var(--cna-field-edge);
+    --nsel-edge-hi: var(--cna-field-edge-hi);
+    --nsel-min-w: 200px;
+    gap: var(--cna-s3);
+}
+
+.cna-filter-range {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s2);
+}
+
+.cna-filter-cap {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--cna-mute);
+}
+
+.cna-filter-dash {
+    color: var(--cna-mute-3);
+}
+
+.cna-filter-date {
+    flex: 0 0 140px;
+}
+
+.cna-filter-by {
+    flex: 0 1 auto;
+}
+
+@media (max-width: 860px) {
+    .cna-search,
+    .cna-filter-range {
+        flex-basis: 100%;
+        max-width: none;
+    }
+
+    .cna-filter-date {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    .cna-filter-by {
+        flex: 1 1 100%;
+    }
+}
+
 /* ── The list ────────────────────────────────────────────────────────── */
 
 .cna-list-title {

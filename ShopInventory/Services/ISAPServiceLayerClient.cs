@@ -941,6 +941,9 @@ public interface ISAPServiceLayerClient
     /// every stage; an empty collection is refused, because a scope that names nothing must not read as
     /// "everything".
     /// </param>
+    /// <param name="filter">
+    /// Raised dates and originator, applied in SAP to the rows and the count alike. Null narrows nothing.
+    /// </param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     Task<(List<SAPApprovalRequest> Items, int TotalCount)> GetCreditNoteApprovalRequestsAsync(
         IReadOnlyCollection<string> sapStatuses,
@@ -948,6 +951,7 @@ public interface ISAPServiceLayerClient
         int pageSize,
         int? beforeCode = null,
         IReadOnlyCollection<int>? stageCodes = null,
+        CreditNoteApprovalRequestFilter? filter = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -955,6 +959,16 @@ public interface ISAPServiceLayerClient
     /// included, as <see cref="GetCreditNoteApprovalRequestsAsync"/>, with no rows read.
     /// </summary>
     Task<int> CountCreditNoteApprovalRequestsAsync(
+        IReadOnlyCollection<string> sapStatuses,
+        IReadOnlyCollection<int>? stageCodes = null,
+        CreditNoteApprovalRequestFilter? filter = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The SAP users (<c>Users.InternalKey</c>) who raised a credit memo approval request in these
+    /// statuses and stages — the choices for the queue's "raised by" filter. Ascending, distinct.
+    /// </summary>
+    Task<List<int>> GetCreditNoteApprovalOriginatorIdsAsync(
         IReadOnlyCollection<string> sapStatuses,
         IReadOnlyCollection<int>? stageCodes = null,
         CancellationToken cancellationToken = default);
