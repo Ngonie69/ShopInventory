@@ -58,8 +58,8 @@ internal sealed class FakeTransferSap
     public List<(int DraftEntry, CancellationToken Token)> Saves { get; } = [];
     public List<int> ClosedRequests { get; } = [];
 
-    /// <summary>What the list read was asked for: the warehouse scope and the warehouse filter.</summary>
-    public List<(IReadOnlyCollection<string>? Scope, string? Warehouse, int? Before)> ListReads { get; } = [];
+    /// <summary>What the list read was asked for: the warehouse scope and the page's filters.</summary>
+    public List<(IReadOnlyCollection<string>? Scope, SapTransferDraftFilter? Filter, int? Before)> ListReads { get; } = [];
 
     /// <summary>The drafts the list read answers with, and the count it reports.</summary>
     public List<SAPStockTransferDraft> ListDrafts { get; init; } = [];
@@ -93,7 +93,7 @@ internal sealed class FakeTransferSap
 
     private Task<(List<SAPStockTransferDraft> Items, int TotalCount)> List(object?[] args)
     {
-        ListReads.Add(((IReadOnlyCollection<string>?)args[3], (string?)args[4], (int?)args[2]));
+        ListReads.Add(((IReadOnlyCollection<string>?)args[3], (SapTransferDraftFilter?)args[4], (int?)args[2]));
         return Task.FromResult((ListDrafts, ListTotal));
     }
 

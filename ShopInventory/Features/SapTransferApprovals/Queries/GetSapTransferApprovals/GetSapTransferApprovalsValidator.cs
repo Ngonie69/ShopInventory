@@ -19,5 +19,29 @@ public sealed class GetSapTransferApprovalsValidator : AbstractValidator<GetSapT
         RuleFor(query => query.Warehouse)
             .MaximumLength(20)
             .When(query => !string.IsNullOrWhiteSpace(query.Warehouse));
+
+        // Each code becomes one `eq` term in the filter, so the lists are kept to what a page offers.
+        RuleFor(query => query.Filter!.FromWarehouses)
+            .Must(BeWarehouseCodes)
+            .When(query => query.Filter?.FromWarehouses is not null)
+            .WithMessage("Pick at most 20 source warehouses, each a SAP warehouse code.");
+
+        RuleFor(query => query.Filter!.ToWarehouses)
+            .Must(BeWarehouseCodes)
+            .When(query => query.Filter?.ToWarehouses is not null)
+            .WithMessage("Pick at most 20 destination warehouses, each a SAP warehouse code.");
+
+        RuleFor(query => query.Filter!)
+            .Must(filter => filter.CreatedFrom is null || filter.CreatedTo is null || filter.CreatedFrom.Value.Date <= filter.CreatedTo.Value.Date)
+            .When(query => query.Filter is not null)
+            .WithMessage("The created-from day must not be after the created-to day.");
+
+        RuleFor(query => query.Filter!.DraftNum)
+            .GreaterThan(0)
+            .When(query => query.Filter?.DraftNum is not null)
+            .WithMessage("A draft number is a positive whole number.");
     }
+
+    private static bool BeWarehouseCodes(IReadOnlyCollection<string>? codes) =>
+        codes is null || (codes.Count <= 20 && codes.All(code => !string.IsNullOrWhiteSpace(code) && code.Trim().Length <= 20));
 }

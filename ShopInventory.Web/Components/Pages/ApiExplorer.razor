@@ -1864,7 +1864,7 @@ Color = Color.Success,
 Methods = new[] { "GET", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/sap-transfer-approvals", "Approved transfer drafts waiting to be added, scoped to the caller's warehouses"),
+new("GET", "/api/sap-transfer-approvals", "Approved transfer drafts waiting to be added, scoped to the caller's warehouses; filter by warehouse, from/to, created day, attachment or draft number"),
 new("GET", "/api/sap-transfer-approvals/{draftEntry}", "One draft with its lines, batch picks, approvals and copied-from request"),
 new("POST", "/api/sap-transfer-approvals/{draftEntry}/add", "Add the approved draft as the inventory transfer")
 }
