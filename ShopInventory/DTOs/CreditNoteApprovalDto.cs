@@ -94,6 +94,21 @@ public sealed class CreditNoteApprovalCountsDto
     public int Rejected { get; set; }
 }
 
+/// <summary>
+/// One SAP user who has raised a credit memo approval request — a choice for the queue's
+/// "raised by" filter.
+/// </summary>
+public sealed class CreditNoteApprovalOriginatorDto
+{
+    /// <summary>The SAP user's <c>InternalKey</c>, which the list's <c>originatorId</c> takes.</summary>
+    public int Id { get; set; }
+
+    public string? UserCode { get; set; }
+
+    /// <summary>The SAP user name; null when SAP could not name the user, and the code is shown instead.</summary>
+    public string? Name { get; set; }
+}
+
 public sealed class CreditNoteDraftLineDto
 {
     public int LineNum { get; set; }

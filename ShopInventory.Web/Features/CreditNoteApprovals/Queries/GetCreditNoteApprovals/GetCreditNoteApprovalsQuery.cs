@@ -12,5 +12,7 @@ namespace ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteAp
 /// The previous page's <c>NextCursor</c>. Given, this page continues below that request code rather
 /// than counting in from a top that moves whenever a credit memo is raised.
 /// </param>
-public sealed record GetCreditNoteApprovalsQuery(string? Status, int Page, int PageSize, int? BeforeCode = null)
+/// <param name="Filter">Raised dates and originator, applied in SAP. Null narrows nothing.</param>
+public sealed record GetCreditNoteApprovalsQuery(
+    string? Status, int Page, int PageSize, int? BeforeCode = null, CreditNoteApprovalFilter? Filter = null)
     : IRequest<ErrorOr<CreditNoteApprovalListResponseDto>>;

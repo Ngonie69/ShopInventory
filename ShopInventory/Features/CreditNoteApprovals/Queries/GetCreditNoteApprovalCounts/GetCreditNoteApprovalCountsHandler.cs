@@ -40,15 +40,16 @@ public sealed class GetCreditNoteApprovalCountsHandler(
         }
 
         var stages = scope.Value.StageCodes;
+        var filter = query.Filter;
 
         return new CreditNoteApprovalCountsDto
         {
             Pending = await sap.CountCreditNoteApprovalRequestsAsync(
-                CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Pending), stages, cancellationToken),
+                CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Pending), stages, filter, cancellationToken),
             Approved = await sap.CountCreditNoteApprovalRequestsAsync(
-                CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Approved), stages, cancellationToken),
+                CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Approved), stages, filter, cancellationToken),
             Rejected = await sap.CountCreditNoteApprovalRequestsAsync(
-                CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Rejected), stages, cancellationToken)
+                CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Rejected), stages, filter, cancellationToken)
         };
     }
 }

@@ -54,7 +54,7 @@ public sealed class GetCreditNoteApprovalsHandler(
         var serviceApproverTask = TryLookupAsync(() => lookups.GetServiceApproverAsync(cancellationToken), "the service approver");
 
         var (requests, total) = await sap.GetCreditNoteApprovalRequestsAsync(
-            statuses, query.Page, query.PageSize, query.BeforeCode, scope.Value.StageCodes, cancellationToken);
+            statuses, query.Page, query.PageSize, query.BeforeCode, scope.Value.StageCodes, query.Filter, cancellationToken);
 
         var draftEntries = requests
             .Where(request => request.DraftEntry is > 0)

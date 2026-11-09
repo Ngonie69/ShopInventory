@@ -101,7 +101,11 @@
             </div>
         }
 
-        <section class="cna-filters">
+        @* Two kinds of filter in one row. The dates and Raised by go to SAP, so the tiles, the range
+           and the pages all describe the narrowed queue. The customer lives on the draft rather than
+           the request, and SAP will not count a search across the two, so that box narrows the page
+           in hand — which the note beside it says. *@
+        <section class="cna-filters" aria-label="Filters">
             <div class="cna-search">
                 <label for="cna-f-customer" class="cna-visually-hidden">Customer</label>
                 <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
@@ -110,11 +114,34 @@
                 <input id="cna-f-customer" class="cna-input" type="search" placeholder="Customer name or code"
                        value="@customerFilter" @oninput="OnCustomerFilterInputAsync" />
             </div>
+            @* One caption for the pair: a filled-in date loses its placeholder, and two bare dates
+               side by side do not say which end of the range each one is. *@
+            <div class="cna-filter-range" role="group" aria-label="Raised between">
+                <span class="cna-filter-cap" aria-hidden="true">Raised</span>
+                <div class="cna-filter-date">
+                    <NocturneDateField @bind-Date="raisedFrom" @bind-Date:after="OnSapFilterChangedAsync"
+                                       Placeholder="From" AriaLabel="Raised from" Disabled="@isLoading" />
+                </div>
+                <span class="cna-filter-dash" aria-hidden="true">–</span>
+                <div class="cna-filter-date">
+                    <NocturneDateField @bind-Date="raisedTo" @bind-Date:after="OnSapFilterChangedAsync"
+                                       Placeholder="To" AriaLabel="Raised to" Disabled="@isLoading" />
+                </div>
+            </div>
+            <NocturneSelect Class="cna-filter-by" TValue="string" Icon="ph ph-user"
+                            Options="OriginatorOptions" @bind-Value="originatorFilter"
+                            OnChanged="OnSapFilterChangedAsync" Caption="Raised by"
+                            AriaLabel="Raised by" Placeholder="Raised by anyone" />
+            @if (HasAnyFilter)
+            {
+                <button type="button" class="cna-btn cna-btn-ghost cna-btn-lg" @onclick="ClearFiltersAsync" disabled="@isLoading">
+                    Clear filters
+                </button>
+            }
             @if (!string.IsNullOrWhiteSpace(customerFilter))
             {
-                <button type="button" class="cna-btn cna-btn-ghost cna-btn-lg" @onclick="ClearCustomerFilter">Clear</button>
+                <span class="cna-filter-note">Customer narrows this page only</span>
             }
-            <span class="cna-filter-note">Narrows the page on screen</span>
         </section>
 
         <section class="cna-card" aria-label="Requests">

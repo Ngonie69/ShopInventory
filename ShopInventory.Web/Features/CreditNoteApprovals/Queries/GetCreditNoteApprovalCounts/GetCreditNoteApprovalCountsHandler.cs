@@ -17,7 +17,7 @@ public sealed class GetCreditNoteApprovalCountsHandler(
     {
         try
         {
-            var (success, message, counts) = await approvalService.GetCountsAsync();
+            var (success, message, counts) = await approvalService.GetCountsAsync(request.Filter);
             if (!success || counts is null)
             {
                 return Errors.CreditNoteApproval.LoadFailed(message);

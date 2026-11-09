@@ -18,5 +18,9 @@ public sealed class GetCreditNoteApprovalsValidator : AbstractValidator<GetCredi
             .GreaterThan(0)
             .When(query => query.BeforeCode is not null)
             .WithMessage("The paging cursor must be a SAP approval request code.");
+
+        RuleFor(query => query.Filter!)
+            .SetValidator(new CreditNoteApprovalRequestFilterValidator())
+            .When(query => query.Filter is not null);
     }
 }

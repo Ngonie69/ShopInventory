@@ -11,6 +11,7 @@ using ShopInventory.Web.Components.Pages;
 using ShopInventory.Web.Features.CreditNoteApprovals.Commands.DecideCreditNoteApproval;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApproval;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalCounts;
+using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovalOriginators;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovals;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
@@ -43,6 +44,48 @@ public sealed class CreditNoteApprovalQueuePageTests
         // The page opens on the requests still waiting for somebody, not the API's default mix.
         Assert.Equal("pending", Assert.Single(sap.ListStatuses.Distinct()));
         Assert.Equal(1, sap.CountReads);
+    }
+
+    [Fact]
+    public async Task Raised_by_and_dates_narrow_the_list_and_the_tiles_in_sap()
+    {
+        var sap = new FakeQueue([Request(101, "Corner Grocer Avenues")], new CreditNoteApprovalCountsDto { Pending = 12 });
+
+        var (_, html) = await RenderAsync(sap, async page =>
+        {
+            // Typed the wrong way round; the range they describe is what is read.
+            SetField(page, "raisedFrom", (DateTime?)new DateTime(2026, 11, 30));
+            SetField(page, "raisedTo", (DateTime?)new DateTime(2026, 11, 1));
+            SetField(page, "originatorFilter", "31");
+            await CreditNoteApprovalAddPageTests.Invoke(page, "OnSapFilterChangedAsync");
+        });
+
+        var expected = new CreditNoteApprovalFilter(new DateTime(2026, 11, 1), new DateTime(2026, 11, 30), 31);
+        Assert.Equal([null, expected], sap.ListFilters);
+        Assert.Equal([null, expected], sap.CountFilters);
+
+        // The trigger names the person chosen, and the row offers a way back.
+        Assert.Contains("Tendai Banda", html);
+        Assert.Contains("Clear filters", html);
+    }
+
+    [Fact]
+    public async Task An_unchanged_filter_reads_nothing_and_clearing_reads_the_whole_queue_again()
+    {
+        var sap = new FakeQueue([Request(101, "Corner Grocer Avenues")], new CreditNoteApprovalCountsDto { Pending = 12 });
+
+        var (_, html) = await RenderAsync(sap, async page =>
+        {
+            SetField(page, "originatorFilter", "31");
+            await CreditNoteApprovalAddPageTests.Invoke(page, "OnSapFilterChangedAsync");
+            await CreditNoteApprovalAddPageTests.Invoke(page, "OnSapFilterChangedAsync");
+            await CreditNoteApprovalAddPageTests.Invoke(page, "ClearFiltersAsync");
+        });
+
+        var byPerson = new CreditNoteApprovalFilter(OriginatorId: 31);
+        Assert.Equal([null, byPerson, null], sap.ListFilters);
+        Assert.Equal([null, byPerson, null], sap.CountFilters);
+        Assert.DoesNotContain("Clear filters", html);
     }
 
     [Fact]
@@ -143,6 +186,11 @@ public sealed class CreditNoteApprovalQueuePageTests
     }
 
     /// <summary>Renders the page, runs <paramref name="act"/> against it, and returns the page's HTML.</summary>
+    private static void SetField(CreditNoteApprovals page, string name, object? value) =>
+        (typeof(CreditNoteApprovals).GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"CreditNoteApprovals.{name} no longer exists."))
+        .SetValue(page, value);
+
     private static async Task<(CreditNoteApprovals Page, string Html)> RenderAsync(
         FakeQueue sap,
         Func<CreditNoteApprovals, Task> act)
@@ -216,6 +264,8 @@ public sealed class CreditNoteApprovalQueuePageTests
         string? refusal = null)
     {
         public List<string?> ListStatuses { get; } = [];
+        public List<CreditNoteApprovalFilter?> ListFilters { get; } = [];
+        public List<CreditNoteApprovalFilter?> CountFilters { get; } = [];
         public List<(int Code, string Decision)> Decisions { get; } = [];
         public int CountReads { get; private set; }
 
@@ -230,6 +280,7 @@ public sealed class CreditNoteApprovalQueuePageTests
             {
                 case GetCreditNoteApprovalsQuery list:
                     ListStatuses.Add(list.Status);
+                    ListFilters.Add(list.Filter);
                     return Task.FromResult<ErrorOr<CreditNoteApprovalListResponseDto>>(new CreditNoteApprovalListResponseDto
                     {
                         Items = pending.ToList(),
@@ -239,11 +290,19 @@ public sealed class CreditNoteApprovalQueuePageTests
                         Status = list.Status ?? "open"
                     });
 
-                case GetCreditNoteApprovalCountsQuery:
+                case GetCreditNoteApprovalCountsQuery countQuery:
                     CountReads++;
+                    CountFilters.Add(countQuery.Filter);
                     return Task.FromResult<ErrorOr<CreditNoteApprovalCountsDto>>(counts is null
                         ? WebErrors.CreditNoteApproval.LoadFailed("The queue counts could not be read from SAP.")
                         : counts);
+
+                case GetCreditNoteApprovalOriginatorsQuery:
+                    return Task.FromResult<ErrorOr<List<CreditNoteApprovalOriginatorDto>>>(new List<CreditNoteApprovalOriginatorDto>
+                    {
+                        new() { Id = 31, UserCode = "tbanda", Name = "Tendai Banda" },
+                        new() { Id = 15, UserCode = "washbay" }
+                    });
 
                 case GetCreditNoteApprovalQuery detail:
                     var row = pending.FirstOrDefault(item => item.Code == detail.Code);
