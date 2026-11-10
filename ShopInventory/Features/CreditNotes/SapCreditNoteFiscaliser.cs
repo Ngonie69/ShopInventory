@@ -9,6 +9,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Features.CreditNotes;
 
@@ -79,7 +80,8 @@ public sealed class SapCreditNoteFiscaliser(
             }
 
             originalInvoiceNumber = resolved;
-            result = await fiscalizationService.FiscalizeCreditNoteAsync(document, resolved, customer, CancellationToken.None);
+            result = await fiscalizationService.FiscalizeCreditNoteAsync(
+                document, resolved, customer, caller.RaisedBy, CancellationToken.None);
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -118,10 +120,11 @@ public sealed class SapCreditNoteFiscaliser(
         if (!result.Success && !result.Skipped)
         {
             // An unresolved outcome is always worth a person's look, whoever asked: it is the one case
-            // where the next step must be a lookup and never another submission.
+            // where the next step must be a lookup and never another submission. So is a note the platform
+            // refused for what it says: no later attempt changes the answer, so there is nothing to wait for.
             await CaptureIncidentAsync(
                 creditNote,
-                caller.CaptureIncidents || result.RequiresReconciliation,
+                caller.CaptureIncidents || result.RequiresReconciliation || FiscalDocumentRefusal.Is(result),
                 result.Message ?? "Fiscalisation failed for the credit note.");
         }
 
@@ -188,7 +191,9 @@ public sealed class SapCreditNoteFiscaliser(
                         Status = FiscalTransactionStatus.Of(result),
                         Message = result.RequiresReconciliation
                             ? FiscalOutcomeMessages.MarkUnresolved(result.Message)
-                            : result.Message,
+                            : FiscalDocumentRefusal.Is(result)
+                                ? FiscalDocumentRefusal.Mark(result.Message)
+                                : result.Message,
                         VerificationCode = result.VerificationCode,
                         QRCode = result.QRCode,
                         DeviceSerialNumber = result.DeviceSerial,
@@ -239,13 +244,18 @@ public sealed class SapCreditNoteFiscaliser(
 /// </param>
 /// <param name="UserId">Who the row is recorded against, when a person asked.</param>
 /// <param name="Username">That person's username.</param>
+/// <param name="RaisedBy">
+/// Who raised the credit note, named to the platform as its operator. Only for a credit note ShopInventory raised;
+/// null for one keyed into SAP, so the platform names the SAP user who created it.
+/// </param>
 public sealed record SapCreditNoteFiscalisationCaller(
     string SourceSystem,
     string ClientTransactionIdPrefix,
     string Description,
     bool CaptureIncidents,
     string? UserId = null,
-    string? Username = null);
+    string? Username = null,
+    FiscalReceiptOperator? RaisedBy = null);
 
 /// <summary>What became of one attempt to fiscalise a SAP credit memo.</summary>
 /// <param name="Result">The fiscal service's answer, when it was asked.</param>

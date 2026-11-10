@@ -74,11 +74,16 @@ public interface IFiscalizationService
     /// for traceability. The platform recovers the fiscal link itself from the SAP document's
     /// BaseType/BaseEntry, across all devices, which is strictly better than anything this app can
     /// compute.
+    ///
+    /// <paramref name="raisedBy"/> is the ShopInventory user who raised the credit note, as for
+    /// <see cref="FiscalizeInvoiceAsync"/>: pass it only for a credit note raised here, and null for one keyed into
+    /// SAP, so the platform names the SAP user who created it.
     /// </remarks>
     Task<FiscalizationResult> FiscalizeCreditNoteAsync(
         InvoiceDto creditNote,
         string originalInvoiceNumber,
         CustomerFiscalDetails? customerDetails = null,
+        FiscalReceiptOperator? raisedBy = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -145,6 +150,19 @@ public class FiscalizationResult
     public string? VerificationCode { get; set; }
     public string? ErrorCode { get; set; }
     public string? ErrorDetails { get; set; }
+
+    /// <summary>
+    /// Why it was not fiscalised, in the platform's own plain sentence for the person at the document, when it
+    /// sent one ("The note credits more than is left on its invoice. Reduce the note to 265.65 or less...").
+    /// </summary>
+    /// <remarks>
+    /// What a user is shown, through <see cref="MessageForUser"/>. <see cref="Message"/> stays the full detail,
+    /// which is what logs, incidents and the Exception Center record.
+    /// </remarks>
+    public string? UserMessage { get; set; }
+
+    /// <summary>What to show a person about this result: the platform's sentence for them, else the message.</summary>
+    public string? MessageForUser() => string.IsNullOrWhiteSpace(UserMessage) ? Message : UserMessage;
 
     /// <summary>
     /// Invoice number that was fiscalized.
@@ -265,6 +283,7 @@ public class FiscalizationService : IFiscalizationService
         InvoiceDto creditNote,
         string originalInvoiceNumber,
         CustomerFiscalDetails? customerDetails = null,
+        FiscalReceiptOperator? raisedBy = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(creditNote);
@@ -279,7 +298,7 @@ public class FiscalizationService : IFiscalizationService
             SapDocumentType.CreditNote,
             ReceiptType.CreditNote,
             customerDetails,
-            raisedBy: null,
+            raisedBy,
             cancellationToken);
     }
 
@@ -896,6 +915,7 @@ public class FiscalizationService : IFiscalizationService
                 InvoiceNumber = invoiceNumber,
                 ErrorCode = exception.ErrorCode,
                 ErrorDetails = exception.Message,
+                UserMessage = exception.UserMessage,
                 RawRequestJson = rawRequestJson
             };
         }
@@ -906,6 +926,8 @@ public class FiscalizationService : IFiscalizationService
             invoiceNumber,
             exception.ErrorCode);
 
+        // The detail stays the message, for the logs, the incident and the Exception Center; the platform's
+        // sentence for the person at the document travels beside it.
         return new FiscalizationResult
         {
             Success = false,
@@ -913,6 +935,7 @@ public class FiscalizationService : IFiscalizationService
             InvoiceNumber = invoiceNumber,
             ErrorCode = exception.ErrorCode ?? "FISCALISATION_ERROR",
             ErrorDetails = exception.Message,
+            UserMessage = exception.UserMessage,
             RawRequestJson = rawRequestJson
         };
     }

@@ -72,11 +72,25 @@ public sealed class FiscalReceiptOperatorTests
     }
 
     [Fact]
-    public async Task A_credit_note_names_nobody()
+    public async Task A_credit_note_fiscalised_without_its_raiser_names_nobody()
     {
+        // The sweep's memos, keyed into SAP: the platform names the SAP user who created them.
         var submitted = await SubmitAsync(service => service.FiscalizeCreditNoteAsync(SapInvoice(), "784900"));
 
         Assert.Null(submitted.Receipt!.Username);
+    }
+
+    [Fact]
+    public async Task A_credit_note_raised_here_names_its_user_to_the_platform()
+    {
+        // SAP 62766 and 62752 (2026-11-09) were raised from ShopInventory and named "Software".
+        var submitted = await SubmitAsync(service => service.FiscalizeCreditNoteAsync(
+            SapInvoice(),
+            "784900",
+            raisedBy: FiscalReceiptOperator.For("tatenda", "Tatenda", "Moyo")));
+
+        Assert.Equal("tatenda", submitted.Receipt!.Username);
+        Assert.Equal("Tatenda Moyo", submitted.Receipt.UserNameSurname);
     }
 
     private static InvoiceDto SapInvoice() => new()

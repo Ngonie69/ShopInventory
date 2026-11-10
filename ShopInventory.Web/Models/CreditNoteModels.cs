@@ -95,6 +95,13 @@ public class CreditNoteDto
 
     public int? FiscalReceiptGlobalNo { get; set; }
     public DateTime? FiscalizedAtUtc { get; set; }
+
+    /// <summary>
+    /// Why the credit note was not fiscalised when it was created, in a sentence for the person who raised it
+    /// (the fiscalisation platform's own when it refused it). Only the create's answer carries it.
+    /// </summary>
+    public string? FiscalisationRefusal { get; set; }
+
     public List<CreditNoteLineDto> Lines { get; set; } = new();
 }
 

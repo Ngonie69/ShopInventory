@@ -177,6 +177,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
         InvoiceDto creditNote,
         string originalInvoiceNumber,
         CustomerFiscalDetails? customerDetails = null,
+        FiscalReceiptOperator? raisedBy = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(creditNote);

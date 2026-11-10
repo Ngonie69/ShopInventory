@@ -15,17 +15,25 @@ public class FiscalisationApiException : Exception
         HttpStatusCode statusCode,
         string? errorCode,
         string detail,
-        bool hasProblemDocument = true)
+        bool hasProblemDocument = true,
+        string? userMessage = null)
         : base(detail)
     {
         StatusCode = statusCode;
         ErrorCode = errorCode;
         HasProblemDocument = hasProblemDocument;
+        UserMessage = string.IsNullOrWhiteSpace(userMessage) ? null : userMessage.Trim();
     }
 
     public HttpStatusCode StatusCode { get; }
 
     public string? ErrorCode { get; }
+
+    /// <summary>
+    /// The platform's plain sentence for the person at the document, when it sent one. Show this to a user;
+    /// <see cref="Exception.Message"/> is the full detail, for logs, incidents and the Exception Center.
+    /// </summary>
+    public string? UserMessage { get; }
 
     /// <summary>
     /// Whether the platform explained itself. The platform answers every failure it recognises with a

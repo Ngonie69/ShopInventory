@@ -348,6 +348,6 @@ public class FiscalisationApiClient : IFiscalisationApiClient
         // Whether the platform said anything at all, which is how a caller tells a refusal it should act
         // on from a route this platform build does not serve.
         throw new FiscalisationApiException(
-            response.StatusCode, error?.ErrorCode, detail, hasProblemDocument: error is not null);
+            response.StatusCode, error?.ErrorCode, detail, hasProblemDocument: error is not null, error?.UserMessage);
     }
 }

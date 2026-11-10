@@ -249,7 +249,15 @@ public sealed class CreditNoteApprovalFiscalisationDto
     /// </summary>
     public bool AlreadyFiscalised { get; set; }
 
+    /// <summary>The fiscal service's message: the full detail, as the incident and the Exception Center record it.</summary>
     public string? Message { get; set; }
+
+    /// <summary>
+    /// Why the platform refused it, in its own sentence for the person who added the note, when it sent one. The
+    /// add's message shows this in place of <see cref="Message"/>.
+    /// </summary>
+    public string? UserMessage { get; set; }
+
     public string? ReceiptGlobalNo { get; set; }
 }
 
