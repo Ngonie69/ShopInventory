@@ -87,6 +87,7 @@ public sealed class RevmaxHistoryFiscalizationService(
         InvoiceDto creditNote,
         string originalInvoiceNumber,
         CustomerFiscalDetails? customerDetails = null,
+        FiscalReceiptOperator? raisedBy = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(creditNote);
@@ -109,7 +110,7 @@ public sealed class RevmaxHistoryFiscalizationService(
         if (string.IsNullOrWhiteSpace(originalInvoiceNumber))
         {
             return await platform.FiscalizeCreditNoteAsync(
-                creditNote, originalInvoiceNumber, customerDetails, cancellationToken);
+                creditNote, originalInvoiceNumber, customerDetails, raisedBy, cancellationToken);
         }
 
         // The platform is asked first because it holds everything filed since the switch. That way a
@@ -117,7 +118,7 @@ public sealed class RevmaxHistoryFiscalizationService(
         if (await platform.IsInvoiceFiscalizedAsync(originalInvoiceNumber, cancellationToken))
         {
             return await platform.FiscalizeCreditNoteAsync(
-                creditNote, originalInvoiceNumber, customerDetails, cancellationToken);
+                creditNote, originalInvoiceNumber, customerDetails, raisedBy, cancellationToken);
         }
 
         var original = await revmax.LookUpOwnReceiptAsync(
@@ -133,7 +134,7 @@ public sealed class RevmaxHistoryFiscalizationService(
                     originalInvoiceNumber);
 
                 return await revmax.FiscalizeCreditNoteAsync(
-                    creditNote, originalInvoiceNumber, customerDetails, cancellationToken);
+                    creditNote, originalInvoiceNumber, customerDetails, cancellationToken: cancellationToken);
 
             case RevmaxReceiptLookupOutcome.Unknown:
                 return HeldBack(
@@ -147,7 +148,7 @@ public sealed class RevmaxHistoryFiscalizationService(
                 // Neither holds it. The platform gives the refusal, which names the reason in its own
                 // terms, rather than this class guessing at it.
                 return await platform.FiscalizeCreditNoteAsync(
-                    creditNote, originalInvoiceNumber, customerDetails, cancellationToken);
+                    creditNote, originalInvoiceNumber, customerDetails, raisedBy, cancellationToken);
         }
     }
 

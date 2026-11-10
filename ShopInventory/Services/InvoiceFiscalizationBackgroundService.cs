@@ -50,10 +50,13 @@ public sealed class InvoiceFiscalizationBackgroundService(
             var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
             var sender = scope.ServiceProvider.GetRequiredService<ISender>();
 
-            var raisedBy = await ResolveRaisedByAsync(
+            // Every work item is queued by the code that has just posted the invoice to SAP, for the user who raised
+            // it (the invoice, or the reservation it confirms), so this is never merely whoever fiscalised it.
+            var raisedBy = await FiscalReceiptOperatorLookup.ResolveAsync(
                 dbContext,
                 workItem.InitiatedByUserId,
                 workItem.InitiatedByUsername,
+                logger,
                 stoppingToken);
 
             var result = await fiscalizationService.FiscalizeInvoiceAsync(
@@ -194,52 +197,6 @@ public sealed class InvoiceFiscalizationBackgroundService(
                 username,
                 workItem.Invoice.DocNum);
         }
-    }
-
-    /// <summary>
-    /// The user who raised the invoice, named to the platform as its operator so the platform shows them rather than
-    /// ShopInventory's SAP account. Every work item is queued by the code that has just posted the invoice to SAP, for
-    /// the user who raised it (the invoice, or the reservation it confirms), so this is never merely whoever
-    /// fiscalised it. The name is a courtesy: a lookup that fails names the username alone and the invoice is still
-    /// fiscalised.
-    /// </summary>
-    private async Task<FiscalReceiptOperator?> ResolveRaisedByAsync(
-        ApplicationDbContext dbContext,
-        Guid? userId,
-        string? username,
-        CancellationToken cancellationToken)
-    {
-        var name = string.IsNullOrWhiteSpace(username) ? null : username.Trim();
-
-        try
-        {
-            var users = dbContext.Users.AsNoTracking();
-            var user = userId.HasValue
-                ? await users
-                    .Where(candidate => candidate.Id == userId.Value)
-                    .Select(candidate => new { candidate.Username, candidate.FirstName, candidate.LastName })
-                    .FirstOrDefaultAsync(cancellationToken)
-                : null;
-
-            if (user is null && name is not null)
-            {
-                user = await users
-                    .Where(candidate => candidate.Username == name)
-                    .Select(candidate => new { candidate.Username, candidate.FirstName, candidate.LastName })
-                    .FirstOrDefaultAsync(cancellationToken);
-            }
-
-            if (user is not null)
-            {
-                return FiscalReceiptOperator.For(user.Username, user.FirstName, user.LastName);
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(ex, "Could not read who raised invoice work item user {UserId}; naming {Username} alone", userId, name);
-        }
-
-        return FiscalReceiptOperator.For(name);
     }
 
     private static async Task<string?> ResolveTargetUsernameAsync(

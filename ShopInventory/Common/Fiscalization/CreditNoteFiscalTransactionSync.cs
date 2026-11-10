@@ -66,7 +66,7 @@ internal static class CreditNoteFiscalTransactionSync
                     DocNum = docNum,
                     DocumentType = DocumentType,
                     Status = isFiscalized ? FiscalisedStatus : NotFiscalisedStatus,
-                    Message = BuildMessage(docNum, isFiscalized),
+                    Message = BuildMessage(creditNote, docNum, isFiscalized),
                     VerificationCode = snapshot.VerificationCode,
                     QRCode = snapshot.QrCode,
                     DeviceSerialNumber = snapshot.DeviceSerialNumber,
@@ -108,10 +108,16 @@ internal static class CreditNoteFiscalTransactionSync
         creditNote.FiscalizedAtUtc = isFiscalized ? snapshot.TimestampUtc : null;
     }
 
-    private static string BuildMessage(int docNum, bool isFiscalized)
+    /// <remarks>
+    /// A note the platform refused for what it says is recorded as such, so the credit memo sweep leaves it to the
+    /// incident rather than sending the same memo again (<see cref="FiscalDocumentRefusal"/>).
+    /// </remarks>
+    private static string BuildMessage(CreditNoteDto creditNote, int docNum, bool isFiscalized)
         => isFiscalized
             ? $"Credit note {docNum} fiscalised successfully."
-            : $"Credit note {docNum} is not fiscalised.";
+            : FiscalDocumentRefusal.IsDocumentRuleCode(creditNote.FiscalisationErrorCode)
+                ? FiscalDocumentRefusal.Mark(creditNote.FiscalisationRefusal)
+                : $"Credit note {docNum} is not fiscalised.";
 
     private static string? Serialize(object? value)
         => value is null ? null : JsonSerializer.Serialize(value);

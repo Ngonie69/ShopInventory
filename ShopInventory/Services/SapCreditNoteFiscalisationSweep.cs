@@ -30,8 +30,10 @@ namespace ShopInventory.Services;
 /// <para>
 /// Never taken: a cancelled memo; one a till credit filed before SAP (<see cref="PerSaleCreditNoteRegistry"/>
 /// — filing it again would hand the money back twice); one whose last outcome nobody could establish
-/// (<see cref="FiscalOutcomeMessages.IsUnresolved"/> — the next step there is a lookup by a person); and
-/// one that has used its attempts.
+/// (<see cref="FiscalOutcomeMessages.IsUnresolved"/> — the next step there is a lookup by a person); one the
+/// platform refused for what the memo itself says, whichever route asked (<see cref="FiscalDocumentRefusal"/> — a
+/// posted memo cannot change, so the answer would not either, and its incident is raised on that first refusal);
+/// and one that has used its attempts.
 /// </para>
 /// </remarks>
 public sealed class SapCreditNoteFiscalisationSweep(
@@ -267,7 +269,8 @@ public sealed class SapCreditNoteFiscalisationSweep(
 
             if (rows.Any(FiscalDocumentStatusProjector.HasFiscalEvidencePredicate)
                 || filedBeforeSap.Contains(memo.SapDocNum)
-                || rows.Any(row => FiscalOutcomeMessages.IsUnresolved(row.Message)))
+                || rows.Any(row => FiscalOutcomeMessages.IsUnresolved(row.Message))
+                || rows.Any(row => FiscalDocumentRefusal.IsMarked(row.Message)))
             {
                 continue;
             }

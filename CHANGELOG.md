@@ -30,6 +30,16 @@ otherwise be surprised.
   `.sql` beside it read-only and reads the API logs); to test REVMax from the API
   server, run `scripts/Test-RevmaxReachable.ps1`.
 
+- **A credit note the fiscalisation console refuses says why, and names who raised it.** Creating a credit note
+  (`POST /api/CreditNote` and `POST /api/CreditNote/from-invoice/{invoiceId}`) answers with two new fields, `fiscalisationRefusal` (the console's
+  plain sentence for the person, e.g. "The note credits more than is left on its invoice. Reduce the note to 265.65
+  or less...") and `fiscalisationErrorCode` (`RCPT035`); both are null when it was fiscalised. The Create credit
+  note page and the Invoices modal show the sentence instead of "created successfully", and an approval Add's message
+  uses it in place of the console's detail. Credit notes created or added here now name their ShopInventory user to
+  the console, which showed SAP user "Software" for all of them. Operators: the credit memo sweep no longer resends
+  a memo the console refused for a ZIMRA rule no retry can satisfy (RCPT015, 029, 033-036, 042); its Exception
+  Center incident is raised on the first refusal, not the third attempt.
+
 - **New: transfers SAP approved and nobody added can be added from the Web** (`/inventory-transfers/sap-approvals`,
   "SAP-Held Transfers" under Transfers). Inventory transfers keyed in the B1 client and approved by SAP's
   own approval templates sat as drafts until somebody added them in B1: on 9 Nov 2026, 519 approved

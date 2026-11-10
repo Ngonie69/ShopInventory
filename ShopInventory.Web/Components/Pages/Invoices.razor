@@ -1942,19 +1942,21 @@
                 StateHasChanged();
                 await Task.Delay(500);
 
-                creditNoteSuccess = true;
-
                 // Whether ZIMRA holds it too. Read back from the device after the post, so a credit note
-                // that reached SAP but not the fiscal device says so here rather than only in the log.
+                // that reached SAP but not the fiscal device says so here rather than only in the log. A refusal
+                // from the fiscalisation console is said in its own words: what is wrong and what to do.
+                var refusal = result.CreditNote.FiscalisationRefusal;
                 var fiscal = result.CreditNote.IsFiscalized switch
                 {
-                    true when result.CreditNote.FiscalReceiptGlobalNo is { } receipt => $" and fiscalised (receipt {receipt})",
-                    true => " and fiscalised",
-                    false => ". It is not fiscalised yet and has been logged for review",
-                    null => ". Its fiscal status could not be confirmed"
+                    true when result.CreditNote.FiscalReceiptGlobalNo is { } receipt => $" and fiscalised (receipt {receipt}).",
+                    true => " and fiscalised.",
+                    _ when !string.IsNullOrWhiteSpace(refusal) => $" in SAP, but it was not fiscalised: {refusal}",
+                    false => ". It is not fiscalised yet and has been logged for review.",
+                    null => ". Its fiscal status could not be confirmed."
                 };
 
-                creditNoteMessage = $"Credit Note {result.CreditNote.CreditNoteNumber} created{fiscal}.";
+                creditNoteSuccess = result.CreditNote.IsFiscalized != false && string.IsNullOrWhiteSpace(refusal);
+                creditNoteMessage = $"Credit Note {result.CreditNote.CreditNoteNumber} created{fiscal}";
                 showCreateCreditNoteModal = false;
 
                 existingCreditNotes = await CreditNoteService.GetCreditNotesForInvoiceAsync(selectedInvoice.DocEntry);

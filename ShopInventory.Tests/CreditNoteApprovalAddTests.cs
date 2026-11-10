@@ -18,6 +18,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Tests;
 
@@ -266,6 +267,50 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         Assert.Equal(CreditNoteFiscalisationIncidents.Source, incident.Source);
         Assert.Equal("FDMS down", incident.LastError);
         Assert.Equal("SAP-CN-9001", incident.Reference);
+    }
+
+    [Fact]
+    public async Task A_refusal_is_told_in_the_consoles_own_words_and_the_detail_is_kept_for_the_incident()
+    {
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123)) { SaveReturns = 9001 };
+        const string detail = "Device 46670: RCPT035 prevention: The total amount of all credit notes exceeds the original invoice.";
+        const string sentence = "The note credits more than is left on its invoice. Reduce the note to 265.65 or less, "
+            + "or link it to the right invoice, then fiscalise the document again.";
+        var fiscal = new RecordingFiscalisation
+        {
+            Result = new FiscalizationResult { Success = false, ErrorCode = "RCPT035", Message = detail, UserMessage = sentence }
+        };
+
+        var result = await Handler(sap, fiscal, new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Contains(sentence, result.Value.Message);
+        Assert.DoesNotContain("RCPT035 prevention", result.Value.Message);
+        Assert.Equal(sentence, result.Value.Fiscalisation.UserMessage);
+        Assert.Equal(detail, Assert.Single(_context.ExceptionCenterIncidents).LastError);
+    }
+
+    [Fact]
+    public async Task The_person_adding_the_credit_note_is_named_to_the_platform_as_who_raised_it()
+    {
+        _context.Users.Add(new User
+        {
+            Id = Ngoni,
+            Username = "ngoni",
+            Email = "ngoni@example.test",
+            PasswordHash = "x",
+            Role = "User",
+            IsActive = true,
+            FirstName = "Ngoni",
+            LastName = "Mutambirwa"
+        });
+        await _context.SaveChangesAsync();
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123)) { SaveReturns = 9001 };
+        var fiscal = new RecordingFiscalisation();
+
+        await Handler(sap, fiscal, new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.Equal(new FiscalReceiptOperator("ngoni", "Ngoni Mutambirwa"), Assert.Single(fiscal.RaisedBy));
     }
 
     [Fact]
@@ -969,6 +1014,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
     {
         public FiscalizationResult Result { get; init; } = new() { Success = true, Message = "ok" };
         public List<(InvoiceDto Document, string OriginalInvoiceNumber)> Calls { get; } = [];
+        public List<FiscalReceiptOperator?> RaisedBy { get; } = [];
         public List<SyncFiscalTransactionCommand> Recorded { get; } = [];
 
         public IFiscalizationService AsService() => StubProxy.For<IFiscalizationService>((method, args) =>
@@ -979,6 +1025,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
             }
 
             Calls.Add(((InvoiceDto)args![0]!, (string)args[1]!));
+            RaisedBy.Add((FiscalReceiptOperator?)args[3]);
             return Task.FromResult(Result);
         });
 

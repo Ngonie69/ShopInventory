@@ -316,6 +316,14 @@ public sealed class ErrorApiResponse
     [JsonPropertyName("errorCode")]
     public string? ErrorCode { get; set; }
 
+    /// <summary>
+    /// The refusal in one plain sentence for the person at the document: what is wrong and what to do, with no
+    /// codes or field names. <see cref="Detail"/> keeps the full reason. Absent from platform builds before
+    /// 2026-10 and from answers the platform did not compose (a 401, a route it does not serve).
+    /// </summary>
+    [JsonPropertyName("userMessage")]
+    public string? UserMessage { get; set; }
+
     [JsonPropertyName("traceId")]
     public string? TraceId { get; set; }
 }

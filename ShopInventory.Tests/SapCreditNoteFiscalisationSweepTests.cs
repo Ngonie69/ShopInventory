@@ -13,6 +13,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Tests;
 
@@ -125,6 +126,58 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
 
         var incident = Assert.Single(_context.ExceptionCenterIncidents);
         Assert.Equal("SAP-CN-60045", incident.Reference);
+    }
+
+    [Fact]
+    public async Task A_memo_the_console_refuses_for_what_it_says_raises_its_incident_at_once_and_is_not_sent_again()
+    {
+        // SAP 62766, 2026-11-09: a posted memo that credits more than its invoice has left is refused the same way
+        // every time, so the first refusal is the one a person needs to hear about.
+        await AddMemo(62766);
+        var fiscal = new RecordingFiscalisation
+        {
+            Result = new FiscalizationResult
+            {
+                Success = false,
+                ErrorCode = "RCPT035",
+                Message = "Device 46670: RCPT035 prevention: The total amount of all credit notes (300.00) exceeds the original invoice.",
+                UserMessage = "The note credits more than is left on its invoice. Reduce the note to 265.65 or less."
+            }
+        };
+
+        await Sweep(fiscal, maxAttempts: 3).FiscaliseOutstandingAsync(CancellationToken.None);
+
+        var incident = Assert.Single(_context.ExceptionCenterIncidents);
+        Assert.Equal("SAP-CN-62766", incident.Reference);
+        var recorded = Assert.Single(fiscal.Recorded).Request;
+        Assert.True(FiscalDocumentRefusal.IsMarked(recorded.Message));
+        // The full detail is what is recorded, for the Exception Center.
+        Assert.Contains("RCPT035 prevention", recorded.Message);
+
+        await AddTransaction(62766, recorded.Status, source: SapCreditNoteFiscalisationSweep.SourceSystem, message: recorded.Message);
+
+        Assert.Empty(await Sweep(fiscal).FindCandidatesAsync(DateTime.UtcNow, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_memo_refused_for_what_it_says_when_it_was_created_is_not_taken()
+    {
+        await AddMemo(62752);
+        await AddTransaction(62752, "Not Fiscalised", source: "CreditNote", message: FiscalDocumentRefusal.Mark("The note credits more than is left on its invoice."));
+
+        Assert.Empty(await Sweep(new RecordingFiscalisation()).FindCandidatesAsync(DateTime.UtcNow, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_memo_keyed_in_SAP_names_no_raiser()
+    {
+        // The platform then names the SAP user who created it.
+        await AddMemo(60103);
+        var fiscal = new RecordingFiscalisation();
+
+        await Sweep(fiscal).FiscaliseOutstandingAsync(CancellationToken.None);
+
+        Assert.Null(Assert.Single(fiscal.RaisedBy));
     }
 
     [Fact]
@@ -370,6 +423,7 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
         public Func<InvoiceDto, FiscalizationResult>? ResultFor { get; init; }
 
         public List<(InvoiceDto Document, string OriginalInvoiceNumber)> Calls { get; } = [];
+        public List<FiscalReceiptOperator?> RaisedBy { get; } = [];
         public List<SyncFiscalTransactionCommand> Recorded { get; } = [];
 
         public IFiscalizationService AsService() => StubProxy.For<IFiscalizationService>((method, args) =>
@@ -381,6 +435,7 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
 
             var document = (InvoiceDto)args![0]!;
             Calls.Add((document, (string)args[1]!));
+            RaisedBy.Add((FiscalReceiptOperator?)args[3]);
             return Task.FromResult(ResultFor?.Invoke(document) ?? Result);
         });
 

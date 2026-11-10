@@ -281,6 +281,20 @@ public class CreditNoteDto
     public string? FiscalDeviceId { get; set; }
     public string? FiscalDay { get; set; }
     public DateTime? FiscalizedAtUtc { get; set; }
+
+    /// <summary>
+    /// Why the credit note was not fiscalised when it was created, in a sentence for the person who raised it:
+    /// the fiscalisation platform's own <c>userMessage</c> when it refused it ("The note credits more than is
+    /// left on its invoice..."). Null when it was fiscalised, and on every read but the create's answer.
+    /// </summary>
+    /// <remarks>
+    /// The credit note is in SAP either way. The full detail is in the log and the Exception Center incident.
+    /// </remarks>
+    public string? FiscalisationRefusal { get; set; }
+
+    /// <summary>The platform's error code for that refusal (RCPT035, say), when it gave one.</summary>
+    public string? FiscalisationErrorCode { get; set; }
+
     public List<CreditNoteLineDto> Lines { get; set; } = new();
 }
 

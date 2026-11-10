@@ -352,7 +352,7 @@ public sealed class AddApprovedCreditNoteHandler(
                 ? fiscalisation.Skipped || fiscalisation.AlreadyFiscalised
                     ? " Already fiscalised."
                     : " Fiscalised."
-                : $" Fiscalisation failed and has been logged for review: {fiscalisation.Message}"
+                : $" Fiscalisation failed and has been logged for review: {fiscalisation.UserMessage ?? fiscalisation.Message}"
             : string.Empty;
 
         var quantities = quantityChanges.Count > 0
@@ -427,6 +427,11 @@ public sealed class AddApprovedCreditNoteHandler(
         AddApprovedCreditNoteCommand command,
         SapInvoiceRead? invoiceRead)
     {
+        // The person adding it is who raised it here: the memo is posted under ShopInventory's own SAP account,
+        // which the platform would otherwise name.
+        var raisedBy = await FiscalReceiptOperatorLookup.ResolveAsync(
+            context, command.UserId, command.Username, logger, CancellationToken.None);
+
         var outcome = await fiscaliser.FiscaliseAsync(
             creditNote,
             new SapCreditNoteFiscalisationCaller(
@@ -435,7 +440,8 @@ public sealed class AddApprovedCreditNoteHandler(
                 $"added from approval request {command.Code}",
                 CaptureIncidents: true,
                 command.UserId.ToString(),
-                command.Username),
+                command.Username,
+                raisedBy),
             CancellationToken.None,
             invoiceRead);
 
@@ -456,6 +462,7 @@ public sealed class AddApprovedCreditNoteHandler(
             Skipped = result.Skipped,
             AlreadyFiscalised = result.AlreadyFiscalised,
             Message = result.Message,
+            UserMessage = result.Success ? null : result.UserMessage,
             ReceiptGlobalNo = result.ReceiptGlobalNo
         };
     }
