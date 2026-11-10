@@ -176,12 +176,20 @@ Other integrations:
   Code that must talk to the platform specifically — the fiscalisation console, handset
   registration, signed-receipt ingest — may take `IFiscalisationApiClient` directly, but must guard
   on `FiscalisationSettings.UsesPlatform`.
-- **An invoice raised here names its user to the platform** (`FiscalReceiptOperator`, the `raisedBy` argument
-  of `FiscalizeInvoiceAsync`). Every SAP document posted from here carries ShopInventory's own SAP account, so
-  without it the platform's Receipts page shows that account ("Software") as the raiser. The invoice queue
-  (`InvoiceFiscalizationBackgroundService`) passes the user each work item was queued for; queue an invoice only
-  for the user who raised it. Fiscalising a document someone keyed into SAP (the manual Fiscalise) passes null,
-  so the platform names the SAP user who created it. The name reaches FDMS as the receipt's operator.
+- **An invoice or credit note raised here names its user to the platform** (`FiscalReceiptOperator`, the
+  `raisedBy` argument of `FiscalizeInvoiceAsync` and `FiscalizeCreditNoteAsync`, resolved by
+  `FiscalReceiptOperatorLookup`). Every SAP document posted from here carries ShopInventory's own SAP account, so
+  without it the platform's Receipts and Exceptions pages show that account ("Software") as the raiser. The invoice
+  queue (`InvoiceFiscalizationBackgroundService`) passes the user each work item was queued for; queue an invoice
+  only for the user who raised it. A credit note is named by whoever created it (`CreditNoteService.CreateAsync`) or
+  added it from an approval request. Fiscalising a document someone keyed into SAP (the manual Fiscalise, the credit
+  memo sweep) passes null, so the platform names the SAP user who created it. The name reaches FDMS as the receipt's
+  operator.
+- **A platform refusal is shown in the platform's own words.** Its 400 carries `userMessage`, a plain sentence for the
+  person at the document, beside `detail`; `FiscalizationResult.UserMessage` holds it and `MessageForUser()` picks it.
+  Show that to a user; keep `Message` (the detail) for logs, incidents and the Exception Center. A credit note refused
+  for a ZIMRA rule no retry can satisfy (`FiscalDocumentRefusal`: RCPT035 over-credit, RCPT036 taxes, ...) raises its
+  incident on that first refusal and is marked so the credit memo sweep never sends it again.
 - The van sales fiscal lease (`GetVanSalesFiscalLeaseHandler`) guards on that too, but **answers rather
   than refusing**, and the distinction is load-bearing. A lease is two halves: the signing half (device,
   QR url, day, counters), which only the platform can issue, and only to a handset with its own

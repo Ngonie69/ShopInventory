@@ -768,7 +768,20 @@
             var result = await CreditNoteService.CreateCreditNoteAsync(newCreditNote);
             if (result != null)
             {
-                Snackbar.Add($"Credit note {result.CreditNoteNumber} created successfully!", Severity.Success);
+                // In SAP either way. A refusal from the fiscalisation console is said, in its own words, rather
+                // than reported as a success the person finds out about later.
+                if (string.IsNullOrWhiteSpace(result.FiscalisationRefusal))
+                {
+                    Snackbar.Add($"Credit note {result.CreditNoteNumber} created successfully!", Severity.Success);
+                }
+                else
+                {
+                    Snackbar.Add(
+                        $"Credit note {result.CreditNoteNumber} is in SAP but was not fiscalised: {result.FiscalisationRefusal}",
+                        Severity.Warning,
+                        options => options.RequireInteraction = true);
+                }
+
                 await AuditService.LogAsync(AuditActions.CreateCreditNote, "CreditNote", result.CreditNoteNumber);
                 NavigationManager.NavigateTo("/credit-notes");
             }

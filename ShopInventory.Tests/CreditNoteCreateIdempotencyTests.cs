@@ -433,6 +433,48 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
     }
 
     /// <summary>
+    /// SAP 62766, 2026-11-09: the console refused the note (RCPT035) and the Create page said "created successfully".
+    /// The answer now carries the console's own sentence for the person who raised it; the detail goes to the incident.
+    /// </summary>
+    [Fact]
+    public async Task A_refusal_from_the_console_is_handed_back_in_its_own_words()
+    {
+        const string detail = "Device 46670: RCPT035 prevention: The total amount of all credit notes exceeds the original invoice.";
+        const string sentence = "The note credits more than is left on its invoice. Reduce the note to 265.65 or less.";
+        _fiscalResult = new FiscalizationResult { Success = false, ErrorCode = "RCPT035", Message = detail, UserMessage = sentence };
+
+        var result = await CreateFromInvoiceAsync();
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : string.Empty);
+        Assert.Equal(sentence, result.Value.FiscalisationRefusal);
+        Assert.Equal("RCPT035", result.Value.FiscalisationErrorCode);
+
+        await using var read = new ApplicationDbContext(_options);
+        var incident = Assert.Single(await read.ExceptionCenterIncidents.AsNoTracking().ToListAsync());
+        Assert.Equal(detail, incident.LastError);
+    }
+
+    [Fact]
+    public async Task A_fiscalised_credit_note_carries_no_refusal()
+    {
+        var result = await CreateFromInvoiceAsync();
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : string.Empty);
+        Assert.Null(result.Value.FiscalisationRefusal);
+    }
+
+    /// <summary>
+    /// The memo is posted under ShopInventory's own SAP account, so without this the platform named "Software".
+    /// </summary>
+    [Fact]
+    public async Task The_user_who_raised_the_credit_note_is_named_to_the_platform()
+    {
+        await CreateFromInvoiceAsync();
+
+        Assert.Equal(new FiscalReceiptOperator("cashier", null), Assert.Single(_raisedBy));
+    }
+
+    /// <summary>
     /// A till sale was fiscalised before SAP, under its own reference, and the device holds nothing
     /// under the invoice's number. Its credit note has to point at the sale's receipt.
     /// </summary>
@@ -473,6 +515,7 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : string.Empty);
         Assert.Equal(1, _postCount);
         Assert.Empty(_fiscalisedAgainst);
+        Assert.Contains("not sent for fiscalisation", result.Value.FiscalisationRefusal);
 
         await using var read = new ApplicationDbContext(_options);
         var incident = Assert.Single(await read.ExceptionCenterIncidents.AsNoTracking()
@@ -699,6 +742,12 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
     /// <summary>The original-receipt number each fiscalisation was asked to reverse.</summary>
     private readonly List<string> _fiscalisedAgainst = [];
 
+    /// <summary>Who each fiscalisation named as the credit note's raiser.</summary>
+    private readonly List<FiscalReceiptOperator?> _raisedBy = [];
+
+    /// <summary>What the fiscal service answers.</summary>
+    private FiscalizationResult _fiscalResult = new() { Success = true };
+
     private IFiscalizationService BuildFiscalizationService() =>
         StubProxy.For<IFiscalizationService>((method, args) =>
         {
@@ -709,7 +758,8 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
             }
 
             _fiscalisedAgainst.Add((string)args![1]!);
-            return Task.FromResult(new FiscalizationResult { Success = true });
+            _raisedBy.Add((FiscalReceiptOperator?)args[3]);
+            return Task.FromResult(_fiscalResult);
         });
 
     private void HangUpIfAsked()

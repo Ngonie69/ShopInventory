@@ -659,6 +659,11 @@ public class CreditNoteService : ICreditNoteService
 
         // FISCALISE after successful SAP posting
         FiscalizationResult? fiscalizationResult = null;
+
+        // Why it is not fiscalised, for the person who raised it, who is otherwise told only that the credit
+        // note was created. The detail still goes to the log and the incident.
+        string? fiscalisationRefusal = null;
+        string? fiscalisationErrorCode = null;
         try
         {
             // The number the device holds the reversed invoice's receipt under — its DocNum, or for a
@@ -670,10 +675,16 @@ public class CreditNoteService : ICreditNoteService
             {
                 var creditNoteDto = sapCreditNote.ToFiscalDocument(request.Reason);
 
+                // Raised here, so the person who raised it is named; the platform would otherwise name
+                // ShopInventory's own SAP account.
+                var raisedBy = await FiscalReceiptOperatorLookup.ResolveAsync(
+                    _context, userId, null, _logger, CancellationToken.None);
+
                 fiscalizationResult = await _fiscalizationService.FiscalizeCreditNoteAsync(
                     creditNoteDto,
                     originalInvoiceNumber,
                     new CustomerFiscalDetails { CustomerName = sapCreditNote.CardName },
+                    raisedBy,
                     CancellationToken.None);
 
                 if (fiscalizationResult.Success)
@@ -690,6 +701,14 @@ public class CreditNoteService : ICreditNoteService
                         "Credit note {DocNum} fiscalization failed: {Message}. Credit note was created in SAP.",
                         sapCreditNote.DocNum, fiscalizationResult.Message);
 
+                    // A dry run is not a refusal: nothing was judged, and nothing need be put right.
+                    if (!fiscalizationResult.Skipped)
+                    {
+                        fiscalisationRefusal = fiscalizationResult.MessageForUser()
+                            ?? "Fiscalisation failed for the credit note.";
+                        fiscalisationErrorCode = fiscalizationResult.ErrorCode;
+                    }
+
                     await CaptureCreditNoteFiscalizationIncidentAsync(
                         creditNote.CreditNoteNumber,
                         sapCreditNote.DocNum,
@@ -705,6 +724,8 @@ public class CreditNoteService : ICreditNoteService
                     sapCreditNote.DocNum,
                     original.Refusal);
 
+                fiscalisationRefusal = $"It was not sent for fiscalisation: {original.Refusal}";
+
                 await CaptureCreditNoteFiscalizationIncidentAsync(
                     creditNote.CreditNoteNumber,
                     sapCreditNote.DocNum,
@@ -718,6 +739,8 @@ public class CreditNoteService : ICreditNoteService
             _logger.LogError(fiscalEx,
                 "Error during fiscalization of credit note {DocNum}. Credit note was created in SAP.",
                 sapCreditNote.DocNum);
+
+            fiscalisationRefusal = "Fiscalisation could not be completed. It has been logged for review.";
 
             await CaptureCreditNoteFiscalizationIncidentAsync(
                 creditNote.CreditNoteNumber,
@@ -744,7 +767,10 @@ public class CreditNoteService : ICreditNoteService
         _logger.LogInformation("Created credit note {CreditNoteNumber} for customer {CardCode} with SAP DocEntry {DocEntry}",
             creditNoteNumber, request.CardCode, creditNote.SAPDocEntry);
 
-        return MapToDto(creditNote);
+        var created = MapToDto(creditNote);
+        created.FiscalisationRefusal = fiscalisationRefusal;
+        created.FiscalisationErrorCode = fiscalisationErrorCode;
+        return created;
     }
 
     /// <summary>
