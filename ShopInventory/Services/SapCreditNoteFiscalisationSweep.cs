@@ -50,6 +50,9 @@ public sealed class SapCreditNoteFiscalisationSweep(
 
     private const string CreditNoteDocumentType = "CreditNote";
 
+    /// <summary>How many batches' worth of memos a pass reads, so that memos held for REVMax cannot fill it.</summary>
+    private const int HeldBackHeadroom = 4;
+
     public async Task<SapCreditNoteFiscalisationRunResult> FiscaliseOutstandingAsync(CancellationToken cancellationToken)
     {
         var result = new SapCreditNoteFiscalisationRunResult();
@@ -65,18 +68,24 @@ public sealed class SapCreditNoteFiscalisationSweep(
         }
 
         var options = settings.Value;
-        var candidates = await FindCandidatesAsync(DateTime.UtcNow, cancellationToken);
+        var batchSize = Math.Max(1, options.BatchSize);
+
+        // Memos held back for REVMax take no part of the batch, so more are read than one batch: enough
+        // that a run of them cannot fill it and starve every newer memo.
+        var candidates = await FindCandidatesAsync(DateTime.UtcNow, cancellationToken, batchSize * HeldBackHeadroom);
 
         if (candidates.Count == 0)
         {
             return result;
         }
 
-        logger.LogInformation("Fiscalising {Count} SAP credit memos that hold no fiscal receipt.", candidates.Count);
+        logger.LogInformation("Fiscalising up to {Batch} of {Count} SAP credit memos that hold no fiscal receipt.", batchSize, candidates.Count);
+
+        var answered = 0;
 
         foreach (var candidate in candidates)
         {
-            if (cancellationToken.IsCancellationRequested)
+            if (cancellationToken.IsCancellationRequested || answered >= batchSize)
             {
                 break;
             }
@@ -103,6 +112,10 @@ public sealed class SapCreditNoteFiscalisationSweep(
             }
 
             var attempt = candidate.PriorAttempts + 1;
+
+            // Counted as the batch's before the outcome is known; a memo held back for REVMax hands its
+            // place back below.
+            answered++;
 
             var outcome = await fiscaliser.FiscaliseAsync(
                 memo,
@@ -148,17 +161,23 @@ public sealed class SapCreditNoteFiscalisationSweep(
                 continue;
             }
 
+            // REVMax could not be asked whether it filed this memo's original invoice. That says nothing
+            // about the memos after it: a memo whose original is on the platform never asks REVMax. So
+            // this one is passed over and the pass goes on. Nothing was recorded, so the next pass asks
+            // again. Each ask costs little while REVMax is down: RevmaxReachability refuses reads for a
+            // minute after one goes unanswered.
+            if (filed.ErrorCode == RevmaxHistoryFiscalizationService.HistoryUnavailableErrorCode)
+            {
+                answered--;
+                result.HeldForRevmax.Add(candidate.DocNum);
+                continue;
+            }
+
             result.Failed++;
 
             // Each of these says the same about every memo after it, and none of them was recorded as an
-            // attempt: REVMax could not be asked, the platform is in a dry run, or nobody knows what the
-            // last submission did — which is no moment to send another.
-            if (filed.ErrorCode == RevmaxHistoryFiscalizationService.HistoryUnavailableErrorCode)
-            {
-                result.StoppedBecause = "REVMax could not be asked what it already holds.";
-                break;
-            }
-
+            // attempt: the platform is in a dry run, or nobody knows what the last submission did — which
+            // is no moment to send another.
             if (filed.Skipped)
             {
                 result.StoppedBecause = filed.Message ?? "The fiscal service skipped the submission.";
@@ -172,13 +191,22 @@ public sealed class SapCreditNoteFiscalisationSweep(
             }
         }
 
+        if (result.HeldForRevmax.Count > 0)
+        {
+            logger.LogWarning(
+                "Credit memos held back because REVMax could not be asked whether it filed their original invoice: {DocNums}. "
+                + "Only REVMax can credit its own receipts; they are tried again next pass.",
+                string.Join(", ", result.HeldForRevmax));
+        }
+
         logger.LogInformation(
             "Credit memo fiscalisation finished: {Fiscalised} fiscalised, {AlreadyHeld} already held a receipt, "
-            + "{Refused} refused, {Failed} failed.{Stopped}",
+            + "{Refused} refused, {Failed} failed, {HeldForRevmax} held for REVMax.{Stopped}",
             result.Fiscalised,
             result.AlreadyHeld,
             result.Refused,
             result.Failed,
+            result.HeldForRevmax.Count,
             result.StoppedBecause is null ? string.Empty : $" Stopped early: {result.StoppedBecause}");
 
         return result;
@@ -189,9 +217,11 @@ public sealed class SapCreditNoteFiscalisationSweep(
     /// </summary>
     internal async Task<List<SapCreditNoteFiscalisationCandidate>> FindCandidatesAsync(
         DateTime nowUtc,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? limit = null)
     {
         var options = settings.Value;
+        var take = Math.Max(1, limit ?? options.BatchSize);
         var from = AuditService.ToCAT(nowUtc).Date.AddDays(-(Math.Max(1, options.LookbackDays) - 1));
 
         if (options.NotBefore is { } notBefore && notBefore.Date > from)
@@ -254,7 +284,7 @@ public sealed class SapCreditNoteFiscalisationSweep(
 
             candidates.Add(new SapCreditNoteFiscalisationCandidate(memo.SapDocEntry, memo.SapDocNum, attempts));
 
-            if (candidates.Count >= Math.Max(1, options.BatchSize))
+            if (candidates.Count >= take)
             {
                 break;
             }
@@ -277,6 +307,12 @@ public sealed class SapCreditNoteFiscalisationRunResult
     public int Refused { get; set; }
 
     public int Failed { get; set; }
+
+    /// <summary>
+    /// Memos passed over because REVMax could not be asked whether it filed their original invoice.
+    /// Nothing was recorded for them, so the next pass takes them again.
+    /// </summary>
+    public List<int> HeldForRevmax { get; } = [];
 
     /// <summary>Why the pass ended before its batch did, when it did.</summary>
     public string? StoppedBecause { get; set; }

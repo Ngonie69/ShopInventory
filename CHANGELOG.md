@@ -18,6 +18,18 @@ otherwise be surprised.
 
 ### Changed
 
+- **Credit memo fiscalisation no longer stops at a memo held for REVMax.** When REVMax could not be
+  asked whether it filed a memo's original invoice, the scheduled sweep (`sap-credit-note-fiscalisation`)
+  ended the whole pass. That memo was the oldest, so it came first every pass, and no newer memo was
+  reached until it left the 14-day window. The sweep now passes over such memos, files the rest, and
+  tries the held ones again next pass. They do not count toward `BatchSize`. The log no longer says
+  "Stopped early: REVMax could not be asked what it already holds."; look instead for the warning
+  "Credit memos held back because REVMax could not be asked…", which names them, and the
+  "N held for REVMax" count on "Credit memo fiscalisation finished". To find them in the database and
+  see REVMax's own error, run `scripts/Check-RevmaxHeldCreditNotes.ps1` on the API box (it runs the
+  `.sql` beside it read-only and reads the API logs); to test REVMax from the API
+  server, run `scripts/Test-RevmaxReachable.ps1`.
+
 - **A credit note the fiscalisation console refuses says why, and names who raised it.** Creating a credit note
   (`POST /api/CreditNote` and `POST /api/CreditNote/from-invoice/{invoiceId}`) answers with two new fields, `fiscalisationRefusal` (the console's
   plain sentence for the person, e.g. "The note credits more than is left on its invoice. Reduce the note to 265.65
