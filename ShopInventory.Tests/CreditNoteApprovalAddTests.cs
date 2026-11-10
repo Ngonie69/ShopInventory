@@ -161,6 +161,35 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
     }
 
     /// <summary>
+    /// A credit memo raised without Copy From names its invoice in Customer Ref. No., and is filed against
+    /// it as the fiscal platform files it. There is no base invoice to read ahead of the conversion, so
+    /// nothing is read until the created credit note is.
+    /// </summary>
+    [Fact]
+    public async Task A_draft_with_nothing_copied_is_fiscalised_against_the_invoice_in_Customer_Ref_No()
+    {
+        List<SAPCreditNoteLine> manual =
+        [
+            new SAPCreditNoteLine { LineNum = 0, ItemCode = "CHE011", Quantity = -4, UnitPrice = 61.40m, LineTotal = -245.60m, BaseType = -1 }
+        ];
+        var draft = OpenDraft(88123);
+        draft.NumAtCard = "5501";
+        draft.DocumentLines = [new SAPCreditNoteLine { LineNum = 0, ItemCode = "CHE011", Quantity = 4, BaseType = -1 }];
+        var sap = new RecordingSap(Approved(3110), draft) { SaveReturns = 9001, DraftAfterSave = ClosedDraft(88123), Lines = manual, NumAtCard = "5501" };
+        var fiscal = new RecordingFiscalisation();
+
+        var result = await Handler(sap, fiscal, new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Equal("5501", Assert.Single(fiscal.Calls).OriginalInvoiceNumber);
+        Assert.DoesNotContain(nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync), sap.Calls);
+        Assert.True(
+            sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.GetInvoiceHeadersByDocNumAsync))
+                > sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync)),
+            "the invoice is looked up from the created credit note: " + string.Join(", ", sap.Calls));
+    }
+
+    /// <summary>
     /// The customer's newest credit note is only the created one if it is genuinely new and matches
     /// the draft. A document that was already there, or one whose total differs, must not be claimed:
     /// on KEFALOS_TEST_3 a DocNum match found a different customer's credit note entirely.
@@ -806,12 +835,13 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         DocObjectCode = SapDocObjectCodes.CreditNotes
     };
 
-    private static SAPCreditNote CreditNote(int docEntry, List<SAPCreditNoteLine>? lines = null) => new()
+    private static SAPCreditNote CreditNote(int docEntry, List<SAPCreditNoteLine>? lines = null, string? numAtCard = null) => new()
     {
         DocEntry = docEntry,
         DocNum = docEntry,
         CardCode = "SPA059",
         CardName = "Spar Avondale",
+        NumAtCard = numAtCard,
         DocTotal = -245.60m,
         VatSum = -32.03m,
         DocCurrency = "USD",
@@ -856,6 +886,9 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         /// <summary>The lines the added credit note reads back with, when a test needs its own.</summary>
         public List<SAPCreditNoteLine>? Lines { get; init; }
 
+        /// <summary>The added credit note's Customer Ref. No.</summary>
+        public string? NumAtCard { get; init; }
+
         public List<(int DraftEntry, CancellationToken Token)> Saves { get; } = [];
         public List<SAPCreditNote> Projected { get; } = [];
 
@@ -884,7 +917,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
                 return null;
             }
 
-            var whole = CreditNote(newest.DocEntry, Lines);
+            var whole = CreditNote(newest.DocEntry, Lines, NumAtCard);
             whole.DocTotal = newest.DocTotal;
             return whole;
         }
@@ -912,13 +945,18 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
                 => Task.FromResult(NewestPast((int)args![1]!)),
             nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync) => Save(args!),
             nameof(ISAPServiceLayerClient.GetCreditNoteByDocEntryAsync)
-                => Task.FromResult<SAPCreditNote?>((int)args![0]! == (CreditNoteDocEntry ?? SaveReturns) ? CreditNote((int)args[0]!, Lines) : null),
+                => Task.FromResult<SAPCreditNote?>((int)args![0]! == (CreditNoteDocEntry ?? SaveReturns) ? CreditNote((int)args[0]!, Lines, NumAtCard) : null),
             // The invoice the credit note's lines are based on. Its receipt is filed under the DocNum,
             // which is a different number from the BaseEntry the credit note carries.
             nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync)
                 => Task.FromResult<Invoice?>((int)args![0]! == 77001
                     ? new Invoice { DocEntry = 77001, DocNum = 5501, Comments = BaseInvoiceComments }
                     : null),
+            // The same invoice found by the number a memo with nothing copied names in Customer Ref. No.
+            nameof(ISAPServiceLayerClient.GetInvoiceHeadersByDocNumAsync)
+                => Task.FromResult((int)args![0]! == 5501
+                    ? new List<Invoice> { new() { DocEntry = 77001, DocNum = 5501, CardCode = "SPA059", Comments = BaseInvoiceComments } }
+                    : new List<Invoice>()),
             _ => throw new InvalidOperationException($"{method.Name} was not expected.")
         };
 

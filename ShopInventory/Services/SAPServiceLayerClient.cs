@@ -2553,6 +2553,24 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             .ToList();
     }
 
+    public async Task<List<Invoice>> GetInvoiceHeadersByDocNumAsync(
+        int docNum,
+        CancellationToken cancellationToken = default)
+    {
+        if (docNum <= 0)
+            return [];
+
+        // A handful at most — one per numbering series — so one page of 50 holds them all.
+        const int pageSize = 50;
+        var response = await ReadSapJsonAsync<SAPResponse<Invoice>>(
+            $"Invoices?$filter=DocNum eq {docNum}&$select=DocEntry,DocNum,CardCode,CardName,Cancelled,CancelStatus,Comments&$top={pageSize}",
+            $"read invoices with DocNum {docNum}",
+            cancellationToken,
+            pageSize);
+
+        return response?.Value ?? [];
+    }
+
     public async Task<List<Invoice>> GetInvoicesByVanSaleOrdersAsync(
         IEnumerable<string> vanSaleOrders,
         CancellationToken cancellationToken = default)

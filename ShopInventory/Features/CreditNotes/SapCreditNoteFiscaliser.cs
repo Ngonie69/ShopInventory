@@ -41,12 +41,6 @@ public sealed class SapCreditNoteFiscaliser(
         CancellationToken cancellationToken,
         SapInvoiceRead? originalInvoiceRead = null)
     {
-        // The line-level base entry is what a credit memo raised against an invoice carries; the header
-        // one is not selected on credit notes. REVMax needs it to find the receipt being reversed; the
-        // platform reads the link itself.
-        var originalInvoiceDocEntry = creditNote.BaseEntry
-            ?? creditNote.DocumentLines?.FirstOrDefault(line => line.BaseType == 13 && line.BaseEntry.HasValue)?.BaseEntry;
-
         var document = creditNote.ToFiscalDocument(creditNote.Comments);
 
         var customer = new CustomerFiscalDetails { CustomerName = creditNote.CardName };
@@ -58,7 +52,7 @@ public sealed class SapCreditNoteFiscaliser(
         {
             // The receipt being reversed is filed under the invoice's DocNum — or, for a sale fiscalised
             // before SAP, under the sale's own reference — never under the BaseEntry this used to send.
-            var original = await ResolveOriginalReceiptAsync(originalInvoiceDocEntry, originalInvoiceRead, cancellationToken);
+            var original = await ResolveOriginalReceiptAsync(creditNote, originalInvoiceRead, cancellationToken);
 
             if (original.InvoiceNumber is not { } resolved)
             {
@@ -132,31 +126,21 @@ public sealed class SapCreditNoteFiscaliser(
     /// The number the fiscal device holds the reversed invoice's receipt under.
     /// </summary>
     /// <remarks>
-    /// See <see cref="CreditNoteOriginalReceipt"/>. The credit note carries only its base invoice's
-    /// DocEntry, and the receipt is filed under the DocNum, so the invoice is read first.
+    /// See <see cref="CreditNoteOriginalReceipt"/>. The invoice is picked by
+    /// <see cref="SapCreditNoteOriginalInvoice"/>, the fiscal platform's rule — its lines' base invoice, or
+    /// the invoice number in Customer Ref. No. when nothing was copied — and read, because the receipt is
+    /// filed under its DocNum and its remarks say whether it was reposted.
     /// </remarks>
     private async Task<CreditNoteOriginalReceiptNumber> ResolveOriginalReceiptAsync(
-        int? originalInvoiceDocEntry,
+        SAPCreditNote creditNote,
         SapInvoiceRead? originalInvoiceRead,
         CancellationToken cancellationToken)
     {
-        if (originalInvoiceDocEntry is not > 0)
-        {
-            return CreditNoteOriginalReceiptNumber.Refused(
-                "the credit note is not based on an invoice, so there is no receipt for it to reverse.");
-        }
+        var original = await SapCreditNoteOriginalInvoice.ResolveAsync(sap, creditNote, originalInvoiceRead, cancellationToken);
 
-        // A read the caller started early is used only if it is for this invoice and it answered;
-        // otherwise the invoice is read here, as it always was.
-        var invoice = originalInvoiceRead is { } early && early.DocEntry == originalInvoiceDocEntry.Value
-            ? await early.Read
-            : null;
-        invoice ??= await sap.GetInvoiceByDocEntryAsync(originalInvoiceDocEntry.Value, cancellationToken);
-
-        if (invoice is null)
+        if (original.Invoice is not { } invoice)
         {
-            return CreditNoteOriginalReceiptNumber.Refused(
-                $"invoice DocEntry {originalInvoiceDocEntry} could not be read from SAP, so the receipt it reverses cannot be found.");
+            return CreditNoteOriginalReceiptNumber.Refused(original.Refusal!);
         }
 
         return await CreditNoteOriginalReceipt.ResolveAsync(

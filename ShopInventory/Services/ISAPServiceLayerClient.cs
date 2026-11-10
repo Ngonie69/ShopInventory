@@ -214,6 +214,17 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task<List<Invoice>> GetInvoiceBalancesByDocEntriesAsync(IEnumerable<int> docEntries, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByDocNumsAsync(IEnumerable<int> docNums, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every A/R invoice with this DocNum, cancelled ones included: each numbering series counts from its
+    /// own start, so more than one can share a number. Header only — DocEntry, DocNum, CardCode, CardName,
+    /// Cancelled, CancelStatus and Comments.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="GetInvoicesByDocNumsAsync"/> keeps one invoice per number, so it cannot tell a caller
+    /// that the number it holds is ambiguous.
+    /// </remarks>
+    Task<List<Invoice>> GetInvoiceHeadersByDocNumAsync(int docNum, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByVanSaleOrdersAsync(IEnumerable<string> vanSaleOrders, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByVanSaleOrderAsync(string vanSaleOrder, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
