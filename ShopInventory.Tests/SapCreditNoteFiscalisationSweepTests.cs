@@ -128,26 +128,60 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
     }
 
     [Fact]
-    public async Task When_REVMax_cannot_be_asked_nothing_is_recorded_and_the_pass_stops()
+    public async Task A_memo_held_for_REVMax_is_passed_over_unrecorded_and_the_memos_after_it_are_still_filed()
     {
+        // 59606 credits a REVMax-era invoice while REVMax is not answering; 59655 credits a platform one.
+        // Until 2026-11-10 the first stopped the pass, and being oldest it came first every pass, so no
+        // newer memo was ever reached.
         await AddMemo(59606);
         await AddMemo(59655);
         var fiscal = new RecordingFiscalisation
         {
-            Result = new FiscalizationResult
-            {
-                Success = false,
-                ErrorCode = RevmaxHistoryFiscalizationService.HistoryUnavailableErrorCode,
-                Message = "REVMax could not be asked."
-            }
+            ResultFor = document => document.DocNum == 59606 ? HeldForRevmax : new FiscalizationResult { Success = true, ReceiptGlobalNo = "9912" }
         };
 
         var result = await Sweep(fiscal).FiscaliseOutstandingAsync(CancellationToken.None);
 
-        Assert.Single(fiscal.Calls);
-        Assert.Empty(fiscal.Recorded);
-        Assert.NotNull(result.StoppedBecause);
+        Assert.Equal([59606, 59655], fiscal.Calls.Select(call => call.Document.DocNum));
+        Assert.Equal([59606], result.HeldForRevmax);
+        Assert.Equal(1, result.Fiscalised);
+        Assert.Equal(0, result.Failed);
+        Assert.Null(result.StoppedBecause);
+
+        // Nothing is written for the held memo, so it is no attempt and the next pass asks again.
+        Assert.Equal(59655, Assert.Single(fiscal.Recorded).Request.DocNum);
+        Assert.Empty(_context.ExceptionCenterIncidents);
     }
+
+    [Fact]
+    public async Task Memos_held_for_REVMax_do_not_use_up_the_batch()
+    {
+        for (var docNum = 1; docNum <= 3; docNum++)
+        {
+            await AddMemo(docNum);
+        }
+
+        await AddMemo(4);
+        await AddMemo(5);
+        var fiscal = new RecordingFiscalisation
+        {
+            ResultFor = document => document.DocNum <= 3 ? HeldForRevmax : new FiscalizationResult { Success = true, ReceiptGlobalNo = "1" }
+        };
+
+        var result = await Sweep(fiscal, batchSize: 1).FiscaliseOutstandingAsync(CancellationToken.None);
+
+        // Three held, then one filed fills the batch of one; 5 waits for the next pass.
+        Assert.Equal([1, 2, 3], result.HeldForRevmax);
+        Assert.Equal(1, result.Fiscalised);
+        Assert.Equal([1, 2, 3, 4], fiscal.Calls.Select(call => call.Document.DocNum));
+    }
+
+    private static FiscalizationResult HeldForRevmax => new()
+    {
+        Success = false,
+        ErrorCode = RevmaxHistoryFiscalizationService.HistoryUnavailableErrorCode,
+        Message = "REVMax could not be asked."
+    };
 
     [Fact]
     public async Task A_dry_run_is_neither_recorded_as_fiscalised_nor_counted_as_an_attempt()
@@ -200,7 +234,8 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
         int maxAttempts = 3,
         FakeSap? sap = null,
         FiscalisationSettings? fiscalisation = null,
-        DateTime? notBefore = null)
+        DateTime? notBefore = null,
+        int batchSize = 25)
     {
         var client = (sap ?? new FakeSap()).AsClient();
         var fiscalisationOptions = Options.Create(fiscalisation ?? new FiscalisationSettings { Provider = FiscalisationProvider.Platform });
@@ -215,7 +250,7 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
                 fiscal.AsSender(),
                 fiscalisationOptions,
                 NullLogger<SapCreditNoteFiscaliser>.Instance),
-            Options.Create(new CreditNoteFiscalisationSettings { MaxAttempts = maxAttempts, NotBefore = notBefore }),
+            Options.Create(new CreditNoteFiscalisationSettings { MaxAttempts = maxAttempts, NotBefore = notBefore, BatchSize = batchSize }),
             fiscalisationOptions,
             Options.Create(new RevmaxSettings()),
             NullLogger<SapCreditNoteFiscalisationSweep>.Instance);
@@ -330,6 +365,10 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
     private sealed class RecordingFiscalisation
     {
         public FiscalizationResult Result { get; init; } = new() { Success = true, Message = "ok" };
+
+        /// <summary>A per-memo answer, when the memos in one pass must be answered differently.</summary>
+        public Func<InvoiceDto, FiscalizationResult>? ResultFor { get; init; }
+
         public List<(InvoiceDto Document, string OriginalInvoiceNumber)> Calls { get; } = [];
         public List<SyncFiscalTransactionCommand> Recorded { get; } = [];
 
@@ -340,8 +379,9 @@ public sealed class SapCreditNoteFiscalisationSweepTests : IDisposable
                 throw new InvalidOperationException($"{method.Name} was not expected.");
             }
 
-            Calls.Add(((InvoiceDto)args![0]!, (string)args[1]!));
-            return Task.FromResult(Result);
+            var document = (InvoiceDto)args![0]!;
+            Calls.Add((document, (string)args[1]!));
+            return Task.FromResult(ResultFor?.Invoke(document) ?? Result);
         });
 
         public ISender AsSender() => StubProxy.For<ISender>((method, args) =>
