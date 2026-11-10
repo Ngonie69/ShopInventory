@@ -200,9 +200,11 @@ public sealed class AddApprovedCreditNoteHandler(
                 draft = changed.Value;
             }
 
-            // The invoice the credit note reverses is on the draft's lines already. Fiscalising needs it,
-            // so it is read while SAP converts the draft rather than after.
-            var invoiceRead = approvalSettings.Value.FiscaliseAfterAdd && OriginalInvoiceDocEntry(draft) is int invoiceEntry
+            // The invoice the credit note reverses is on the draft's lines already when they were copied
+            // from one. Fiscalising needs it, so it is read while SAP converts the draft rather than after.
+            // A draft with nothing copied names its invoice in Customer Ref. No.; the fiscaliser reads that.
+            var invoiceRead = approvalSettings.Value.FiscaliseAfterAdd
+                              && SapCreditNoteOriginalInvoice.BaseLinkOf(draft).SingleInvoiceDocEntry is int invoiceEntry
                 ? new SapInvoiceRead(invoiceEntry, TryReadInvoiceAsync(invoiceEntry))
                 : null;
 
@@ -541,11 +543,6 @@ public sealed class AddApprovedCreditNoteHandler(
             return null;
         }
     }
-
-    /// <summary>The invoice a credit note drawn from this draft reverses, as the fiscaliser finds it.</summary>
-    private static int? OriginalInvoiceDocEntry(SAPCreditNote draft) =>
-        draft.BaseEntry
-        ?? draft.DocumentLines?.FirstOrDefault(line => line.BaseType == 13 && line.BaseEntry.HasValue)?.BaseEntry;
 
     private async Task<Invoice?> TryReadInvoiceAsync(int docEntry)
     {
