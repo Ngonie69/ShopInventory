@@ -984,6 +984,22 @@ public interface ISAPServiceLayerClient
         IReadOnlyCollection<int>? stageCodes = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The credit memo approval requests in these statuses that hold any of these drafts, with only what
+    /// places a request in a queue — status, stage, originator, day raised and draft.
+    /// </summary>
+    Task<List<SAPApprovalRequest>> GetCreditNoteApprovalRequestsForDraftsAsync(
+        IReadOnlyCollection<string> sapStatuses,
+        IReadOnlyCollection<int> draftEntries,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The A/R credit memo drafts SAP still holds for approval — open, and Pending or Approved — headers
+    /// only. A few hundred on production, against thousands of approval requests whose drafts were added
+    /// long ago. Capped at 2,000.
+    /// </summary>
+    Task<List<SAPCreditNote>> GetOpenHeldCreditNoteDraftsAsync(CancellationToken cancellationToken = default);
+
     /// <summary>One approval request with its approver lines; null when SAP has no such code.</summary>
     Task<SAPApprovalRequest?> GetApprovalRequestAsync(int code, CancellationToken cancellationToken = default);
 
@@ -1014,6 +1030,16 @@ public interface ISAPServiceLayerClient
     /// nowhere else.
     /// </summary>
     Task<SAPCreditNote?> GetNewestCreditNoteForCustomerAsync(string cardCode, int afterDocEntry, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The credit notes, headers only, that credit each customer exactly the given total. The day bound
+    /// is applied loosely — a note entered before its own key's day may come back when another key in
+    /// the same read asked for an earlier one — so the caller compares each note against its own day.
+    /// Cancelled credit notes and the documents that cancelled them are left out: neither credits anybody.
+    /// </summary>
+    Task<List<SAPCreditNote>> GetCreditNotesByCustomerTotalsAsync(
+        IReadOnlyCollection<SapCreditNoteTotalKey> keys,
+        CancellationToken cancellationToken = default);
 
     Task<SAPUser?> GetSapUserAsync(int internalKey, CancellationToken cancellationToken = default);
     Task<SAPUser?> GetSapUserByCodeAsync(string userCode, CancellationToken cancellationToken = default);

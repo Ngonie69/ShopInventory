@@ -175,6 +175,10 @@
                                     <span class="cna-row-top">
                                         <span class="cna-row-name">@(request.CardName ?? "—")</span>
                                         <span class="cna-pill @StatusModifier(request.Status)">@StatusLabel(request.Status)</span>
+                                        @if (request.AlreadyCredited is { } credited)
+                                        {
+                                            <span class="cna-pill is-credited" title="@request.StatusNote">Already credited · CN @credited.DocNum</span>
+                                        }
                                     </span>
                                     <span class="cna-row-reason">
                                         @(string.IsNullOrWhiteSpace(request.Comments) ? "No reason given on the draft" : request.Comments)
@@ -321,6 +325,23 @@
                         </div>
                     </div>
 
+                    @if (request.AlreadyCredited is { } credited)
+                    {
+                        @* SAP still holds this draft, but the credit was keyed straight into SAP while it
+                           waited. First in the drawer, because approving it pays the customer twice. *@
+                        <div class="cna-alert cna-credited" role="alert">
+                            <i class="ph ph-copy" aria-hidden="true"></i>
+                            <div class="cna-alert-body">
+                                <div class="cna-credited-title">Already credited as credit note @credited.DocNum</div>
+                                <div class="cna-credited-sub">
+                                    Entered @CreditedWhoAndWhen(credited) for the same customer, reference and total.
+                                    Approving or adding this draft would credit the customer twice.
+                                    @(request.CanDecide ? "Reject it, or remove the draft in SAP." : "Remove the draft in SAP.")
+                                </div>
+                            </div>
+                        </div>
+                    }
+
                     <div class="cna-note cna-reason-box">
                         <div class="cna-dt">Reason for credit</div>
                         <div class="cna-reason-full">@(string.IsNullOrWhiteSpace(request.Comments) ? "No reason given on the draft." : request.Comments)</div>
@@ -447,8 +468,8 @@
                         {
                             @* Nothing to check the return against is worth saying loudly while a decision is
                                still open; once it is decided it is only a fact. *@
-                            <div class="@(request.CanDecide ? "cna-blocked" : "cna-note")">
-                                @(request.CanDecide
+                            <div class="@(request.CanApprove ? "cna-blocked" : "cna-note")">
+                                @(request.CanApprove
                                     ? "Nothing is attached to this draft in SAP. Check the return before approving."
                                     : "Nothing is attached to this draft in SAP.")
                             </div>
@@ -510,7 +531,8 @@
                         </ol>
                     </div>
 
-                    @if (!request.CanDecide && !request.CanAdd && !string.IsNullOrWhiteSpace(request.StatusNote))
+                    @* An already-credited draft says so at the top of the drawer, in more words. *@
+                    @if (!request.CanDecide && !request.CanAdd && request.AlreadyCredited is null && !string.IsNullOrWhiteSpace(request.StatusNote))
                     {
                         <div class="cna-blocked">
                             <i class="ph ph-info" aria-hidden="true"></i>
@@ -528,7 +550,9 @@
                             Remarks <span class="cna-field-aside">Optional · up to 150 characters</span>
                         </label>
                         <textarea id="cna-remarks" class="cna-input cna-textarea" maxlength="150"
-                                  placeholder="Recorded in SAP beside your name"
+                                  placeholder="@(detail.Request.AlreadyCredited is { } creditedBy
+                                      ? $"e.g. Already credited as credit note {creditedBy.DocNum}"
+                                      : "Recorded in SAP beside your name")"
                                   @bind="decisionRemarks"></textarea>
                     </div>
                     <div class="cna-decide-actions">
@@ -543,17 +567,21 @@
                             }
                             <span>Reject</span>
                         </button>
-                        <button type="button" class="cna-btn cna-btn-approve cna-btn-lg cna-decide-approve" @onclick="ApproveAsync" disabled="@isSubmitting">
-                            @if (isSubmitting && submittingAction == "approve")
-                            {
-                                <span class="cna-spin" aria-hidden="true"></span>
-                            }
-                            else
-                            {
-                                <i class="ph ph-check" aria-hidden="true"></i>
-                            }
-                            <span>Approve @FormatMoney(detail.Request.DocTotal, detail.Request.DocCurrency)</span>
-                        </button>
+                        @* An already-credited draft can be rejected, never approved: the API refuses it too. *@
+                        @if (detail.Request.CanApprove)
+                        {
+                            <button type="button" class="cna-btn cna-btn-approve cna-btn-lg cna-decide-approve" @onclick="ApproveAsync" disabled="@isSubmitting">
+                                @if (isSubmitting && submittingAction == "approve")
+                                {
+                                    <span class="cna-spin" aria-hidden="true"></span>
+                                }
+                                else
+                                {
+                                    <i class="ph ph-check" aria-hidden="true"></i>
+                                }
+                                <span>Approve @FormatMoney(detail.Request.DocTotal, detail.Request.DocCurrency)</span>
+                            </button>
+                        }
                     </div>
                 </div>
             }

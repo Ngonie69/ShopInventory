@@ -32,6 +32,7 @@ public sealed class DecideCreditNoteApprovalHandler(
     ISapApprovalLookups lookups,
     ICreditNoteApprovalStageScope stageScope,
     IIdempotencyRequestStore idempotencyRequestStore,
+    ICreditNoteAlreadyCreditedIndex alreadyCreditedIndex,
     IAuditService auditService,
     IOptions<SAPSettings> sapSettings,
     ILogger<DecideCreditNoteApprovalHandler> logger)
@@ -159,6 +160,17 @@ public sealed class DecideCreditNoteApprovalHandler(
                 return Errors.CreditNoteApproval.ApproverPasswordMissing(approverUserCode);
             }
 
+            // An approval of a draft already credited some other way is the first step to crediting the
+            // customer twice. A rejection is never checked: it is how such a draft leaves the queue.
+            if (approving)
+            {
+                var credited = await CheckAlreadyCreditedAsync(request, cancellationToken);
+                if (credited.IsError)
+                {
+                    return credited.Errors;
+                }
+            }
+
             if (clientRequestId is null)
             {
                 var claimed = await TryClaimAsync($"{command.Code}:{stageCode}:{command.UserId}:{decision.ToLowerInvariant()}", stageCode);
@@ -207,6 +219,9 @@ public sealed class DecideCreditNoteApprovalHandler(
             }
 
             var final = after ?? request;
+
+            // The request has moved queue, or left them: the hidden set is rebuilt on the next read.
+            alreadyCreditedIndex.Invalidate();
 
             // The request is not the whole answer. SAP has marked a request Approved and left its draft
             // Pending (production request 86300), and the draft is what the B1 client and the add both
@@ -310,6 +325,33 @@ public sealed class DecideCreditNoteApprovalHandler(
             StillPending = stillPending,
             Message = message
         };
+    }
+
+    /// <summary>
+    /// Refuses an approval of a draft already credited some other way. The draft is read here because
+    /// a decision otherwise never needs it; a draft SAP no longer has cannot be paid twice.
+    /// </summary>
+    private async Task<ErrorOr<Success>> CheckAlreadyCreditedAsync(SAPApprovalRequest request, CancellationToken cancellationToken)
+    {
+        if (request.DraftEntry is not int draftEntry || draftEntry <= 0)
+        {
+            return Result.Success;
+        }
+
+        SAPCreditNote? draft;
+        try
+        {
+            draft = await sap.GetCreditNoteDraftAsync(draftEntry, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Could not read draft {DraftEntry} to check it was not already credited", draftEntry);
+            return Errors.CreditNoteApproval.AlreadyCreditedUnchecked;
+        }
+
+        return draft is null
+            ? Result.Success
+            : await CreditNoteAlreadyCredited.RefuseIfCreditedAsync(sap, lookups, draft, canReject: true, logger, cancellationToken);
     }
 
     private async Task<SAPApprovalRequest?> TryReadBackAsync(int code)

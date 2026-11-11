@@ -1063,6 +1063,33 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
     private static string FormatDate(DateTime? value) => value?.ToString("dd MMM yyyy") ?? "—";
 
+    /// <summary>"by Accounts Clerk (AR1) on 15 Aug 2026" — whichever of the two SAP gave; "in SAP" when neither.</summary>
+    private static string CreditedWhoAndWhen(CreditNoteApprovalAlreadyCreditedDto credited)
+    {
+        var name = credited.EnteredByName;
+        var code = credited.EnteredByUserCode;
+        var who = (name, code) switch
+        {
+            ({ Length: > 0 }, { Length: > 0 }) when !string.Equals(name, code, StringComparison.OrdinalIgnoreCase) => $"{name} ({code})",
+            ({ Length: > 0 }, _) => name,
+            (_, { Length: > 0 }) => code,
+            _ => null
+        };
+
+        var parts = new List<string>(2);
+        if (who is not null)
+        {
+            parts.Add($"by {who}");
+        }
+
+        if (credited.EnteredDate is not null)
+        {
+            parts.Add($"on {FormatDate(credited.EnteredDate)}");
+        }
+
+        return parts.Count == 0 ? "in SAP" : string.Join(' ', parts);
+    }
+
     private static string FormatMoney(decimal value, string? currency) =>
         string.IsNullOrWhiteSpace(currency) ? value.ToString("N2") : $"{value:N2} {currency}";
 

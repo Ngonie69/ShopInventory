@@ -131,6 +131,93 @@ public class SapCreditNoteApprovalReadTests(SapClientFixture fixture)
         Assert.Null(await fixture.Client.GetNewestCreditNoteForCustomerAsync(top.CardCode!, newest.Value));
     }
 
+    /// <summary>
+    /// The read behind the already-credited flag: credit notes by customer, exact total and entry day,
+    /// with cancellations left out in SAP. Proven on whatever the company holds by asking for the
+    /// newest credit note's own customer and total — it must come back, and must not once the day
+    /// bound passes it.
+    /// </summary>
+    [SapFact]
+    public async Task The_already_credited_read_finds_a_credit_note_by_its_customer_total_and_day()
+    {
+        var newest = await fixture.Client.GetNewestCreditNoteDocEntryAsync();
+        Assert.False(newest is null, "SAP holds no credit notes at all, so the already-credited read cannot be exercised.");
+
+        var top = await fixture.Client.GetCreditNoteByDocEntryAsync(newest!.Value);
+        Assert.NotNull(top);
+        Assert.False(string.IsNullOrWhiteSpace(top.CardCode));
+
+        var found = await fixture.Client.GetCreditNotesByCustomerTotalsAsync(
+            [new SapCreditNoteTotalKey(top.CardCode!, top.DocTotal, new DateTime(2000, 1, 1))]);
+
+        Assert.All(found, note =>
+        {
+            Assert.Equal(top.CardCode, note.CardCode);
+            Assert.Equal(top.DocTotal, note.DocTotal);
+            Assert.Equal("csNo", note.CancelStatus);
+            Assert.False(string.IsNullOrWhiteSpace(note.CreationDate), $"Credit note {note.DocEntry} came back without CreationDate.");
+        });
+
+        // The newest may itself be a cancellation, which the read rightly leaves out.
+        if (!string.Equals(top.CancelStatus, "csNo", StringComparison.OrdinalIgnoreCase))
+        {
+            Assert.DoesNotContain(found, note => note.DocEntry == top.DocEntry);
+            return;
+        }
+
+        var itself = Assert.Single(found, note => note.DocEntry == top.DocEntry);
+        var entered = DateTime.ParseExact(itself.CreationDate![..10], "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+        var onTheDay = await fixture.Client.GetCreditNotesByCustomerTotalsAsync(
+            [new SapCreditNoteTotalKey(top.CardCode!, top.DocTotal, entered)]);
+        Assert.Contains(onTheDay, note => note.DocEntry == top.DocEntry);
+
+        var dayAfter = await fixture.Client.GetCreditNotesByCustomerTotalsAsync(
+            [new SapCreditNoteTotalKey(top.CardCode!, top.DocTotal, entered.AddDays(1))]);
+        Assert.DoesNotContain(dayAfter, note => note.DocEntry == top.DocEntry);
+    }
+
+    /// <summary>
+    /// The index the open queues hide by, built against the live company: the drafts SAP still holds,
+    /// the already-credited read over them, and the requests of those it finds. The held-drafts filter
+    /// (DocumentStatus and AuthorizationStatus on Drafts) and the DraftEntry filter on ApprovalRequests
+    /// are both settled here.
+    /// </summary>
+    [SapFact]
+    public async Task The_already_credited_index_builds_from_the_drafts_sap_still_holds()
+    {
+        var held = await fixture.Client.GetOpenHeldCreditNoteDraftsAsync();
+        Assert.All(held, draft =>
+        {
+            Assert.Equal(SapDocObjectCodes.CreditNotes, draft.DocObjectCode);
+            Assert.Equal(SapDocumentStatuses.Open, draft.DocumentStatus);
+            Assert.Contains(draft.AuthorizationStatus, new[] { SapDocumentAuthorizationStatuses.Pending, SapDocumentAuthorizationStatuses.Approved });
+        });
+
+        if (held.Count > 0)
+        {
+            var some = held.Take(30).Select(draft => draft.DocEntry).ToList();
+            var requests = await fixture.Client.GetCreditNoteApprovalRequestsForDraftsAsync(OpenStatuses, some);
+            Assert.All(requests, request =>
+            {
+                Assert.Contains(request.DraftEntry ?? 0, some);
+                Assert.Contains(request.Status, OpenStatuses);
+            });
+        }
+
+        var index = await new ShopInventory.Features.CreditNoteApprovals.CreditNoteAlreadyCreditedIndex(
+                fixture.Client,
+                new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<ShopInventory.Features.CreditNoteApprovals.CreditNoteAlreadyCreditedIndex>.Instance)
+            .GetAsync(CancellationToken.None);
+
+        Assert.All(index.Values, entry =>
+        {
+            Assert.Contains(entry.Status, OpenStatuses);
+            Assert.Equal("csNo", entry.CreditNote.CancelStatus);
+        });
+    }
+
     [SapFact]
     public async Task A_request_reads_back_with_its_draft_stage_template_originator_and_attachment()
     {
@@ -181,7 +268,10 @@ public class SapCreditNoteApprovalReadTests(SapClientFixture fixture)
         }
 
         Assert.Equal(SapDocObjectCodes.CreditNotes, draft.DocObjectCode);
-        Assert.Single(headers);
+
+        // The already-credited check bounds its search by the day the draft was keyed.
+        Assert.False(string.IsNullOrWhiteSpace(Assert.Single(headers).CreationDate), "The draft headers came back without CreationDate.");
+        Assert.False(string.IsNullOrWhiteSpace(draft.CreationDate), "The draft came back without CreationDate.");
 
         if (draft.AttachmentEntry is not int attachmentEntry)
         {

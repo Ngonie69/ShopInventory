@@ -41,6 +41,7 @@ public sealed class AddApprovedCreditNoteHandler(
     SapCreditNoteFiscaliser fiscaliser,
     IStockLedger stockLedger,
     IIdempotencyRequestStore idempotencyRequestStore,
+    ICreditNoteAlreadyCreditedIndex alreadyCreditedIndex,
     IAuditService auditService,
     IOptions<SAPSettings> sapSettings,
     IOptions<CreditNoteApprovalSettings> approvalSettings,
@@ -154,6 +155,17 @@ public sealed class AddApprovedCreditNoteHandler(
                     $"approved, but its draft's own state is {SapEnumNames.StripPrefix(draft.AuthorizationStatus, "das")}");
             }
 
+            // Approved in SAP is not the same as not yet credited: the credit may have been keyed straight
+            // into SAP while the draft waited, and adding this one would pay the customer twice. Checked on
+            // the draft as raised, before any quantity is changed.
+            var notCredited = await CreditNoteAlreadyCredited.RefuseIfCreditedAsync(
+                sap, lookups: null, draft, canReject: false, logger, cancellationToken);
+            if (notCredited.IsError)
+            {
+                await TryAuditAsync(command, draft, false, notCredited.FirstError.Description);
+                return notCredited.Errors;
+            }
+
             // The quantities the person typed, checked against the draft they were typed against.
             var quantityChanges = CreditNoteDraftQuantityPlan.Validate(draft.DocumentLines ?? [], command.LineQuantities);
             if (quantityChanges.IsError)
@@ -239,6 +251,9 @@ public sealed class AddApprovedCreditNoteHandler(
             }
 
             var savedAt = clock.Elapsed;
+
+            // A new credit note can be the one that already credits another held draft.
+            alreadyCreditedIndex.Invalidate();
 
             // When SAP's answer names no document — the usual case, a 204 — the read that finds the
             // created credit note returns it whole, so it is not read a second time.

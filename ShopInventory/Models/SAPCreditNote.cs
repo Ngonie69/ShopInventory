@@ -33,6 +33,17 @@ public class SAPCreditNote : ISapDocumentAmounts
     [JsonPropertyName("UpdateTime")]
     public string? UpdateTime { get; set; }
 
+    /// <summary>
+    /// The day the document was entered, as opposed to <see cref="DocDate"/>, which the user types.
+    /// Read on approval drafts and on the credit notes checked against them; null elsewhere.
+    /// </summary>
+    [JsonPropertyName("CreationDate")]
+    public string? CreationDate { get; set; }
+
+    /// <summary>The SAP user (<c>InternalKey</c>) who entered the document. Read only where a person is named.</summary>
+    [JsonPropertyName("UserSign")]
+    public int? UserSign { get; set; }
+
     [JsonPropertyName("CardCode")]
     public string? CardCode { get; set; }
 

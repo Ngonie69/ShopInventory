@@ -19,9 +19,25 @@ internal static class CreditNoteApprovalProjection
         SAPApprovalStage? stage,
         SAPUser? serviceApprover,
         string serviceApproverUserCode,
-        bool serviceApproverAlreadyDecided)
+        bool serviceApproverAlreadyDecided,
+        SAPCreditNote? alreadyCredited = null,
+        SAPUser? alreadyCreditedBy = null)
     {
         var (canDecide, canAdd, note) = Flags(request, draft, stage, serviceApprover, serviceApproverUserCode, serviceApproverAlreadyDecided);
+        var canApprove = canDecide;
+
+        // A credit keyed straight into SAP leaves the draft Pending, so nothing above can see it. It
+        // outranks every other note: the person must learn that approving pays the customer twice, not
+        // that the app is not on the stage. A rejection stays open — it is how the queue is cleared.
+        var credited = alreadyCredited is not null && CreditNoteAlreadyCredited.AppliesTo(request) && IsOpen(draft)
+            ? alreadyCredited
+            : null;
+        if (credited is not null)
+        {
+            canApprove = false;
+            canAdd = false;
+            note = CreditNoteAlreadyCredited.Describe(credited, alreadyCreditedBy, canReject: canDecide);
+        }
 
         return new CreditNoteApprovalListItemDto
         {
@@ -52,8 +68,19 @@ internal static class CreditNoteApprovalProjection
             HasAttachment = draft?.AttachmentEntry is > 0,
             CreditNoteDocEntry = request.ObjectEntry,
             CanDecide = canDecide,
+            CanApprove = canApprove,
             CanAdd = canAdd,
-            StatusNote = note
+            StatusNote = note,
+            AlreadyCredited = credited is null
+                ? null
+                : new CreditNoteApprovalAlreadyCreditedDto
+                {
+                    DocEntry = credited.DocEntry,
+                    DocNum = credited.DocNum,
+                    EnteredDate = ParseSapDate(credited.CreationDate),
+                    EnteredByUserCode = alreadyCreditedBy?.UserCode,
+                    EnteredByName = alreadyCreditedBy?.UserName
+                }
         };
     }
 

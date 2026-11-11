@@ -5955,7 +5955,21 @@ Service Layer cannot reach its attachments folder (`[Message 131-102]`, a draft 
 that is `400 CreditNoteApproval.AddBlockedByAttachmentsFolder`, which says nothing was added and to add
 it in the SAP Business One client instead. One that got no clear answer comes back
 as `CreditNoteApproval.DecisionUncertain` / `AddUncertain`, and the request should be reloaded before
-trying again. Both POSTs own their idempotency: a decision repeated with the same `Idempotency-Key` (or
+trying again.
+
+A draft already credited some other way is one with a credit note for the same customer, Customer Ref.
+No. and total, entered no earlier than the draft, and not cancelled. The `open`, `pending` and `approved`
+lists leave such requests out, as SAP leaves out a draft once it is added. `totalCount`, the cursor and
+`/counts` all allow for them. The index behind this is cached for ten minutes and cleared by any decision
+or add made here. `status=all` still returns them, with `alreadyCredited` set: `docEntry`, `docNum`,
+`enteredDate`, and on the detail only `enteredByUserCode` / `enteredByName`. Such a row has
+`canApprove: false` and `canAdd: false`. It keeps `canDecide`, because a rejection is how it leaves the
+queue, and `statusNote` says what to do. `canApprove` otherwise follows `canDecide`. Both POSTs check
+again, fresh. An approval or an add of such a draft is `409 CreditNoteApproval.AlreadyCredited`, naming the
+credit note. One SAP could not check is `CreditNoteApproval.AlreadyCreditedUnchecked`, and nothing was
+recorded. A rejection is never checked. See `docs/sap-credit-note-approvals.md`.
+
+Both POSTs own their idempotency: a decision repeated with the same `Idempotency-Key` (or
 `clientRequestId`) replays the first answer, and a draft is added at most once whoever clicks.
 
 The credit note is fiscalised right after the add — a document added through the Service Layer never

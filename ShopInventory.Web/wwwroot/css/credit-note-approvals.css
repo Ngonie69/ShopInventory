@@ -1752,6 +1752,21 @@
     background: rgba(var(--cna-rejected-rgb), .12);
 }
 
+/* A draft whose credit was keyed straight into SAP while it waited. The danger
+   hue, not the notice one: approving it pays the customer twice. */
+.cna-pill.is-credited {
+    color: var(--cna-bad);
+    background: var(--cna-bad-bg);
+}
+
+.cna-credited-title {
+    font-weight: 600;
+}
+
+.cna-credited-sub {
+    margin-top: 2px;
+}
+
 /* ── The drawer ──────────────────────────────────────────────────────── */
 
 .cna-q .cna-drawer {

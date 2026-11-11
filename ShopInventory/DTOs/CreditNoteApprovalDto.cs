@@ -46,14 +46,41 @@ public sealed class CreditNoteApprovalListItemDto
     /// <summary>The credit note DocEntry once the request has been generated.</summary>
     public int? CreditNoteDocEntry { get; set; }
 
-    /// <summary>The service approver may record a decision on the current stage.</summary>
+    /// <summary>The service approver may record a decision on the current stage — a rejection at least.</summary>
     public bool CanDecide { get; set; }
+
+    /// <summary>
+    /// The decision may be an approval. False beside <see cref="CanDecide"/> when the draft is
+    /// <see cref="AlreadyCredited"/>: it can still be rejected, never approved.
+    /// </summary>
+    public bool CanApprove { get; set; }
 
     /// <summary>The request is approved and its draft is open, so it may be added.</summary>
     public bool CanAdd { get; set; }
 
     /// <summary>Why neither action is available, in a sentence — or what already happened.</summary>
     public string? StatusNote { get; set; }
+
+    /// <summary>
+    /// A credit note already in SAP for this customer, reference and total, entered no earlier than the
+    /// draft — the credit was keyed directly while the draft waited. Approving or adding the draft
+    /// would credit the customer twice. Null when there is none, or the check could not be made.
+    /// </summary>
+    public CreditNoteApprovalAlreadyCreditedDto? AlreadyCredited { get; set; }
+}
+
+/// <summary>The credit note that already credits a held draft.</summary>
+public sealed class CreditNoteApprovalAlreadyCreditedDto
+{
+    public int DocEntry { get; set; }
+    public int DocNum { get; set; }
+
+    /// <summary>The day it was entered in SAP.</summary>
+    public DateTime? EnteredDate { get; set; }
+
+    /// <summary>The SAP user who entered it; null in the list, which names nobody to keep its reads down.</summary>
+    public string? EnteredByUserCode { get; set; }
+    public string? EnteredByName { get; set; }
 }
 
 public sealed class CreditNoteApprovalListResponseDto

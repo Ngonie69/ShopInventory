@@ -264,6 +264,7 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
             FakeSapApprovalLookups.WithStage(4, "Finance review", [Manager, Finance], 1, 9),
             FixedStageScope.EveryStage,
             Store(),
+            FakeAlreadyCreditedIndex.Empty,
             new RecordingAuditService(),
             Options.Create(new SAPSettings
             {
@@ -290,6 +291,7 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
             lookups,
             FixedStageScope.EveryStage,
             Store(),
+            FakeAlreadyCreditedIndex.Empty,
             new RecordingAuditService(),
             Options.Create(new SAPSettings
             {
@@ -345,18 +347,140 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         Assert.Equal(Ngoni, Assert.Single(scope.AskedFor));
     }
 
+    /// <summary>
+    /// A production request: the credit was keyed straight into SAP the afternoon the draft was
+    /// raised, and SAP still held the draft Pending. Approving it is the first step to paying twice.
+    /// </summary>
+    [Fact]
+    public async Task Approving_a_draft_already_credited_is_refused_and_nothing_reaches_sap()
+    {
+        var sap = new RecordingSap(Pending(3110))
+        {
+            DraftBeforeDecision = CreditedDraft(),
+            CreditNotes = [KeyedCreditNote()]
+        };
+        var lookups = FakeSapApprovalLookups.WithStage(4, "Finance review", [Manager, Finance, AR1], 1, 9);
+
+        var result = await Handler(sap, new RecordingAuditService(), lookups).Handle(Command(3110, "Approved", null), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.AlreadyCredited", result.FirstError.Code);
+        Assert.Equal(
+            "Already credited: credit note 61455 was entered by AR1 on 15 Aug 2026 for the same customer, reference and total. "
+            + "Approving or adding this draft would credit the customer twice. Reject it, or remove the draft in SAP.",
+            result.FirstError.Description);
+        Assert.Empty(sap.Decisions);
+    }
+
+    [Fact]
+    public async Task Rejecting_a_draft_already_credited_goes_through_unchecked()
+    {
+        var sap = new RecordingSap(Pending(3110))
+        {
+            DraftBeforeDecision = CreditedDraft(),
+            CreditNotes = [KeyedCreditNote()],
+            AfterDecision = WithStatus(3110, SapApprovalRequestStatuses.NotApproved)
+        };
+
+        var result = await Handler(sap, new RecordingAuditService()).Handle(Command(3110, "NotApproved", "already credited as 61455"), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Equal(SapApprovalDecisions.NotApproved, Assert.Single(sap.Decisions).Decision);
+        Assert.Equal(0, sap.CreditNoteReads);
+    }
+
+    [Fact]
+    public async Task An_approval_sap_cannot_check_is_refused_rather_than_guessed()
+    {
+        var sap = new RecordingSap(Pending(3110))
+        {
+            DraftBeforeDecision = CreditedDraft(),
+            CreditNoteReadFails = true
+        };
+
+        var result = await Handler(sap, new RecordingAuditService()).Handle(Command(3110, "Approved", null), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.AlreadyCreditedUnchecked", result.FirstError.Code);
+        Assert.Empty(sap.Decisions);
+    }
+
+    [Fact]
+    public async Task A_credit_note_with_another_reference_does_not_block_the_approval()
+    {
+        var other = KeyedCreditNote();
+        other.NumAtCard = "800124";
+        var sap = new RecordingSap(Pending(3110))
+        {
+            DraftBeforeDecision = CreditedDraft(),
+            CreditNotes = [other],
+            AfterDecision = Approved(3110)
+        };
+
+        var result = await Handler(sap, new RecordingAuditService()).Handle(Command(3110, "Approved", null), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Single(sap.Decisions);
+        Assert.Equal(1, sap.CreditNoteReads);
+    }
+
+    /// <summary>A rejected request leaves the open queues, so the hidden set is rebuilt on the next read.</summary>
+    [Fact]
+    public async Task A_recorded_decision_clears_the_already_credited_index_and_a_refused_one_does_not()
+    {
+        var index = new FakeAlreadyCreditedIndex();
+        var rejected = new RecordingSap(Pending(3110)) { AfterDecision = WithStatus(3110, SapApprovalRequestStatuses.NotApproved) };
+
+        var result = await Handler(rejected, new RecordingAuditService(), index: index).Handle(Command(3110, "NotApproved", null), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Equal(1, index.Invalidations);
+
+        var refused = new RecordingSap(Pending(3111)) { RefuseWith = "No matching records found" };
+        await Handler(refused, new RecordingAuditService(), index: index).Handle(Command(3111, "NotApproved", null), CancellationToken.None);
+        Assert.Equal(1, index.Invalidations);
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────────
+
+    private static readonly SAPUser AR1 =new() { InternalKey = 20, UserCode = "AR1", UserName = "AR1" };
+
+    private static SAPCreditNote CreditedDraft() => new()
+    {
+        DocEntry = 88123,
+        DocNum = 61450,
+        DocObjectCode = SapDocObjectCodes.CreditNotes,
+        DocumentStatus = SapDocumentStatuses.Open,
+        AuthorizationStatus = SapDocumentAuthorizationStatuses.Pending,
+        CardCode = "C00477",
+        NumAtCard = "800123",
+        DocTotal = 412.65m,
+        CreationDate = "2026-08-15T00:00:00Z"
+    };
+
+    private static SAPCreditNote KeyedCreditNote() => new()
+    {
+        DocEntry = 70310,
+        DocNum = 61455,
+        CardCode = "C00477",
+        NumAtCard = "800123",
+        DocTotal = 412.65m,
+        CreationDate = "2026-08-15T00:00:00Z",
+        UserSign = 20,
+        Cancelled = SapYesNo.No,
+        CancelStatus = "csNo"
+    };
 
     private DecideCreditNoteApprovalHandler Handler(
         RecordingSap sap,
         RecordingAuditService audit,
         FakeSapApprovalLookups? lookups = null,
         IIdempotencyRequestStore? store = null,
-        ICreditNoteApprovalStageScope? scope = null) => new(
+        ICreditNoteApprovalStageScope? scope = null,
+        FakeAlreadyCreditedIndex? index = null) => new(
         sap.AsClient(),
         lookups ?? FakeSapApprovalLookups.WithStage(4, "Finance review", [Manager, Finance], 1, 9),
         scope ?? FixedStageScope.EveryStage,
         store ?? Store(),
+        index ?? FakeAlreadyCreditedIndex.Empty,
         audit,
         Options.Create(new SAPSettings { Enabled = true, Username = "manager", Password = "pw" }),
         NullLogger<DecideCreditNoteApprovalHandler>.Instance);
@@ -403,6 +527,14 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         /// <summary>The draft SAP shows once the decision is in; by default it followed the request.</summary>
         public SAPCreditNote? DraftAfterDecision { get; init; } = Draft(SapDocumentAuthorizationStatuses.Approved);
 
+        /// <summary>The draft as the already-credited check reads it; by default the one read after the decision.</summary>
+        public SAPCreditNote? DraftBeforeDecision { get; init; }
+
+        /// <summary>What SAP answers the already-credited check with.</summary>
+        public List<SAPCreditNote> CreditNotes { get; init; } = [];
+        public bool CreditNoteReadFails { get; init; }
+        public int CreditNoteReads { get; private set; }
+
         public string? RefuseWith { get; init; }
         public Exception? ThrowOnDecision { get; init; }
         public List<(int Code, string? Approver, string? Password, string Decision, string? Remarks, CancellationToken Token)> Decisions { get; } = [];
@@ -412,10 +544,19 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
             nameof(ISAPServiceLayerClient.GetApprovalRequestAsync)
                 => Task.FromResult<SAPApprovalRequest?>(_decided ? AfterDecision ?? current : current),
             nameof(ISAPServiceLayerClient.GetCreditNoteDraftAsync)
-                => Task.FromResult(DraftAfterDecision),
+                => Task.FromResult(_decided ? DraftAfterDecision : DraftBeforeDecision ?? DraftAfterDecision),
+            nameof(ISAPServiceLayerClient.GetCreditNotesByCustomerTotalsAsync) => ReadCreditNotes(),
             nameof(ISAPServiceLayerClient.SubmitApprovalDecisionAsync) => Decide(args!),
             _ => throw new InvalidOperationException($"{method.Name} was not expected.")
         });
+
+        private Task<List<SAPCreditNote>> ReadCreditNotes()
+        {
+            CreditNoteReads++;
+            return CreditNoteReadFails
+                ? throw new HttpRequestException("SAP is not answering")
+                : Task.FromResult(CreditNotes.ToList());
+        }
 
         private Task Decide(object?[] args)
         {

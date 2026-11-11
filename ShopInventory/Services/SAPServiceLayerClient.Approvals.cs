@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -25,11 +26,30 @@ public partial class SAPServiceLayerClient
     // Drafts are Document rows, so this is CreditNoteSelect plus the three fields a held draft carries
     // that a posted credit note never needs. Kept separate from CreditNoteSelect on purpose: a field the
     // Drafts set rejects at runtime must not take the credit-note list down with it.
-    private const string DraftSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,SalesPersonCode,DocumentStatus,Cancelled,AttachmentEntry,AuthorizationStatus,DocObjectCode";
+    private const string DraftSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CreationDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,SalesPersonCode,DocumentStatus,Cancelled,AttachmentEntry,AuthorizationStatus,DocObjectCode";
+
+    // What the already-credited check needs of a credit note: who it credits, by how much, against
+    // what reference, when it was entered and by whom.
+    private const string CreditNoteMatchSelect = "$select=DocEntry,DocNum,DocDate,CreationDate,UserSign,CardCode,NumAtCard,DocTotal,Cancelled,CancelStatus";
+
+    /// <summary>The already-credited filter around its customer-and-total clauses: {0} is the day bound, {1} the clauses.</summary>
+    private const string CreditNoteMatchFilterFrame = "CancelStatus eq 'csNo' and CreationDate ge '{0}' and ({1})";
+
+    /// <summary>
+    /// The longest already-credited filter sent, before percent-encoding. The Service Layer refuses a
+    /// query string over 2,048 characters with error 207, "Query string exceeds the maximum length
+    /// 2048", counted unencoded: measured on production on 2026-11-11, a page of 24 pairs (about 2,170
+    /// characters) was refused and one of 22 (about 2,000) answered. The <c>$select</c>,
+    /// <c>$orderby</c>, <c>$top</c> and <c>$skip</c> around the filter take under 200; the rest is margin.
+    /// </summary>
+    private const int CreditNoteMatchFilterBudget = 1700;
     private const string DraftDetailSelect = DraftSelect + ",DocumentLines";
 
     private const string ApprovalRequestSelect = "$select=Code,ApprovalTemplatesID,ObjectType,IsDraft,ObjectEntry,Status,Remarks,CurrentStage,OriginatorID,CreationDate,CreationTime,DraftEntry";
     private const string ApprovalRequestDetailSelect = ApprovalRequestSelect + ",ApprovalRequestLines";
+
+    // What the queue filters on and the draft it holds: enough to place a request in a queue without a page read.
+    private const string ApprovalRequestQueueSelect = "$select=Code,ObjectType,Status,CurrentStage,OriginatorID,CreationDate,DraftEntry";
     private const string ApprovalStageSelect = "$select=Code,Name,NoOfApproversRequired,ApprovalStageApprovers";
     private const string ApprovalTemplateSelect = "$select=Code,Name,IsActive";
     private const string SapUserSelect = "$select=InternalKey,UserCode,UserName";
@@ -143,6 +163,56 @@ public partial class SAPServiceLayerClient
 
         return ((await pageTask)?.Value ?? [], await countTask);
     }
+
+    /// <remarks>
+    /// One <c>DraftEntry eq … or …</c> filter per batch, cut by length like the already-credited read:
+    /// the Service Layer refuses a query string over 2,048 characters.
+    /// </remarks>
+    public async Task<List<SAPApprovalRequest>> GetCreditNoteApprovalRequestsForDraftsAsync(
+        IReadOnlyCollection<string> sapStatuses,
+        IReadOnlyCollection<int> draftEntries,
+        CancellationToken cancellationToken = default)
+    {
+        var baseFilter = CreditNoteApprovalFilter(sapStatuses, stageCodes: null, narrowing: null);
+        var clauses = draftEntries
+            .Where(entry => entry > 0)
+            .Distinct()
+            .Order()
+            .Select(entry => $"DraftEntry eq {entry}")
+            .ToList();
+        if (clauses.Count == 0)
+        {
+            return [];
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var found = new List<SAPApprovalRequest>();
+        foreach (var batch in BatchByLength(clauses, clause => clause.Length, CreditNoteMatchFilterBudget - baseFilter.Length - 7))
+        {
+            found.AddRange(await ReadDocumentPagesAsync<SAPApprovalRequest>(
+                "ApprovalRequests",
+                $"{baseFilter} and ({string.Join(" or ", batch)})",
+                ApprovalRequestQueueSelect,
+                $"read the approval requests of {batch.Count} credit note draft(s)",
+                cancellationToken,
+                NoDocumentListCeiling,
+                orderByClause: "Code desc"));
+        }
+
+        return found;
+    }
+
+    public Task<List<SAPCreditNote>> GetOpenHeldCreditNoteDraftsAsync(CancellationToken cancellationToken = default) =>
+        ReadDocumentPagesAsync<SAPCreditNote>(
+            "Drafts",
+            $"DocObjectCode eq '{SapDocObjectCodes.CreditNotes}' and DocumentStatus eq '{SapDocumentStatuses.Open}'"
+            + $" and (AuthorizationStatus eq '{SapDocumentAuthorizationStatuses.Pending}'"
+            + $" or AuthorizationStatus eq '{SapDocumentAuthorizationStatuses.Approved}')",
+            DraftSelect,
+            "read the credit note drafts SAP still holds for approval",
+            cancellationToken,
+            DocumentListMaxResults);
 
     public async Task<int> CountCreditNoteApprovalRequestsAsync(
         IReadOnlyCollection<string> sapStatuses,
@@ -330,6 +400,101 @@ public partial class SAPServiceLayerClient
             pageSize: 1);
 
         return page?.Value?.FirstOrDefault();
+    }
+
+    /// <remarks>
+    /// <para>
+    /// One <c>… or …</c> filter per batch of customer-and-total pairs, a few batches at a time. A single
+    /// draft — the detail, an approval, an add — is one batch; the index over every held draft is several.
+    /// </para>
+    /// <para>
+    /// Batches are cut by length, not by count, because the Service Layer refuses a query string over
+    /// 2,048 characters outright. The day bound is one per batch — the earliest any of its pairs asked
+    /// for — rather than one per pair, which nearly halves each clause; a pair whose own day is later
+    /// gets back a few older credit notes of the same customer and total, and the caller drops them.
+    /// </para>
+    /// </remarks>
+    public async Task<List<SAPCreditNote>> GetCreditNotesByCustomerTotalsAsync(
+        IReadOnlyCollection<SapCreditNoteTotalKey> keys,
+        CancellationToken cancellationToken = default)
+    {
+        // One clause per customer and total, from the earliest day any draft asked for.
+        var pairs = keys
+            .Where(key => !string.IsNullOrWhiteSpace(key.CardCode) && key.DocTotal > 0)
+            .GroupBy(key => (CardCode: key.CardCode.Trim(), key.DocTotal))
+            .Select(group => (
+                Clause: $"(CardCode eq '{EscapeODataStringLiteral(group.Key.CardCode)}'"
+                        + $" and DocTotal eq {group.Key.DocTotal.ToString("0.############", CultureInfo.InvariantCulture)})",
+                From: group.Min(key => key.EnteredOnOrAfter.Date)))
+            .OrderBy(pair => pair.Clause, StringComparer.Ordinal)
+            .ToList();
+        if (pairs.Count == 0)
+        {
+            return [];
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var frameLength = string.Format(CultureInfo.InvariantCulture, CreditNoteMatchFilterFrame, "0000-00-00", string.Empty).Length;
+        var batches = BatchByLength(pairs, pair => pair.Clause.Length, CreditNoteMatchFilterBudget - frameLength);
+        var perBatch = new List<SAPCreditNote>[batches.Count];
+
+        // A page is one batch; the index over every held draft is about eight, and read one after another
+        // they were most of its five seconds. They do not depend on one another, so they run as the
+        // draft chunks do: a few at a time, inside the application's connection budget.
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, batches.Count),
+            new ParallelOptions { MaxDegreeOfParallelism = DraftChunkConcurrency, CancellationToken = cancellationToken },
+            async (index, token) =>
+            {
+                var batch = batches[index];
+                var from = batch.Min(pair => pair.From).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var clauses = string.Join(" or ", batch.Select(pair => pair.Clause));
+
+                perBatch[index] = await ReadDocumentPagesAsync<SAPCreditNote>(
+                    "CreditNotes",
+                    string.Format(CultureInfo.InvariantCulture, CreditNoteMatchFilterFrame, from, clauses),
+                    CreditNoteMatchSelect,
+                    $"read credit notes matching {batch.Count} held draft(s)",
+                    token,
+                    NoDocumentListCeiling);
+            });
+
+        return perBatch.SelectMany(found => found).ToList();
+    }
+
+    /// <summary>
+    /// Cuts <paramref name="items"/> into runs whose lengths, joined by <c>" or "</c>, stay within
+    /// <paramref name="budget"/>. An item longer than the budget on its own still goes, alone.
+    /// </summary>
+    internal static List<List<T>> BatchByLength<T>(IEnumerable<T> items, Func<T, int> length, int budget)
+    {
+        const int separator = 4; // " or "
+        var batches = new List<List<T>>();
+        var current = new List<T>();
+        var used = 0;
+
+        foreach (var item in items)
+        {
+            var cost = length(item) + (current.Count == 0 ? 0 : separator);
+            if (current.Count > 0 && used + cost > budget)
+            {
+                batches.Add(current);
+                current = [];
+                used = 0;
+                cost = length(item);
+            }
+
+            current.Add(item);
+            used += cost;
+        }
+
+        if (current.Count > 0)
+        {
+            batches.Add(current);
+        }
+
+        return batches;
     }
 
     public Task<SAPAttachment?> GetAttachmentAsync(int absoluteEntry, CancellationToken cancellationToken = default)
