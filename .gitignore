@@ -117,3 +117,6 @@ ShopInventory.Web/wwwroot/css/*.bundle.css
 scripts/dr-state-*.txt
 scripts/aomei-state-*.txt
 scripts/sap-sqlqueries-census/
+
+# Per-sale report written by scripts/Retry-FailedDesktopSaleFiscalisation.ps1 (sale references and totals)
+scripts/fiscal-retry-*.csv
