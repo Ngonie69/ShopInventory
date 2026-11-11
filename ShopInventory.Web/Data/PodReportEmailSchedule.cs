@@ -1,7 +1,7 @@
 namespace ShopInventory.Web.Data;
 
 /// <summary>
-/// Supported POD report email send frequencies.
+/// Supported POD report email send frequencies. Stored by name, so new values go at the end.
 /// </summary>
 public enum PodReportEmailFrequency
 {
@@ -11,7 +11,12 @@ public enum PodReportEmailFrequency
     MonthToDateDaily,
     EveryNDays,
     Quarterly,
-    HalfYearly
+    HalfYearly,
+
+    /// <summary>
+    /// Sent every day, covering 1 January of the current year through the send date.
+    /// </summary>
+    YearToDateDaily
 }
 
 /// <summary>

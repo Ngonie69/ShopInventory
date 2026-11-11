@@ -2075,7 +2075,7 @@
                 <div class="stg-dialog-head">
                     <div class="stg-section-text">
                         <h2 style="font-size:18px">@(editingSchedule.Id == 0 ? "New POD report schedule" : "Edit schedule")</h2>
-                        <p>Reports cover the most recently completed period for the chosen frequency.</p>
+                        <p>@ScheduleWindowHint(PodReportEmailService.ParseFrequency(editingSchedule.Frequency))</p>
                     </div>
                     <button type="button" class="stg-dialog-close" @onclick="CloseScheduleModal"><i class="ph ph-x"></i></button>
                 </div>
@@ -3550,6 +3550,7 @@
         {
             PodReportEmailFrequency.Daily => "Daily",
             PodReportEmailFrequency.MonthToDateDaily => "Month to date",
+            PodReportEmailFrequency.YearToDateDaily => "Year to date",
             PodReportEmailFrequency.Weekly => "Weekly",
             PodReportEmailFrequency.Monthly => "Monthly",
             PodReportEmailFrequency.Quarterly => "Quarterly",
@@ -3565,6 +3566,7 @@
         {
             PodReportEmailFrequency.Daily => $"Every day at {time}",
             PodReportEmailFrequency.MonthToDateDaily => $"Every day at {time}, month to date",
+            PodReportEmailFrequency.YearToDateDaily => $"Every day at {time}, 1 Jan to date",
             PodReportEmailFrequency.Weekly => $"{(DayOfWeek)Math.Clamp(schedule.DayOfWeek ?? (int)DayOfWeek.Monday, 0, 6)}s at {time}",
             PodReportEmailFrequency.Monthly => $"Day {Math.Clamp(schedule.DayOfMonth ?? 1, 1, 31)} of each month at {time}",
             PodReportEmailFrequency.Quarterly => $"Day {Math.Clamp(schedule.DayOfMonth ?? 1, 1, 31)} of each quarter at {time}",
@@ -3620,12 +3622,20 @@
     {
         PodReportEmailFrequency.Daily => "Daily",
         PodReportEmailFrequency.MonthToDateDaily => "Month-to-date daily",
+        PodReportEmailFrequency.YearToDateDaily => "Year-to-date daily (from 1 Jan)",
         PodReportEmailFrequency.Weekly => "Weekly",
         PodReportEmailFrequency.Monthly => "Monthly",
         PodReportEmailFrequency.Quarterly => "Quarterly",
         PodReportEmailFrequency.HalfYearly => "Half-yearly",
         PodReportEmailFrequency.EveryNDays => "Every N days",
         _ => frequency.ToString()
+    };
+
+    private static string ScheduleWindowHint(PodReportEmailFrequency frequency) => frequency switch
+    {
+        PodReportEmailFrequency.MonthToDateDaily => "Each send covers the 1st of the current month up to and including the send date.",
+        PodReportEmailFrequency.YearToDateDaily => "Each send covers 1 January of the current year up to and including the send date.",
+        _ => "Reports cover the most recently completed period for the chosen frequency."
     };
 
     private static bool IsCalendarPeriodFrequency(PodReportEmailFrequency frequency) =>
