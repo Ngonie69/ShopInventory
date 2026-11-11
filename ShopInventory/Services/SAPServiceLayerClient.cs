@@ -604,8 +604,11 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 response.Dispose();
             }
+            // A held read is not retried: the hold lasts minutes, and an attempt sent anyway would be
+            // the second stuck Service Layer process it exists to prevent.
             catch (Exception ex) when (
                 attempt < maxRetries
+                && ex is not SapReadStillRunningException
                 && !IsClientTimeout(ex, cancellationToken)
                 && SapFailureClassifier.IsTransient(ex, cancellationToken)
                 && !BreakerOutlastsRemainingRetries(ex, attempt, maxRetries))

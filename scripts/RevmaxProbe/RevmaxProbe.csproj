@@ -16,4 +16,8 @@
     <ProjectReference Include="..\..\ShopInventory\ShopInventory.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.Formats.Cbor" Version="10.0.15" />
+  </ItemGroup>
+
 </Project>

@@ -37,7 +37,7 @@ public class SapCircuitBreakerTimeoutTests
         using var client = new HttpClient(
             new SAPCircuitBreakerHandler(state, NullLogger<SAPCircuitBreakerHandler>.Instance, clientTimeout)
             {
-                InnerHandler = new ReachSap { InnerHandler = seen }
+                InnerHandler = new ReachSap(TimeProvider.System) { InnerHandler = seen }
             })
         {
             Timeout = clientTimeout
@@ -263,6 +263,53 @@ public class SapCircuitBreakerTimeoutTests
     }
 
     [Fact]
+    public async Task A_background_stock_read_SAP_is_still_working_on_is_refused_at_once_and_not_counted()
+    {
+        // SAP keeps working on a read this client gave up on. Background work asking for the same read
+        // again would stack a second stuck Service Layer process beside the first, so the guard refuses
+        // it before it takes a slot: no request reaches SAP, no retry sleeps on it, and the breaker,
+        // which sits inside the guard, sees only the one timeout that really happened.
+        var harness = new Harness(stockBudget: TimeSpan.FromSeconds(60));
+
+        var first = harness.Client.GetStockQuantitiesInWarehouseAsync("CORMACH");
+        await harness.Sap.WaitForHangAsync(first);
+        harness.Clock.Advance(TimeSpan.FromSeconds(60));
+        await Assert.ThrowsAsync<TimeoutException>(() => first);
+
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var ex = await Assert.ThrowsAsync<SapReadStillRunningException>(
+            () => harness.Client.GetStockQuantitiesInWarehouseAsync("CORMACH"));
+
+        // A retried attempt would have slept 2 s and then 4 s first.
+        Assert.True(System.Diagnostics.Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(1.5),
+            "The held read was retried rather than refused.");
+        Assert.Equal(harness.Clock.GetUtcNow() + TimeSpan.FromMinutes(10), ex.HeldUntil);
+        Assert.Equal(1, harness.Sap.HungRequests);
+        Assert.Equal(1, harness.Breaker.GetSnapshot().ConsecutiveFailures);
+    }
+
+    [Fact]
+    public async Task A_stock_read_a_person_is_waiting_on_is_sent_even_while_held()
+    {
+        var harness = new Harness(stockBudget: TimeSpan.FromSeconds(60));
+
+        var first = harness.Client.GetStockQuantitiesInWarehouseAsync("CORMACH");
+        await harness.Sap.WaitForHangAsync(first);
+        harness.Clock.Advance(TimeSpan.FromSeconds(60));
+        await Assert.ThrowsAsync<TimeoutException>(() => first);
+
+        using (SapRequestPriority.BeginInteractive())
+        {
+            var second = harness.Client.GetStockQuantitiesInWarehouseAsync("CORMACH");
+            Assert.True(await harness.Sap.WaitForHangAsync(second), "The person's read was not sent to SAP.");
+            harness.Clock.Advance(TimeSpan.FromSeconds(60));
+            await Assert.ThrowsAsync<TimeoutException>(() => second);
+        }
+
+        Assert.Equal(2, harness.Sap.HungRequests);
+    }
+
+    [Fact]
     public async Task A_read_that_outlives_the_client_timeout_is_not_sent_again()
     {
         // HttpClient's own timeout means SAP held the request for the whole client deadline. Sending it
@@ -296,24 +343,33 @@ public class SapCircuitBreakerTimeoutTests
         new(Options.Create(new SAPSettings { CircuitFailureThreshold = 5, CircuitBreakDurationSeconds = 30 }));
 
     /// <summary>
-    /// The SAP client wired the way Program.cs wires it — breaker outermost, then a stand-in for the
-    /// concurrency handler — over a Service Layer that leaves chosen reads unanswered.
+    /// The SAP client wired the way Program.cs wires it — the stuck-read guard outermost, then the
+    /// breaker, then a stand-in for the concurrency handler — over a Service Layer that leaves chosen
+    /// reads unanswered.
     /// </summary>
+    /// <remarks>
+    /// The default stock budget is shorter than <see cref="SapStuckReadState.MinimumTimeAtSap"/>, so the
+    /// guard stays out of the way of the tests that repeat a read on purpose.
+    /// </remarks>
     private sealed class Harness
     {
         public static readonly TimeSpan StockBudget = TimeSpan.FromSeconds(5);
         public static readonly TimeSpan PriceListBudget = TimeSpan.FromSeconds(10);
-        public Harness(Func<string, bool>? hangs = null, TimeSpan? clientTimeout = null)
+        public Harness(Func<string, bool>? hangs = null, TimeSpan? clientTimeout = null, TimeSpan? stockBudget = null)
         {
             var timeout = clientTimeout ?? TimeSpan.FromMinutes(5);
             Breaker = NewBreaker();
+            StuckReads = new SapStuckReadState(Options.Create(new SAPSettings { StuckReadHoldMinutes = 10 }), Clock);
             Sap = new HangingSap(hangs ?? (path => path.Contains("STOCK_QTY_", StringComparison.Ordinal)
                                                    && path.EndsWith("/List", StringComparison.Ordinal)));
 
             var httpClient = new HttpClient(
-                new SAPCircuitBreakerHandler(Breaker, NullLogger<SAPCircuitBreakerHandler>.Instance, timeout)
+                new SAPStuckReadHandler(StuckReads, NullLogger<SAPStuckReadHandler>.Instance)
                 {
-                    InnerHandler = new ReachSap { InnerHandler = Sap }
+                    InnerHandler = new SAPCircuitBreakerHandler(Breaker, NullLogger<SAPCircuitBreakerHandler>.Instance, timeout)
+                    {
+                        InnerHandler = new ReachSap(Clock) { InnerHandler = Sap }
+                    }
                 })
             {
                 BaseAddress = new Uri("https://sap.invalid/b1s/v1/"),
@@ -328,7 +384,7 @@ public class SapCircuitBreakerTimeoutTests
                 Options.Create(new SAPSettings
                 {
                     ServiceLayerUrl = "https://sap.invalid/b1s/v1/",
-                    StockSqlRequestTimeoutSeconds = (int)StockBudget.TotalSeconds,
+                    StockSqlRequestTimeoutSeconds = (int)(stockBudget ?? StockBudget).TotalSeconds,
                     PriceListSqlRequestTimeoutSeconds = (int)PriceListBudget.TotalSeconds
                 }),
                 new StubHostEnvironment(),
@@ -343,6 +399,7 @@ public class SapCircuitBreakerTimeoutTests
 
         public ManualClock Clock { get; } = new();
         public SapCircuitBreakerState Breaker { get; }
+        public SapStuckReadState StuckReads { get; }
         public HangingSap Sap { get; }
         public SAPServiceLayerClient Client { get; }
     }
@@ -421,13 +478,13 @@ public class SapCircuitBreakerTimeoutTests
     /// Stands in for SAPConcurrencyHandler, which marks a request once it holds a slot. The real
     /// one keeps its semaphores in statics shared with the SapConcurrency tests.
     /// </summary>
-    private sealed class ReachSap : DelegatingHandler
+    private sealed class ReachSap(TimeProvider clock) : DelegatingHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            SapRequestMarks.MarkReachedSap(request);
+            SapRequestMarks.MarkReachedSap(request, clock.GetUtcNow());
             return base.SendAsync(request, cancellationToken);
         }
     }

@@ -197,7 +197,8 @@ public class SapConcurrencyHandlerTests
                 MaxConcurrentRequests = maxConcurrentRequests,
                 InteractiveReservedRequests = interactiveReservedRequests
             }),
-            NullLogger<SAPConcurrencyHandler>.Instance)
+            NullLogger<SAPConcurrencyHandler>.Instance,
+            TimeProvider.System)
         {
             InnerHandler = inner
         };

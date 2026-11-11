@@ -173,6 +173,9 @@ function Get-SqlFingerprint([string]$sqlText) {
 }
 
 function Get-CodeKind([string]$code, $sqlText, $createDate) {
+    # The Production Plan app (repo production-plan) shares this company: 'PP' + 12 uppercase hex of
+    # SHA-256 over its text. Some end in digits by chance and would otherwise read as legacy random.
+    if ($code -cmatch '^PP[0-9A-F]{12}$') { return @('production plan', 'PP') }
     $m = $hexTwelve.Match($code)
     if ($m.Success) {
         $family = $m.Groups['family'].Value
@@ -283,6 +286,7 @@ try {
     Write-Host "  unverified hex     12-hex code created on or after $($LegacyBefore.ToString('yyyy-MM-dd')) whose text does not hash"
     Write-Host '                     to it (SAP trims trailing spaces per line). Listed below; leave them.'
     Write-Host '  fixed              a constant code such as ITEM_BATCHES_V1: in use.'
+    Write-Host "  production plan    PP + 12 hex: the Production Plan app's queries, not ShopInventory's."
     $unverified = @($records | Where-Object { $_.Kind -eq 'unverified hex' })
     if ($unverified.Count) {
         Write-Host ''
