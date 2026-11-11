@@ -1,4 +1,5 @@
-﻿using ErrorOr;
+﻿using System.Globalization;
+using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -61,10 +62,17 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseSto
 /// and those made off yesterday's rows while it read, so nothing sold comes back. On 2026-09-25 the
 /// morning fetch failed for KEFSHOP and this button refused with "fetch today's stock first", leaving
 /// the operator nothing to press that fixed only that shop.</para>
+///
+/// <para><b>A failed SAP read says when to try again.</b> The endpoint is background work, so
+/// <see cref="Middleware.SAPStuckReadHandler"/> refuses a repeat of a stock read SAP did not answer,
+/// without sending it, until the hold ends. On 2026-11-11 STOCK_QTY_KEFSHOP got no answer in 60 s
+/// and the retry 22 s later was refused in 271 ms, under a message that said "Try again shortly".
+/// The message now names the time the hold ends.</para>
 /// </remarks>
 public sealed class RefreshWarehouseStockHandler(
     ApplicationDbContext db,
     ISAPServiceLayerClient sapClient,
+    SapStuckReadState stuckReads,
     IStockLedger ledger,
     IOptions<DailyStockSettings> dailyStock,
     FetchDailyStockHandler fetch,
@@ -155,7 +163,7 @@ public sealed class RefreshWarehouseStockHandler(
             logger.LogWarning(ex, "Could not read SAP stock to refresh {WarehouseCode}", warehouseCode);
             return Error.Failure(
                 "Stock.SapUnavailable",
-                $"SAP could not be read for {warehouseCode}, so nothing was changed. Try again shortly.");
+                $"SAP could not be read for {warehouseCode}, so nothing was changed. {WhenToTryAgain(ex)}");
         }
 
         if (warehouseStock.Count == 0)
@@ -259,7 +267,16 @@ public sealed class RefreshWarehouseStockHandler(
             logger.LogWarning(ex, "Refetching the snapshot for {WarehouseCode} failed", warehouseCode);
             return Error.Failure(
                 "Stock.SnapshotFetchFailed",
-                $"{warehouseCode}'s stock could not be fetched from SAP: {ex.Message}");
+                ex switch
+                {
+                    // Its own message names a SAP URL and a UTC time; the operator needs neither.
+                    SapReadStillRunningException =>
+                        $"{warehouseCode}'s stock could not be fetched from SAP. {WhenToTryAgain(ex)}",
+                    TimeoutException =>
+                        $"{warehouseCode}'s stock could not be fetched from SAP: {ex.Message.TrimEnd().TrimEnd('.')}. "
+                        + WhenToTryAgain(ex),
+                    _ => $"{warehouseCode}'s stock could not be fetched from SAP: {ex.Message}"
+                });
         }
 
         if (fetched.Status == "AlreadyRunning")
@@ -411,6 +428,42 @@ public sealed class RefreshWarehouseStockHandler(
             .CountAsync(
                 adjustment => adjustment.SnapshotDate == ledgerDay && adjustment.WarehouseCode == warehouseCode,
                 cancellationToken);
+
+    /// <summary>
+    /// When a press that SAP could not answer is worth repeating, in words for the operator.
+    /// </summary>
+    /// <remarks>
+    /// A read that timed out has just started a hold, if SAP had it long enough to be presumed still
+    /// working on it, so the time is the hold's length from now. When the read spent its budget queued
+    /// for a slot there is no hold and the time is early advice rather than a refusal; repeating a read
+    /// SAP is stuck on mostly gets stuck too (see <see cref="SapStuckReadState"/>).
+    /// </remarks>
+    private string WhenToTryAgain(Exception ex) => ex switch
+    {
+        SapReadStillRunningException held =>
+            "SAP is still working on the same read from earlier, so it was not asked again. "
+            + $"Try again from {CatClock(held.HeldUntil)}.",
+
+        TimeoutException when stuckReads.Enabled =>
+            "SAP usually carries on with a read it did not answer, so try again from "
+            + $"{CatClock(stuckReads.UtcNow + stuckReads.HoldDuration)}.",
+
+        _ => "Try again shortly."
+    };
+
+    /// <summary>The CAT clock time at or after <paramref name="utc"/>, to the minute.</summary>
+    /// <remarks>Rounded up, so pressing at the time shown never lands inside the hold.</remarks>
+    private static string CatClock(DateTimeOffset utc)
+    {
+        var cat = TimeZoneInfo.ConvertTime(utc, QuartzConfiguration.CatTimeZone);
+        var minute = new DateTimeOffset(cat.Year, cat.Month, cat.Day, cat.Hour, cat.Minute, 0, cat.Offset);
+        if (minute < cat)
+        {
+            minute = minute.AddMinutes(1);
+        }
+
+        return minute.ToString("HH:mm", CultureInfo.InvariantCulture);
+    }
 
     private static Error FetchInProgress(string warehouseCode, DateTime ledgerDay) =>
         Error.Conflict(

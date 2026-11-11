@@ -40,7 +40,10 @@ public sealed class RefreshWarehouseStockTests : IDisposable
 
     private readonly List<StockQuantityDto> _warehouseStock = new();
     private readonly List<BatchNumber> _warehouseBatches = new();
-    private bool _batchReadFails;
+    private Exception? _batchReadFailure;
+    private Exception? _stockReadFailure;
+    private readonly SAPSettings _sapSettings = new();
+    private readonly ManualClock _clock = new();
 
     /// <summary>The stock transfers SAP has booked for the warehouse refreshed.</summary>
     private readonly List<SapStockMovementDocument> _sapTransfers = new();
@@ -548,7 +551,7 @@ public sealed class RefreshWarehouseStockTests : IDisposable
     public async Task A_refetch_that_fails_again_says_why()
     {
         await SeedHeaderAsync(StockSnapshotStatus.Failed);
-        _batchReadFails = true;
+        _batchReadFailure = new TimeoutException("Service Layer did not answer");
 
         var result = await RefreshAsync(Shop);
 
@@ -558,6 +561,110 @@ public sealed class RefreshWarehouseStockTests : IDisposable
         var header = await _context.DailyStockSnapshots.AsNoTracking().SingleAsync();
         Assert.Equal(StockSnapshotStatus.Failed, header.Status);
         Assert.Contains("Service Layer did not answer", header.LastError);
+    }
+
+    // ── When to try again after SAP did not answer ─────────
+    //
+    // The endpoint is background work, so SAPStuckReadHandler refuses a repeat of a stock read SAP
+    // did not answer until its hold ends. On 2026-11-11 the KEFSHOP retry was refused in 271 ms
+    // under "Try again shortly". The operator is told the time instead, in CAT.
+
+    /// <summary>15:03:26.962 CAT on 2026-11-11, when the first KEFSHOP read gave up.</summary>
+    private static readonly DateTimeOffset GaveUpAt = new(2026, 11, 11, 13, 3, 26, 962, TimeSpan.Zero);
+
+    /// <summary>When that read's hold ended: 15:14:26 CAT.</summary>
+    private static readonly DateTimeOffset HeldUntil = new(2026, 11, 11, 13, 14, 26, TimeSpan.Zero);
+
+    private const string HeldPath = "/b1s/v1/SQLQueries('STOCK_QTY_KEFSHOP')/List";
+
+    [Fact]
+    public async Task A_retry_SAP_is_still_working_on_says_when_to_try_again()
+    {
+        await SeedRowAsync(Shop, Item, original: 100m, available: 100m);
+        _stockReadFailure = new SapReadStillRunningException(HeldPath, HeldUntil);
+
+        var result = await RefreshAsync(Shop);
+
+        Assert.True(result.IsError);
+        Assert.Equal("Stock.SapUnavailable", result.FirstError.Code);
+        Assert.Contains("not asked again", result.FirstError.Description);
+        // Rounded up: 15:14 would still be inside the hold.
+        Assert.Contains("Try again from 15:15.", result.FirstError.Description);
+        Assert.DoesNotContain("shortly", result.FirstError.Description);
+        Assert.Equal(100m, await AvailableAsync(Shop, Item));
+    }
+
+    [Fact]
+    public async Task A_read_SAP_did_not_answer_says_when_its_hold_ends()
+    {
+        await SeedRowAsync(Shop, Item, original: 100m, available: 100m);
+        _clock.Advance(GaveUpAt - _clock.GetUtcNow());
+        _stockReadFailure = new TimeoutException(
+            "SAP stock read exceeded its 60-second budget (read stock for warehouse KEFSHOP from row 0).");
+
+        var result = await RefreshAsync(Shop);
+
+        Assert.True(result.IsError);
+        Assert.Equal("Stock.SapUnavailable", result.FirstError.Code);
+        // Ten minutes on from 15:03:26.962, rounded up.
+        Assert.Contains("try again from 15:14.", result.FirstError.Description);
+        Assert.DoesNotContain("shortly", result.FirstError.Description);
+    }
+
+    [Fact]
+    public async Task With_no_hold_a_read_SAP_did_not_answer_can_be_tried_again_shortly()
+    {
+        await SeedRowAsync(Shop, Item, original: 100m, available: 100m);
+        _sapSettings.StuckReadHoldMinutes = 0;
+        _stockReadFailure = new TimeoutException("SAP stock read exceeded its 60-second budget.");
+
+        var result = await RefreshAsync(Shop);
+
+        Assert.True(result.IsError);
+        Assert.EndsWith("Try again shortly.", result.FirstError.Description);
+    }
+
+    [Fact]
+    public async Task A_SAP_failure_that_starts_no_hold_still_says_try_again_shortly()
+    {
+        await SeedRowAsync(Shop, Item, original: 100m, available: 100m);
+        _stockReadFailure = new HttpRequestException("No connection could be made");
+
+        var result = await RefreshAsync(Shop);
+
+        Assert.True(result.IsError);
+        Assert.EndsWith("Try again shortly.", result.FirstError.Description);
+    }
+
+    [Fact]
+    public async Task A_refetch_SAP_is_still_working_on_says_when_without_the_SAP_url()
+    {
+        await SeedHeaderAsync(StockSnapshotStatus.Failed);
+        _batchReadFailure = new SapReadStillRunningException(HeldPath, HeldUntil);
+
+        var result = await RefreshAsync(Shop);
+
+        Assert.True(result.IsError);
+        Assert.Equal("Stock.SnapshotFetchFailed", result.FirstError.Code);
+        Assert.Contains("Try again from 15:15.", result.FirstError.Description);
+        Assert.DoesNotContain("SQLQueries", result.FirstError.Description);
+        Assert.DoesNotContain("UTC", result.FirstError.Description);
+    }
+
+    [Fact]
+    public async Task A_refetch_SAP_did_not_answer_reads_as_two_sentences()
+    {
+        await SeedHeaderAsync(StockSnapshotStatus.Failed);
+        _clock.Advance(GaveUpAt - _clock.GetUtcNow());
+        _batchReadFailure = new TimeoutException("Service Layer did not answer");
+
+        var result = await RefreshAsync(Shop);
+
+        Assert.True(result.IsError);
+        Assert.Equal(
+            "KEFSHOP's stock could not be fetched from SAP: Service Layer did not answer. "
+            + "SAP usually carries on with a read it did not answer, so try again from 15:14.",
+            result.FirstError.Description);
     }
 
     // ── Helpers ─────────────────────────────────────────
@@ -573,6 +680,7 @@ public sealed class RefreshWarehouseStockTests : IDisposable
         var handler = new RefreshWarehouseStockHandler(
             _context,
             sap,
+            new SapStuckReadState(Options.Create(_sapSettings), _clock),
             new StockLedger(_context, Options.Create(_settings), NullLogger<StockLedger>.Instance),
             Options.Create(_settings),
             new FetchDailyStockHandler(
@@ -646,12 +754,13 @@ public sealed class RefreshWarehouseStockTests : IDisposable
             _ when stockReadsForbidden => throw new InvalidOperationException(
                 $"ISAPServiceLayerClient.{method.Name} must not be read for a van."),
 
-            nameof(ISAPServiceLayerClient.GetAllBatchNumbersInWarehouseAsync) => _batchReadFails
-                ? Task.FromException<List<BatchNumber>>(new TimeoutException("Service Layer did not answer"))
+            nameof(ISAPServiceLayerClient.GetAllBatchNumbersInWarehouseAsync) => _batchReadFailure is { } batchFailure
+                ? Task.FromException<List<BatchNumber>>(batchFailure)
                 : Task.FromResult(_warehouseBatches.ToList()),
 
-            nameof(ISAPServiceLayerClient.GetStockQuantitiesInWarehouseAsync) =>
-                Task.FromResult(_warehouseStock.ToList()),
+            nameof(ISAPServiceLayerClient.GetStockQuantitiesInWarehouseAsync) => _stockReadFailure is { } stockFailure
+                ? Task.FromException<List<StockQuantityDto>>(stockFailure)
+                : Task.FromResult(_warehouseStock.ToList()),
 
             // Only the re-fetch of a failed snapshot asks for this; SAP holding nothing unbatched.
             nameof(ISAPServiceLayerClient.GetNonBatchStockQuantitiesInWarehouseAsync) =>
