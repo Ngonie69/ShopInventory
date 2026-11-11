@@ -90,6 +90,52 @@ WashBay, both offered the add; the manager reads credit notes on `/credit-notes`
 2026-10-28), and its attachment viewer streams through the Web's own `/download/credit-note-approval/{code}/{lineNum}`
 bearer proxy, the same way proof-of-delivery files do.
 
+## Drafts already credited some other way
+
+A held draft can be credited twice without anyone noticing. One user raises the credit memo, SAP holds it
+as a draft for approval, and another user keys the same credit straight into SAP. Nothing in SAP links the
+two, so the draft stays Pending (or Approved) and SAP will still let it be approved and added. On production
+on 2026-11-11, **107 of the 257 drafts SAP still held** were like this, behind 118 approval requests: 52 of
+the 115 pending, and the rest approved but never added. In the one that was reported, the credit was keyed
+again twenty minutes after the draft was raised.
+
+A draft counts as already credited when a credit note has:
+
+- the same customer (`CardCode`);
+- the same Customer Ref. No. (`NumAtCard`, trimmed, case ignored);
+- exactly the same `DocTotal`;
+- an entry date (`CreationDate`) no earlier than the draft's own;
+- `CancelStatus = csNo`. A cancelled credit note, and the document that cancelled it, credit nobody.
+  (`Cancelled` cannot tell them apart: a cancellation document reads `tNO` or leaves it out.)
+
+A draft with no reference is never matched. A match on customer and total alone is not enough: crate
+returns of a round sum to the same customer are routine.
+
+What a match does:
+
+- **The open queues hide it.** "Awaiting decision" and "Approved, not added" leave it out, as SAP leaves a
+  draft out once it is added, and their counts and paging allow for it. "All requests" still shows it, with
+  an "Already credited · CN n" pill, so it can be found and cleared in SAP.
+- **The drawer**, opened from "All requests", starts with the credit note's number, the day it was entered
+  and by whom. Approve and Add are gone; Reject stays, because rejecting is how such a draft leaves SAP's
+  queue. A draft the app cannot decide says to remove it in SAP.
+- **Approve and add** run the check again, fresh, and refuse with `CreditNoteApproval.AlreadyCredited`. If
+  SAP cannot answer, they refuse with `AlreadyCreditedUnchecked` rather than guess.
+
+How the hiding works: `CreditNoteAlreadyCreditedIndex` reads the drafts SAP still holds (`Drafts`, credit
+memos, `bost_Open`, `dasPending` or `dasApproved` — a few hundred, against the 6,700-odd approved requests
+whose drafts were added long ago), checks them in one batched `CreditNotes` read, and reads the approval
+requests of the ones it finds. It is cached for ten minutes and cleared whenever the app records a decision
+or adds a credit note. The list still reads its rows from SAP on every load and asks for enough extra rows
+to fill the page once the hidden ones are dropped; the list total and the queue tiles subtract the hidden
+rows that fall in the same statuses, stages and filters. A failed build hides nothing; the write checks
+still hold. A build measured 0.4–10 s on production, depending on how warm SAP was.
+
+The `CreditNotes` read is batched by length because **the Service Layer refuses a query string over 2,048
+characters** (error 207, counted before percent-encoding). A page of 24 pairs with a date bound in every
+clause went over on production and the whole check failed. Pairs now share one date bound per read, and the
+caller compares each note against its own draft's day.
+
 ## What happens on the add
 
 0. **Quantities, if the person changed any.** The page offers each line's quantity as a box once the

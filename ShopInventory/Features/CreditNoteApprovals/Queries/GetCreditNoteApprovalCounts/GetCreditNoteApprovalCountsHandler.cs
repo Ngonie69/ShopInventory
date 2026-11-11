@@ -18,10 +18,16 @@ namespace ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprov
 /// in all; three at once beside somebody's list read would take half of them for a number nobody is
 /// waiting on.
 /// </remarks>
+/// <remarks>
+/// The two open queues leave out drafts already credited some other way, as the list does, so their
+/// counts do too — from the same cached index, which the list has normally just read.
+/// </remarks>
 public sealed class GetCreditNoteApprovalCountsHandler(
     ISAPServiceLayerClient sap,
     ICreditNoteApprovalStageScope stageScope,
-    IOptions<SAPSettings> sapSettings)
+    ICreditNoteAlreadyCreditedIndex alreadyCreditedIndex,
+    IOptions<SAPSettings> sapSettings,
+    ILogger<GetCreditNoteApprovalCountsHandler> logger)
     : IRequestHandler<GetCreditNoteApprovalCountsQuery, ErrorOr<CreditNoteApprovalCountsDto>>
 {
     public async Task<ErrorOr<CreditNoteApprovalCountsDto>> Handle(
@@ -41,13 +47,27 @@ public sealed class GetCreditNoteApprovalCountsHandler(
 
         var stages = scope.Value.StageCodes;
         var filter = query.Filter;
+        var pending = CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Pending);
+        var approved = CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Approved);
+
+        IReadOnlyDictionary<int, AlreadyCreditedRequest> index;
+        try
+        {
+            index = await alreadyCreditedIndex.GetAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Could not build the already-credited index; the queue counts include those drafts");
+            index = new Dictionary<int, AlreadyCreditedRequest>();
+        }
+
+        int Hidden(IReadOnlyCollection<string> statuses) =>
+            index.Values.Count(entry => entry.FallsIn(statuses, scope.Value, filter));
 
         return new CreditNoteApprovalCountsDto
         {
-            Pending = await sap.CountCreditNoteApprovalRequestsAsync(
-                CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Pending), stages, filter, cancellationToken),
-            Approved = await sap.CountCreditNoteApprovalRequestsAsync(
-                CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Approved), stages, filter, cancellationToken),
+            Pending = Math.Max(0, await sap.CountCreditNoteApprovalRequestsAsync(pending, stages, filter, cancellationToken) - Hidden(pending)),
+            Approved = Math.Max(0, await sap.CountCreditNoteApprovalRequestsAsync(approved, stages, filter, cancellationToken) - Hidden(approved)),
             Rejected = await sap.CountCreditNoteApprovalRequestsAsync(
                 CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Rejected), stages, filter, cancellationToken)
         };

@@ -126,3 +126,21 @@ internal sealed class SingleDbContextScopeFactory(DbContextOptions<ApplicationDb
     {
     }
 }
+
+/// <summary>The already-credited index, answered from a fixed list and counting its invalidations.</summary>
+internal sealed class FakeAlreadyCreditedIndex(params AlreadyCreditedRequest[] entries) : ICreditNoteAlreadyCreditedIndex
+{
+    public static FakeAlreadyCreditedIndex Empty => new();
+
+    /// <summary>Stand in for an index SAP could not build.</summary>
+    public bool Fails { get; init; }
+
+    public int Invalidations { get; private set; }
+
+    public Task<IReadOnlyDictionary<int, AlreadyCreditedRequest>> GetAsync(CancellationToken cancellationToken)
+        => Fails
+            ? throw new HttpRequestException("SAP is not answering")
+            : Task.FromResult<IReadOnlyDictionary<int, AlreadyCreditedRequest>>(entries.ToDictionary(entry => entry.Code));
+
+    public void Invalidate() => Invalidations++;
+}

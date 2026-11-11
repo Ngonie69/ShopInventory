@@ -752,6 +752,13 @@
     color: var(--dsh-ok-ink);
 }
 
+/* A held credit note already keyed straight into SAP: adding it would pay twice. */
+.dsh-tag-crit {
+    border-color: var(--dsh-crit-edge);
+    background: var(--dsh-crit-bg);
+    color: var(--dsh-crit-ink);
+}
+
 /* ── Quick actions ─────────────────────────────────────────────────────── */
 
 .dsh-quick {

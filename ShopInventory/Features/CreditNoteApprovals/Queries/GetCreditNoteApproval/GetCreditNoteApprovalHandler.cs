@@ -54,6 +54,9 @@ public sealed class GetCreditNoteApprovalHandler(
             }
         }
 
+        // Started before the labels, which need nothing from it, so the check costs no wait of its own.
+        var alreadyCreditedTask = TryFindAlreadyCreditedAsync(request, draft, cancellationToken);
+
         var serviceApprover = await TryLookupAsync(() => lookups.GetServiceApproverAsync(cancellationToken), "the service approver");
         var originator = request.OriginatorID is int originatorId
             ? await TryLookupAsync(() => lookups.GetUserAsync(originatorId, cancellationToken), $"SAP user {originatorId}")
@@ -67,10 +70,17 @@ public sealed class GetCreditNoteApprovalHandler(
 
         var alreadyDecided = CreditNoteApprovalProjection.ServiceApproverAlreadyDecided(request, serviceApprover);
 
+        // The drawer names who keyed the credit note, which the list leaves out to keep its reads down.
+        var alreadyCredited = await alreadyCreditedTask;
+        var alreadyCreditedBy = alreadyCredited?.UserSign is int userSign
+            ? await TryLookupAsync(() => lookups.GetUserAsync(userSign, cancellationToken), $"SAP user {userSign}")
+            : null;
+
         var detail = new CreditNoteApprovalDetailDto
         {
             Request = CreditNoteApprovalProjection.ToListItem(
-                request, draft, originator, template, stage, serviceApprover, lookups.ServiceApproverUserCode, alreadyDecided),
+                request, draft, originator, template, stage, serviceApprover, lookups.ServiceApproverUserCode, alreadyDecided,
+                alreadyCredited, alreadyCreditedBy),
             Lines = draft?.DocumentLines?.Select(CreditNoteApprovalProjection.ToLine).ToList() ?? [],
             Decisions = await BuildDecisionsAsync(request, cancellationToken),
             Stage = await BuildStageAsync(request, stage, serviceApprover, alreadyDecided, cancellationToken)
@@ -163,6 +173,32 @@ public sealed class GetCreditNoteApprovalHandler(
             ServiceApproverListed = CreditNoteApprovalProjection.ServiceApproverListed(stage, serviceApprover),
             ServiceApproverAlreadyDecided = alreadyDecided
         };
+    }
+
+    /// <summary>
+    /// The credit note that already credits this draft, or null. A failed read leaves the drawer
+    /// unflagged rather than unreadable; the approve and add handlers check again and refuse.
+    /// </summary>
+    private async Task<SAPCreditNote?> TryFindAlreadyCreditedAsync(
+        SAPApprovalRequest request,
+        SAPCreditNote? draft,
+        CancellationToken cancellationToken)
+    {
+        if (draft is null || !CreditNoteAlreadyCredited.AppliesTo(request) || CreditNoteAlreadyCredited.KeyOf(draft) is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var matched = await CreditNoteAlreadyCredited.FindAsync(sap, [draft], cancellationToken);
+            return matched.GetValueOrDefault(draft.DocEntry);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Could not check whether draft {DraftEntry} was already credited; the detail shows it unflagged", draft.DocEntry);
+            return null;
+        }
     }
 
     private async Task<T?> TryLookupAsync<T>(Func<Task<T?>> lookup, string what) where T : class

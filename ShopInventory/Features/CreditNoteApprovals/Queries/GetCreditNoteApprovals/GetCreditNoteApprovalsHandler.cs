@@ -12,12 +12,14 @@ namespace ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprov
 /// <summary>
 /// Reads the requests from SAP, joins the drafts they hold in one batched read, and names the people,
 /// templates and stages through the cached lookups. A lookup that fails costs the row its label, not
-/// the list its answer.
+/// the list its answer. The open queues leave out drafts already credited some other way
+/// (<see cref="ICreditNoteAlreadyCreditedIndex"/>), and the count and the cursor allow for them.
 /// </summary>
 public sealed class GetCreditNoteApprovalsHandler(
     ISAPServiceLayerClient sap,
     ISapApprovalLookups lookups,
     ICreditNoteApprovalStageScope stageScope,
+    ICreditNoteAlreadyCreditedIndex alreadyCreditedIndex,
     IOptions<SAPSettings> sapSettings,
     ILogger<GetCreditNoteApprovalsHandler> logger)
     : IRequestHandler<GetCreditNoteApprovalsQuery, ErrorOr<CreditNoteApprovalListResponseDto>>
@@ -28,6 +30,9 @@ public sealed class GetCreditNoteApprovalsHandler(
     /// budget rather than this list's, and of which two slots are reserved for interactive work.
     /// </summary>
     private const int LookupConcurrency = 3;
+
+    /// <summary>The client's own ceiling on one page of approval requests.</summary>
+    private const int MaxRowsPerRead = 500;
 
     public async Task<ErrorOr<CreditNoteApprovalListResponseDto>> Handle(
         GetCreditNoteApprovalsQuery query,
@@ -49,12 +54,40 @@ public sealed class GetCreditNoteApprovalsHandler(
             return scope.Errors;
         }
 
+        // The open queues hide a draft already credited some other way, as SAP hides a draft once it is
+        // added; "All requests" still shows it, flagged. The index covers both open queues and is cached,
+        // so on every load but the first of its window this costs nothing.
+        var index = await TryReadIndexAsync(cancellationToken);
+        var hidden = string.Equals(filter, CreditNoteApprovalStatusFilters.All, StringComparison.Ordinal)
+            ? []
+            : index.Values
+                .Where(entry => entry.FallsIn(statuses, scope.Value, query.Filter))
+                .Select(entry => entry.Code)
+                .ToHashSet();
+
         // Who this app decides as is configuration, not a property of any row, so it is read
         // alongside the list rather than after it.
         var serviceApproverTask = TryLookupAsync(() => lookups.GetServiceApproverAsync(cancellationToken), "the service approver");
 
-        var (requests, total) = await sap.GetCreditNoteApprovalRequestsAsync(
-            statuses, query.Page, query.PageSize, query.BeforeCode, scope.Value.StageCodes, query.Filter, cancellationToken);
+        // Enough rows that the page still fills once every hidden one below the cursor is dropped, in
+        // one read. An offset read past page 1 cannot know how many hidden rows lie before it, so it
+        // reads a plain page; the Web pages by cursor.
+        var keyed = query.BeforeCode is not null || query.Page <= 1;
+        var hiddenAhead = keyed ? hidden.Count(code => query.BeforeCode is not int cursor || code < cursor) : 0;
+        var readSize = Math.Min(query.PageSize + hiddenAhead, MaxRowsPerRead);
+
+        var (read, sapTotal) = await sap.GetCreditNoteApprovalRequestsAsync(
+            statuses, query.Page, readSize, query.BeforeCode, scope.Value.StageCodes, query.Filter, cancellationToken);
+
+        var visible = read.Where(request => !hidden.Contains(request.Code)).ToList();
+        var requests = visible.Take(query.PageSize).ToList();
+
+        // More lies below when SAP filled the read, or the read held more than this page can show.
+        var more = read.Count >= readSize || visible.Count > requests.Count;
+
+        // SAP counted the hidden rows too. Never fewer than are on this page: the index can be a few
+        // minutes behind SAP.
+        var total = Math.Max(requests.Count, sapTotal - hidden.Count);
 
         var draftEntries = requests
             .Where(request => request.DraftEntry is > 0)
@@ -112,10 +145,11 @@ public sealed class GetCreditNoteApprovalsHandler(
             var stage = Labelled(stages, request.CurrentStage);
 
             // The list reads no approver lines, so "already decided on this stage" is the detail's call;
-            // the decision itself is guarded again in its handler.
+            // the decision itself is guarded again in its handler. Only "All requests" can show an
+            // already-credited row; it names nobody here — the drawer reads who keyed the credit note.
             items.Add(CreditNoteApprovalProjection.ToListItem(
                 request, draft, originator, template, stage, serviceApprover, lookups.ServiceApproverUserCode,
-                serviceApproverAlreadyDecided: false));
+                serviceApproverAlreadyDecided: false, alreadyCredited: index.GetValueOrDefault(request.Code)?.CreditNote));
         }
 
         return new CreditNoteApprovalListResponseDto
@@ -126,10 +160,29 @@ public sealed class GetCreditNoteApprovalsHandler(
             PageSize = query.PageSize,
             Status = filter,
 
-            // A short page is the end of the queue, so there is nothing to continue from. The rows
-            // are ordered Code desc, so the last one is the lowest and the next page starts below it.
-            NextCursor = requests.Count < query.PageSize ? null : requests[^1].Code
+            // Nothing below is the end of the queue, so there is nothing to continue from. The rows are
+            // ordered Code desc, so the last one shown is the lowest and the next page starts below it;
+            // hidden rows below it are skipped again then.
+            NextCursor = more && requests.Count > 0 ? requests[^1].Code : null
         };
+    }
+
+    /// <summary>
+    /// The already-credited index, or an empty one when it cannot be built. A failed build costs the
+    /// open queues their hiding, not the list its answer — the approve and add handlers check afresh
+    /// and refuse an already-credited draft either way.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<int, AlreadyCreditedRequest>> TryReadIndexAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await alreadyCreditedIndex.GetAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Could not build the already-credited index; the open queues show every request");
+            return new Dictionary<int, AlreadyCreditedRequest>();
+        }
     }
 
     /// <summary>

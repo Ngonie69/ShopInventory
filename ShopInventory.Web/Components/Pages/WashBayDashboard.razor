@@ -134,9 +134,16 @@
                                     <tr>
                                         <td class="dsh-name" title="@request.CardName">@(request.CardName ?? request.CardCode ?? "—")</td>
                                         <td>
-                                            <span class="dsh-tag @(request.CanAdd ? "dsh-tag-ok" : null)">
-                                                @(request.CanAdd ? "Approved" : "Awaiting")
-                                            </span>
+                                            @if (request.AlreadyCredited is not null)
+                                            {
+                                                <span class="dsh-tag dsh-tag-crit" title="@request.StatusNote">Already credited</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="dsh-tag @(request.CanAdd ? "dsh-tag-ok" : null)">
+                                                    @(request.CanAdd ? "Approved" : "Awaiting")
+                                                </span>
+                                            }
                                         </td>
                                         <td class="dsh-money">@Money(request)</td>
                                         <td class="dsh-when">@Age(request.CreatedDate)</td>

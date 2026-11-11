@@ -124,6 +124,60 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
     }
 
     /// <summary>
+    /// Approved in SAP is not the same as not yet credited: the credit was keyed straight into SAP
+    /// while the draft waited, and adding the draft would pay the customer twice.
+    /// </summary>
+    [Fact]
+    public async Task An_approved_draft_already_credited_is_refused_before_anything_is_written()
+    {
+        var draft = OpenDraft(88123);
+        draft.NumAtCard = "800123";
+        draft.CreationDate = "2026-08-15T00:00:00Z";
+        var keyed = CreditNote(70310, numAtCard: "800123");
+        keyed.DocNum = 61455;
+        keyed.DocTotal = draft.DocTotal;
+        keyed.CreationDate = "2026-08-15T00:00:00Z";
+        keyed.CancelStatus = "csNo";
+        var sap = new RecordingSap(Approved(3110), draft) { SaveReturns = 9001, AlreadyKeyed = [keyed] };
+        var audit = new RecordingAuditService();
+
+        var result = await Handler(sap, new RecordingFiscalisation(), audit).Handle(Command(3110), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.AlreadyCredited", result.FirstError.Code);
+        Assert.StartsWith("Already credited: credit note 61455 was entered on 15 Aug 2026", result.FirstError.Description);
+        Assert.Empty(sap.Saves);
+        Assert.DoesNotContain(nameof(ISAPServiceLayerClient.UpdateDraftLineQuantitiesAsync), sap.Calls);
+        Assert.False(Assert.Single(audit.Entries).Success);
+    }
+
+    /// <summary>A new credit note can be the one that already credits another held draft.</summary>
+    [Fact]
+    public async Task A_completed_add_clears_the_already_credited_index()
+    {
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123)) { SaveReturns = 9001, DraftAfterSave = ClosedDraft(88123) };
+        var index = new FakeAlreadyCreditedIndex();
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService(), index: index).Handle(Command(3110), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Equal(1, index.Invalidations);
+    }
+
+    [Fact]
+    public async Task An_add_sap_cannot_check_is_refused_rather_than_guessed()
+    {
+        var draft = OpenDraft(88123);
+        draft.NumAtCard = "800123";
+        draft.CreationDate = "2026-08-15T00:00:00Z";
+        var sap = new RecordingSap(Approved(3110), draft) { SaveReturns = 9001, AlreadyKeyedReadFails = true };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.AlreadyCreditedUnchecked", result.FirstError.Code);
+        Assert.Empty(sap.Saves);
+    }
+
+    /// <summary>
     /// The add is SAP-bound, and SAP's latency is heavy-tailed, so every round trip the user waits on
     /// counts. The boundary read goes alongside the draft read, the original invoice is read while SAP
     /// converts the draft, and the read that finds the created credit note returns it whole.
@@ -769,7 +823,8 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         bool fiscaliseAfterAdd = true,
         IIdempotencyRequestStore? store = null,
         IStockLedger? ledger = null,
-        ICreditNoteApprovalStageScope? scope = null) => new(
+        ICreditNoteApprovalStageScope? scope = null,
+        FakeAlreadyCreditedIndex? index = null) => new(
         _context,
         sap.AsClient(),
         scope ?? FixedStageScope.EveryStage,
@@ -783,6 +838,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
             NullLogger<SapCreditNoteFiscaliser>.Instance),
         ledger ?? Ledger(),
         store ?? Store(),
+        index ?? FakeAlreadyCreditedIndex.Empty,
         audit,
         Options.Create(new SAPSettings { Enabled = true }),
         Options.Create(new CreditNoteApprovalSettings { FiscaliseAfterAdd = fiscaliseAfterAdd }),
@@ -934,6 +990,10 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         /// <summary>The added credit note's Customer Ref. No.</summary>
         public string? NumAtCard { get; init; }
 
+        /// <summary>What SAP answers the already-credited check with.</summary>
+        public List<SAPCreditNote> AlreadyKeyed { get; init; } = [];
+        public bool AlreadyKeyedReadFails { get; init; }
+
         public List<(int DraftEntry, CancellationToken Token)> Saves { get; } = [];
         public List<SAPCreditNote> Projected { get; } = [];
 
@@ -989,6 +1049,10 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
             nameof(ISAPServiceLayerClient.GetNewestCreditNoteForCustomerAsync)
                 => Task.FromResult(NewestPast((int)args![1]!)),
             nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync) => Save(args!),
+            nameof(ISAPServiceLayerClient.GetCreditNotesByCustomerTotalsAsync)
+                => AlreadyKeyedReadFails
+                    ? throw new HttpRequestException("SAP is not answering")
+                    : Task.FromResult(AlreadyKeyed.ToList()),
             nameof(ISAPServiceLayerClient.GetCreditNoteByDocEntryAsync)
                 => Task.FromResult<SAPCreditNote?>((int)args![0]! == (CreditNoteDocEntry ?? SaveReturns) ? CreditNote((int)args[0]!, Lines, NumAtCard) : null),
             // The invoice the credit note's lines are based on. Its receipt is filed under the DocNum,

@@ -253,6 +253,93 @@ public sealed class SapApprovalClientTests
         Assert.Contains("$select=Code,Name,NoOfApproversRequired,ApprovalStageApprovers", query);
     }
 
+    /// <summary>
+    /// The already-credited check: one clause per customer and total, each with its own day bound,
+    /// cancelled credit notes and cancellation documents left out in SAP rather than after.
+    /// </summary>
+    [Fact]
+    public async Task Credit_notes_are_read_per_customer_and_total_from_the_earliest_day_asked()
+    {
+        var sap = new FakeServiceLayer();
+        sap.On(r => r.Path.EndsWith("/CreditNotes"),
+            _ => Json("""{"value":[{"DocEntry":70310,"DocNum":61455,"CardCode":"C00477","NumAtCard":"800123","DocTotal":412.65,"CreationDate":"2026-08-15T00:00:00Z","UserSign":20,"CancelStatus":"csNo"}]}"""));
+        var client = CreateClient(sap);
+
+        var notes = await client.GetCreditNotesByCustomerTotalsAsync(
+        [
+            new SapCreditNoteTotalKey("C00477", 412.65m, new DateTime(2026, 8, 15, 13, 22, 0)),
+            new SapCreditNoteTotalKey(" C00477 ", 412.650m, new DateTime(2026, 8, 10)),
+            new SapCreditNoteTotalKey("O'NEIL", 1000m, new DateTime(2026, 9, 1)),
+            new SapCreditNoteTotalKey(" ", 5m, new DateTime(2026, 9, 1)),
+            new SapCreditNoteTotalKey("ZERO", 0m, new DateTime(2026, 9, 1))
+        ]);
+
+        var note = Assert.Single(notes);
+        Assert.Equal(61455, note.DocNum);
+        Assert.Equal(20, note.UserSign);
+        Assert.Equal("2026-08-15T00:00:00Z", note.CreationDate);
+
+        // One clause per customer and total; one day bound for the read, the earliest asked for.
+        var get = Assert.Single(sap.Requests);
+        var query = Uri.UnescapeDataString(get.Query);
+        Assert.Contains(
+            "$filter=CancelStatus eq 'csNo' and CreationDate ge '2026-08-10' and ("
+            + "(CardCode eq 'C00477' and DocTotal eq 412.65)"
+            + " or (CardCode eq 'O''NEIL' and DocTotal eq 1000))&",
+            query);
+        Assert.Contains("$select=DocEntry,DocNum,DocDate,CreationDate,UserSign,CardCode,NumAtCard,DocTotal,Cancelled,CancelStatus&", query);
+    }
+
+    /// <summary>
+    /// The Service Layer refuses a query string over 2,048 characters (error 207). A page of 24 pairs
+    /// went over on production and the whole check failed; pairs are now batched by length.
+    /// </summary>
+    [Fact]
+    public async Task Credit_note_pairs_are_batched_so_no_query_passes_the_service_layers_limit()
+    {
+        var sap = new FakeServiceLayer();
+        sap.On(r => r.Path.EndsWith("/CreditNotes"), _ => Json("""{"value":[]}"""));
+        var client = CreateClient(sap);
+
+        // Fifteen-character card codes are SAP's longest; eighty pairs is more than three pages' worth.
+        var keys = Enumerable.Range(0, 80)
+            .Select(index => new SapCreditNoteTotalKey($"CUSTOMER{index:D7}", 12345.67m + index, new DateTime(2026, 3, 31)))
+            .ToList();
+
+        await client.GetCreditNotesByCustomerTotalsAsync(keys);
+
+        Assert.True(sap.Requests.Count > 1, "Eighty pairs went in one read.");
+        Assert.All(sap.Requests, request =>
+        {
+            var unencoded = Uri.UnescapeDataString(request.Query.TrimStart('?'));
+            Assert.True(unencoded.Length <= 2048, $"A query of {unencoded.Length} characters would be refused.");
+        });
+
+        // Every pair is asked for exactly once.
+        var asked = sap.Requests.Sum(request => Uri.UnescapeDataString(request.Query).Split("(CardCode eq ").Length - 1);
+        Assert.Equal(80, asked);
+    }
+
+    [Fact]
+    public void A_batch_never_passes_its_budget_unless_one_item_alone_does()
+    {
+        var batches = SAPServiceLayerClient.BatchByLength(new[] { 10, 10, 10, 30, 5 }, length => length, budget: 25);
+
+        Assert.Equal(new[] { new[] { 10, 10 }, new[] { 10 }, new[] { 30 }, new[] { 5 } }, batches.Select(batch => batch.ToArray()));
+    }
+
+    [Fact]
+    public async Task Nothing_is_read_when_no_customer_and_total_can_be_checked()
+    {
+        var sap = new FakeServiceLayer();
+        var client = CreateClient(sap);
+
+        var notes = await client.GetCreditNotesByCustomerTotalsAsync([new SapCreditNoteTotalKey("", 10m, DateTime.Today)]);
+
+        Assert.Empty(notes);
+        Assert.Empty(sap.Requests);
+    }
+
     [Fact]
     public async Task An_unknown_status_or_decision_is_refused_before_anything_is_sent()
     {
@@ -614,7 +701,12 @@ public sealed class SapApprovalClientTests
                 body,
                 request.Headers.TryGetValues("Prefer", out var prefer) ? string.Join(";", prefer) : null,
                 request.Headers.TryGetValues("Cookie", out var cookie) ? string.Join(";", cookie) : null);
-            Requests.Add(recorded);
+
+            // The client reads some batches concurrently; an unguarded List.Add drops entries under it.
+            lock (Requests)
+            {
+                Requests.Add(recorded);
+            }
 
             foreach (var (match, respond) in _routes)
             {

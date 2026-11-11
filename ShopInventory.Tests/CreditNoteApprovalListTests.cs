@@ -188,6 +188,7 @@ public sealed class CreditNoteApprovalListTests
             sap.AsClient(),
             LookupsWithStage(4, "Finance review", 1),
             FixedStageScope.EveryStage,
+            FakeAlreadyCreditedIndex.Empty,
             Options.Create(new SAPSettings { Enabled = false }),
             NullLogger<GetCreditNoteApprovalsHandler>.Instance);
 
@@ -238,16 +239,157 @@ public sealed class CreditNoteApprovalListTests
         Assert.Null(sap.RequestedStatuses);
     }
 
+    /// <summary>
+    /// A production request: SAP still held the draft Pending, but the credit had been keyed straight
+    /// into SAP that afternoon. The open queues leave it out, as SAP leaves out a draft once added, and
+    /// the count says how many are left.
+    /// </summary>
+    [Fact]
+    public async Task A_draft_already_credited_is_hidden_from_the_open_queues_and_their_count()
+    {
+        var sap = new RecordingSapClient(
+            [Pending(3110, 88123, stage: 4, originator: 12, template: 7), Pending(3109, 88122, stage: 4, originator: 12, template: 7)],
+            total: 2,
+            [Draft(88123, "C00477", "Corner Store USD", 412.65m, null), Draft(88122, "C00478", "Hillside Superette", 96.25m, null)]);
+        var index = new FakeAlreadyCreditedIndex(Credited(3110));
+
+        foreach (var queue in new[] { "open", "pending" })
+        {
+            var result = await Handler(sap, LookupsWithStage(4, "Finance review", 1), index: index)
+                .Handle(new GetCreditNoteApprovalsQuery(queue, 1, 25), CancellationToken.None);
+
+            var row = Assert.Single(result.Value.Items);
+            Assert.Equal(3109, row.Code);
+            Assert.Null(row.AlreadyCredited);
+            Assert.Equal(1, result.Value.TotalCount);
+        }
+
+        // The hidden row's draft is never read: nothing on the page needs it.
+        Assert.Equal(new[] { 88122 }, sap.RequestedDraftEntries!.ToArray());
+    }
+
+    /// <summary>"All requests" is where an already-credited draft can still be found, flagged, to clear it.</summary>
+    [Fact]
+    public async Task All_requests_shows_a_draft_already_credited_flagged_with_reject_only()
+    {
+        var sap = new RecordingSapClient([Pending(3110, 88123, stage: 4, originator: 12, template: 7)], 1, [Draft(88123, "C00477", "Corner Store USD", 412.65m, null)]);
+        var handler = Handler(sap, LookupsWithStage(4, "Finance review", 1), index: new FakeAlreadyCreditedIndex(Credited(3110)));
+
+        var result = await handler.Handle(new GetCreditNoteApprovalsQuery("all", 1, 25), CancellationToken.None);
+
+        var row = Assert.Single(result.Value.Items);
+        Assert.Equal(1, result.Value.TotalCount);
+        Assert.True(row.CanDecide);
+        Assert.False(row.CanApprove);
+        Assert.False(row.CanAdd);
+        Assert.Equal(61455, row.AlreadyCredited?.DocNum);
+        Assert.Equal(70310, row.AlreadyCredited?.DocEntry);
+        Assert.Equal(new DateTime(2026, 8, 15, 0, 0, 0, DateTimeKind.Utc), row.AlreadyCredited?.EnteredDate);
+
+        // The list names nobody: who keyed it is one more read per person, and the drawer makes it.
+        Assert.Null(row.AlreadyCredited?.EnteredByUserCode);
+        Assert.Equal(
+            "Already credited: credit note 61455 was entered on 15 Aug 2026 for the same customer, reference and total. "
+            + "Approving or adding this draft would credit the customer twice. Reject it, or remove the draft in SAP.",
+            row.StatusNote);
+    }
+
+    /// <summary>
+    /// Hidden rows must not leave a page short or a gap behind the cursor. SAP is asked for enough rows
+    /// to fill the page once every hidden one below the cursor is dropped, and the next page starts below
+    /// the last row shown.
+    /// </summary>
+    [Fact]
+    public async Task Hidden_rows_keep_every_page_full_and_the_cursor_moving()
+    {
+        var requests = new[] { 5, 4, 3, 2, 1 }.Select(code => Pending(code, 900 + code, stage: 4, originator: 12, template: 7)).ToList();
+        var drafts = requests.Select(request => Draft(request.DraftEntry!.Value, "C00477", "Corner Store USD", 10m, null)).ToList();
+        var sap = new RecordingSapClient(requests, total: 5, drafts);
+        var handler = Handler(sap, LookupsWithStage(4, "Finance review", 1), index: new FakeAlreadyCreditedIndex(Credited(4), Credited(2)));
+
+        var first = (await handler.Handle(new GetCreditNoteApprovalsQuery("pending", 1, 2), CancellationToken.None)).Value;
+
+        Assert.Equal(new[] { 5, 3 }, first.Items.Select(item => item.Code).ToArray());
+        Assert.Equal(4, sap.RequestedPageSize);
+        Assert.Equal(3, first.NextCursor);
+        Assert.Equal(3, first.TotalCount);
+
+        var second = (await handler.Handle(new GetCreditNoteApprovalsQuery("pending", 2, 2, BeforeCode: first.NextCursor), CancellationToken.None)).Value;
+
+        Assert.Equal(new[] { 1 }, second.Items.Select(item => item.Code).ToArray());
+        Assert.Equal(3, sap.RequestedPageSize);
+        Assert.Null(second.NextCursor);
+    }
+
+    /// <summary>A hidden row outside the caller's stages, dates or originator is not theirs to subtract.</summary>
+    [Fact]
+    public async Task Only_hidden_rows_inside_the_queue_read_are_taken_off_its_count()
+    {
+        var sap = new RecordingSapClient([Pending(3109, 88122, stage: 4, originator: 12, template: 7)], 1, [Draft(88122, "C00478", "Hillside Superette", 96.25m, null)]);
+        var index = new FakeAlreadyCreditedIndex(
+            Credited(3200, stage: 9),
+            Credited(3201, originator: 31),
+            Credited(3202, raised: new DateTime(2026, 7, 1)),
+            Credited(3203, status: SapApprovalRequestStatuses.Approved));
+        var handler = Handler(sap, LookupsWithStage(4, "Finance review", 1), FixedStageScope.Stages("Wash Bay Approvals", 4), index);
+
+        var result = await handler.Handle(
+            new GetCreditNoteApprovalsQuery("pending", 1, 25, Filter: new CreditNoteApprovalRequestFilter(new DateTime(2026, 8, 1), null, 12)),
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Value.TotalCount);
+        Assert.Equal(25, sap.RequestedPageSize);
+    }
+
+    [Fact]
+    public async Task An_index_sap_cannot_build_hides_nothing_and_the_list_still_answers()
+    {
+        var sap = new RecordingSapClient([Pending(3110, 88123, stage: 4, originator: 12, template: 7)], 1, [Draft(88123, "C00477", "Corner Store USD", 412.65m, null)]);
+        var handler = Handler(sap, LookupsWithStage(4, "Finance review", 1), index: new FakeAlreadyCreditedIndex { Fails = true });
+
+        var result = await handler.Handle(new GetCreditNoteApprovalsQuery("pending", 1, 25), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        var row = Assert.Single(result.Value.Items);
+        Assert.Null(row.AlreadyCredited);
+        Assert.Equal(1, result.Value.TotalCount);
+
+        // The approve handler checks afresh and refuses an already-credited draft either way.
+        Assert.True(row.CanApprove);
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────────
+
+    /// <summary>An index entry: request <paramref name="code"/>, already credited by credit note 61455.</summary>
+    private static AlreadyCreditedRequest Credited(
+        int code,
+        string status = SapApprovalRequestStatuses.Pending,
+        int stage = 4,
+        int originator = 12,
+        DateTime? raised = null) =>
+        new(code, status, stage, raised ?? new DateTime(2026, 9, 1), originator, new SAPCreditNote
+        {
+            DocEntry = 70310,
+            DocNum = 61455,
+            CardCode = "C00477",
+            NumAtCard = "800123",
+            DocTotal = 412.65m,
+            CreationDate = "2026-08-15T00:00:00Z",
+            UserSign = 20,
+            Cancelled = SapYesNo.No,
+            CancelStatus = "csNo"
+        });
 
     private static GetCreditNoteApprovalsHandler Handler(
         RecordingSapClient sap,
         FakeLookups lookups,
-        ICreditNoteApprovalStageScope? scope = null) =>
+        ICreditNoteApprovalStageScope? scope = null,
+        FakeAlreadyCreditedIndex? index = null) =>
         new(
             sap.AsClient(),
             lookups,
             scope ?? FixedStageScope.EveryStage,
+            index ?? FakeAlreadyCreditedIndex.Empty,
             Options.Create(new SAPSettings { Enabled = true }),
             NullLogger<GetCreditNoteApprovalsHandler>.Instance);
 
@@ -424,10 +566,15 @@ public sealed class CreditNoteApprovalListTests
         Assert.False(badOriginator.IsValid);
     }
 
+    /// <summary>
+    /// SAP's queue as the client reads it: Code desc, below the cursor, as many rows as asked for. The list
+    /// never reads credit notes itself — the already-credited index does — so that read is not expected.
+    /// </summary>
     private sealed class RecordingSapClient(List<SAPApprovalRequest> requests, int total, List<SAPCreditNote> drafts)
     {
         public IReadOnlyCollection<string>? RequestedStatuses { get; private set; }
         public IReadOnlyCollection<int>? RequestedDraftEntries { get; private set; }
+        public int? RequestedPageSize { get; private set; }
         public int? RequestedBeforeCode { get; private set; }
         public IReadOnlyCollection<int>? RequestedStageCodes { get; private set; }
         public CreditNoteApprovalRequestFilter? RequestedFilter { get; private set; }
@@ -442,10 +589,17 @@ public sealed class CreditNoteApprovalListTests
         private Task<(List<SAPApprovalRequest> Items, int TotalCount)> Record(object?[] args)
         {
             RequestedStatuses = (IReadOnlyCollection<string>)args[0]!;
+            RequestedPageSize = (int)args[2]!;
             RequestedBeforeCode = (int?)args[3];
             RequestedStageCodes = (IReadOnlyCollection<int>?)args[4];
             RequestedFilter = (CreditNoteApprovalRequestFilter?)args[5];
-            return Task.FromResult((requests, total));
+
+            // In the order the test gave them, which is SAP's Code desc wherever a test pages.
+            var page = requests
+                .Where(request => RequestedBeforeCode is not int cursor || request.Code < cursor)
+                .Take(RequestedPageSize.Value)
+                .ToList();
+            return Task.FromResult((page, total));
         }
 
         private Task<List<SAPCreditNote>> Drafts(object?[] args)

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using Microsoft.Extensions.Caching.Memory;
@@ -65,6 +66,43 @@ public sealed class CreditNoteApprovalListRoundTripTests
         Assert.True(warm.PeakConcurrency <= 3, $"warm: {warm}");
     }
 
+    /// <summary>
+    /// Hiding already-credited drafts needs the whole open queue checked, which the index does once per
+    /// window: the drafts SAP still holds, and one already-credited read. Every later load pays nothing for
+    /// it — the same two waves as a list with nothing to hide — and no load holds more than three
+    /// connections.
+    /// </summary>
+    [Fact]
+    public async Task The_already_credited_index_is_built_once_and_costs_a_warm_page_nothing()
+    {
+        var sap = FakeSap.WithPage(rows: 25, total: 5199, withReferences: true);
+        var settings = Settings();
+        var client = CreateClient(sap, settings);
+        var index = new CreditNoteAlreadyCreditedIndex(client, new MemoryCache(new MemoryCacheOptions()), NullLogger<CreditNoteAlreadyCreditedIndex>.Instance);
+        var handler = CreateHandler(client, settings, index);
+
+        await handler.Handle(new GetCreditNoteApprovalsQuery("open", 1, 25), CancellationToken.None);
+        var cold = sap.Describe();
+        var coldHeldDraftReads = sap.CountQueries("/Drafts", "AuthorizationStatus eq");
+        var coldCreditNoteReads = sap.CountOf("/CreditNotes");
+
+        sap.Reset();
+        await handler.Handle(new GetCreditNoteApprovalsQuery("open", 2, 25), CancellationToken.None);
+        var warm = sap.Describe();
+
+        // Cold: the held drafts once, and their 25 distinct customer-and-total pairs in one read.
+        Assert.Equal(1, coldHeldDraftReads);
+        Assert.Equal(1, coldCreditNoteReads);
+
+        // Warm: none of it again.
+        Assert.Equal(0, sap.CountQueries("/Drafts", "AuthorizationStatus eq"));
+        Assert.Equal(0, sap.CountOf("/CreditNotes"));
+        Assert.True(warm.CriticalPathDepth <= 2, $"warm: {warm}");
+
+        Assert.True(cold.PeakConcurrency <= 3, $"cold: {cold}");
+        Assert.True(warm.PeakConcurrency <= 3, $"warm: {warm}");
+    }
+
     [Fact]
     public async Task The_row_labels_are_read_once_for_the_whole_page()
     {
@@ -114,7 +152,8 @@ public sealed class CreditNoteApprovalListRoundTripTests
             ServiceLayerUrl = "https://sap.invalid/b1s/v1/"
         };
         var handler = new GetCreditNoteApprovalCountsHandler(
-            CreateClient(sap, settings), FixedStageScope.Stages("Wash Bay Approvals", 4), Options.Create(settings));
+            CreateClient(sap, settings), FixedStageScope.Stages("Wash Bay Approvals", 4), FakeAlreadyCreditedIndex.Empty,
+            Options.Create(settings), NullLogger<GetCreditNoteApprovalCountsHandler>.Instance);
 
         var result = await handler.Handle(new GetCreditNoteApprovalCountsQuery(Guid.NewGuid()), CancellationToken.None);
 
@@ -145,7 +184,8 @@ public sealed class CreditNoteApprovalListRoundTripTests
             ServiceLayerUrl = "https://sap.invalid/b1s/v1/"
         };
         var handler = new GetCreditNoteApprovalCountsHandler(
-            CreateClient(sap, settings), FixedStageScope.Stages("Wash Bay Approvals", 4), Options.Create(settings));
+            CreateClient(sap, settings), FixedStageScope.Stages("Wash Bay Approvals", 4), FakeAlreadyCreditedIndex.Empty,
+            Options.Create(settings), NullLogger<GetCreditNoteApprovalCountsHandler>.Instance);
         var filter = new CreditNoteApprovalRequestFilter(new DateTime(2026, 11, 1), null, 31);
 
         var result = await handler.Handle(new GetCreditNoteApprovalCountsQuery(Guid.NewGuid(), filter), CancellationToken.None);
@@ -161,20 +201,29 @@ public sealed class CreditNoteApprovalListRoundTripTests
         });
     }
 
+    private static SAPSettings Settings() => new()
+    {
+        Enabled = true,
+        Username = "manager",
+        ServiceLayerUrl = "https://sap.invalid/b1s/v1/"
+    };
+
+    /// <summary>The list as the page reads it, with nothing to hide unless an index is given.</summary>
     private static GetCreditNoteApprovalsHandler CreateHandler(FakeSap sap)
     {
-        var settings = new SAPSettings
-        {
-            Enabled = true,
-            Username = "manager",
-            ServiceLayerUrl = "https://sap.invalid/b1s/v1/"
-        };
+        var settings = Settings();
+        return CreateHandler(CreateClient(sap, settings), settings, FakeAlreadyCreditedIndex.Empty);
+    }
 
-        var client = CreateClient(sap, settings);
+    private static GetCreditNoteApprovalsHandler CreateHandler(
+        SAPServiceLayerClient client,
+        SAPSettings settings,
+        ICreditNoteAlreadyCreditedIndex index)
+    {
         var lookups = new SapApprovalLookups(client, new MemoryCache(new MemoryCacheOptions()), Options.Create(settings));
 
         return new GetCreditNoteApprovalsHandler(
-            client, lookups, FixedStageScope.EveryStage, Options.Create(settings), NullLogger<GetCreditNoteApprovalsHandler>.Instance);
+            client, lookups, FixedStageScope.EveryStage, index, Options.Create(settings), NullLogger<GetCreditNoteApprovalsHandler>.Instance);
     }
 
     private static SAPServiceLayerClient CreateClient(FakeSap sap, SAPSettings settings)
@@ -226,16 +275,27 @@ public sealed class CreditNoteApprovalListRoundTripTests
             }
         }
 
-        public static FakeSap WithPage(int rows, int total)
+        /// <param name="rows">How many requests the page holds, one draft each.</param>
+        /// <param name="total">The queue's count.</param>
+        /// <param name="withReferences">
+        /// Drafts carry a Customer Ref. No., as the live queue's do, so the already-credited check reads.
+        /// </param>
+        public static FakeSap WithPage(int rows, int total, bool withReferences = false)
         {
             var requests = Enumerable.Range(0, rows).Select(index => $$"""
                 {"Code":{{85000 - index}},"ObjectType":"14","Status":"arsPending","DraftEntry":{{53900 - index}},
                  "CurrentStage":4,"OriginatorID":12,"ApprovalTemplatesID":7,"CreationDate":"2026-09-03"}
                 """);
 
+            // With references, every draft is its own customer-and-total pair, as on a live page.
+            string Reference(int index) => withReferences
+                ? $"\"NumAtCard\":\"7279{index}\",\"CreationDate\":\"2026-09-03\","
+                : string.Empty;
+            string Total(int index) => (withReferences ? 150.15m + index : 150.15m).ToString(CultureInfo.InvariantCulture);
+
             var drafts = Enumerable.Range(0, rows).Select(index => $$"""
-                {"DocEntry":{{53900 - index}},"DocNum":{{53900 - index}},"DocObjectCode":"14","CardCode":"TMP092",
-                 "CardName":"Pick n Pay Westgate USD","DocTotal":150.15,"DocCurrency":"USD","DocumentStatus":"bost_Open",
+                {"DocEntry":{{53900 - index}},"DocNum":{{53900 - index}},"DocObjectCode":"14","CardCode":"TMP092",{{Reference(index)}}
+                 "CardName":"Pick n Pay Westgate USD","DocTotal":{{Total(index)}},"DocCurrency":"USD","DocumentStatus":"bost_Open",
                  "Cancelled":"tNO","AuthorizationStatus":"dasApproved","DocDate":"2026-09-03"}
                 """);
 
@@ -254,6 +314,11 @@ public sealed class CreditNoteApprovalListRoundTripTests
                 _calls.Clear();
             }
         }
+
+        /// <summary>Calls to a path whose unescaped query contains <paramref name="queryFragment"/>.</summary>
+        public int CountQueries(string pathSuffix, string queryFragment) =>
+            Recorded.Count(call => call.Path.EndsWith(pathSuffix, StringComparison.Ordinal)
+                                   && Uri.UnescapeDataString(call.Query).Contains(queryFragment, StringComparison.Ordinal));
 
         public int CountOf(string pathFragment) =>
             Recorded.Count(call => call.Path.Contains(pathFragment, StringComparison.Ordinal));
@@ -330,6 +395,11 @@ public sealed class CreditNoteApprovalListRoundTripTests
             if (path.EndsWith("/Drafts", StringComparison.Ordinal))
             {
                 return Json(_draftsBody);
+            }
+
+            if (path.EndsWith("/CreditNotes", StringComparison.Ordinal))
+            {
+                return Json("""{"value":[]}""");
             }
 
             if (path.Contains("/ApprovalTemplates(", StringComparison.Ordinal))

@@ -46,6 +46,18 @@ public static partial class Errors
                     ? $"Approval request {code} has already been added as credit note DocEntry {objectEntry}."
                     : $"Approval request {code} has already been added.");
 
+        /// <summary>The draft was credited some other way while it waited; the sentence names the credit note.</summary>
+        public static Error AlreadyCredited(string description) =>
+            Error.Conflict("CreditNoteApproval.AlreadyCredited", description);
+
+        /// <summary>
+        /// SAP could not say whether the draft was already credited. Refused rather than guessed, because
+        /// guessing wrong credits the customer twice.
+        /// </summary>
+        public static readonly Error AlreadyCreditedUnchecked =
+            Error.Failure("CreditNoteApproval.AlreadyCreditedUnchecked",
+                "SAP could not be asked whether this draft has already been credited, so it was not approved or added. Try again.");
+
         public static Error ApproverUnknown(string approverUserName) =>
             Error.Validation("CreditNoteApproval.ApproverUnknown",
                 $"SAP has no user '{approverUserName}' to record the decision as. Check SAP:ApprovalApproverUsername.");

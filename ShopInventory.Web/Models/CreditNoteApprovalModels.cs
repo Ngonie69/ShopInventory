@@ -32,8 +32,23 @@ public sealed class CreditNoteApprovalListItemDto
     public bool HasAttachment { get; set; }
     public int? CreditNoteDocEntry { get; set; }
     public bool CanDecide { get; set; }
+
+    /// <summary>False beside <see cref="CanDecide"/> when the draft is already credited: reject only.</summary>
+    public bool CanApprove { get; set; }
     public bool CanAdd { get; set; }
     public string? StatusNote { get; set; }
+
+    /// <summary>The credit note already in SAP for this customer, reference and total; null when there is none.</summary>
+    public CreditNoteApprovalAlreadyCreditedDto? AlreadyCredited { get; set; }
+}
+
+public sealed class CreditNoteApprovalAlreadyCreditedDto
+{
+    public int DocEntry { get; set; }
+    public int DocNum { get; set; }
+    public DateTime? EnteredDate { get; set; }
+    public string? EnteredByUserCode { get; set; }
+    public string? EnteredByName { get; set; }
 }
 
 public sealed class CreditNoteApprovalListResponseDto
