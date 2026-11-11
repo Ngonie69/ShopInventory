@@ -36,6 +36,7 @@ Each code is put in one bucket:
 | `content-addressed` | The stored text hashes to the code, so the API made it. Either in use, or an older version of a statement that has since changed (dead too, but not provably). |
 | `unverified hex` | A `_<12 hex>` code made on or after 2026-08-01 whose text does not hash to it. SAP trims trailing spaces from each stored line, which can do this to a real one. The census lists them; leave them. |
 | `fixed` | A constant code such as `ITEM_BATCHES_V1`. In use. |
+| `production plan` | `PP` + 12 hex: the Production Plan app (repo `production-plan`) saves its queries in the same company. Not ours; the cleanup never takes them. |
 
 Old builds also made `prefix_<12 uppercase hex>` codes from GUIDs, which look exactly like
 content-addressed ones. Only hashing the stored text separates them, so the census reads `SqlText`
@@ -67,3 +68,49 @@ The options, cheapest first:
    and a HANA backup taken just before. Never do it without both.
 
 Whatever is done, rerun the census afterwards and compare `Paged read` and the counts.
+
+## Direct delete in HANA Studio
+
+SAP keeps the objects in the company schema's **`OSQL`** table (`SqlCode`, `SqlName`, `SqlText`,
+`ParamList`, `CreateDate`, `UpdateDate`, ...). **`ASQL`** has the same columns plus `LogInstanc`: it
+is SAP's change history, one row per version of a query. Found 2026-11-11 by searching
+`SYS.TABLE_COLUMNS` on tenant KLS. The cleanup touches `OSQL` only.
+
+Do not write the SQL by hand. Generate it from a census CSV:
+
+```powershell
+.\scripts\New-SapSqlQueryCleanupSql.ps1 -CensusCsv .\scripts\sap-sqlqueries-census\sqlqueries-KEFALOS_USD_NEW2-<stamp>.csv
+```
+
+It takes only the census's `legacy random` codes and checks each one again rather than trusting the
+bucket. The shape must be a random suffix. The code must be created before `-CreatedBefore`
+(2026-08-01), and must not appear as a literal in the API source. If the census calls a code legacy
+that has no random shape at all, it writes nothing. `scripts\Test-SapSqlQueryCleanupSql.ps1` proves
+those refusals.
+
+Uppercase-hex codes from 2026-07-27 on (the day content-addressing shipped) are left alone and
+counted. The census calls them legacy because their stored text does not hash to the code. But SAP
+rewrites what it stores (it quotes table names), so real content-addressed codes fail that hash too.
+The census on 2026-11-11 had 831 of these, plus 1,263 `unverified hex` from the same cause, so its
+hash check proves much less than it looks. Many of them are dead, for example the `PODCRA_<hex>`
+range covers that `PODCRA_RANGE` replaced. Proving that needs the census to hash the way SAP stores
+the text.
+
+The `.sql` file has four parts. Run them one at a time in HANA Studio on tenant KLS, outside trading
+hours, and read each `CHECK` column before going on:
+
+1. **Read-only:** row counts for `OSQL` and `ASQL`, the codes with the most history rows, and any
+   blocked transactions.
+2. **Backup:** copies the target rows into `SQLQ_CLEANUP.OSQL_<stamp>`, outside the company schema.
+   Take a tenant backup before this part.
+3. **Delete:** one statement. It removes only rows that are in the backup table and still pass the
+   date guard, so nothing is deleted that was not backed up first.
+4. **Verify:** none of the targets is left, and the row count dropped by exactly the backed-up
+   count.
+
+Then rerun the census and check that the Service Layer agrees. An undo statement (commented out)
+puts the rows back from the backup table. Drop the backup table only after the census looks right.
+
+Never delete a code from outside that list. A deleted *live* code fails quietly: the warehouse stock
+read takes SAP's 404 to mean "no stock", and the API trusts its record of the code for up to an
+hour before it recreates it.

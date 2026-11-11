@@ -168,3 +168,21 @@ jobs:
         run: |
           ./scripts/Test-StrandedIisAppWatchdog.ps1
           exit $LASTEXITCODE
+
+  # New-SapSqlQueryCleanupSql.ps1 writes the SQL that deletes rows from SAP's OSQL table in
+  # production. What it must never do is name a query something still uses: one of ours, a
+  # recent one, or the Production Plan app's. This fails on an edit that loosens any of those
+  # refusals. No .NET: it reads made-up census files and the API source as text.
+  sap-query-cleanup:
+    name: SAP query cleanup
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Check the cleanup SQL only names dead queries
+        shell: pwsh
+        run: |
+          ./scripts/Test-SapSqlQueryCleanupSql.ps1
+          exit $LASTEXITCODE
