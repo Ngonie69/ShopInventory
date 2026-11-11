@@ -36,6 +36,12 @@ public sealed class GetSapTransferApprovalsValidator : AbstractValidator<GetSapT
             .When(query => query.Filter is not null)
             .WithMessage("The created-from day must not be after the created-to day.");
 
+        // An enum from the query string also binds from a bare number, which may name no kind at all.
+        RuleFor(query => query.Filter!.Kind)
+            .IsInEnum()
+            .When(query => query.Filter?.Kind is not null)
+            .WithMessage("The kind is transfer or request; leave it out to read both.");
+
         RuleFor(query => query.Filter!.DraftNum)
             .GreaterThan(0)
             .When(query => query.Filter?.DraftNum is not null)

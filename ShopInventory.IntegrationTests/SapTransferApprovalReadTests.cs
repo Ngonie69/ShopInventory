@@ -15,10 +15,13 @@ namespace ShopInventory.IntegrationTests;
 [Collection("SAP")]
 public class SapTransferApprovalReadTests(SapClientFixture fixture)
 {
+    private static readonly SapTransferDraftFilter TransfersOnly = new() { Kind = SapHeldDraftKind.Transfer };
+    private static readonly SapTransferDraftFilter RequestsOnly = new() { Kind = SapHeldDraftKind.Request };
+
     [SapFact]
     public async Task The_approved_draft_queue_and_its_count_are_accepted_and_are_transfers_only()
     {
-        var (items, total) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 5);
+        var (items, total) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 5, filter: TransfersOnly);
 
         Assert.True(total >= items.Count, $"SAP counted {total} approved drafts but returned {items.Count} on the first page.");
         // StockTransferDrafts serves every kind of draft; the filter is what keeps goods receipts out.
@@ -102,7 +105,7 @@ public class SapTransferApprovalReadTests(SapClientFixture fixture)
     [SapFact]
     public async Task A_draft_reads_back_by_key_with_its_batches_requests_and_item_flags()
     {
-        var (items, _) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 10);
+        var (items, _) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 10, filter: TransfersOnly);
         Assert.False(items.Count == 0, "SAP holds no approved transfer drafts, so the detail reads cannot be exercised.");
 
         var requests = await fixture.Client.GetStockTransferApprovalRequestsAsync(items.Select(item => item.DocEntry).ToList(), withLines: true);
@@ -124,6 +127,56 @@ public class SapTransferApprovalReadTests(SapClientFixture fixture)
             .SelectMany(found => found?.StockTransferLines ?? [])
             .Any(line => line.BatchNumbers is { Count: > 0 });
         Assert.True(batched, "None of the five newest approved drafts read back with a batch pick; the by-key read should carry them.");
+    }
+
+    /// <summary>
+    /// Transfer request drafts sit in the same set under their own object code. This is the read that
+    /// settles what SAP calls it: the filter and the page's kind check both take it to be
+    /// <c>1250000001</c>, as the transfer's is <c>67</c>. An empty answer is not proof either way.
+    /// </summary>
+    [SapFact]
+    public async Task The_request_draft_queue_is_accepted_and_holds_only_request_drafts()
+    {
+        var (items, total) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 5, filter: RequestsOnly);
+
+        Assert.True(total >= items.Count, $"SAP counted {total} approved request drafts but returned {items.Count} on the first page.");
+        Assert.All(items, item =>
+        {
+            Assert.Equal(SapDocObjectCodes.InventoryTransferRequest, item.DocObjectCode);
+            Assert.Equal(SapDocumentStatuses.Open, item.DocumentStatus);
+            Assert.Equal(SapStockTransferAuthorizationStatuses.Approved, item.AuthorizationStatus);
+        });
+
+        if (items.Count > 0)
+        {
+            // Their approval requests carry the request's object type, which the join reads as well.
+            var requests = await fixture.Client.GetStockTransferApprovalRequestsAsync(items.Select(item => item.DocEntry).ToList());
+            Assert.All(requests, request => Assert.Equal(SapObjectTypes.InventoryTransferRequest, request.ObjectType));
+        }
+    }
+
+    /// <summary>The kind switch shows the two totals; together they must be the count of both kinds read at once.</summary>
+    [SapFact]
+    public async Task Both_kinds_count_as_the_sum_of_each()
+    {
+        var transfers = await fixture.Client.CountApprovedStockTransferDraftsAsync(filter: TransfersOnly);
+        var requests = await fixture.Client.CountApprovedStockTransferDraftsAsync(filter: RequestsOnly);
+        var both = await fixture.Client.CountApprovedStockTransferDraftsAsync();
+
+        Assert.Equal(transfers + requests, both);
+    }
+
+    [SapFact]
+    public async Task The_reads_that_recognise_a_created_request_are_accepted()
+    {
+        var newest = await fixture.Client.GetNewestInventoryTransferRequestDocEntryAsync();
+        Assert.NotNull(newest);
+
+        var request = await fixture.Client.GetInventoryTransferRequestByDocEntryAsync(newest.Value);
+        Assert.NotNull(request);
+
+        var after = await fixture.Client.GetInventoryTransferRequestsAfterAsync(newest.Value - 5, request.FromWarehouse, request.ToWarehouse);
+        Assert.Contains(after, found => found.DocEntry == newest.Value);
     }
 
     [SapFact]

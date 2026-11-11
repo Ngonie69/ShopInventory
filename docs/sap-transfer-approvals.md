@@ -1,8 +1,9 @@
 # SAP-held transfers
 
-How the app lists the inventory transfers that were keyed in the SAP B1 client, held by SAP's own
-approval templates and approved there, and lets someone add one: the approved draft becomes the real
-inventory transfer. Deciding stays in the B1 client. SAP is the source of truth throughout; nothing is
+How the app lists the inventory transfers and transfer requests that were keyed in the SAP B1 client,
+held by SAP's own approval templates and approved there, and lets someone add one: the approved draft
+becomes the real inventory transfer, or the real transfer request (see "Transfer request drafts" below).
+Deciding stays in the B1 client. SAP is the source of truth throughout; nothing is
 mirrored into the app's local approval engine, which governs the transfers this app raises itself.
 
 **Why it exists.** Production holds 40 active transfer approval templates, each one SQL condition on
@@ -17,8 +18,8 @@ on 26 Oct counted all kinds the same way).
 
 | What | Service Layer | Notes |
 |---|---|---|
-| The held document | `StockTransferDrafts` (EDM type `SAPB1.StockTransfer`) | Not `Drafts`, which is `Document`-shaped. `DocObjectCode = "67"`; `AuthorizationStatus` is the transfer's own `sas*` enum (`sasPending → sasApproved`), not the documents' `das*` |
-| The approval | `ApprovalRequests` | `ObjectType = '67'`, `DraftEntry` = the draft's DocEntry. A draft can have more than one request — one per template that matched it |
+| The held document | `StockTransferDrafts` (EDM type `SAPB1.StockTransfer`) | Not `Drafts`, which is `Document`-shaped. `DocObjectCode = "67"` for a transfer, `"1250000001"` for a transfer request (not yet read back live); `AuthorizationStatus` is the transfer's own `sas*` enum (`sasPending → sasApproved`), not the documents' `das*` |
+| The approval | `ApprovalRequests` | `ObjectType = '67'` (or `'1250000001'` for a request draft), `DraftEntry` = the draft's DocEntry. A draft can have more than one request — one per template that matched it |
 | The add | `POST StockTransferDrafts({DocEntry})/SaveDraftToDocument` | The bound action declared at `reference/sap-service-layer-metadata.xml` (around line 24174), sent with no body |
 | Who decides | the B1 client | This page never decides; a draft appears only once SAP has approved it |
 
@@ -83,6 +84,44 @@ A scoped account's queue is filtered — and counted — in SAP on the draft's s
    could be converted here and move the same stock again. A request that will not close is said in the
    result, not thrown: the stock has moved. Lines of the request the B1 user left off the draft are not
    transferred; raise a new request for them.
+
+## Transfer request drafts
+
+`InventoryTransferRequests` and `StockTransferDrafts` share the `StockTransfer` entity type, and a
+transfer request keyed in the B1 client under an approval template waits in the same draft set as the
+transfers, under its own object code. The page reads both: a switch above the queue picks **All**
+(the default), **Transfers** or **Requests**, each showing its total, and every row and the drawer say
+which kind it is. The switch is not a filter, so the search and filters carry over and "Clear all"
+leaves it alone.
+
+The list counts the kind it reads (both together when it reads both) and makes one more `$count` of a
+single kind; the other total is the difference, clamped at zero because an add can land between the two
+reads. A count that fails leaves the switch without numbers; the rows are unaffected.
+
+What changes for a request draft:
+
+- **No stock moves when it is added.** `SaveDraftToDocument` makes an open transfer request, which waits
+  on the Transfers page (Requests tab) to be converted like any other — through the app's own approval
+  (§44), which opens one for a request raised in SAP the first time it is converted. **Both approvals
+  stay, by decision (2026-11-11):** SAP's approval lets the request exist; the app's decides the
+  conversion, as it does for every request. Do not skip the app's approval for a request added here.
+- **No stock checks.** A request carries no batch picks (they are chosen at conversion), was copied from
+  no request, and cannot take a till's unposted sales, so the detail reads no item flags and the add
+  skips the pick, copied-from-request and till checks. Who may add is unchanged: the conversion rule, on
+  the warehouse the request asks stock from.
+- **The request it became** is SAP's answer when it names one, else the approval request's
+  `ObjectEntry`, else the one request raised since the add began between the same warehouses carrying
+  exactly the draft's lines — the transfer's recognition, on `InventoryTransferRequests`.
+- The page's notice links to the Transfers page opened on that request
+  (`/inventory-transfers?requestDocEntry=…`).
+
+**Unmeasured.** None of this has been read from a live request draft: the test company's login was
+refused when it was built (2026-11-11). Before relying on it, run
+`ShopInventory.IntegrationTests` with `SHOPINVENTORY_SAP_TESTS=1` — the request-draft reads settle the
+object code (`The_request_draft_queue_is_accepted_and_holds_only_request_drafts`) and that the two
+counts add up — and record here how many approved request drafts there are, and what one add answers.
+
+Laid out from the "SAP-Held Transfer Requests" design canvas (November 2026).
 
 ## The add has not been run against SAP
 

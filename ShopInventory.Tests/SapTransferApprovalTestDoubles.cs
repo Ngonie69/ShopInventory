@@ -65,16 +65,25 @@ internal sealed class FakeTransferSap
     public List<SAPStockTransferDraft> ListDrafts { get; init; } = [];
     public int ListTotal { get; init; }
 
+    /// <summary>What the kind switch's extra count answers. Null means the count throws.</summary>
+    public int? KindCount { get; init; } = 0;
+
+    /// <summary>What each kind count was asked for.</summary>
+    public List<SapTransferDraftFilter?> CountReads { get; } = [];
+
+    /// <summary>How many times the item flags were read — never, for a transfer request draft.</summary>
+    public int ManagementReads { get; private set; }
+
+    public int? NewestRequestBefore { get; init; } = 20000;
+    public List<InventoryTransferRequest> RequestsAfter { get; init; } = [];
+
     public ISAPServiceLayerClient AsClient() => StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
     {
         nameof(ISAPServiceLayerClient.GetStockTransferDraftAsync)
             => Task.FromResult<SAPStockTransferDraft?>((int)args![0]! == Draft.DocEntry ? (_saved ? DraftAfterSave ?? Closed(Draft) : Draft) : null),
         nameof(ISAPServiceLayerClient.GetStockTransferApprovalRequestsAsync)
             => Task.FromResult(_saved ? RequestsAfterSave ?? Requests : Requests),
-        nameof(ISAPServiceLayerClient.GetItemManagementAsync)
-            => Management is null
-                ? Task.FromException<IReadOnlyDictionary<string, SapItemManagement>>(new HttpRequestException("SAP is not answering"))
-                : Task.FromResult<IReadOnlyDictionary<string, SapItemManagement>>(Management),
+        nameof(ISAPServiceLayerClient.GetItemManagementAsync) => ReadManagement(),
         nameof(ISAPServiceLayerClient.GetNewestStockTransferDocEntryAsync)
             => Task.FromResult(NewestBefore),
         nameof(ISAPServiceLayerClient.GetStockTransfersAfterAsync)
@@ -88,8 +97,29 @@ internal sealed class FakeTransferSap
         nameof(ISAPServiceLayerClient.CloseInventoryTransferRequestAsync) => Close((int)args![0]!),
         nameof(ISAPServiceLayerClient.SaveStockTransferDraftToDocumentAsync) => Save(args!),
         nameof(ISAPServiceLayerClient.GetApprovedStockTransferDraftsAsync) => List(args!),
+        nameof(ISAPServiceLayerClient.CountApprovedStockTransferDraftsAsync) => Count(args!),
+        nameof(ISAPServiceLayerClient.GetNewestInventoryTransferRequestDocEntryAsync)
+            => Task.FromResult(NewestRequestBefore),
+        nameof(ISAPServiceLayerClient.GetInventoryTransferRequestsAfterAsync)
+            => Task.FromResult(RequestsAfter),
         _ => throw new InvalidOperationException($"{method.Name} was not expected.")
     });
+
+    private Task<IReadOnlyDictionary<string, SapItemManagement>> ReadManagement()
+    {
+        ManagementReads++;
+        return Management is null
+            ? Task.FromException<IReadOnlyDictionary<string, SapItemManagement>>(new HttpRequestException("SAP is not answering"))
+            : Task.FromResult<IReadOnlyDictionary<string, SapItemManagement>>(Management);
+    }
+
+    private Task<int> Count(object?[] args)
+    {
+        CountReads.Add((SapTransferDraftFilter?)args[1]);
+        return KindCount is int count
+            ? Task.FromResult(count)
+            : Task.FromException<int>(new HttpRequestException("SAP is not answering"));
+    }
 
     private Task<(List<SAPStockTransferDraft> Items, int TotalCount)> List(object?[] args)
     {
@@ -169,6 +199,36 @@ internal static class HeldTransfers
         DocumentStatus = SapDocumentStatuses.Open,
         AuthorizationStatus = SapStockTransferAuthorizationStatuses.Approved,
         StockTransferLines = lines.Length > 0 ? lines.ToList() : [Line(0, "YOG058", 8m, from, to, ("YOG058#M11", 8m))]
+    };
+
+    /// <summary>
+    /// An approved, open transfer request draft: the same shape, its own object code, and lines with no
+    /// batch picks, because a request carries none.
+    /// </summary>
+    public static SAPStockTransferDraft RequestDraft(int docEntry, string from, string to, params SAPStockTransferDraftLine[] lines)
+    {
+        var draft = Draft(docEntry, from, to, lines.Length > 0 ? lines : [Line(0, "YOG058", 48m, from, to)]);
+        draft.DocObjectCode = SapDocObjectCodes.InventoryTransferRequest;
+        return draft;
+    }
+
+    /// <summary>The transfer request SAP holds once a request draft is added, carrying the draft's lines.</summary>
+    public static InventoryTransferRequest RequestLike(SAPStockTransferDraft draft, int docEntry, int docNum) => new()
+    {
+        DocEntry = docEntry,
+        DocNum = docNum,
+        DocDate = "2026-11-11",
+        FromWarehouse = draft.FromWarehouse,
+        ToWarehouse = draft.ToWarehouse,
+        DocumentStatus = SapDocumentStatuses.Open,
+        StockTransferLines = (draft.StockTransferLines ?? []).Select(line => new InventoryTransferRequestLine
+        {
+            LineNum = line.LineNum,
+            ItemCode = line.ItemCode,
+            Quantity = line.Quantity,
+            FromWarehouseCode = line.FromWarehouseCode,
+            WarehouseCode = line.WarehouseCode
+        }).ToList()
     };
 
     public static SAPStockTransferDraftLine Line(

@@ -3,14 +3,16 @@ using System.Text.Json.Serialization;
 namespace ShopInventory.Models;
 
 /// <summary>
-/// An inventory transfer draft (ODRF, <c>ObjType 67</c>) as the Service Layer's <c>StockTransferDrafts</c>
-/// set returns it: the document SAP holds while its approval procedure decides a transfer keyed in the
-/// B1 client, and the one <c>SaveDraftToDocument</c> turns into the real transfer.
+/// An inventory transfer draft (ODRF, <c>ObjType 67</c>) or inventory transfer request draft
+/// (<c>ObjType 1250000001</c>) as the Service Layer's <c>StockTransferDrafts</c> set returns it: the
+/// document SAP holds while its approval procedure decides a transfer or request keyed in the B1 client,
+/// and the one <c>SaveDraftToDocument</c> turns into the real document.
 /// </summary>
 /// <remarks>
 /// <para>The set is not limited to transfers. It is a view over every draft, and an unfiltered read
 /// of it on KEFALOS_TEST_3 returned goods-receipt-PO drafts (<c>DocObjectCode "20"</c>) first. Every
-/// read filters on <see cref="DocObjectCode"/>.</para>
+/// read filters on <see cref="DocObjectCode"/>. Both kinds held here share the <c>StockTransfer</c>
+/// shape, which is why one model serves them.</para>
 ///
 /// <para>A line's <see cref="SAPStockTransferDraftLine.BatchNumbers"/> come back only from a read that
 /// returns one document with no <c>$select</c>. A filtered read of several drafts, or any read whose
@@ -139,8 +141,21 @@ public sealed record SapItemManagement(string ItemCode, bool ManagesBatches, boo
 /// The approval stage and the originator are deliberately absent: they live on the approval request,
 /// not the draft, and SAP cannot filter one entity set by another's fields in one read.
 /// </remarks>
+/// <summary>
+/// Which kind of document a held draft becomes when it is added. A transfer moves stock; a transfer
+/// request only asks for it, and is converted into the transfer later.
+/// </summary>
+public enum SapHeldDraftKind
+{
+    Transfer,
+    Request
+}
+
 public sealed record SapTransferDraftFilter
 {
+    /// <summary>Only drafts of this kind. Null reads transfers and transfer requests together.</summary>
+    public SapHeldDraftKind? Kind { get; init; }
+
     /// <summary>Only drafts leaving or entering this warehouse.</summary>
     public string? Warehouse { get; init; }
 

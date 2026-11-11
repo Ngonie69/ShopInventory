@@ -11,8 +11,8 @@ using ShopInventory.Models;
 namespace ShopInventory.Controllers;
 
 /// <summary>
-/// Inventory transfers keyed in the SAP client, held by SAP's approval procedure and approved there,
-/// that nobody has added yet: list them, look at one, and add it as the real transfer.
+/// Inventory transfers and transfer requests keyed in the SAP client, held by SAP's approval procedure
+/// and approved there, that nobody has added yet: list them, look at one, and add it as the real document.
 /// </summary>
 /// <remarks>
 /// SAP is the source of truth; nothing here is mirrored into the local approval engine. Deciding stays in
@@ -29,8 +29,11 @@ namespace ShopInventory.Controllers;
 public sealed class SapTransferApprovalController(IMediator mediator) : ApiControllerBase
 {
     /// <summary>
-    /// The approved transfer drafts still waiting to be added, newest first. A depot controller or a
-    /// shop's stock user sees only those leaving their own warehouses. <c>warehouse</c> narrows to drafts
+    /// The approved transfer and transfer request drafts still waiting to be added, newest first.
+    /// <c>kind</c> (<c>transfer</c> or <c>request</c>) reads one of the two; without it both come back,
+    /// each row saying which it is, and <c>transferCount</c>/<c>requestCount</c> carry both totals either
+    /// way. A depot controller or a shop's stock user sees only those leaving their own warehouses.
+    /// <c>warehouse</c> narrows to drafts
     /// leaving or entering one warehouse; <c>from</c> and <c>to</c> (repeatable) to drafts leaving or
     /// entering any of several; <c>createdFrom</c>/<c>createdTo</c> to the days the drafts were created;
     /// <c>attachedOnly</c> to drafts with an attachment; <c>draftNum</c> to one draft. Every filter is
@@ -50,10 +53,12 @@ public sealed class SapTransferApprovalController(IMediator mediator) : ApiContr
         [FromQuery] DateTime? createdTo = null,
         [FromQuery] bool attachedOnly = false,
         [FromQuery] int? draftNum = null,
+        [FromQuery] SapHeldDraftKind? kind = null,
         CancellationToken cancellationToken = default)
     {
         var filter = new SapTransferDraftFilter
         {
+            Kind = kind,
             FromWarehouses = from is { Length: > 0 } ? from : null,
             ToWarehouses = to is { Length: > 0 } ? to : null,
             CreatedFrom = createdFrom,
@@ -68,7 +73,10 @@ public sealed class SapTransferApprovalController(IMediator mediator) : ApiContr
         return result.Match(Ok, Problem);
     }
 
-    /// <summary>One held transfer draft: its lines and batch picks, the approvals behind it, and the request it was copied from.</summary>
+    /// <summary>
+    /// One held draft — a transfer or a transfer request: its lines and batch picks, the approvals behind
+    /// it, and the request a transfer draft was copied from.
+    /// </summary>
     [HttpGet("{draftEntry:int}")]
     [ProducesResponseType(typeof(SapTransferApprovalDetailDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -79,8 +87,9 @@ public sealed class SapTransferApprovalController(IMediator mediator) : ApiContr
     }
 
     /// <summary>
-    /// Add the approved draft as the inventory transfer, and close any transfer request it was copied
-    /// from. One add per draft: a repeat replays the first answer.
+    /// Add the approved draft as the document it describes. A transfer draft becomes the inventory
+    /// transfer, and any transfer request it was copied from is closed; a transfer request draft becomes
+    /// an open transfer request, and no stock moves. One add per draft: a repeat replays the first answer.
     /// </summary>
     [HttpPost("{draftEntry:int}/add")]
     [ProducesResponseType(typeof(AddApprovedSapTransferResultDto), StatusCodes.Status200OK)]

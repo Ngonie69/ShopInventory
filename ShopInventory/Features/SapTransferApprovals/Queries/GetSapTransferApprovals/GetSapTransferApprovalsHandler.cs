@@ -11,8 +11,9 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.SapTransferApprovals.Queries.GetSapTransferApprovals;
 
 /// <summary>
-/// Reads the approved, still-open transfer drafts from SAP, joins the approval requests behind them in
-/// one batched read, and names the people, templates and stages through the cached lookups.
+/// Reads the approved, still-open transfer and transfer request drafts from SAP, joins the approval
+/// requests behind them in one batched read, and names the people, templates and stages through the
+/// cached lookups.
 /// </summary>
 /// <remarks>
 /// The queue is read from the draft side: the draft is what says a transfer is approved and still
@@ -49,6 +50,13 @@ public sealed class GetSapTransferApprovalsHandler(
             return caller.Errors;
         }
 
+        var filter = query.EffectiveFilter;
+
+        // The kind switch shows both totals. The page's own read counts the kind it reads (both kinds
+        // when it reads both), so one more count of a single kind gives the other by difference.
+        var otherKind = filter.Kind == SapHeldDraftKind.Request ? SapHeldDraftKind.Transfer : SapHeldDraftKind.Request;
+        var otherCountTask = CountOrNullAsync(caller.Value.SourceWarehouses, filter with { Kind = otherKind }, cancellationToken);
+
         List<SAPStockTransferDraft> drafts;
         int total;
         List<SAPApprovalRequest> requests;
@@ -59,7 +67,7 @@ public sealed class GetSapTransferApprovalsHandler(
                 query.PageSize,
                 query.BeforeDocEntry,
                 caller.Value.SourceWarehouses,
-                query.EffectiveFilter,
+                filter,
                 cancellationToken);
 
             requests = drafts.Count == 0
@@ -76,6 +84,8 @@ public sealed class GetSapTransferApprovalsHandler(
             logger.LogError(exception, "Could not read the approved stock transfer drafts from SAP");
             return Errors.SapTransferApproval.SapUnavailable(exception.Message);
         }
+
+        var (transferCount, requestCount) = KindCounts(filter.Kind, total, await otherCountTask);
 
         var requestsByDraft = requests
             .Where(request => request.DraftEntry is > 0)
@@ -121,6 +131,8 @@ public sealed class GetSapTransferApprovalsHandler(
         {
             Items = items,
             TotalCount = total,
+            TransferCount = transferCount,
+            RequestCount = requestCount,
             Page = query.Page,
             PageSize = query.PageSize,
             Warehouse = string.IsNullOrWhiteSpace(query.Warehouse) ? null : query.Warehouse.Trim(),
@@ -129,6 +141,35 @@ public sealed class GetSapTransferApprovalsHandler(
             // Ordered DocEntry desc, so the last row is the lowest and the next page starts below it.
             NextCursor = drafts.Count < query.PageSize ? null : drafts[^1].DocEntry
         };
+    }
+
+    /// <summary>
+    /// Both kinds' totals from the page's own count and the count of one other kind. Reading both kinds,
+    /// the other count is the requests', and the transfers are the rest; the two reads are a moment apart,
+    /// so an add between them is not allowed to make that negative.
+    /// </summary>
+    internal static (int? Transfers, int? Requests) KindCounts(SapHeldDraftKind? kind, int total, int? other) => kind switch
+    {
+        SapHeldDraftKind.Transfer => (total, other),
+        SapHeldDraftKind.Request => (other, total),
+        _ => (other is int requests ? Math.Max(0, total - requests) : null, other)
+    };
+
+    /// <summary>A count for the kind switch; a failure costs the switch its number, not the page its rows.</summary>
+    private async Task<int?> CountOrNullAsync(
+        IReadOnlyCollection<string>? scope,
+        SapTransferDraftFilter filter,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await sap.CountApprovedStockTransferDraftsAsync(scope, filter, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Could not count the approved {Kind} drafts; the kind switch shows no number for them", filter.Kind);
+            return null;
+        }
     }
 
     private async Task<Dictionary<int, T>> ResolveAsync<T>(

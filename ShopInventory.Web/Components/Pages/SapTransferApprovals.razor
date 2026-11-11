@@ -12,7 +12,8 @@
    follow the app's theme toggle. Icon-only buttons draw their glyph inline rather than from the Phosphor
    font, because the glyph is the whole label and a font that fails to load would leave them reading as
    dead controls. The layout follows the "SAP-Held Transfers Redesign" canvas: rows grouped by the day
-   they were raised, the route as the headline, and a filter panel whose every choice SAP applies. *@
+   they were raised, the route as the headline, and a filter panel whose every choice SAP applies. The
+   kind switch, row tags and request drawer follow the "SAP-Held Transfer Requests" canvas. *@
 
 <div class="sta">
 
@@ -21,7 +22,7 @@
             <div class="sta-q-mark" aria-hidden="true"><i class="ph ph-seal-check"></i></div>
             <div class="sta-titles">
                 <h1 class="sta-title">SAP-Held Transfers</h1>
-                <p class="sta-sub">Transfers keyed and approved in SAP Business One, waiting to be added. Approval is decided in SAP; adding posts the transfer there.</p>
+                <p class="sta-sub">Transfers and transfer requests keyed and approved in SAP Business One, waiting to be added. Approval is decided in SAP; adding posts the document there.</p>
             </div>
             <div class="sta-head-actions">
                 <button type="button" class="sta-btn sta-btn-secondary sta-btn-lg" @onclick="RefreshAsync" disabled="@isLoading">
@@ -69,6 +70,13 @@
                     {
                         <div class="sta-added-source">@addedNoticeSource</div>
                     }
+                    @if (!string.IsNullOrEmpty(addedRequestLink))
+                    {
+                        <a class="sta-added-link" href="@addedRequestLink">
+                            <span>Open it under Inventory Transfers → Requests</span>
+                            <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
+                        </a>
+                    }
                 </div>
                 <button type="button" class="sta-btn sta-btn-ghost sta-btn-icon-sm" title="Dismiss"
                         aria-label="Dismiss notice" @onclick="DismissAddedNotice">
@@ -82,9 +90,26 @@
         <section class="sta-card sta-q">
 
             <div class="sta-q-bar">
+                @* Which kind SAP is asked for. A transfer moves stock when added and a request does not, so
+                   the two can be read apart; both together is the default. *@
+                <div class="sta-kind" role="group" aria-label="Which drafts">
+                    @foreach (var choice in KindChoices)
+                    {
+                        <button type="button" class="sta-kind-opt @(kindFilter == choice.Kind ? "is-on" : "")"
+                                aria-pressed="@(kindFilter == choice.Kind ? "true" : "false")"
+                                disabled="@isLoading" @onclick="() => SetKindAsync(choice.Kind)">
+                            <span>@choice.Label</span>
+                            @if (choice.Count is int kindCount)
+                            {
+                                <span class="sta-kind-n">@kindCount.ToString("N0")</span>
+                            }
+                        </button>
+                    }
+                </div>
+
                 <label class="sta-q-search">
                     <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-                    <span class="sta-sr">Search transfers</span>
+                    <span class="sta-sr">Search drafts</span>
                     @* A number is a draft number; anything else is a warehouse the transfer leaves or enters.
                        Both are sent to SAP, which filters and counts — so the rows follow once the typing rests. *@
                     <input type="text" placeholder="Warehouse or draft no." maxlength="20"
@@ -116,7 +141,7 @@
                     }
                     else if (totalCount == 0)
                     {
-                        <span>No transfers</span>
+                        <span>Nothing waiting</span>
                     }
                     else
                     {
@@ -261,7 +286,7 @@
                     <div class="sta-q-day">
                         <span class="sta-q-day-rel">@DayRelative(group.Key)</span>
                         <span class="sta-q-day-date">@DayLabel(group.Key)</span>
-                        <span class="sta-q-day-count">@(group.Count() == 1 ? "1 transfer" : $"{group.Count()} transfers")</span>
+                        <span class="sta-q-day-count">@CountOf(group.Count())</span>
                     </div>
                     @foreach (var draft in group)
                     {
@@ -274,6 +299,7 @@
                                         <span class="sta-q-code">@(draft.ToWarehouse ?? "—")</span>
                                     </span>
                                     <span class="sta-q-refs">
+                                        <span class="sta-q-kind @(draft.IsRequest ? "is-request" : "")">@(draft.IsRequest ? "Request" : "Transfer")</span>
                                         <span>Draft @draft.DraftNum</span>
                                         @if (draft.RequestCode is int requestCode)
                                         {
@@ -319,7 +345,7 @@
                                         <span class="sta-q-pill is-held"><i class="ph ph-warning" aria-hidden="true"></i>Held</span>
                                     }
                                     <button type="button" class="sta-btn sta-btn-secondary sta-btn-lg sta-q-review"
-                                            aria-label="Review draft @draft.DraftNum" @onclick="() => OpenAsync(draft.DraftEntry)">
+                                            aria-label="Review @(draft.IsRequest ? "request draft" : "transfer draft") @draft.DraftNum" @onclick="() => OpenAsync(draft.DraftEntry)">
                                         <span>Review</span><i class="ph ph-caret-right" aria-hidden="true"></i>
                                     </button>
                                 </div>
@@ -399,12 +425,13 @@
 {
     <div class="sta-overlay">
         <div class="sta-scrim" @onclick="CloseDetail"></div>
-        <aside class="sta-drawer" aria-label="Held transfer details">
+        <aside class="sta-drawer" aria-label="@(DetailIsRequest ? "Held request details" : "Held transfer details")">
             <div class="sta-d-head">
                 <div class="sta-d-titlerow">
-                    <h2 class="sta-drawer-title">Draft @(detail?.Draft.DraftNum.ToString() ?? detailEntry.ToString())</h2>
+                    <h2 class="sta-drawer-title">@(DetailIsRequest ? "Request draft" : "Draft") @(detail?.Draft.DraftNum.ToString() ?? detailEntry.ToString())</h2>
                     @if (detail is not null)
                     {
+                        <span class="sta-q-kind @(DetailIsRequest ? "is-request" : "")">@(DetailIsRequest ? "Request" : "Transfer")</span>
                         @if (detail.Draft.CanAdd)
                         {
                             <span class="sta-q-pill is-ready"><i class="ph ph-check" aria-hidden="true"></i>Ready to add</span>
@@ -457,6 +484,14 @@
                         <div class="sta-blocked">
                             <i class="ph ph-warning" aria-hidden="true"></i>
                             <div class="sta-alert-body">@detail.Draft.StatusNote</div>
+                        </div>
+                    }
+
+                    @if (DetailIsRequest)
+                    {
+                        <div class="sta-info">
+                            <i class="ph ph-info" aria-hidden="true"></i>
+                            <div class="sta-alert-body">Adding this posts a transfer request in SAP. No stock moves yet: the request then waits under Inventory Transfers → Requests, where it is converted into the transfer.</div>
                         </div>
                     }
 
@@ -536,7 +571,11 @@
                             <i class="ph ph-list-bullets" aria-hidden="true"></i>Lines
                             <span class="sta-d-count">@(detail.Lines.Count == 1 ? "1 line" : $"{detail.Lines.Count} lines")</span>
                         </div>
-                        @if (detail.SelectionUnchecked)
+                        @if (DetailIsRequest)
+                        {
+                            <div class="sta-note">A request carries no batches. They are picked when the request is converted into the transfer.</div>
+                        }
+                        else if (detail.SelectionUnchecked)
                         {
                             <div class="sta-note">SAP did not say which items it manages by batch, so the batch picks could not be checked here. SAP checks them when the transfer is added.</div>
                         }
@@ -559,30 +598,33 @@
                                         </div>
                                         <span class="sta-d-line-qty">@QuantityDisplay.Format(line.Quantity) @line.UoMCode</span>
                                     </div>
-                                    <div class="sta-d-batches">
-                                        @foreach (var batch in line.Batches)
-                                        {
-                                            <span class="sta-d-batch">
-                                                <span class="sta-batch-no">@batch.BatchNumber</span>
-                                                <span class="sta-batch-qty">× @QuantityDisplay.Format(batch.Quantity)</span>
-                                            </span>
-                                        }
-                                        @if (line.Batches.Count == 0 && line.SerialCount > 0)
-                                        {
-                                            <span class="sta-batch-qty">@line.SerialCount serial numbers</span>
-                                        }
-                                        @if (line.SelectionMissing)
-                                        {
-                                            <span class="sta-d-missing">
-                                                <i class="ph ph-warning" aria-hidden="true"></i>
-                                                @(line.Batches.Count == 0 && line.SerialCount == 0 ? "No batch picked" : "Pick incomplete")
-                                            </span>
-                                        }
-                                        else if (line.Batches.Count == 0 && line.SerialCount == 0)
-                                        {
-                                            <span class="sta-batch-qty">@(line.ManagesBatches == false && line.ManagesSerials == false ? "Not batch-managed" : "No batch")</span>
-                                        }
-                                    </div>
+                                    @if (!DetailIsRequest)
+                                    {
+                                        <div class="sta-d-batches">
+                                            @foreach (var batch in line.Batches)
+                                            {
+                                                <span class="sta-d-batch">
+                                                    <span class="sta-batch-no">@batch.BatchNumber</span>
+                                                    <span class="sta-batch-qty">× @QuantityDisplay.Format(batch.Quantity)</span>
+                                                </span>
+                                            }
+                                            @if (line.Batches.Count == 0 && line.SerialCount > 0)
+                                            {
+                                                <span class="sta-batch-qty">@line.SerialCount serial numbers</span>
+                                            }
+                                            @if (line.SelectionMissing)
+                                            {
+                                                <span class="sta-d-missing">
+                                                    <i class="ph ph-warning" aria-hidden="true"></i>
+                                                    @(line.Batches.Count == 0 && line.SerialCount == 0 ? "No batch picked" : "Pick incomplete")
+                                                </span>
+                                            }
+                                            else if (line.Batches.Count == 0 && line.SerialCount == 0)
+                                            {
+                                                <span class="sta-batch-qty">@(line.ManagesBatches == false && line.ManagesSerials == false ? "Not batch-managed" : "No batch")</span>
+                                            }
+                                        </div>
+                                    }
                                 </li>
                             }
                         </ul>
@@ -629,12 +671,19 @@
                 {
                     <div class="sta-d-confirm" role="alertdialog" aria-label="Confirm add">
                         <div class="sta-confirm-copy">
-                            Post draft @detail.Draft.DraftNum as an inventory transfer of
+                            Post draft @detail.Draft.DraftNum as @(DetailIsRequest ? "a transfer request" : "an inventory transfer") of
                             @detail.Lines.Count @(detail.Lines.Count == 1 ? "line" : "lines") from
                             @detail.Draft.FromWarehouse to @detail.Draft.ToWarehouse?
                         </div>
                         <div class="sta-confirm-sub">
-                            The stock leaves @detail.Draft.FromWarehouse in SAP.
+                            @if (DetailIsRequest)
+                            {
+                                <span>No stock moves now. The request opens in SAP and waits under Inventory Transfers → Requests to be converted.</span>
+                            }
+                            else
+                            {
+                                <span>The stock leaves @detail.Draft.FromWarehouse in SAP.</span>
+                            }
                             @if (OpenLinkedRequests.Count > 0)
                             {
                                 <span>Transfer request #@string.Join(", #", OpenLinkedRequests) is closed with it.</span>
@@ -666,7 +715,7 @@
                     {
                         <button type="button" class="sta-btn sta-btn-primary sta-btn-lg" @onclick="OpenAddConfirm" disabled="@isSubmitting">
                             <i class="ph ph-plus" aria-hidden="true"></i>
-                            <span>Add transfer</span>
+                            <span>@(DetailIsRequest ? "Add request" : "Add transfer")</span>
                         </button>
                     }
                 }

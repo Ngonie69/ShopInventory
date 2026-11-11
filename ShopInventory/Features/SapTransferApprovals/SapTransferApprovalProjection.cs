@@ -5,8 +5,9 @@ using ShopInventory.Models;
 namespace ShopInventory.Features.SapTransferApprovals;
 
 /// <summary>
-/// Shapes a held transfer draft and its approval requests into what the page shows, and decides whether
-/// it can be added. One place, so the list, the detail and the add never disagree about a row.
+/// Shapes a held transfer or transfer request draft and its approval requests into what the page shows,
+/// and decides whether it can be added. One place, so the list, the detail and the add never disagree
+/// about a row.
 /// </summary>
 internal static class SapTransferApprovalProjection
 {
@@ -19,6 +20,20 @@ internal static class SapTransferApprovalProjection
     public static bool IsTransferDraft(SAPStockTransferDraft draft) =>
         string.Equals(draft.DocObjectCode, SapDocObjectCodes.StockTransfer, StringComparison.Ordinal)
         || string.Equals(draft.DocObjectCode, "oStockTransfer", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A draft that becomes an inventory transfer request. The enum name is accepted as well as the
+    /// object number, as for the transfer, because Service Layer builds differ in which they send.
+    /// </summary>
+    public static bool IsRequestDraft(SAPStockTransferDraft draft) =>
+        string.Equals(draft.DocObjectCode, SapDocObjectCodes.InventoryTransferRequest, StringComparison.Ordinal)
+        || string.Equals(draft.DocObjectCode, "oInventoryTransferRequest", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>One of the two kinds this page holds; any other draft in the set is not its business.</summary>
+    public static bool IsHeldDraft(SAPStockTransferDraft draft) => IsTransferDraft(draft) || IsRequestDraft(draft);
+
+    public static SapHeldDraftKind KindOf(SAPStockTransferDraft draft) =>
+        IsRequestDraft(draft) ? SapHeldDraftKind.Request : SapHeldDraftKind.Transfer;
 
     public static bool IsOpen(SAPStockTransferDraft? draft) =>
         draft is not null
@@ -73,6 +88,7 @@ internal static class SapTransferApprovalProjection
         return new SapTransferApprovalListItemDto
         {
             DraftEntry = draft.DocEntry,
+            Kind = KindOf(draft).ToString(),
             DraftNum = draft.DocNum,
             DocDate = CreditNoteApprovalProjection.ParseSapDate(draft.DocDate),
             DueDate = CreditNoteApprovalProjection.ParseSapDate(draft.DueDate),
@@ -106,6 +122,8 @@ internal static class SapTransferApprovalProjection
         IEnumerable<SAPApprovalRequest> requests,
         SapTransferApprovalCaller caller)
     {
+        var isRequest = IsRequestDraft(draft);
+
         if (!IsOpen(draft))
         {
             return (false, "This draft has already been added, or closed, in SAP.");
@@ -119,13 +137,15 @@ internal static class SapTransferApprovalProjection
 
         if (Unsettled(requests) is { } unsettled)
         {
-            return (false, $"SAP approval request {unsettled.Code} on this transfer is still {SapApprovalRequestStatuses.ToDisplay(unsettled.Status)}.");
+            return (false, $"SAP approval request {unsettled.Code} on this {(isRequest ? "transfer request" : "transfer")} is still {SapApprovalRequestStatuses.ToDisplay(unsettled.Status)}.");
         }
 
         var outside = SourceWarehouses(draft).FirstOrDefault(code => !caller.Admits(code));
         if (outside is not null)
         {
-            return (false, $"This transfer takes stock out of {outside}, which is not one of your warehouses.");
+            return (false, isRequest
+                ? $"This transfer request asks for stock from {outside}, which is not one of your warehouses."
+                : $"This transfer takes stock out of {outside}, which is not one of your warehouses.");
         }
 
         return (true, null);
@@ -136,7 +156,10 @@ internal static class SapTransferApprovalProjection
     /// line that is not.
     /// </summary>
     /// <param name="draft">The draft, read by key so its lines carry their picks.</param>
-    /// <param name="management">SAP's item flags; null when they could not be read, which checks nothing.</param>
+    /// <param name="management">
+    /// SAP's item flags; null when they could not be read, which checks nothing — and always null for a
+    /// transfer request draft, which carries no picks: batches are chosen when the request is converted.
+    /// </param>
     public static (List<SapTransferDraftLineDto> Lines, List<string> MissingPicks) Lines(
         SAPStockTransferDraft draft,
         IReadOnlyDictionary<string, SapItemManagement>? management)
@@ -262,6 +285,28 @@ internal static class SapTransferApprovalProjection
 
         return expected.Count > 0 && expected.SequenceEqual(actual, StringComparer.Ordinal);
     }
+
+    /// <summary>
+    /// Whether <paramref name="request"/> carries exactly the request draft's lines — the same multiset
+    /// match as for a transfer — which is how the request an add produced is recognised when SAP's answer
+    /// does not name it.
+    /// </summary>
+    public static bool CarriesSameLines(SAPStockTransferDraft draft, InventoryTransferRequest request)
+    {
+        var expected = (draft.StockTransferLines ?? [])
+            .Select(line => LineKey(line.ItemCode, line.Quantity, line.FromWarehouseCode ?? draft.FromWarehouse, line.WarehouseCode ?? draft.ToWarehouse))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        var actual = (request.StockTransferLines ?? [])
+            .Select(line => LineKey(line.ItemCode, line.Quantity, line.FromWarehouseCode ?? request.FromWarehouse, line.WarehouseCode ?? request.ToWarehouse))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        return expected.Count > 0 && expected.SequenceEqual(actual, StringComparer.Ordinal);
+    }
+
+    private static string LineKey(string? item, decimal quantity, string? from, string? to) =>
+        $"{item?.Trim().ToUpperInvariant()}|{quantity:0.######}|{from?.Trim().ToUpperInvariant()}|{to?.Trim().ToUpperInvariant()}";
 
     public static SapTransferLinkedRequestDto ToLinkedRequest(int docEntry, InventoryTransferRequest? request) => new()
     {

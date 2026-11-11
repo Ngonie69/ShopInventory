@@ -1,13 +1,19 @@
 namespace ShopInventory.DTOs;
 
 /// <summary>
-/// One inventory transfer keyed in the SAP client, approved by SAP's approval procedure and still
-/// waiting as a draft for somebody to add it.
+/// One inventory transfer or transfer request keyed in the SAP client, approved by SAP's approval
+/// procedure and still waiting as a draft for somebody to add it.
 /// </summary>
 public sealed class SapTransferApprovalListItemDto
 {
     /// <summary>The draft's DocEntry — what the detail and the add are keyed on.</summary>
     public int DraftEntry { get; set; }
+
+    /// <summary>
+    /// What adding the draft makes: <c>Transfer</c>, which moves stock, or <c>Request</c>, a transfer
+    /// request that moves nothing until it is converted.
+    /// </summary>
+    public string Kind { get; set; } = nameof(Models.SapHeldDraftKind.Transfer);
 
     /// <summary>The draft's own number, as the B1 client shows it. Not the transfer's number.</summary>
     public int DraftNum { get; set; }
@@ -56,6 +62,15 @@ public sealed class SapTransferApprovalListResponseDto
 {
     public List<SapTransferApprovalListItemDto> Items { get; set; } = [];
     public int TotalCount { get; set; }
+
+    /// <summary>
+    /// How many transfer drafts and transfer request drafts the same search and filters match, whichever
+    /// kind the page reads. Null when that count could not be read; the rows are still right.
+    /// </summary>
+    public int? TransferCount { get; set; }
+
+    public int? RequestCount { get; set; }
+
     public int Page { get; set; }
     public int PageSize { get; set; }
     public string? Warehouse { get; set; }
@@ -176,6 +191,9 @@ public sealed class AddApprovedSapTransferResultDto
     public int DraftEntry { get; set; }
     public int DraftNum { get; set; }
 
+    /// <summary><c>Transfer</c> or <c>Request</c> — which of the two the add made.</summary>
+    public string Kind { get; set; } = nameof(Models.SapHeldDraftKind.Transfer);
+
     /// <summary>The draft's source warehouse, so a replay can be checked against the caller's warehouses.</summary>
     public string? FromWarehouse { get; set; }
 
@@ -186,7 +204,18 @@ public sealed class AddApprovedSapTransferResultDto
 
     public int? TransferDocNum { get; set; }
 
-    /// <summary>Whether <see cref="TransferDocEntry"/> was established.</summary>
+    /// <summary>
+    /// The transfer request a request draft's add created; null for a transfer draft, and when SAP did
+    /// not say and it could not be recognised.
+    /// </summary>
+    public int? CreatedRequestDocEntry { get; set; }
+
+    public int? CreatedRequestDocNum { get; set; }
+
+    /// <summary>
+    /// Whether the document the add made was established — <see cref="TransferDocEntry"/> for a transfer,
+    /// <see cref="CreatedRequestDocEntry"/> for a request.
+    /// </summary>
     public bool Resolved { get; set; }
 
     /// <summary>The transfer requests the draft was copied from that this add closed in SAP.</summary>

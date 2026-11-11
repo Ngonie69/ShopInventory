@@ -6,6 +6,11 @@ namespace ShopInventory.Web.Models;
 public sealed class SapTransferApprovalListItemDto
 {
     public int DraftEntry { get; set; }
+
+    /// <summary><c>Transfer</c>, which moves stock when added, or <c>Request</c>, which does not.</summary>
+    public string Kind { get; set; } = SapHeldDraftKinds.Transfer;
+
+    public bool IsRequest => Kind == SapHeldDraftKinds.Request;
     public int DraftNum { get; set; }
     public DateTime? DocDate { get; set; }
     public DateTime? DueDate { get; set; }
@@ -32,13 +37,23 @@ public sealed class SapTransferApprovalListItemDto
     public string? StatusNote { get; set; }
 }
 
+/// <summary>The two kinds of draft the held-transfers page reads, as the API names them.</summary>
+public static class SapHeldDraftKinds
+{
+    public const string Transfer = "Transfer";
+    public const string Request = "Request";
+}
+
 /// <summary>
-/// The page's filters, sent as the list route's query parameters (<c>warehouse</c>, repeated
+/// The page's filters, sent as the list route's query parameters (<c>kind</c>, <c>warehouse</c>, repeated
 /// <c>from</c>/<c>to</c>, <c>createdFrom</c>/<c>createdTo</c>, <c>attachedOnly</c>, <c>draftNum</c>).
 /// Every one is applied in SAP, so the count that comes back is of the filtered queue.
 /// </summary>
 public sealed record SapTransferQueueFilter
 {
+    /// <summary><see cref="SapHeldDraftKinds.Transfer"/>, <see cref="SapHeldDraftKinds.Request"/>, or null for both.</summary>
+    public string? Kind { get; init; }
+
     /// <summary>Leaving or entering this warehouse — the search box's text when it is not a number.</summary>
     public string? Warehouse { get; init; }
 
@@ -54,6 +69,11 @@ public sealed record SapTransferQueueFilter
     public string ToQueryString()
     {
         var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(Kind))
+        {
+            parts.Add($"kind={Uri.EscapeDataString(Kind)}");
+        }
+
         if (!string.IsNullOrWhiteSpace(Warehouse))
         {
             parts.Add($"warehouse={Uri.EscapeDataString(Warehouse.Trim())}");
@@ -90,6 +110,12 @@ public sealed class SapTransferApprovalListResponseDto
 {
     public List<SapTransferApprovalListItemDto> Items { get; set; } = [];
     public int TotalCount { get; set; }
+
+    /// <summary>Both kinds' totals for the same search and filters; null when SAP could not count one.</summary>
+    public int? TransferCount { get; set; }
+
+    public int? RequestCount { get; set; }
+
     public int Page { get; set; }
     public int PageSize { get; set; }
     public string? Warehouse { get; set; }
@@ -174,10 +200,13 @@ public sealed class AddApprovedSapTransferResultDto
 {
     public int DraftEntry { get; set; }
     public int DraftNum { get; set; }
+    public string Kind { get; set; } = SapHeldDraftKinds.Transfer;
     public string? FromWarehouse { get; set; }
     public string? ToWarehouse { get; set; }
     public int? TransferDocEntry { get; set; }
     public int? TransferDocNum { get; set; }
+    public int? CreatedRequestDocEntry { get; set; }
+    public int? CreatedRequestDocNum { get; set; }
     public bool Resolved { get; set; }
     public List<int> ClosedRequestDocNums { get; set; } = [];
     public List<string> RequestsLeftOpen { get; set; } = [];
