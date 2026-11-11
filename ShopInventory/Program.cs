@@ -724,6 +724,10 @@ try
     // queues for a slot or reaches the breaker. One state for both, so either client's stuck read holds.
     builder.Services.AddSingleton<SapStuckReadState>();
     builder.Services.AddTransient<SAPStuckReadHandler>();
+    // Next in, in both clients: at most SAP:StockItemsMaxConcurrentReads STK_ITEMS reads at SAP at once.
+    // Outside the breaker and the slot limiter, so a read queued here holds no slot and is not a failure.
+    builder.Services.AddSingleton<SapStockItemsReadGate>();
+    builder.Services.AddTransient<SAPStockItemsReadHandler>();
     // The sync-history rows are written off the SAP request path: the handler only enqueues, and
     // this drains in batches. Doing it inline put an insert, a trim query and a delete inside every
     // SAP call, while that call held a concurrency slot.
@@ -743,6 +747,7 @@ try
         client.Timeout = TimeSpan.FromMinutes(sapSettings.LongRunningRequestTimeoutMinutes);
     })
     .AddHttpMessageHandler<SAPStuckReadHandler>()
+    .AddHttpMessageHandler<SAPStockItemsReadHandler>()
     .AddHttpMessageHandler(serviceProvider => ActivatorUtilities.CreateInstance<SAPCircuitBreakerHandler>(
         serviceProvider,
         TimeSpan.FromMinutes(serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value.LongRunningRequestTimeoutMinutes)))
@@ -800,6 +805,7 @@ try
         client.Timeout = TimeSpan.FromMinutes(sapSettings.RequestTimeoutMinutes);
     })
     .AddHttpMessageHandler<SAPStuckReadHandler>()
+    .AddHttpMessageHandler<SAPStockItemsReadHandler>()
     .AddHttpMessageHandler(serviceProvider => ActivatorUtilities.CreateInstance<SAPCircuitBreakerHandler>(
         serviceProvider,
         TimeSpan.FromMinutes(serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value.RequestTimeoutMinutes)))

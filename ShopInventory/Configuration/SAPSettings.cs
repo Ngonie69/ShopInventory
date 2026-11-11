@@ -148,6 +148,31 @@ public class SAPSettings
     public int StuckReadHoldMinutes { get; set; } = 10;
 
     /// <summary>
+    /// How many <c>STK_ITEMS</c> stock reads this process lets the Service Layer work on at once.
+    /// 0 turns the limit off.
+    /// </summary>
+    /// <remarks>
+    /// On KFLDB on 2026-11-11, 61 of the 101 <c>STK_ITEMS</c> reads that took over a minute began while
+    /// three or more others were already running on the Service Layer, and a slow read is how a Service
+    /// Layer process gets stuck at full CPU for up to two hours. Each caller reads one warehouse at a
+    /// time, so the overlap comes from several callers at once: invoice and reservation stock checks,
+    /// transfer forms, the Web's stock refresh and the hourly ledger check. Three keeps the busiest
+    /// case below that point. See <see cref="ShopInventory.Middleware.SAPStockItemsReadHandler"/>.
+    /// </remarks>
+    public int StockItemsMaxConcurrentReads { get; set; } = 3;
+
+    /// <summary>
+    /// How long a <c>STK_ITEMS</c> read a person is waiting on queues for one of
+    /// <see cref="StockItemsMaxConcurrentReads"/> before it is sent anyway.
+    /// </summary>
+    /// <remarks>
+    /// The invoice stock guard fails closed (<see cref="StockGuardFailClosed"/>), so a person's read must
+    /// not sit behind stuck ones until its own budget runs out: that would refuse the invoice. Background
+    /// reads wait for as long as their budget allows.
+    /// </remarks>
+    public int StockItemsInteractiveMaxWaitSeconds { get; set; } = 10;
+
+    /// <summary>
     /// Whether an invoice is refused when the stock read behind it could not be answered, rather
     /// than posted on the assumption that SAP will refuse it instead.
     /// </summary>
