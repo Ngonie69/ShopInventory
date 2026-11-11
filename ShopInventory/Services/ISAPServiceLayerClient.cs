@@ -1131,8 +1131,8 @@ public interface ISAPServiceLayerClient
     // the credit memos, SAP is the source of truth and nothing is mirrored into the local engine.
 
     /// <summary>
-    /// One page of the inventory transfer drafts that are approved and still open — waiting for
-    /// somebody to add them — newest first, with the total for the same filter.
+    /// One page of the inventory transfer and transfer request drafts that are approved and still open —
+    /// waiting for somebody to add them — newest first, with the total for the same filter.
     /// </summary>
     /// <param name="page">Which page, when reading by offset. Ignored when a cursor is given.</param>
     /// <param name="pageSize">How many rows the page holds.</param>
@@ -1142,7 +1142,10 @@ public interface ISAPServiceLayerClient
     /// warehouse; an empty collection is refused, because a scope that names nothing must not read as
     /// "everything".
     /// </param>
-    /// <param name="filter">What else the queue is narrowed to — warehouses, creation day, attachment, number.</param>
+    /// <param name="filter">
+    /// What else the queue is narrowed to — the kind (transfers, requests, or both when null), warehouses,
+    /// creation day, attachment, number.
+    /// </param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     Task<(List<SAPStockTransferDraft> Items, int TotalCount)> GetApprovedStockTransferDraftsAsync(
         int page,
@@ -1153,8 +1156,18 @@ public interface ISAPServiceLayerClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The approval requests (<c>ObjectType 67</c>) holding these stock transfer drafts. A draft can be
-    /// held by more than one request, one per template that matched it.
+    /// How many approved, open drafts the same filter matches, without reading any — what the page's
+    /// kind switch shows for the kind it is not reading.
+    /// </summary>
+    Task<int> CountApprovedStockTransferDraftsAsync(
+        IReadOnlyCollection<string>? fromWarehouses = null,
+        SapTransferDraftFilter? filter = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The approval requests holding these drafts — <c>ObjectType 67</c> for a transfer draft,
+    /// <c>1250000001</c> for a transfer request draft. A draft can be held by more than one request, one
+    /// per template that matched it.
     /// </summary>
     Task<List<SAPApprovalRequest>> GetStockTransferApprovalRequestsAsync(
         IReadOnlyCollection<int> draftEntries,
@@ -1185,9 +1198,22 @@ public interface ISAPServiceLayerClient
         string? toWarehouse,
         CancellationToken cancellationToken = default);
 
+    /// <summary>The highest inventory transfer request DocEntry SAP holds, or null when it holds none.</summary>
+    Task<int?> GetNewestInventoryTransferRequestDocEntryAsync(CancellationToken cancellationToken = default);
+
     /// <summary>
-    /// Adds an approved stock transfer draft as the real transfer
-    /// (<c>POST StockTransferDrafts(n)/SaveDraftToDocument</c>). Returns the created transfer's DocEntry
+    /// The inventory transfer requests raised after <paramref name="afterDocEntry"/> between these
+    /// warehouses, oldest first and a bounded window of them — how the request an add produced is recognised.
+    /// </summary>
+    Task<List<InventoryTransferRequest>> GetInventoryTransferRequestsAfterAsync(
+        int afterDocEntry,
+        string? fromWarehouse,
+        string? toWarehouse,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds an approved stock transfer or transfer request draft as the real document
+    /// (<c>POST StockTransferDrafts(n)/SaveDraftToDocument</c>). Returns the created document's DocEntry
     /// when SAP's answer names it, otherwise null.
     /// </summary>
     /// <remarks>

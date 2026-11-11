@@ -13,8 +13,9 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.SapTransferApprovals.Commands.AddApprovedSapTransfer;
 
 /// <summary>
-/// Adds an approved inventory transfer draft: <c>StockTransferDrafts(n)/SaveDraftToDocument</c>, then the
-/// transfer it became is recognised, and any transfer request the draft was copied from is closed.
+/// Adds an approved inventory transfer or transfer request draft: <c>StockTransferDrafts(n)/SaveDraftToDocument</c>,
+/// then the document it became is recognised. For a transfer, any transfer request the draft was copied
+/// from is closed.
 /// </summary>
 /// <remarks>
 /// <para>The add moves stock out of the source warehouse and it happens once. The claim is keyed on the
@@ -31,6 +32,11 @@ namespace ShopInventory.Features.SapTransferApprovals.Commands.AddApprovedSapTra
 /// (<c>BaseType InventoryTransferRequest</c>). The request is held under the conversion lock while the
 /// add runs, refused if this app already converted it (its transfer carries <c>ITR-{DocEntry}</c>), and
 /// closed afterwards, so nobody converts it again and moves the stock twice.</para>
+///
+/// <para>A transfer request draft (<c>DocObjectCode 1250000001</c>) becomes an open transfer request and
+/// moves no stock, so none of the stock checks apply: it carries no batch picks, it was copied from no
+/// request, and a till's unposted sales cannot be taken by it. It is then converted like any other
+/// request, on the Transfers page.</para>
 /// </remarks>
 public sealed class AddApprovedSapTransferHandler(
     ISAPServiceLayerClient sap,
@@ -83,10 +89,13 @@ public sealed class AddApprovedSapTransferHandler(
             }
 
             var draft = await sap.GetStockTransferDraftAsync(command.DraftEntry, cancellationToken);
-            if (draft is null || !SapTransferApprovalProjection.IsTransferDraft(draft))
+            if (draft is null || !SapTransferApprovalProjection.IsHeldDraft(draft))
             {
                 return Errors.SapTransferApproval.NotFound(command.DraftEntry);
             }
+
+            var kind = SapTransferApprovalProjection.KindOf(draft);
+            var isRequest = kind == SapHeldDraftKind.Request;
 
             // Before any state is described: a transfer out of someone else's warehouse is not theirs
             // to learn anything about.
@@ -99,51 +108,56 @@ public sealed class AddApprovedSapTransferHandler(
 
             if (!SapTransferApprovalProjection.IsOpen(draft))
             {
-                return await AlreadyAddedAsync(draft, cancellationToken);
+                return isRequest
+                    ? await AlreadyAddedRequestAsync(draft, cancellationToken)
+                    : await AlreadyAddedAsync(draft, cancellationToken);
             }
 
             if (!SapTransferApprovalProjection.IsApproved(draft))
             {
                 var state = SapStockTransferAuthorizationStatuses.ToDisplay(draft.AuthorizationStatus);
-                return Errors.SapTransferApproval.NotApproved(string.IsNullOrWhiteSpace(state) ? "not approved" : state);
+                return Errors.SapTransferApproval.NotApproved(string.IsNullOrWhiteSpace(state) ? "not approved" : state, kind);
             }
 
             var requests = await sap.GetStockTransferApprovalRequestsAsync([draft.DocEntry], withLines: false, cancellationToken);
             if (SapTransferApprovalProjection.Unsettled(requests) is { } unsettled)
             {
                 return Errors.SapTransferApproval.ApprovalNotSettled(
-                    unsettled.Code, SapApprovalRequestStatuses.ToDisplay(unsettled.Status));
-            }
-
-            // SAP refuses the whole transfer for one batch-managed line without a complete pick, so
-            // say which lines before asking. Without the flags SAP's own refusal is the answer.
-            var management = await TryReadItemManagementAsync(draft, cancellationToken);
-            var (_, missingPicks) = SapTransferApprovalProjection.Lines(draft, management);
-            if (missingPicks.Count > 0)
-            {
-                return Errors.SapTransferApproval.SelectionMissing(missingPicks);
+                    unsettled.Code, SapApprovalRequestStatuses.ToDisplay(unsettled.Status), kind);
             }
 
             var linked = new List<(int DocEntry, InventoryTransferRequest? Request)>();
-            foreach (var requestDocEntry in SapTransferApprovalProjection.LinkedRequestEntries(draft))
+            if (!isRequest)
             {
-                var held = await HoldLinkedRequestAsync(requestDocEntry, requestLocks, cancellationToken);
-                if (held.IsError)
+                // SAP refuses the whole transfer for one batch-managed line without a complete pick, so
+                // say which lines before asking. Without the flags SAP's own refusal is the answer.
+                var management = await TryReadItemManagementAsync(draft, cancellationToken);
+                var (_, missingPicks) = SapTransferApprovalProjection.Lines(draft, management);
+                if (missingPicks.Count > 0)
                 {
-                    return held.Errors;
+                    return Errors.SapTransferApproval.SelectionMissing(missingPicks);
                 }
 
-                linked.Add((requestDocEntry, held.Value));
+                foreach (var requestDocEntry in SapTransferApprovalProjection.LinkedRequestEntries(draft))
+                {
+                    var held = await HoldLinkedRequestAsync(requestDocEntry, requestLocks, cancellationToken);
+                    if (held.IsError)
+                    {
+                        return held.Errors;
+                    }
+
+                    linked.Add((requestDocEntry, held.Value));
+                }
+
+                if (await RefuseIfTillSalesWouldBeTakenAsync(draft, cancellationToken) is { } refusal)
+                {
+                    return refusal;
+                }
             }
 
-            if (await RefuseIfTillSalesWouldBeTakenAsync(draft, cancellationToken) is { } refusal)
-            {
-                return refusal;
-            }
-
-            // Which transfer was newest before the add, so the one it produces can be told apart
-            // afterwards if SAP's answer does not name it.
-            var newestBefore = await TryReadNewestTransferAsync();
+            // Which document of the kind was newest before the add, so the one it produces can be told
+            // apart afterwards if SAP's answer does not name it.
+            var newestBefore = isRequest ? await TryReadNewestRequestAsync() : await TryReadNewestTransferAsync();
 
             // The last safe abort: nothing has reached SAP yet.
             cancellationToken.ThrowIfCancellationRequested();
@@ -155,11 +169,11 @@ public sealed class AddApprovedSapTransferHandler(
             }
             catch (SapRequestRejectedException rejected)
             {
-                logger.LogWarning(rejected, "SAP refused to add stock transfer draft {DraftEntry}", draft.DocEntry);
+                logger.LogWarning(rejected, "SAP refused to add {Kind} draft {DraftEntry}", kind, draft.DocEntry);
                 await TryAuditAsync(command, draft, false, $"SAP refused: {rejected.SapMessage}");
-                return SapTransferApprovalProjection.IsSelectionRefusal(rejected.SapMessage)
+                return !isRequest && SapTransferApprovalProjection.IsSelectionRefusal(rejected.SapMessage)
                     ? Errors.SapTransferApproval.SelectionRefusedBySap(rejected.SapMessage)
-                    : Errors.SapTransferApproval.SapRejected(rejected.SapMessage);
+                    : Errors.SapTransferApproval.SapRejected(rejected.SapMessage, kind);
             }
             catch (Exception exception)
             {
@@ -168,13 +182,27 @@ public sealed class AddApprovedSapTransferHandler(
                 var draftAfter = await TryReadDraftAsync(draft.DocEntry);
                 if (draftAfter is null || SapTransferApprovalProjection.IsOpen(draftAfter))
                 {
-                    logger.LogError(exception, "Adding stock transfer draft {DraftEntry} got no clear answer from SAP", draft.DocEntry);
+                    logger.LogError(exception, "Adding {Kind} draft {DraftEntry} got no clear answer from SAP", kind, draft.DocEntry);
                     await TryAuditAsync(command, draft, false, $"No clear answer from SAP: {exception.Message}");
-                    return Errors.SapTransferApproval.AddUncertain;
+                    return Errors.SapTransferApproval.AddUncertainFor(kind);
                 }
 
-                logger.LogWarning(exception, "Stock transfer draft {DraftEntry} was added although the call failed; it is closed in SAP", draft.DocEntry);
+                logger.LogWarning(exception, "{Kind} draft {DraftEntry} was added although the call failed; it is closed in SAP", kind, draft.DocEntry);
                 createdDocEntry = null;
+            }
+
+            if (isRequest)
+            {
+                var requestResult = await DescribeAddedRequestAsync(draft, createdDocEntry, newestBefore);
+                await TryAuditAsync(command, draft, true, requestResult.Message);
+
+                if (idempotencyRequestId.HasValue)
+                {
+                    await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, requestResult, CancellationToken.None);
+                    release = false;
+                }
+
+                return requestResult;
             }
 
             var docEntry = createdDocEntry ?? await TryIdentifyCreatedTransferAsync(draft, newestBefore);
@@ -553,6 +581,130 @@ public sealed class AddApprovedSapTransferHandler(
         }
     }
 
+    /// <summary>
+    /// The request draft has been added: which transfer request it became — SAP's answer when it names
+    /// one, else the approval request's <c>ObjectEntry</c>, else the one request raised since the add began
+    /// between the same warehouses carrying exactly the draft's lines — and what to say about it.
+    /// </summary>
+    private async Task<AddApprovedSapTransferResultDto> DescribeAddedRequestAsync(
+        SAPStockTransferDraft draft,
+        int? createdDocEntry,
+        int? newestBefore)
+    {
+        var docEntry = createdDocEntry ?? await TryIdentifyCreatedRequestAsync(draft, newestBefore);
+        var request = docEntry is int entry ? await TryReadRequestAsync(entry) : null;
+
+        var added = request is not null
+            ? $"Transfer request #{request.DocNum} added to SAP from request draft {draft.DocNum}."
+            : docEntry is int known
+                ? $"Transfer request DocEntry {known} added to SAP from request draft {draft.DocNum}."
+                : $"Request draft {draft.DocNum} was added to SAP, but SAP did not say which transfer request it became; " +
+                  $"it is the newest request from {draft.FromWarehouse} to {draft.ToWarehouse} on the Transfers page.";
+
+        return new AddApprovedSapTransferResultDto
+        {
+            Kind = nameof(SapHeldDraftKind.Request),
+            DraftEntry = draft.DocEntry,
+            DraftNum = draft.DocNum,
+            FromWarehouse = draft.FromWarehouse,
+            ToWarehouse = draft.ToWarehouse,
+            CreatedRequestDocEntry = request?.DocEntry ?? docEntry,
+            CreatedRequestDocNum = request?.DocNum,
+            Resolved = docEntry is not null,
+            Message = added + " No stock has moved; convert the request on the Transfers page, under Transfer Requests."
+        };
+    }
+
+    private async Task<int?> TryIdentifyCreatedRequestAsync(SAPStockTransferDraft draft, int? newestBefore)
+    {
+        try
+        {
+            var requests = await sap.GetStockTransferApprovalRequestsAsync([draft.DocEntry], withLines: false, CancellationToken.None);
+            if (requests.Select(request => request.ObjectEntry).FirstOrDefault(entry => entry is > 0) is int objectEntry)
+            {
+                return objectEntry;
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not read the approval requests of request draft {DraftEntry} after the add", draft.DocEntry);
+        }
+
+        if (newestBefore is not int before)
+        {
+            return null;
+        }
+
+        try
+        {
+            var candidates = await sap.GetInventoryTransferRequestsAfterAsync(before, draft.FromWarehouse, draft.ToWarehouse, CancellationToken.None);
+            var matches = candidates.Where(candidate => SapTransferApprovalProjection.CarriesSameLines(draft, candidate)).ToList();
+            if (matches.Count == 1)
+            {
+                return matches[0].DocEntry;
+            }
+
+            if (matches.Count > 1)
+            {
+                logger.LogWarning(
+                    "{Count} transfer requests raised since the add of request draft {DraftEntry} carry its lines; none is claimed as the one it became",
+                    matches.Count, draft.DocEntry);
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not look for the transfer request draft {DraftEntry} became", draft.DocEntry);
+        }
+
+        return null;
+    }
+
+    /// <summary>A closed request draft has been added. Names the request when SAP's approval request says which.</summary>
+    private async Task<Error> AlreadyAddedRequestAsync(SAPStockTransferDraft draft, CancellationToken cancellationToken)
+    {
+        int? requestDocNum = null;
+        try
+        {
+            var requests = await sap.GetStockTransferApprovalRequestsAsync([draft.DocEntry], withLines: false, cancellationToken);
+            if (requests.Select(request => request.ObjectEntry).FirstOrDefault(entry => entry is > 0) is int objectEntry)
+            {
+                requestDocNum = (await sap.GetInventoryTransferRequestByDocEntryAsync(objectEntry, cancellationToken))?.DocNum;
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Could not read which transfer request draft {DraftEntry} became", draft.DocEntry);
+        }
+
+        return Errors.SapTransferApproval.AlreadyAddedRequest(draft.DocNum, requestDocNum);
+    }
+
+    private async Task<int?> TryReadNewestRequestAsync()
+    {
+        try
+        {
+            return await sap.GetNewestInventoryTransferRequestDocEntryAsync(CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not read the newest inventory transfer request before an add");
+            return null;
+        }
+    }
+
+    private async Task<InventoryTransferRequest?> TryReadRequestAsync(int docEntry)
+    {
+        try
+        {
+            return await sap.GetInventoryTransferRequestByDocEntryAsync(docEntry, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not read transfer request {DocEntry} back after the add", docEntry);
+            return null;
+        }
+    }
+
     private static string Describe(
         SAPStockTransferDraft draft,
         InventoryTransfer? transfer,
@@ -638,11 +790,12 @@ public sealed class AddApprovedSapTransferHandler(
     {
         try
         {
+            var isRequest = SapTransferApprovalProjection.IsRequestDraft(draft);
             await auditService.LogAsync(
                 AuditActions.AddApprovedSapTransfer,
-                "SapStockTransferDraft",
+                isRequest ? "SapTransferRequestDraft" : "SapStockTransferDraft",
                 draft.DocEntry.ToString(),
-                $"Add approved stock transfer draft {draft.DocNum} (DocEntry {draft.DocEntry}, {draft.FromWarehouse} to {draft.ToWarehouse}) by {command.Username}. {outcome}",
+                $"Add approved {(isRequest ? "transfer request" : "stock transfer")} draft {draft.DocNum} (DocEntry {draft.DocEntry}, {draft.FromWarehouse} to {draft.ToWarehouse}) by {command.Username}. {outcome}",
                 success,
                 success ? null : outcome);
         }

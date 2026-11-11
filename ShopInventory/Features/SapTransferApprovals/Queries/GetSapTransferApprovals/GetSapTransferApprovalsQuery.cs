@@ -5,7 +5,9 @@ using ShopInventory.Models;
 
 namespace ShopInventory.Features.SapTransferApprovals.Queries.GetSapTransferApprovals;
 
-/// <summary>One page of the inventory transfer drafts SAP has approved and nobody has added yet.</summary>
+/// <summary>
+/// One page of the inventory transfer and transfer request drafts SAP has approved and nobody has added yet.
+/// </summary>
 /// <param name="Page">Which page, when reading by offset. Advisory when a cursor is given.</param>
 /// <param name="PageSize">How many rows the page holds.</param>
 /// <param name="BeforeDocEntry">
@@ -18,8 +20,8 @@ namespace ShopInventory.Features.SapTransferApprovals.Queries.GetSapTransferAppr
 /// <see cref="ISapTransferApprovalAccess"/>. Null is a service caller and sees every warehouse.
 /// </param>
 /// <param name="Filter">
-/// The page's other filters — source and destination warehouses, creation day, attachment, draft
-/// number. Its <c>Warehouse</c> is ignored in favour of <paramref name="Warehouse"/>.
+/// The page's other filters — the kind, source and destination warehouses, creation day, attachment,
+/// draft number. Its <c>Warehouse</c> is ignored in favour of <paramref name="Warehouse"/>.
 /// </param>
 public sealed record GetSapTransferApprovalsQuery(
     int Page,

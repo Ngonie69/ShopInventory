@@ -11,9 +11,9 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.SapTransferApprovals.Queries.GetSapTransferApproval;
 
 /// <summary>
-/// One held transfer: the draft read by key (the only read that carries its batch picks), the approval
-/// requests behind it with their approver lines, which lines lack a batch or serial pick, and the
-/// transfer request it was copied from.
+/// One held transfer or transfer request: the draft read by key (the only read that carries its batch
+/// picks), the approval requests behind it with their approver lines, and for a transfer, which lines
+/// lack a batch or serial pick and the transfer request it was copied from.
 /// </summary>
 public sealed class GetSapTransferApprovalHandler(
     ISAPServiceLayerClient sap,
@@ -43,16 +43,17 @@ public sealed class GetSapTransferApprovalHandler(
         try
         {
             draft = await sap.GetStockTransferDraftAsync(query.DraftEntry, cancellationToken);
-            if (draft is null || !SapTransferApprovalProjection.IsTransferDraft(draft))
+            if (draft is null || !SapTransferApprovalProjection.IsHeldDraft(draft))
             {
                 return Errors.SapTransferApproval.NotFound(query.DraftEntry);
             }
 
             // Before anything else is described: a transfer out of somebody else's warehouse is not
-            // theirs to read about.
+            // theirs to read about, and nor is a request for stock from one.
             if (!caller.Value.Admits(draft.FromWarehouse))
             {
-                return Errors.SapTransferApproval.OutsideWarehouseScope(draft.FromWarehouse ?? "an unnamed warehouse");
+                return Errors.SapTransferApproval.OutsideWarehouseScope(
+                    draft.FromWarehouse ?? "an unnamed warehouse", SapTransferApprovalProjection.KindOf(draft));
             }
 
             requests = await sap.GetStockTransferApprovalRequestsAsync([draft.DocEntry], withLines: true, cancellationToken);
@@ -67,17 +68,25 @@ public sealed class GetSapTransferApprovalHandler(
             return Errors.SapTransferApproval.SapUnavailable(exception.Message);
         }
 
-        // Without the flags nothing can be said about the picks; the page says so and SAP decides at add.
+        // A request carries no picks — batches are chosen when it is converted — so there is nothing to
+        // check and the flags are not read. For a transfer, without the flags nothing can be said about
+        // the picks; the page says so and SAP decides at add.
+        var isRequest = SapTransferApprovalProjection.IsRequestDraft(draft);
         IReadOnlyDictionary<string, SapItemManagement>? management = null;
-        try
+        var flagsUnread = false;
+        if (!isRequest)
         {
-            management = await sap.GetItemManagementAsync(
-                draft.StockTransferLines?.Select(line => line.ItemCode ?? string.Empty).ToList() ?? [],
-                cancellationToken);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            logger.LogWarning(exception, "Could not read the batch and serial flags for draft {DraftEntry}", draft.DocEntry);
+            try
+            {
+                management = await sap.GetItemManagementAsync(
+                    draft.StockTransferLines?.Select(line => line.ItemCode ?? string.Empty).ToList() ?? [],
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                logger.LogWarning(exception, "Could not read the batch and serial flags for draft {DraftEntry}", draft.DocEntry);
+                flagsUnread = true;
+            }
         }
 
         var primary = SapTransferApprovalProjection.Primary(requests);
@@ -100,8 +109,8 @@ public sealed class GetSapTransferApprovalHandler(
             Draft = item,
             Lines = lines,
             Approvals = await BuildApprovalsAsync(requests, cancellationToken),
-            LinkedRequests = await ReadLinkedRequestsAsync(draft, cancellationToken),
-            SelectionUnchecked = management is null
+            LinkedRequests = isRequest ? [] : await ReadLinkedRequestsAsync(draft, cancellationToken),
+            SelectionUnchecked = flagsUnread
         };
     }
 

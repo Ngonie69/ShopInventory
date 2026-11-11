@@ -4,8 +4,8 @@ using ShopInventory.Models;
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Inventory transfers keyed in the B1 client and held by SAP's approval procedure: the approved drafts
-/// still waiting to be added, the approval requests behind them, and the add itself
+/// Inventory transfers and transfer requests keyed in the B1 client and held by SAP's approval procedure:
+/// the approved drafts still waiting to be added, the approval requests behind them, and the add itself
 /// (<c>StockTransferDrafts(n)/SaveDraftToDocument</c>).
 /// </summary>
 /// <remarks>
@@ -42,35 +42,11 @@ public partial class SAPServiceLayerClient
         SapTransferDraftFilter? filter = null,
         CancellationToken cancellationToken = default)
     {
-        var sources = fromWarehouses?
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .Select(code => code.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Order(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (sources is { Count: 0 })
-        {
-            throw new ArgumentException(
-                "A warehouse scope must name at least one warehouse; pass null to read every warehouse.", nameof(fromWarehouses));
-        }
-
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, DocumentListPageSize);
         var skip = (page - 1) * pageSize;
 
-        // The set serves every kind of draft, so the object code is never optional.
-        var baseFilter =
-            $"DocObjectCode eq '{SapDocObjectCodes.StockTransfer}'"
-            + $" and DocumentStatus eq '{SapDocumentStatuses.Open}'"
-            + $" and AuthorizationStatus eq '{SapStockTransferAuthorizationStatuses.Approved}'";
-
-        // In the base filter, so the count is of the queue this caller sees.
-        if (sources is not null)
-        {
-            baseFilter += $" and ({string.Join(" or ", sources.Select(code => $"FromWarehouse eq '{EscapeODataStringLiteral(code)}'"))})";
-        }
-
-        baseFilter += DraftQueueFilterClauses(filter);
+        var baseFilter = ApprovedDraftQueueFilter(ScopeOf(fromWarehouses), filter);
 
         var countUrl = $"StockTransferDrafts/$count?$filter={Uri.EscapeDataString(baseFilter)}";
 
@@ -89,6 +65,72 @@ public partial class SAPServiceLayerClient
         await Task.WhenAll(pageTask, countTask);
 
         return ((await pageTask)?.Value ?? [], await countTask);
+    }
+
+    public async Task<int> CountApprovedStockTransferDraftsAsync(
+        IReadOnlyCollection<string>? fromWarehouses = null,
+        SapTransferDraftFilter? filter = null,
+        CancellationToken cancellationToken = default)
+    {
+        var baseFilter = ApprovedDraftQueueFilter(ScopeOf(fromWarehouses), filter);
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        return await ReadSapCountAsync(
+            $"StockTransferDrafts/$count?$filter={Uri.EscapeDataString(baseFilter)}",
+            $"count approved {(filter?.Kind == SapHeldDraftKind.Request ? "transfer request" : "stock transfer")} drafts",
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The approved, still-open drafts of the kinds asked for, in the caller's warehouses, narrowed by
+    /// the page's filters — the whole <c>$filter</c>, so the list and its counts agree. Internal so the
+    /// exact OData can be pinned by a unit test.
+    /// </summary>
+    internal static string ApprovedDraftQueueFilter(IReadOnlyList<string>? sources, SapTransferDraftFilter? filter)
+    {
+        // The set serves every kind of draft, so the object code is never optional.
+        var baseFilter =
+            DraftKindClause(filter?.Kind)
+            + $" and DocumentStatus eq '{SapDocumentStatuses.Open}'"
+            + $" and AuthorizationStatus eq '{SapStockTransferAuthorizationStatuses.Approved}'";
+
+        // In the base filter, so the count is of the queue this caller sees.
+        if (sources is not null)
+        {
+            baseFilter += $" and ({string.Join(" or ", sources.Select(code => $"FromWarehouse eq '{EscapeODataStringLiteral(code)}'"))})";
+        }
+
+        return baseFilter + DraftQueueFilterClauses(filter);
+    }
+
+    /// <summary>Which object codes the read admits: transfers, transfer requests, or both.</summary>
+    internal static string DraftKindClause(SapHeldDraftKind? kind) => kind switch
+    {
+        SapHeldDraftKind.Transfer => $"DocObjectCode eq '{SapDocObjectCodes.StockTransfer}'",
+        SapHeldDraftKind.Request => $"DocObjectCode eq '{SapDocObjectCodes.InventoryTransferRequest}'",
+        _ => $"(DocObjectCode eq '{SapDocObjectCodes.StockTransfer}' or DocObjectCode eq '{SapDocObjectCodes.InventoryTransferRequest}')"
+    };
+
+    /// <summary>
+    /// The warehouse scope as the filter takes it: trimmed, distinct, ordered. Null reads every warehouse;
+    /// an empty scope is refused, because it would read as every warehouse in the OData.
+    /// </summary>
+    private static List<string>? ScopeOf(IReadOnlyCollection<string>? fromWarehouses)
+    {
+        var sources = fromWarehouses?
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (sources is { Count: 0 })
+        {
+            throw new ArgumentException(
+                "A warehouse scope must name at least one warehouse; pass null to read every warehouse.", nameof(fromWarehouses));
+        }
+
+        return sources;
     }
 
     /// <summary>
@@ -169,8 +211,11 @@ public partial class SAPServiceLayerClient
         var requests = new List<SAPApprovalRequest>(keys.Count);
         foreach (var chunk in keys.Chunk(StockTransferKeyChunkSize))
         {
+            // Both kinds the held-transfers page reads: a transfer draft's requests carry 67, a transfer
+            // request draft's 1250000001. DraftEntry is an ODRF key, unique across both.
             var filter =
-                $"ObjectType eq '{SapObjectTypes.StockTransfer}' and ({string.Join(" or ", chunk.Select(key => $"DraftEntry eq {key}"))})";
+                $"(ObjectType eq '{SapObjectTypes.StockTransfer}' or ObjectType eq '{SapObjectTypes.InventoryTransferRequest}')"
+                + $" and ({string.Join(" or ", chunk.Select(key => $"DraftEntry eq {key}"))})";
 
             // A draft can be held by more than one template — three on KEFALOS_TEST_3 had two requests
             // each — so the page is sized for that rather than for one row per key.
@@ -270,6 +315,45 @@ public partial class SAPServiceLayerClient
         return page?.Value ?? [];
     }
 
+    public async Task<int?> GetNewestInventoryTransferRequestDocEntryAsync(CancellationToken cancellationToken = default)
+    {
+        var page = await ReadSapJsonAsync<SAPResponse<InventoryTransferRequest>>(
+            $"InventoryTransferRequests?{NewestStockTransferSelect}&$orderby=DocEntry desc&$top=1",
+            "read the newest inventory transfer request",
+            cancellationToken,
+            pageSize: 1);
+
+        return page?.Value?.FirstOrDefault()?.DocEntry;
+    }
+
+    public async Task<List<InventoryTransferRequest>> GetInventoryTransferRequestsAfterAsync(
+        int afterDocEntry,
+        string? fromWarehouse,
+        string? toWarehouse,
+        CancellationToken cancellationToken = default)
+    {
+        var filter = $"DocEntry gt {afterDocEntry}";
+        if (!string.IsNullOrWhiteSpace(fromWarehouse))
+        {
+            filter += $" and FromWarehouse eq '{EscapeODataStringLiteral(fromWarehouse.Trim())}'";
+        }
+
+        if (!string.IsNullOrWhiteSpace(toWarehouse))
+        {
+            filter += $" and ToWarehouse eq '{EscapeODataStringLiteral(toWarehouse.Trim())}'";
+        }
+
+        // Requests are raised all day by depots, shops and the app itself, so the one an add made is
+        // looked for among the next few rather than taken to be the next.
+        var page = await ReadSapJsonAsync<SAPResponse<InventoryTransferRequest>>(
+            $"InventoryTransferRequests?$filter={Uri.EscapeDataString(filter)}&{InventoryTransferRequestSelect}&$orderby=DocEntry asc&$top={CreatedTransferSearchWindow}",
+            $"read the inventory transfer requests raised after {afterDocEntry}",
+            cancellationToken,
+            CreatedTransferSearchWindow);
+
+        return page?.Value ?? [];
+    }
+
     #endregion
 
     #region Writes
@@ -280,7 +364,8 @@ public partial class SAPServiceLayerClient
         _logger.LogInformation("Saving SAP stock transfer draft {DraftEntry} to its document", draftDocEntry);
 
         // The bound action on the draft itself; the generic DraftsService_SaveDraftToDocument takes a
-        // Document, which an inventory transfer is not.
+        // Document, which an inventory transfer is not. A transfer request draft is a StockTransfer too,
+        // and the action makes the document its DocObjectCode names — the request, not a transfer.
         using var response = await SendSapRequestAsync(
             () => CreateSapJsonRequest(HttpMethod.Post, $"StockTransferDrafts({draftDocEntry})/SaveDraftToDocument"),
             HttpCompletionOption.ResponseContentRead,

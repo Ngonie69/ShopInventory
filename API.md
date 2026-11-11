@@ -5983,18 +5983,19 @@ not have is `CreditNoteApproval.StageScopeUnresolved`.
 **Base route:** `/api/sap-transfer-approvals`  
 **Auth:** Bearer, `Admin,StockController,WashBay,DepotController,ShopStock` — decided by the account in the database, see below
 
-Inventory transfers keyed in the SAP B1 client, held by **SAP's own approval procedure** and approved
-there, that nobody has added yet. SAP is the source of truth: the list is read live from
-`StockTransferDrafts` (open, `sasApproved`, `DocObjectCode '67'` — the set serves every kind of draft)
-joined to the `ApprovalRequests` (`ObjectType '67'`) holding them, and the add is the bound action
+Inventory transfers and transfer requests keyed in the SAP B1 client, held by **SAP's own approval
+procedure** and approved there, that nobody has added yet. SAP is the source of truth: the list is read
+live from `StockTransferDrafts` (open, `sasApproved`, `DocObjectCode '67'` for a transfer or
+`'1250000001'` for a transfer request — the set serves every kind of draft) joined to the
+`ApprovalRequests` (`ObjectType '67'` or `'1250000001'`) holding them, and the add is the bound action
 `POST StockTransferDrafts({docEntry})/SaveDraftToDocument`. Deciding stays in the B1 client. Nothing is
 mirrored into the local approval engine (§44). See `docs/sap-transfer-approvals.md`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/sap-transfer-approvals` | The approved drafts waiting to be added, newest first: `page` 1, `pageSize` 25, `beforeDocEntry` for cursor paging, `warehouse` for drafts leaving or entering one warehouse; `from` and `to` (repeatable) for drafts leaving or entering any of several; `createdFrom`/`createdTo` (`yyyy-MM-dd`, SAP's `CreationDate`); `attachedOnly`; `draftNum`. Every filter is applied in SAP, so `totalCount` is of the filtered queue |
-| GET | `/api/sap-transfer-approvals/{draftEntry}` | One draft: lines with their batch picks, the approval requests and approver lines, and the transfer requests it was copied from |
-| POST | `/api/sap-transfer-approvals/{draftEntry}/add` | Add the approved draft as the inventory transfer, then close any transfer request it was copied from. Body `{ "clientRequestId": "…" }` or an `Idempotency-Key` header |
+| GET | `/api/sap-transfer-approvals` | The approved drafts waiting to be added, newest first: `page` 1, `pageSize` 25, `beforeDocEntry` for cursor paging, `kind` (`transfer` or `request`; omitted reads both, each row's `kind` saying which), `warehouse` for drafts leaving or entering one warehouse; `from` and `to` (repeatable) for drafts leaving or entering any of several; `createdFrom`/`createdTo` (`yyyy-MM-dd`, SAP's `CreationDate`); `attachedOnly`; `draftNum`. Every filter is applied in SAP, so `totalCount` is of the filtered queue; `transferCount` and `requestCount` are each kind's total for the same filters, null when that count could not be read |
+| GET | `/api/sap-transfer-approvals/{draftEntry}` | One draft, either kind: lines with their batch picks (a transfer's only), the approval requests and approver lines, and the transfer requests a transfer draft was copied from |
+| POST | `/api/sap-transfer-approvals/{draftEntry}/add` | Add the approved draft as the document it describes: a transfer draft as the inventory transfer, then close any transfer request it was copied from; a request draft as an open transfer request, which moves no stock. Body `{ "clientRequestId": "…" }` or an `Idempotency-Key` header |
 
 **Who may add, and see.** The people who may convert a transfer request
 (`ITransferWarehouseAuthorizer.EnsureCanConvertRequestAsync`): Admin, StockController and WashBay from
@@ -6024,6 +6025,14 @@ One add per draft, whoever clicks: a repeat replays the first answer (checked ag
 caller's warehouses). The result names the transfer (`transferDocEntry`, `transferDocNum`; `resolved`
 false when SAP did not say and it could not be recognised by its lines), the copied-from requests it
 closed (`closedRequestDocNums`) and any it could not (`requestsLeftOpen`).
+
+**A transfer request draft** (`kind: "Request"`) adds as an open transfer request and moves no stock, so
+the batch, copied-from-request and till-sales checks do not apply; the who-may-add rule does, on the
+warehouse the request asks stock from. The result carries `kind: "Request"` and the request it made
+(`createdRequestDocEntry`, `createdRequestDocNum`, recognised like a transfer when SAP's answer does not
+name it); `transferDocEntry` stays null. A closed request draft answers `409 AlreadyAdded` naming the
+request. The request is then converted on the Transfers page like any other (§ Inventory transfers),
+through the app's own approval.
 
 ---
 

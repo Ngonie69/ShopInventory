@@ -11,8 +11,9 @@ using ShopInventory.Web.Services;
 namespace ShopInventory.Web.Components.Pages;
 
 /// <summary>
-/// The inventory transfers keyed in the SAP client that SAP's approval procedure has approved and nobody
-/// has added, and the one thing done with one here: add it, which posts the transfer in SAP.
+/// The inventory transfers and transfer requests keyed in the SAP client that SAP's approval procedure has
+/// approved and nobody has added, and the one thing done with one here: add it, which posts the document
+/// in SAP. A transfer moves stock; a request moves none until it is converted on the Transfers page.
 /// </summary>
 /// <remarks>
 /// Everything is read live from SAP through the API. The search and every filter are sent to SAP, which
@@ -46,6 +47,13 @@ public partial class SapTransferApprovals : IDisposable
     private List<SapTransferApprovalListItemDto> drafts = [];
     private List<string>? scopedWarehouses;
     private int totalCount;
+
+    /// <summary>Which kind the queue reads: <see cref="SapHeldDraftKinds"/>, or null for both.</summary>
+    private string? kindFilter;
+
+    /// <summary>Both kinds' totals for the kind switch; null until read, or when SAP could not count one.</summary>
+    private int? transferCount;
+    private int? requestCount;
     private int currentPage = 1;
 
     /// <summary>
@@ -86,6 +94,12 @@ public partial class SapTransferApprovals : IDisposable
     private string? addedNoticeSource;
     private bool addedNoticeNeedsAttention;
 
+    /// <summary>
+    /// Where an added request is converted: the Transfers page, opened on that request when SAP said
+    /// which it became. Null after a transfer, which needs nothing more.
+    /// </summary>
+    private string? addedRequestLink;
+
     private int TotalPages => Math.Max(1, (int)Math.Ceiling(totalCount / (double)PageSize));
 
     /// <summary>SAP's answer decides: a short page means there is nothing below it.</summary>
@@ -104,9 +118,33 @@ public partial class SapTransferApprovals : IDisposable
     /// <summary>Whether the search or a filter is narrowing the queue, so the count is of matches.</summary>
     private bool IsNarrowed => ActiveFilters.Count > 0 || !string.IsNullOrWhiteSpace(appliedSearch);
 
-    private string EmptyMessage => IsNarrowed
-        ? "No approved transfer matches this search and these filters"
-        : "SAP holds no approved transfers waiting to be added";
+    private string EmptyMessage => (IsNarrowed, kindFilter) switch
+    {
+        (true, SapHeldDraftKinds.Request) => "No approved transfer request matches this search and these filters",
+        (true, SapHeldDraftKinds.Transfer) => "No approved transfer matches this search and these filters",
+        (true, _) => "No approved transfer or transfer request matches this search and these filters",
+        (false, SapHeldDraftKinds.Request) => "SAP holds no approved transfer requests waiting to be added",
+        (false, SapHeldDraftKinds.Transfer) => "SAP holds no approved transfers waiting to be added",
+        _ => "SAP holds no approved transfers or transfer requests waiting to be added"
+    };
+
+    /// <summary>The kind switch: both, then each kind, with the total SAP counted for it.</summary>
+    private IEnumerable<(string? Kind, string Label, int? Count)> KindChoices =>
+    [
+        (null, "All", transferCount is int transfers && requestCount is int requests ? transfers + requests : null),
+        (SapHeldDraftKinds.Transfer, "Transfers", transferCount),
+        (SapHeldDraftKinds.Request, "Requests", requestCount)
+    ];
+
+    /// <summary>What a count of rows is called, for the kind the queue reads.</summary>
+    private string CountOf(int count) => kindFilter switch
+    {
+        SapHeldDraftKinds.Transfer => count == 1 ? "1 transfer" : $"{count:N0} transfers",
+        SapHeldDraftKinds.Request => count == 1 ? "1 request" : $"{count:N0} requests",
+        _ => count == 1 ? "1 draft" : $"{count:N0} drafts"
+    };
+
+    private bool DetailIsRequest => detail?.Draft.IsRequest == true;
 
     private string FilterSummary
     {
@@ -122,7 +160,7 @@ public partial class SapTransferApprovals : IDisposable
                 return "Reading SAP…";
             }
 
-            var matches = totalCount == 1 ? "1 transfer matches" : $"{totalCount:N0} transfers match";
+            var matches = $"{CountOf(totalCount)} {(totalCount == 1 ? "matches" : "match")}";
             return $"{matches} {(ActiveFilters.Count == 1 ? "this filter" : $"these {ActiveFilters.Count} filters")}.";
         }
     }
@@ -265,6 +303,8 @@ public partial class SapTransferApprovals : IDisposable
             errorMessage = null;
             drafts = result.Value.Items;
             totalCount = result.Value.TotalCount;
+            transferCount = result.Value.TransferCount;
+            requestCount = result.Value.RequestCount;
             nextCursor = result.Value.NextCursor;
             scopedWarehouses = result.Value.ScopedWarehouses;
             if (nextCursor is int below)
@@ -317,6 +357,7 @@ public partial class SapTransferApprovals : IDisposable
 
         return new SapTransferQueueFilter
         {
+            Kind = kindFilter,
             Warehouse = draftNum is null ? text : null,
             DraftNum = draftNum,
             FromWarehouses = fromFilter.ToList(),
@@ -365,6 +406,21 @@ public partial class SapTransferApprovals : IDisposable
     }
 
     private void ToggleFilters() => filtersOpen = !filtersOpen;
+
+    /// <summary>
+    /// Reads the other kind, or both. Not a filter: the search and filters carry over, and "Clear all"
+    /// leaves the kind where it is.
+    /// </summary>
+    private async Task SetKindAsync(string? kind)
+    {
+        if (kindFilter == kind)
+        {
+            return;
+        }
+
+        kindFilter = kind;
+        await ReloadFromTopAsync();
+    }
 
     private async Task AddWarehouseAsync(List<string> into, string? code)
     {
@@ -557,6 +613,7 @@ public partial class SapTransferApprovals : IDisposable
         AddApprovedSapTransferResultDto? added = null;
         var route = $"{detail.Draft.FromWarehouse} → {detail.Draft.ToWarehouse}";
         var draftNum = detail.Draft.DraftNum;
+        var isRequest = detail.Draft.IsRequest;
 
         try
         {
@@ -581,7 +638,7 @@ public partial class SapTransferApprovals : IDisposable
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to add SAP transfer draft {DraftEntry}", draftEntry);
-            refusal = "The transfer could not be added in SAP.";
+            refusal = isRequest ? "The transfer request could not be added in SAP." : "The transfer could not be added in SAP.";
             detailError = refusal;
             Snackbar.Add(refusal, Severity.Error);
         }
@@ -598,8 +655,13 @@ public partial class SapTransferApprovals : IDisposable
             // The draft is closed in SAP now and leaves the queue: keep what the add said on the page,
             // close the drawer and re-read only the list.
             addedNotice = added.Message;
-            addedNoticeSource = $"From draft {draftNum} · {route}";
+            addedNoticeSource = $"From {(isRequest ? "request draft" : "draft")} {draftNum} · {route}";
             addedNoticeNeedsAttention = added.RequestsLeftOpen.Count > 0 || !added.Resolved;
+            addedRequestLink = !isRequest
+                ? null
+                : added.CreatedRequestDocEntry is int requestEntry
+                    ? $"inventory-transfers?requestDocEntry={requestEntry}"
+                    : "inventory-transfers";
             CloseDetail();
             await LoadAsync();
             return;
@@ -620,6 +682,7 @@ public partial class SapTransferApprovals : IDisposable
         addedNotice = null;
         addedNoticeSource = null;
         addedNoticeNeedsAttention = false;
+        addedRequestLink = null;
     }
 
     private static List<NocturnePickerOption> WithoutChosen(List<NocturnePickerOption> options, List<string> chosen) =>

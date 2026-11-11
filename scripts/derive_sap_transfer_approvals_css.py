@@ -27,10 +27,10 @@ DST = CSS / "sap-transfer-approvals.css"
 HEADER = """/* ==========================================================================
    SAP-held transfers — Nocturne
 
-   /inventory-transfers/sap-approvals: inventory transfers keyed in the SAP
-   client and approved by SAP's approval procedure that nobody has added yet,
-   and the add that turns one into the real transfer. `sta-` is not shared
-   with any other sheet.
+   /inventory-transfers/sap-approvals: inventory transfers and transfer
+   requests keyed in the SAP client and approved by SAP's approval procedure
+   that nobody has added yet, and the add that turns one into the real
+   document. `sta-` is not shared with any other sheet.
 
    GENERATED FILE. Do not hand-edit: regenerate with
 
@@ -962,6 +962,134 @@ FOOTER = """
     font-size: 13px;
 }
 
+/* ── Document kind: transfers and transfer requests ───────────────────── */
+/* SAP holds both kinds in one draft set. The switch picks which the queue
+   reads, and each row and the drawer name their kind, because adding one
+   moves stock and adding the other does not. */
+
+.sta .sta-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--sta-r-md);
+    border: 1px solid var(--sta-field-edge);
+    background: var(--noct-field-bg);
+}
+
+.sta .sta-kind-opt {
+    height: 32px;
+    padding: 0 10px 0 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    border-radius: calc(var(--sta-r-md) - 3px);
+    background: transparent;
+    color: var(--sta-mute);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .15s, color .15s;
+}
+
+.sta .sta-kind-opt:hover {
+    background: var(--sta-hover);
+    color: var(--sta-ink);
+}
+
+.sta .sta-kind-opt.is-on {
+    background: rgba(var(--sta-accent-rgb), .18);
+    color: var(--sta-accent-text);
+}
+
+.sta .sta-kind-n {
+    min-width: 22px;
+    height: 20px;
+    padding: 0 6px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--sta-tag-bg);
+    color: var(--sta-ink-2);
+    font-size: 11.5px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.sta .sta-kind-opt.is-on .sta-kind-n {
+    background: var(--sta-accent);
+    color: var(--noct-on-accent);
+}
+
+/* The kind on a row and in the drawer's title. A request is tinted from the
+   info family so it reads apart from the accent and the status pills. */
+.sta .sta-q-kind,
+.sta-overlay .sta-q-kind {
+    height: 20px;
+    padding: 0 7px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 5px;
+    background: var(--sta-tag-bg);
+    color: var(--sta-ink-2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.sta .sta-q-kind.is-request,
+.sta-overlay .sta-q-kind.is-request {
+    background: rgba(var(--noct-fam-info-rgb), .16);
+    color: var(--noct-fam-info);
+}
+
+/* With the kind tag the references outgrow the route column: each keeps its
+   words together and the line wraps between them, never inside "Draft 80412". */
+.sta .sta-q-refs {
+    flex-wrap: wrap;
+    row-gap: 4px;
+}
+
+.sta .sta-q-refs > span {
+    white-space: nowrap;
+}
+
+/* What adding a request does, said before the person adds it. */
+.sta-overlay .sta-info {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sta-s3);
+    padding: var(--sta-s3) var(--sta-s4);
+    border-radius: var(--sta-r-md);
+    border: 1px solid rgba(var(--noct-fam-info-rgb), .35);
+    background: rgba(var(--noct-fam-info-rgb), .10);
+    color: var(--sta-ink);
+    font-size: 13px;
+}
+
+.sta-overlay .sta-info > .ph {
+    margin-top: 3px;
+    color: var(--noct-fam-info);
+}
+
+/* The way on to where an added request is converted. */
+.sta .sta-added-link {
+    margin-top: var(--sta-s2);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--sta-accent-text);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
 /* ── Narrow screens ── */
 
 @media (max-width: 1080px) {
@@ -1001,6 +1129,16 @@ FOOTER = """
     .sta .sta-q-scope {
         padding-left: 0;
         border-left: 0;
+    }
+
+    /* The switch takes the row, its three choices sharing it evenly. */
+    .sta .sta-kind {
+        flex: 1 1 100%;
+    }
+
+    .sta .sta-kind-opt {
+        flex: 1 1 0;
+        justify-content: center;
     }
 }
 """

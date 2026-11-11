@@ -247,8 +247,9 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
-                        @* Transfers keyed in the SAP client and approved there that nobody added. The API
-                           narrows a depot controller's queue to the transfers leaving its own warehouses. *@
+                        @* Transfers and transfer requests keyed in the SAP client and approved there that
+                           nobody added. The API narrows a depot controller's queue to the ones leaving its
+                           own warehouses. *@
                         <AuthorizeView Roles="@UserRoles.SapTransferApprovalRoles" Context="sapTransferCtx">
                             <Authorized>
                                 <NavLink class="snav-link sub-link" href="/inventory-transfers/sap-approvals" Match="NavLinkMatch.All">

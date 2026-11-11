@@ -69,6 +69,12 @@ public static class SapObjectTypes
 
     /// <summary>Inventory transfer (OWTR), as <c>ApprovalRequests.ObjectType</c> carries it.</summary>
     public const string StockTransfer = "67";
+
+    /// <summary>
+    /// Inventory transfer request (OWTQ), as <c>ApprovalRequests.ObjectType</c> carries it. SAP's object
+    /// number; not yet read back from a live request draft.
+    /// </summary>
+    public const string InventoryTransferRequest = "1250000001";
 }
 
 public static class SapDocObjectCodes
@@ -81,6 +87,12 @@ public static class SapDocObjectCodes
     /// the object number, not an enum name. Read back from KEFALOS_TEST_3 on 2026-11-06.
     /// </summary>
     public const string StockTransfer = "67";
+
+    /// <summary>
+    /// What an inventory transfer request draft reports as its <c>DocObjectCode</c> on the same set. Taken
+    /// to be its object number, as the transfer's is; not yet read back from a live request draft.
+    /// </summary>
+    public const string InventoryTransferRequest = "1250000001";
 }
 
 /// <summary>What a stock transfer line names as its <c>BaseType</c>.</summary>
