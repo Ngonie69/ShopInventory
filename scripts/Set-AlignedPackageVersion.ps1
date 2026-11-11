@@ -53,9 +53,15 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 
 $wholeRepository = -not $Project
 if ($wholeRepository) {
-    $Project =Get-ChildItem -Path $repoRoot -Recurse -Filter *.csproj -File |
-        Where-Object { $_.FullName -notmatch '[\\/](bin|obj|\.claude|node_modules)[\\/]' } |
+    # Match against the path below the repository root. A worktree lives under .claude\worktrees\,
+    # so testing the full path for \.claude\ skipped every project and moved only dotnet-ef.
+    $Project = Get-ChildItem -Path $repoRoot -Recurse -Filter *.csproj -File |
+        Where-Object { $_.FullName.Substring($repoRoot.Length) -notmatch '[\\/](bin|obj|\.claude|node_modules)[\\/]' } |
         ForEach-Object { $_.FullName }
+
+    if (-not $Project) {
+        throw "No project files found under $repoRoot."
+    }
 }
 
 # [^>] also matches a line break, so a reference laid out one attribute to a line is found too.
