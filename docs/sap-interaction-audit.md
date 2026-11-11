@@ -586,6 +586,28 @@ timeout), and the transient retry does not resend them. Reads a person is waitin
 sent: the invoice stock guard fails closed, and 269 of the 379 repeats did answer. This removes the
 repeats, not the stuck reads themselves. Why the Service Layer sticks is SAP's to fix.
 
+## 7c. `STK_ITEMS` reads stick when several run at once — at most three in flight
+
+Measured 2026-11-11 from the same access logs, 06:00–13:47 (before the hold above was deployed): of
+the 101 `STK_ITEMS` reads that took over a minute, **61 began while three or more other `STK_ITEMS`
+reads were already running on the Service Layer** (35 of 41 after 11:50). `WHS_BATCHES_*` and
+`DSK_INV_COST_RANGE` do not show this: their slow reads mostly began with at most two others running.
+
+No single caller sends these reads in parallel. Each reads one warehouse at a time, prefix bucket
+after prefix bucket, and the overlap comes from several callers at once: the invoice and reservation
+stock checks, transfer forms, the Web's stock refresh (`GetStockForItemsInWarehouse`) and the hourly
+`StockLedgerDivergenceJob`. So the limit sits in the SAP pipeline, which all of them pass through.
+
+`SAPStockItemsReadHandler`, next inside `SAPStuckReadHandler` in both SAP clients, lets at most
+`SAP:StockItemsMaxConcurrentReads` (3) `SQLQueries('STK_ITEMS_…')/List` reads reach SAP at once,
+from one process-wide `SapStockItemsReadGate`. It sits outside the circuit breaker and
+`SAPConcurrencyHandler`, so a read queued here holds none of the six slots, and its budget running out
+while it queues is not counted as SAP failing. **Background** reads wait for as long as their budget
+allows. A read a person is waiting on waits at most `SAP:StockItemsInteractiveMaxWaitSeconds` (10) and
+is then sent anyway, because the invoice stock guard fails closed. Waits of 2 s or more, and every read
+sent without a slot, are logged as warnings ("waited …ms for one of the 3 STK_ITEMS slots",
+"Sending … to SAP without a STK_ITEMS slot"). `0` turns the limit off.
+
 ## 8. What is already good
 
 Worth stating so it is not undone:
