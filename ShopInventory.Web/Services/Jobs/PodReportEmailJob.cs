@@ -113,6 +113,7 @@ public sealed class PodReportEmailJob(
         {
             PodReportEmailFrequency.Daily => GetMostRecentDailyLocal(nowLocal, minuteOfDay),
             PodReportEmailFrequency.MonthToDateDaily => GetMostRecentDailyLocal(nowLocal, minuteOfDay),
+            PodReportEmailFrequency.YearToDateDaily => GetMostRecentDailyLocal(nowLocal, minuteOfDay),
             PodReportEmailFrequency.Weekly => GetMostRecentWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay),
             PodReportEmailFrequency.Monthly => GetMostRecentMonthlyLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay),
             PodReportEmailFrequency.Quarterly => GetMostRecentPeriodicLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay, 3),
@@ -137,6 +138,7 @@ public sealed class PodReportEmailJob(
         {
             PodReportEmailFrequency.Daily => GetNextDailyLocal(nowLocal, minuteOfDay),
             PodReportEmailFrequency.MonthToDateDaily => GetNextDailyLocal(nowLocal, minuteOfDay),
+            PodReportEmailFrequency.YearToDateDaily => GetNextDailyLocal(nowLocal, minuteOfDay),
             PodReportEmailFrequency.Weekly => GetNextWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay),
             PodReportEmailFrequency.Monthly => GetNextMonthlyLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay),
             PodReportEmailFrequency.Quarterly => GetNextPeriodicLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay, 3),

@@ -375,8 +375,8 @@ public sealed class PodReportEmailService(
     /// <summary>
     /// Computes the report data window (date range) for a frequency, relative to <paramref name="nowLocal"/>.
     /// Standard cadences cover the most recently completed period (ending yesterday). The
-    /// month-to-date daily cadence intentionally includes the send date so a day-1 schedule
-    /// starts on the first of the current month and accumulates each day.
+    /// month-to-date and year-to-date daily cadences intentionally include the send date, so they
+    /// start on the first of the current month (or 1 January) and accumulate each day.
     /// </summary>
     public static (DateTime fromDate, DateTime toDate) GetPeriod(
         PodReportEmailFrequency frequency,
@@ -389,6 +389,7 @@ public sealed class PodReportEmailService(
         {
             PodReportEmailFrequency.Daily => (toDate, toDate),
             PodReportEmailFrequency.MonthToDateDaily => GetCurrentMonthToDatePeriod(nowLocal),
+            PodReportEmailFrequency.YearToDateDaily => GetCurrentYearToDatePeriod(nowLocal),
             PodReportEmailFrequency.Weekly => (toDate.AddDays(-6), toDate),
             PodReportEmailFrequency.Monthly => GetPreviousCalendarMonthPeriod(nowLocal),
             PodReportEmailFrequency.Quarterly => GetPreviousCalendarPeriod(nowLocal, 3),
@@ -408,6 +409,7 @@ public sealed class PodReportEmailService(
         {
             PodReportEmailFrequency.Daily => "Daily",
             PodReportEmailFrequency.MonthToDateDaily => "Month to Date",
+            PodReportEmailFrequency.YearToDateDaily => "Year to Date",
             PodReportEmailFrequency.Weekly => "Weekly",
             PodReportEmailFrequency.Monthly => "Full Month",
             PodReportEmailFrequency.Quarterly => "Quarterly",
@@ -423,6 +425,7 @@ public sealed class PodReportEmailService(
         {
             PodReportEmailFrequency.Daily => "daily",
             PodReportEmailFrequency.MonthToDateDaily => "month-to-date",
+            PodReportEmailFrequency.YearToDateDaily => "year-to-date",
             PodReportEmailFrequency.Weekly => "weekly",
             PodReportEmailFrequency.Monthly => "monthly",
             PodReportEmailFrequency.Quarterly => "quarterly",
@@ -459,6 +462,13 @@ public sealed class PodReportEmailService(
     private static (DateTime fromDate, DateTime toDate) GetCurrentMonthToDatePeriod(DateTime nowLocal)
     {
         var fromDate = new DateTime(nowLocal.Year, nowLocal.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+        var toDate = nowLocal.Date;
+        return (fromDate, toDate);
+    }
+
+    private static (DateTime fromDate, DateTime toDate) GetCurrentYearToDatePeriod(DateTime nowLocal)
+    {
+        var fromDate = new DateTime(nowLocal.Year, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
         var toDate = nowLocal.Date;
         return (fromDate, toDate);
     }
