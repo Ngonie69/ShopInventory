@@ -24,22 +24,35 @@ namespace ShopInventory.Services;
 public static class SapRequestMarks
 {
     private static readonly HttpRequestOptionsKey<bool> ReachedSapKey = new("ShopInventory.Sap.ReachedSap");
+    private static readonly HttpRequestOptionsKey<DateTimeOffset> ReachedSapAtKey = new("ShopInventory.Sap.ReachedSapAt");
     private static readonly HttpRequestOptionsKey<CancellationToken> BreakerDeadlineKey =
         new("ShopInventory.Sap.BreakerDeadline");
 
     /// <summary>
     /// Records that the request holds a concurrency slot and is on its way to SAP.
     /// </summary>
+    /// <param name="request">The request being sent.</param>
+    /// <param name="at">
+    /// When it got the slot, from the pipeline's <see cref="TimeProvider"/>. <c>SAPStuckReadHandler</c>
+    /// measures how long SAP has had a read from here rather than from when it began queueing.
+    /// </param>
     /// <remarks>
     /// Set by <c>SAPConcurrencyHandler</c>. A request that timed out still queued for a slot never
     /// reached SAP, so it says nothing about whether SAP is answering — the requests holding the
     /// slots do, and they count for themselves.
     /// </remarks>
-    public static void MarkReachedSap(HttpRequestMessage request) =>
+    public static void MarkReachedSap(HttpRequestMessage request, DateTimeOffset at)
+    {
         request.Options.Set(ReachedSapKey, true);
+        request.Options.Set(ReachedSapAtKey, at);
+    }
 
     public static bool ReachedSap(HttpRequestMessage request) =>
         request.Options.TryGetValue(ReachedSapKey, out var reached) && reached;
+
+    /// <summary>When the request reached SAP, or false when it never did.</summary>
+    public static bool TryGetReachedSapAt(HttpRequestMessage request, out DateTimeOffset at) =>
+        request.Options.TryGetValue(ReachedSapAtKey, out at);
 
     /// <summary>
     /// Attaches a deadline whose expiry the breaker should count as SAP failing to answer.

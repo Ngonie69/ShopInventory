@@ -29,11 +29,14 @@ public sealed class SAPConcurrencyHandler : DelegatingHandler
     private readonly int _maxConcurrentRequests;
     private readonly int _maxBackgroundRequests;
     private readonly ILogger<SAPConcurrencyHandler> _logger;
+    private readonly TimeProvider _timeProvider;
 
     public SAPConcurrencyHandler(
         IOptions<SAPSettings> settings,
-        ILogger<SAPConcurrencyHandler> logger)
+        ILogger<SAPConcurrencyHandler> logger,
+        TimeProvider timeProvider)
     {
+        _timeProvider = timeProvider;
         _maxConcurrentRequests = Math.Max(1, settings.Value.MaxConcurrentRequests);
 
         // At least one slot stays out of reach of background work, and background work keeps at
@@ -76,7 +79,7 @@ public sealed class SAPConcurrencyHandler : DelegatingHandler
 
         // From here a timeout is SAP not answering rather than this queue being full, which is
         // what the circuit breaker needs to know before it counts one.
-        SapRequestMarks.MarkReachedSap(request);
+        SapRequestMarks.MarkReachedSap(request, _timeProvider.GetUtcNow());
 
         if (waitDuration >= TimeSpan.FromSeconds(2))
         {

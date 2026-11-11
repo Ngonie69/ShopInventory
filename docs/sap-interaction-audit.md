@@ -559,6 +559,33 @@ Two consequences worth carrying:
   nextLink. It is the same defect §7 fixes in the client, and it keeps recurring in throwaway
   diagnostics precisely because those do not go through the code that now handles it.
 
+## 7b. A stuck read keeps running in the Service Layer after we give up — background repeats held
+
+Measured 2026-11-10/11 on the production Service Layer host: 21 hours of its access logs joined to
+15-second samples of each Service Layer process's memory.
+
+- A Service Layer process that gets stuck on a `SQLQueries` read runs it at full CPU, its memory
+  cycling up to ~8 GB, for minutes to two hours (the longest logged: 7,609 s). This client gives up at
+  its budget (60 s for stock), the load balancer answers 502 at 300 s, and the node carries on
+  regardless. Ten such processes held 56 GB at the worst moment, 13.8 GB short of the kernel's
+  out-of-memory killer, which kills HANA's index server first.
+- 210 of 226 stuck processes were serving a read from this API: `WHS_BATCHES_*` (80), `STK_ITEMS_*`
+  (76), `DSK_INV_COST_RANGE` (33). The data is not the cause, since slow and fast reads return the same
+  6–19 KB. Time of day matters: `STK_ITEMS` runs ~200 times an hour around the clock and sticks ~1 %
+  of the time at night and 5–10 % mid-afternoon.
+- **Repeats added more.** Of 300 reads that took over a minute, 159 were asked for again with the
+  identical URL within 15 minutes. 130 repeats went out while the first was still running, and 110
+  repeats got stuck too.
+
+`SAPStuckReadHandler`, outermost in both SAP clients, now holds a `SQLQueries` read for
+`SAP:StuckReadHoldMinutes` (10). It starts a hold once SAP has had the read for 15 s and the read
+then either ends without SAP's answer (cancelled by its budget, the client timeout or its caller) or
+is answered 502/504 by the balancer. While it holds, **background** reads of the identical URL fail at once
+with `SapReadStillRunningException` (a `TimeoutException`, so callers fall back as they do for a
+timeout), and the transient retry does not resend them. Reads a person is waiting on are always
+sent: the invoice stock guard fails closed, and 269 of the 379 repeats did answer. This removes the
+repeats, not the stuck reads themselves. Why the Service Layer sticks is SAP's to fix.
+
 ## 8. What is already good
 
 Worth stating so it is not undone:

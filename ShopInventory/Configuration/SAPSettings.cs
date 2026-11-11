@@ -134,6 +134,20 @@ public class SAPSettings
     public int StockSqlRequestTimeoutSeconds { get; set; } = 60;
 
     /// <summary>
+    /// How long background work holds off sending SAP a SQLQueries read identical to one SAP took and
+    /// gave no answer to. 0 turns the hold off.
+    /// </summary>
+    /// <remarks>
+    /// The Service Layer keeps working on such a read long after this client gives up, and a repeat
+    /// stacks a second stuck process, of up to ~8 GB, beside the first; see
+    /// <see cref="ShopInventory.Services.SapStuckReadState"/>. The stuck reads measured on 2026-11-10/11
+    /// ran about five minutes on the Service Layer at the median, so ten minutes covers most of them.
+    /// One that runs longer lets a single attempt through per hold, rather than one per caller.
+    /// Reads a person is waiting on are never held.
+    /// </remarks>
+    public int StuckReadHoldMinutes { get; set; } = 10;
+
+    /// <summary>
     /// Whether an invoice is refused when the stock read behind it could not be answered, rather
     /// than posted on the assumption that SAP will refuse it instead.
     /// </summary>
