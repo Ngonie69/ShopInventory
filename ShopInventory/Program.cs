@@ -719,6 +719,10 @@ try
     // client's timeout, which is how it tells a timeout from a caller that stopped waiting.
     builder.Services.AddTransient<SAPConcurrencyHandler>();
     builder.Services.AddTransient<SAPRequestLoggingHandler>();
+    // Outermost in both SAP clients: a background read SAP is still working on is refused before it
+    // queues for a slot or reaches the breaker. One state for both, so either client's stuck read holds.
+    builder.Services.AddSingleton<SapStuckReadState>();
+    builder.Services.AddTransient<SAPStuckReadHandler>();
     // The sync-history rows are written off the SAP request path: the handler only enqueues, and
     // this drains in batches. Doing it inline put an insert, a trim query and a delete inside every
     // SAP call, while that call held a concurrency slot.
@@ -737,6 +741,7 @@ try
         client.DefaultRequestHeaders.Add("Accept", "application/json");
         client.Timeout = TimeSpan.FromMinutes(sapSettings.LongRunningRequestTimeoutMinutes);
     })
+    .AddHttpMessageHandler<SAPStuckReadHandler>()
     .AddHttpMessageHandler(serviceProvider => ActivatorUtilities.CreateInstance<SAPCircuitBreakerHandler>(
         serviceProvider,
         TimeSpan.FromMinutes(serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value.LongRunningRequestTimeoutMinutes)))
@@ -793,6 +798,7 @@ try
         client.DefaultRequestHeaders.Add("Accept", "application/json");
         client.Timeout = TimeSpan.FromMinutes(sapSettings.RequestTimeoutMinutes);
     })
+    .AddHttpMessageHandler<SAPStuckReadHandler>()
     .AddHttpMessageHandler(serviceProvider => ActivatorUtilities.CreateInstance<SAPCircuitBreakerHandler>(
         serviceProvider,
         TimeSpan.FromMinutes(serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value.RequestTimeoutMinutes)))
