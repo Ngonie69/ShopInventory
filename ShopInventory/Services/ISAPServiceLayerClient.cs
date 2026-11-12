@@ -302,6 +302,30 @@ public interface ISAPServiceLayerClient
     Task<WarehouseItemPage> GetItemPageInWarehouseAsync(string warehouseCode, string? after, int pageSize, bool vanSaleOnly = false, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// <see cref="GetItemPageInWarehouseAsync"/> over codes the caller already holds, such as
+    /// <see cref="WarehouseBatchSnapshot.StockedItemCodes"/>, instead of the warehouse item-code read.
+    /// </summary>
+    /// <param name="stockedItemCodes">The warehouse's stocked codes, in <see cref="WarehouseItemCursor"/> order.</param>
+    Task<WarehouseItemPage> GetItemPageFromCodesAsync(IReadOnlyList<string> stockedItemCodes, string warehouseCode, string? after, int pageSize, bool vanSaleOnly = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// <see cref="GetPagedItemsInWarehouseAsync"/> over codes the caller already holds, such as
+    /// <see cref="WarehouseBatchSnapshot.StockedItemCodes"/>, instead of the warehouse item-code read.
+    /// </summary>
+    Task<(List<Item> Items, bool HasMore)> GetPagedItemsFromCodesAsync(IReadOnlyList<string> stockedItemCodes, string warehouseCode, int page, int pageSize, bool vanSaleOnly = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A warehouse's whole batch read for a catalogue page: current, or the last good one standing in while
+    /// SAP is asked again in the background.
+    /// </summary>
+    /// <remarks>
+    /// Display only. Stale by design — up to <c>SAP:WarehouseBatchSnapshotMaxStaleMinutes</c> — so nothing
+    /// that authorises a stock movement may read it. Why, and the measurements: the remarks on
+    /// <c>SAPServiceLayerClient.WarehouseBatchSnapshot.cs</c>.
+    /// </remarks>
+    Task<WarehouseBatchSnapshot> GetWarehouseBatchesForDisplayAsync(string warehouseCode, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads the item codes flagged <c>U_VanSale = 'Yes'</c> on the item master — what a van is
     /// approved to sell, which is a separate question from what it is carrying.
     /// </summary>

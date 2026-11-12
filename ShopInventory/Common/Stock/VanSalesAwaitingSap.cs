@@ -39,16 +39,23 @@ namespace ShopInventory.Common.Stock;
 public static class VanSalesAwaitingSap
 {
     /// <summary>
-    /// How long after SAP takes a sale it is still counted as awaiting.
+    /// How long after SAP takes a sale it is still counted as awaiting, for a caller that does not say
+    /// when its SAP figure was read.
     /// </summary>
     /// <remarks>
-    /// The warehouse figure a catalogue page is built from is a whole-warehouse read reused for
+    /// Such a figure is taken to be a whole-warehouse read reused for up to
     /// <see cref="SAPServiceLayerClient.WarehouseBatchSnapshotLifetime"/>, so a sale posted inside that
-    /// window may not be in it yet. The extra minute covers the posted time being stamped by whichever
-    /// node posted the sale, while the read was timed by this one.
+    /// window may not be in it yet; <see cref="ClockSkew"/> is added on. The van catalogue says when its
+    /// read was sent, and counts from there instead.
     /// </remarks>
     public static readonly TimeSpan PostedWithin =
-        SAPServiceLayerClient.WarehouseBatchSnapshotLifetime + TimeSpan.FromMinutes(1);
+        SAPServiceLayerClient.WarehouseBatchSnapshotLifetime + ClockSkew;
+
+    /// <summary>
+    /// How far apart two nodes' clocks are allowed for: a sale's posted time is stamped by whichever node
+    /// posted it, and the SAP read is timed by this one.
+    /// </summary>
+    public static readonly TimeSpan ClockSkew = TimeSpan.FromMinutes(1);
 
     /// <summary>
     /// Units of each of <paramref name="itemCodes"/> awaiting SAP in <paramref name="warehouseCode"/>.
@@ -56,11 +63,19 @@ public static class VanSalesAwaitingSap
     /// <param name="db">The application database.</param>
     /// <param name="warehouseCode">The van's warehouse.</param>
     /// <param name="itemCodes">The items being answered for — one catalogue page.</param>
-    /// <param name="nowUtc">When SAP was read, or just after; a sale taken within <see cref="PostedWithin"/> of it still counts.</param>
+    /// <param name="nowUtc">
+    /// Now. Without <paramref name="sapReadAtUtc"/>, also taken as when SAP was read, or just after; a sale
+    /// taken within <see cref="PostedWithin"/> of it still counts.
+    /// </param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <param name="lookbackDays">
     /// How far back a sale that never reached SAP is still counted — the till's
     /// <c>DailyStock:UnpostedSaleLookbackDays</c>. Past it the sale is the exception centre's to chase.
+    /// </param>
+    /// <param name="sapReadAtUtc">
+    /// When the SAP figure being netted was read, when the caller knows it. A sale SAP took after
+    /// <see cref="ClockSkew"/> before it still counts, however old the read: a catalogue page can be answered
+    /// from a read up to an hour old while SAP is asked again.
     /// </param>
     /// <returns>Only items with something awaiting; an absent code means none.</returns>
     public static async Task<Dictionary<string, decimal>> ByItemAsync(
@@ -69,7 +84,8 @@ public static class VanSalesAwaitingSap
         IReadOnlyCollection<string> itemCodes,
         DateTime nowUtc,
         int lookbackDays,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DateTime? sapReadAtUtc = null)
     {
         var awaiting = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
@@ -79,7 +95,9 @@ public static class VanSalesAwaitingSap
         }
 
         var codes = itemCodes.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var takenBefore = nowUtc - PostedWithin;
+        var takenBefore = sapReadAtUtc is { } readAt && readAt <= nowUtc
+            ? readAt - ClockSkew
+            : nowUtc - PostedWithin;
         var earliest = nowUtc.AddDays(-Math.Max(1, lookbackDays));
 
         var uploaded = await UploadedQuery(db, warehouseCode, codes, takenBefore, earliest)

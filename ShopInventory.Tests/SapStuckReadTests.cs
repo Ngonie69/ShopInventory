@@ -70,6 +70,42 @@ public class SapStuckReadTests
         Assert.Equal(3, sap.Sent);
     }
 
+    /// <summary>
+    /// A read that only feeds a screen with an older answer to show is held whoever is waiting on it: on
+    /// 2026-11-12, 23 of the 65 stuck van catalogue reads were repeats sent inside the hold.
+    /// </summary>
+    [Fact]
+    public async Task A_display_only_read_a_person_is_waiting_on_is_held_too()
+    {
+        var sap = new Sap();
+        await sap.HangThenCancelAsync(StockRead, TimeSpan.FromSeconds(60));
+
+        using (SapRequestPriority.BeginInteractive())
+        {
+            await Assert.ThrowsAsync<SapReadStillRunningException>(() => sap.SendAsync(StockRead, displayOnly: true));
+
+            // The same read unmarked, as the stock guard and transfer allocation send it, still goes.
+            using var guard = await sap.SendAsync(StockRead);
+            Assert.Equal(HttpStatusCode.OK, guard.StatusCode);
+        }
+
+        Assert.Equal(2, sap.Sent);
+    }
+
+    [Fact]
+    public async Task A_display_only_read_is_sent_when_nothing_is_held()
+    {
+        var sap = new Sap();
+
+        using (SapRequestPriority.BeginInteractive())
+        {
+            using var response = await sap.SendAsync(StockRead, displayOnly: true);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        Assert.Equal(1, sap.Sent);
+    }
+
     [Fact]
     public async Task A_read_a_person_was_waiting_on_that_got_stuck_holds_background_reads_back()
     {
@@ -201,8 +237,20 @@ public class SapStuckReadTests
         public SapStuckReadState State { get; }
         public int Sent => _script.Sent;
 
-        public Task<HttpResponseMessage> SendAsync(string url, HttpMethod? method = null, CancellationToken cancellationToken = default) =>
-            _invoker.SendAsync(new HttpRequestMessage(method ?? HttpMethod.Get, url), cancellationToken);
+        public Task<HttpResponseMessage> SendAsync(
+            string url,
+            HttpMethod? method = null,
+            CancellationToken cancellationToken = default,
+            bool displayOnly = false)
+        {
+            var request = new HttpRequestMessage(method ?? HttpMethod.Get, url);
+            if (displayOnly)
+            {
+                SapRequestMarks.MarkDisplayOnly(request);
+            }
+
+            return _invoker.SendAsync(request, cancellationToken);
+        }
 
         /// <summary>SAP has the request for <paramref name="atSap"/> without answering, then the caller's budget cancels it.</summary>
         public async Task HangThenCancelAsync(string url, TimeSpan atSap, bool reachSap = true, HttpMethod? method = null)

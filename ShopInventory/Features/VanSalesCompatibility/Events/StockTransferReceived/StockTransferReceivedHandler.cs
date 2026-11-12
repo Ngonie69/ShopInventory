@@ -85,6 +85,12 @@ public sealed class StockTransferReceivedHandler(
                 return;
             }
 
+            // Before the signal: the handset re-reads its catalogue the moment it is woken, and the server
+            // may be answering that warehouse's pages from a batch read taken before this load. Marked, the
+            // next page refreshes it first. Once per document, like the signal — SAP holds every line of
+            // the transfer by the time the first is delivered.
+            SAPServiceLayerClient.MarkWarehouseBatchSnapshotDue(cache, warehouse, DateTimeOffset.UtcNow);
+
             var reps = await RepsDrivingAsync(warehouse, cancellationToken);
 
             if (reps.Count == 0)

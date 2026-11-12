@@ -87,11 +87,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // redefine a fixed code out from under us; an hour lets a rolling deploy settle it.
     private static readonly TimeSpan SqlQueryVerificationLifetime = TimeSpan.FromHours(1);
 
-    // How long a whole-warehouse batch read is reused to answer per-item batch questions on display
-    // paths. Deliberately the same window as the warehouse item-code cache above: both halves of a
-    // product page — which codes the warehouse holds, and how much of each — then come from the same
-    // moment. Reading one live against the other cached is what lets them disagree, and a page whose
-    // codes say "in stock" while its batches say nothing is a page of items that silently vanish.
+    // How long a whole-warehouse batch read is reused by GetBatchNumbersForItemsInWarehouseAsync's
+    // snapshot callers. Deliberately the same window as the warehouse item-code cache: those callers take
+    // their codes from that cache, so both halves of their page — which codes the warehouse holds, and how
+    // much of each — come from about the same moment. Reading one live against the other cached is what
+    // lets them disagree, and a page whose codes say "in stock" while its batches say nothing is a page of
+    // items that silently vanish. The paged catalogue takes its codes from the batch read itself, and so
+    // keeps it longer: see SAPServiceLayerClient.WarehouseBatchSnapshot.cs.
     // Internal because VanSalesAwaitingSap has to know how old the figure it is netted against can be.
     internal static readonly TimeSpan WarehouseBatchSnapshotLifetime = TimeSpan.FromMinutes(2);
 
@@ -3763,11 +3765,24 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         bool vanSaleOnly = false,
         CancellationToken cancellationToken = default)
     {
+        var itemCodes = await GetAllItemCodesInWarehouseAsync(warehouseCode, cancellationToken);
+
+        return await GetPagedItemsFromCodesAsync(itemCodes, warehouseCode, page, pageSize, vanSaleOnly, cancellationToken);
+    }
+
+    public async Task<(List<Item> Items, bool HasMore)> GetPagedItemsFromCodesAsync(
+        IReadOnlyList<string> stockedItemCodes,
+        string warehouseCode,
+        int page,
+        int pageSize,
+        bool vanSaleOnly = false,
+        CancellationToken cancellationToken = default)
+    {
         var normalizedPage = Math.Max(page, 1);
         var normalizedPageSize = Math.Max(pageSize, 1);
         var skip = (normalizedPage - 1) * normalizedPageSize;
 
-        var itemCodes = await GetAllItemCodesInWarehouseAsync(warehouseCode, cancellationToken);
+        IReadOnlyList<string> itemCodes = stockedItemCodes;
 
         if (vanSaleOnly)
         {
@@ -5114,9 +5129,21 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
         return results;
     }
 
-    public async Task<List<BatchNumber>> GetAllBatchNumbersInWarehouseAsync(
+    public Task<List<BatchNumber>> GetAllBatchNumbersInWarehouseAsync(
         string warehouseCode,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ReadAllBatchNumbersInWarehouseAsync(warehouseCode, displayOnly: false, cancellationToken);
+
+    /// <param name="warehouseCode">The warehouse to read.</param>
+    /// <param name="displayOnly">
+    /// The answer only feeds a screen: see <see cref="SapRequestMarks.MarkDisplayOnly"/>. Never for a read
+    /// that allocates or validates stock, which must reach SAP whoever else is stuck on the same URL.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    private async Task<List<BatchNumber>> ReadAllBatchNumbersInWarehouseAsync(
+        string warehouseCode,
+        bool displayOnly,
+        CancellationToken cancellationToken)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
@@ -5137,45 +5164,14 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
         await EnsureSqlQueryAsync(queryCode, $"Batches in {warehouseCode}", sqlText, cancellationToken);
 
         // Execute the query and retrieve results
-        return await ExecuteBatchQueryAsync(queryCode, warehouseCode, cancellationToken);
-    }
-
-    /// <summary>
-    /// One warehouse's batches, read whole and held briefly, for callers that will ask about many
-    /// item codes in a row.
-    /// </summary>
-    /// <remarks>
-    /// It is the same <c>OBTN ⋈ OBTQ</c> join that <see cref="GetAllItemCodesInWarehouseAsync"/>
-    /// takes the warehouse's item codes from, so the two now agree by construction on the display
-    /// paths rather than by both happening to be current. That matters more than the round trips it
-    /// saves: a code appears on a product page precisely because that join said it holds stock, and
-    /// when the second read then came back with no batches for it, the item fell through to a
-    /// company-wide quantity that has nothing to do with this warehouse and disappeared off the page
-    /// if that figure was committed away.
-    /// </remarks>
-    private async Task<List<BatchNumber>> GetWarehouseBatchSnapshotAsync(
-        string warehouseCode,
-        CancellationToken cancellationToken)
-    {
-        var cacheKey = WarehouseBatchSnapshotCacheKeyPrefix + warehouseCode.Trim().ToUpperInvariant();
-
-        if (_memoryCache.TryGetValue(cacheKey, out List<BatchNumber>? cached) && cached is not null)
-        {
-            return cached;
-        }
-
-        return await WarehouseReadsInFlight.JoinAsync(cacheKey, async () =>
-        {
-            var batches = await GetAllBatchNumbersInWarehouseAsync(warehouseCode, CancellationToken.None);
-            _memoryCache.Set(cacheKey, batches, WarehouseBatchSnapshotLifetime);
-            return batches;
-        }, cancellationToken);
+        return await ExecuteBatchQueryAsync(queryCode, warehouseCode, cancellationToken, displayOnly);
     }
 
     private async Task<List<BatchNumber>> ExecuteBatchQueryAsync(
         string queryCode,
         string warehouseCode,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool displayOnly = false)
     {
         var batches = new List<BatchNumber>();
         var skip = 0;
@@ -5192,6 +5188,11 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                if (displayOnly)
+                {
+                    SapRequestMarks.MarkDisplayOnly(request);
+                }
+
                 return request;
             }
 

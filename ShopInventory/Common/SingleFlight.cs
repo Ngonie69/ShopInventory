@@ -49,4 +49,7 @@ public sealed class SingleFlight
 
     /// <summary>How many loads are running, for tests.</summary>
     internal int Count => _inFlight.Count;
+
+    /// <summary>Whether a load is running under <paramref name="key"/>, for tests.</summary>
+    internal bool IsInFlight(string key) => _inFlight.ContainsKey(key);
 }
