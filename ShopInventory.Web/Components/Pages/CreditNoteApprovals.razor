@@ -1,6 +1,7 @@
 @page "/credit-notes/approvals"
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Data
+@using ShopInventory.Web.Features.CreditNoteApprovals
 @using ShopInventory.Web.Models
 @attribute [Authorize(Roles = UserRoles.CreditNoteApprovalRoles)]
 @rendermode InteractiveServer
@@ -342,6 +343,23 @@
                         </div>
                     }
 
+                    @if (UnusualWarehouses.Count > 0)
+                    {
+                        @* Returns go to the wash bay. Any other warehouse puts the stock somewhere nobody
+                           counted it, so it is said before the reason, while the decision is still open. *@
+                        <div class="cna-blocked cna-whs-alert" role="alert">
+                            <i class="ph ph-warehouse" aria-hidden="true"></i>
+                            <div class="cna-alert-body">
+                                <div class="cna-credited-title">Unusual warehouse: <span class="cna-whs-code">@JoinWarehouses(UnusualWarehouses)</span></div>
+                                <div class="cna-credited-sub">
+                                    Credit notes normally return stock to @CreditNoteReturnWarehouse.Expected.
+                                    This draft credits stock into <span class="cna-whs-code">@JoinWarehouses(UnusualWarehouses)</span>.
+                                    @UnusualWarehouseAdvice(request)
+                                </div>
+                            </div>
+                        </div>
+                    }
+
                     <div class="cna-note cna-reason-box">
                         <div class="cna-dt">Reason for credit</div>
                         <div class="cna-reason-full">@(string.IsNullOrWhiteSpace(request.Comments) ? "No reason given on the draft." : request.Comments)</div>
@@ -363,6 +381,10 @@
                         <div>
                             <div class="cna-dt">Waiting</div>
                             <div class="cna-dd @(IsLate(request) ? "is-late" : "")">@(string.IsNullOrEmpty(AgeText(request)) ? "—" : AgeText(request))</div>
+                        </div>
+                        <div>
+                            <div class="cna-dt">Credit warehouse</div>
+                            <div class="cna-dd cna-whs @(UnusualWarehouses.Count > 0 ? "is-unusual" : "")">@JoinWarehouses(CreditWarehouses)</div>
                         </div>
                         @if (!string.IsNullOrWhiteSpace(request.NumAtCard))
                         {
@@ -399,6 +421,7 @@
                                         <tr>
                                             <th>Item</th>
                                             <th>Description</th>
+                                            <th>Whse</th>
                                             <th class="cna-num">Qty</th>
                                             <th class="cna-num">Price</th>
                                             <th class="cna-num">Total</th>
@@ -412,6 +435,7 @@
                                             <tr class="@(changed ? "is-changed" : "")">
                                                 <td class="cna-line-item">@line.ItemCode</td>
                                                 <td>@line.ItemDescription</td>
+                                                <td class="cna-line-whs @(CreditNoteReturnWarehouse.IsUnusual(line.WarehouseCode) ? "is-unusual" : "")">@(string.IsNullOrWhiteSpace(line.WarehouseCode) ? "—" : line.WarehouseCode)</td>
                                                 @if (CanEditQuantities)
                                                 {
                                                     <td class="cna-num cna-qty-cell">
@@ -555,6 +579,13 @@
                                       : "Recorded in SAP beside your name")"
                                   @bind="decisionRemarks"></textarea>
                     </div>
+                    @if (detail.Request.CanApprove && UnusualWarehouses.Count > 0)
+                    {
+                        <div class="cna-foot-note cna-whs-foot">
+                            <i class="ph ph-warning" aria-hidden="true"></i>
+                            <span>Credits stock into <strong>@JoinWarehouses(UnusualWarehouses)</strong>, not @CreditNoteReturnWarehouse.Expected.</span>
+                        </div>
+                    }
                     <div class="cna-decide-actions">
                         <button type="button" class="cna-btn cna-btn-bad cna-btn-lg cna-decide-reject" @onclick="RejectAsync" disabled="@isSubmitting">
                             @if (isSubmitting && submittingAction == "reject")
@@ -637,6 +668,10 @@
                     <dl class="cna-confirm-facts">
                         <div><dt>Customer</dt><dd>@detail.Request.CardName</dd></div>
                         <div><dt>Draft</dt><dd>@(detail.Request.DraftNum?.ToString() ?? "—")</dd></div>
+                        <div>
+                            <dt>Credit warehouse</dt>
+                            <dd class="cna-whs @(UnusualWarehouses.Count > 0 ? "is-unusual" : "")">@JoinWarehouses(CreditWarehouses)</dd>
+                        </div>
                         @if (QuantityEdits.Count > 0)
                         {
                             <div class="cna-confirm-total">
@@ -669,6 +704,16 @@
                                     </li>
                                 }
                             </ul>
+                        </div>
+                    }
+                    @if (UnusualWarehouses.Count > 0)
+                    {
+                        <div class="cna-blocked cna-whs-alert" role="alert">
+                            <i class="ph ph-warehouse" aria-hidden="true"></i>
+                            <div class="cna-alert-body">
+                                Stock is credited into <strong>@JoinWarehouses(UnusualWarehouses)</strong>,
+                                not @CreditNoteReturnWarehouse.Expected. Cancel and correct the draft in SAP if that is wrong.
+                            </div>
                         </div>
                     }
                     <div class="cna-blocked">

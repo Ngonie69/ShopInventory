@@ -2152,3 +2152,41 @@
 .cna-qty-change strong {
     color: var(--cna-ink);
 }
+
+/* ── Credit warehouse ────────────────────────────────────────────────── */
+
+/* Returns go to the wash bay. A draft crediting any other warehouse says so in
+   the notice colour wherever the warehouse is shown: the facts grid, the line,
+   the approve footer and the add confirm. */
+.cna-whs.is-unusual,
+.cna-lines td.cna-line-whs.is-unusual {
+    color: var(--cna-warn-ink);
+    font-weight: 600;
+}
+
+.cna-line-whs {
+    white-space: nowrap;
+}
+
+.cna-lines td.cna-line-whs.is-unusual {
+    background: var(--cna-warn-bg);
+}
+
+.cna-whs-foot {
+    color: var(--cna-warn-ink);
+}
+
+.cna-whs-foot strong {
+    font-weight: 600;
+}
+
+.cna-whs-foot > i {
+    color: var(--cna-warn-ink);
+}
+
+/* A code like CM-BAY 4 reads as one word: never broken at its hyphen. */
+.cna-whs-code,
+.cna-whs-foot strong,
+.cna-whs-alert strong {
+    white-space: nowrap;
+}
