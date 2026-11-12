@@ -42,8 +42,8 @@ public sealed class SAPStuckReadHandler(
             return await base.SendAsync(request, cancellationToken);
         }
 
-        var key = $"{request.Method} {request.RequestUri!.AbsoluteUri}";
-        var path = request.RequestUri.AbsolutePath;
+        var key = SapStuckReadState.KeyOf(request);
+        var path = request.RequestUri!.AbsolutePath;
 
         if (!SapRequestPriority.IsInteractive && state.IsHeld(key, out var heldUntil))
         {
@@ -59,7 +59,7 @@ public sealed class SAPStuckReadHandler(
         {
             response = await base.SendAsync(request, cancellationToken);
         }
-        catch (OperationCanceledException) when (SapHadItFor(request) is { } atSap)
+        catch (OperationCanceledException) when (state.PresumedStuckAfter(request) is { } atSap)
         {
             StartHold(key, path, "gave no answer", atSap);
             throw;
@@ -70,7 +70,7 @@ public sealed class SAPStuckReadHandler(
             state.Release(key);
         }
         else if (response.StatusCode is HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout
-                 && SapHadItFor(request) is { } atSap)
+                 && state.PresumedStuckAfter(request) is { } atSap)
         {
             StartHold(key, path, $"answered {(int)response.StatusCode}", atSap);
         }
@@ -83,18 +83,6 @@ public sealed class SAPStuckReadHandler(
         && request.RequestUri is { IsAbsoluteUri: true } uri
         && uri.AbsolutePath.Contains("/SQLQueries(", StringComparison.Ordinal)
         && uri.AbsolutePath.EndsWith("/List", StringComparison.Ordinal);
-
-    /// <summary>How long SAP had the request, when that is long enough to presume it stuck; else null.</summary>
-    private TimeSpan? SapHadItFor(HttpRequestMessage request)
-    {
-        if (!SapRequestMarks.TryGetReachedSapAt(request, out var reachedAt))
-        {
-            return null;
-        }
-
-        var atSap = state.UtcNow - reachedAt;
-        return atSap >= SapStuckReadState.MinimumTimeAtSap ? atSap : null;
-    }
 
     private void StartHold(string key, string path, string outcome, TimeSpan atSap)
     {

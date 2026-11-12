@@ -54,6 +54,28 @@ public sealed class SapStuckReadState(IOptions<SAPSettings> settings, TimeProvid
 
     public DateTimeOffset UtcNow => timeProvider.GetUtcNow();
 
+    /// <summary>The key a read is held under: its method and whole URL, so another page is another read.</summary>
+    public static string KeyOf(HttpRequestMessage request) => $"{request.Method} {request.RequestUri!.AbsoluteUri}";
+
+    /// <summary>
+    /// How long SAP had <paramref name="request"/>, when that is long enough to presume SAP is still
+    /// working on it after it ended without an answer; otherwise null.
+    /// </summary>
+    /// <remarks>
+    /// Measured from <see cref="SapRequestMarks.MarkReachedSap"/>, so time spent queueing for a slot does
+    /// not count: a read that never reached SAP leaves nothing running there.
+    /// </remarks>
+    public TimeSpan? PresumedStuckAfter(HttpRequestMessage request)
+    {
+        if (!SapRequestMarks.TryGetReachedSapAt(request, out var reachedAt))
+        {
+            return null;
+        }
+
+        var atSap = UtcNow - reachedAt;
+        return atSap >= MinimumTimeAtSap ? atSap : null;
+    }
+
     /// <summary>Whether the read named by <paramref name="key"/> is held, and until when.</summary>
     public bool IsHeld(string key, out DateTimeOffset until)
     {

@@ -595,6 +595,23 @@ public sealed class RefreshWarehouseStockTests : IDisposable
     }
 
     [Fact]
+    public async Task A_retry_refused_because_SAP_is_still_busy_with_reads_of_its_kind_says_when_to_try_again()
+    {
+        await SeedRowAsync(Shop, Item, original: 100m, available: 100m);
+        _stockReadFailure = new SapReadFamilyFullException("STOCK_QTY", 2, HeldPath, HeldUntil);
+
+        var result = await RefreshAsync(Shop);
+
+        Assert.True(result.IsError);
+        Assert.Equal("Stock.SapUnavailable", result.FirstError.Code);
+        Assert.Contains("as many as this system lets it run at once", result.FirstError.Description);
+        Assert.Contains("Try again from 15:15.", result.FirstError.Description);
+        // The operator needs neither the query family nor the SAP URL.
+        Assert.DoesNotContain("STOCK_QTY", result.FirstError.Description);
+        Assert.Equal(100m, await AvailableAsync(Shop, Item));
+    }
+
+    [Fact]
     public async Task A_read_SAP_did_not_answer_says_when_its_hold_ends()
     {
         await SeedRowAsync(Shop, Item, original: 100m, available: 100m);

@@ -586,7 +586,7 @@ timeout), and the transient retry does not resend them. Reads a person is waitin
 sent: the invoice stock guard fails closed, and 269 of the 379 repeats did answer. This removes the
 repeats, not the stuck reads themselves. Why the Service Layer sticks is SAP's to fix.
 
-## 7c. `STK_ITEMS` reads stick when several run at once — at most three in flight
+## 7c. `STK_ITEMS` reads stick when several run at once — superseded by §7d
 
 Measured 2026-11-11 from the same access logs, 06:00–13:47 (before the hold above was deployed): of
 the 101 `STK_ITEMS` reads that took over a minute, **61 began while three or more other `STK_ITEMS`
@@ -598,15 +598,62 @@ after prefix bucket, and the overlap comes from several callers at once: the inv
 stock checks, transfer forms, the Web's stock refresh (`GetStockForItemsInWarehouse`) and the hourly
 `StockLedgerDivergenceJob`. So the limit sits in the SAP pipeline, which all of them pass through.
 
-`SAPStockItemsReadHandler`, next inside `SAPStuckReadHandler` in both SAP clients, lets at most
-`SAP:StockItemsMaxConcurrentReads` (3) `SQLQueries('STK_ITEMS_…')/List` reads reach SAP at once,
-from one process-wide `SapStockItemsReadGate`. It sits outside the circuit breaker and
-`SAPConcurrencyHandler`, so a read queued here holds none of the six slots, and its budget running out
-while it queues is not counted as SAP failing. **Background** reads wait for as long as their budget
-allows. A read a person is waiting on waits at most `SAP:StockItemsInteractiveMaxWaitSeconds` (10) and
-is then sent anyway, because the invoice stock guard fails closed. Waits of 2 s or more, and every read
-sent without a slot, are logged as warnings ("waited …ms for one of the 3 STK_ITEMS slots",
-"Sending … to SAP without a STK_ITEMS slot"). `0` turns the limit off.
+The first answer (PR #904, live from 2026-11-11 19:36) let at most three `STK_ITEMS` reads reach SAP
+at once, counting only the requests this API was still waiting on. It is replaced by §7d.
+
+## 7d. Every slow-prone family, at most two at SAP, counting reads SAP is still working on
+
+Measured 2026-11-12, 06:51–11:10, from this API's own log, with §7b and §7c both live: **82 reads were
+presumed stuck** — `WHS_BATCHES_VAN*` 42, `STK_ITEMS` 21, `DSK_INV_COST_RANGE` 16, `STOCK_QTY` 2, a
+price list 1. At 10:32 the Service Layer had 8 workers at full CPU and 22–45 GB; they were stopped by
+hand at 10:44.
+
+- **80 of the 82 began with no other stuck read of their family in flight from this API.** Each was
+  sent after the API had given up on the one before (at 60 s), while SAP carried on with it. A limit
+  that counts only requests in flight would have refused one of them — which is why the three-read
+  `STK_ITEMS` limit logged a single wait all morning. The 2026-11-11 measurement above counted every
+  read *the Service Layer* was running, including the ones every client had given up on.
+- **50 of the 82 were reads a person was waiting on**, which the §7b hold never refuses: 34 van
+  handsets loading their catalogue (`GET /api/product/warehouse/{van}/paged`, a whole-warehouse batch
+  read; 55 of the 146 page loads failed, and VAN004 and VAN005 got stuck ten times each), 11 van-sale
+  stock checks (which fall back to the van's own count) and 5 transfer-request forms. Background: 16
+  invoice-cost copies, 5 stock-ledger `STK_ITEMS` checks and 3 batch reads; 7 unknown.
+
+`SAPReadFamilyHandler` (replacing `SAPStockItemsReadHandler`, in the same place: next inside
+`SAPStuckReadHandler`, outside the breaker and `SAPConcurrencyHandler`) lets at most
+`SAP:ReadFamilies:<family>:MaxConcurrentReads` (2) reads of each family reach SAP at once, from one
+process-wide `SapReadFamilyGate`. The families are `STK_ITEMS`, `WHS_BATCHES`, `DSK_INV_COST_RANGE`
+and `STOCK_QTY`; a query code belongs to a family when it is the name or starts with the name and an
+underscore. `0`, or leaving a family out, turns its limit off.
+
+- **A read SAP is presumed to be still working on keeps its slot** for the §7b hold
+  (`SAP:StuckReadHoldMinutes`, 10), or until SAP answers the same URL. Same rule as the hold: SAP had
+  it at least 15 s and it was cancelled or answered 502/504.
+- **Background** reads wait at most `SAP:ReadFamilyBackgroundMaxWaitSeconds` (5) and are then refused
+  with `SapReadFamilyFullException`, a `TimeoutException` the transient retry does not resend (it shares
+  `SapReadNotSentException` with the hold's refusal). The jobs behind them try again on their next run.
+- **A read a person is waiting on** waits at most `SAP:ReadFamilyInteractiveMaxWaitSeconds` (10). Then
+  a `STK_ITEMS` read is sent anyway (`SendInteractiveWhenFull`), because the invoice stock guard reads
+  it and fails closed; any other family's read is refused, reaching the caller as a 504 after ten
+  seconds rather than sixty. Chosen 2026-11-12.
+- Nobody waits when every slot is kept for a stuck read: none frees within seconds.
+
+Replaying that morning's stuck reads with a limit of two and these rules: 16 of the 81 in these
+families would not have been sent (11 van catalogue loads, 3 invoice-cost copies, 2 other batch reads),
+and `WHS_BATCHES` would have been full for about 97 of the 252 minutes, `STK_ITEMS` 39 and
+`DSK_INV_COST_RANGE` 48. The replay sees only reads that got stuck (reads that answered are not logged
+with a start time), so it says nothing about how many answered reads would also have been refused.
+
+Logged: waits of 2 s or more ("waited …ms for one of the 2 WHS_BATCHES slots"), every refusal ("Not
+sending … to SAP: all 2 WHS_BATCHES slots are taken, 2 by reads SAP is presumed to be still working
+on"), every `STK_ITEMS` read sent without a slot, and each kept slot ("Keeping one of the 2 … slots").
+
+**How to measure it.** On KFLDB, as root over SSH, count Service Layer `httpd` workers over 50 % CPU and
+the Service Layer's total RSS, a few samples 30 s apart, morning and mid-afternoon; check
+`journalctl -k` for OOM kills of `hdbindexserver`. Compare with 2026-11-11 (13:20: 14 workers at full
+CPU, 37.6 GB; OOM kills at 12:37 and 14:13) and 2026-11-12 (10:32: 8 at full CPU, 22–45 GB). From the
+API log, count "presumed to be still working on it" by family per hour against 2026-11-12's 82 in
+4.3 hours, and "slots are taken" refusals by family, to see what the limit cost.
 
 ## 8. What is already good
 

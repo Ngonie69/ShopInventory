@@ -270,7 +270,7 @@ public sealed class RefreshWarehouseStockHandler(
                 ex switch
                 {
                     // Its own message names a SAP URL and a UTC time; the operator needs neither.
-                    SapReadStillRunningException =>
+                    SapReadNotSentException =>
                         $"{warehouseCode}'s stock could not be fetched from SAP. {WhenToTryAgain(ex)}",
                     TimeoutException =>
                         $"{warehouseCode}'s stock could not be fetched from SAP: {ex.Message.TrimEnd().TrimEnd('.')}. "
@@ -443,6 +443,13 @@ public sealed class RefreshWarehouseStockHandler(
         SapReadStillRunningException held =>
             "SAP is still working on the same read from earlier, so it was not asked again. "
             + $"Try again from {CatClock(held.HeldUntil)}.",
+
+        SapReadFamilyFullException { FirstSlotFreesAt: { } freesAt } =>
+            "SAP is still working on earlier stock reads of the same kind, as many as this system lets it "
+            + $"run at once, so it was not asked. Try again from {CatClock(freesAt)}.",
+
+        SapReadFamilyFullException =>
+            "SAP is busy with other stock reads of the same kind, so it was not asked. Try again in a minute.",
 
         TimeoutException when stuckReads.Enabled =>
             "SAP usually carries on with a read it did not answer, so try again from "
