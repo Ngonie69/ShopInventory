@@ -217,8 +217,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
 
     /// <summary>
     /// A credit memo raised without Copy From names its invoice in Customer Ref. No., and is filed against
-    /// it as the fiscal platform files it. There is no base invoice to read ahead of the conversion, so
-    /// nothing is read until the created credit note is.
+    /// it as the fiscal platform files it, and is weighed against that invoice before it is added.
     /// </summary>
     [Fact]
     public async Task A_draft_with_nothing_copied_is_fiscalised_against_the_invoice_in_Customer_Ref_No()
@@ -240,8 +239,8 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         Assert.DoesNotContain(nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync), sap.Calls);
         Assert.True(
             sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.GetInvoiceHeadersByDocNumAsync))
-                > sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync)),
-            "the invoice is looked up from the created credit note: " + string.Join(", ", sap.Calls));
+                < sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync)),
+            "the invoice in Customer Ref. No. is weighed against the draft before the add: " + string.Join(", ", sap.Calls));
     }
 
     /// <summary>
@@ -663,6 +662,196 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         Assert.Single(sap.Saves);
     }
 
+    // ── Over-credit ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A memo copied from an invoice with crate lines typed on top: SAP caps only the copied lines, so the
+    /// draft credits more than the invoice, and ZIMRA refuses it (RCPT035). Added, it could never be
+    /// fiscalised. The production case was USD 1,386.00 against an invoice of USD 1,155.00.
+    /// </summary>
+    [Fact]
+    public async Task A_draft_that_credits_more_than_its_invoice_is_refused_before_anything_is_written()
+    {
+        var sap = new RecordingSap(Approved(3110), OverInvoiceDraft(88123, total: 1386m)) { SaveReturns = 9001, InvoiceTotal = 1155m };
+        var audit = new RecordingAuditService();
+        var fiscal = new RecordingFiscalisation();
+
+        var result = await Handler(sap, fiscal, audit).Handle(Command(3110), CancellationToken.None);
+
+        Assert.True(result.IsError, "the add must be refused");
+        Assert.Equal("CreditNoteApproval.ExceedsInvoice", result.FirstError.Code);
+        Assert.Equal(ErrorType.Conflict, result.FirstError.Type);
+        Assert.Contains("USD 1,386.00", result.FirstError.Description);
+        Assert.Contains("invoice 5501 is USD 1,155.00", result.FirstError.Description);
+        Assert.Contains("Only USD 1,155.00 is left to credit", result.FirstError.Description);
+        Assert.Contains("ZIMRA", result.FirstError.Description);
+        Assert.Empty(sap.Saves);
+        Assert.Empty(fiscal.Calls);
+        Assert.DoesNotContain(nameof(ISAPServiceLayerClient.UpdateDraftLineQuantitiesAsync), sap.Calls);
+        var entry = Assert.Single(audit.Entries);
+        Assert.False(entry.Success);
+        Assert.Contains("USD 1,386.00", entry.Details);
+    }
+
+    /// <summary>
+    /// What earlier credit notes took off the invoice is gone: copied from it, or naming it in Customer
+    /// Ref. No. with nothing copied — the platform files both against it. A cancelled one, its
+    /// cancellation, and a credit note of another invoice take nothing.
+    /// </summary>
+    [Fact]
+    public async Task Earlier_credit_notes_against_the_invoice_use_up_what_is_left()
+    {
+        var copied = CreditNote(70001);
+        copied.DocNum = 61001;
+        copied.DocTotal = 600m;
+        var namedByReference = CreditNote(70002, [new SAPCreditNoteLine { LineNum = 0, ItemCode = "CRA001", Quantity = 1, BaseType = -1 }], numAtCard: "5501");
+        namedByReference.DocNum = 61002;
+        namedByReference.DocTotal = 300m;
+        var cancelled = CreditNote(70003);
+        cancelled.DocTotal = 900m;
+        cancelled.Cancelled = SapYesNo.Yes;
+        var cancellation = CreditNote(70004);
+        cancellation.DocTotal = 900m;
+        cancellation.CancelStatus = "csCancellation";
+        var otherInvoice = CreditNote(70005, [new SAPCreditNoteLine { LineNum = 0, ItemCode = "CHE011", Quantity = 1, BaseType = 13, BaseEntry = 77999 }]);
+        otherInvoice.DocTotal = 900m;
+        List<SAPCreditNote> earlier = [copied, namedByReference, cancelled, cancellation, otherInvoice];
+
+        var sap = new RecordingSap(Approved(3110), OverInvoiceDraft(88123, total: 245.60m))
+        {
+            SaveReturns = 9001,
+            InvoiceTotal = 1000m,
+            CustomerCreditNotes = earlier
+        };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.ExceedsInvoice", result.FirstError.Code);
+        Assert.Contains("credit notes 61001, 61002 have already credited USD 900.00", result.FirstError.Description);
+        Assert.Contains("Only USD 100.00 is left to credit", result.FirstError.Description);
+        Assert.Empty(sap.Saves);
+
+        // Exactly what is left fits.
+        var fits = new RecordingSap(Approved(3111), OverInvoiceDraft(88124, total: 100m))
+        {
+            SaveReturns = 9001,
+            DraftAfterSave = ClosedDraft(88124),
+            InvoiceTotal = 1000m,
+            CustomerCreditNotes = earlier
+        };
+        var added = await Handler(fits, new RecordingFiscalisation(), new RecordingAuditService()).Handle(Command(3111), CancellationToken.None);
+        Assert.False(added.IsError, string.Join("; ", added.Errors.Select(error => error.Description)));
+        Assert.Single(fits.Saves);
+    }
+
+    /// <summary>A memo with nothing copied is weighed against the invoice its Customer Ref. No. names.</summary>
+    [Fact]
+    public async Task A_draft_with_nothing_copied_is_weighed_against_the_invoice_in_Customer_Ref_No()
+    {
+        var draft = OpenDraft(88123);
+        draft.NumAtCard = "5501";
+        draft.DocTotal = 1200m;
+        draft.DocumentLines = [new SAPCreditNoteLine { LineNum = 0, ItemCode = "CRA001", Quantity = 1200, BaseType = -1 }];
+        var sap = new RecordingSap(Approved(3110), draft) { SaveReturns = 9001, InvoiceTotal = 1155m };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.ExceedsInvoice", result.FirstError.Code);
+        Assert.Empty(sap.Saves);
+    }
+
+    /// <summary>
+    /// The wash bay can bring an over-credit down by counting what came back. The total weighed is the
+    /// one the draft reads back with after the new quantities, not the one it was raised with.
+    /// </summary>
+    [Fact]
+    public async Task Lowering_the_quantities_to_fit_the_invoice_lets_the_draft_be_added()
+    {
+        var sap = new RecordingSap(Approved(3110), BasedCrateDraft(88123, 100m, 50m))
+        {
+            SaveReturns = 9001,
+            InvoiceTotal = 130m,
+            DraftAfterQuantityChange = BasedCrateDraft(88123, 80m, 50m),
+            DraftAfterSave = ClosedDraft(88123)
+        };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService())
+            .Handle(Command(3110, (0, 80m), (1, 50m)), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Single(sap.QuantityUpdates);
+        Assert.Single(sap.Saves);
+    }
+
+    /// <summary>
+    /// New quantities that still credit more than the invoice: they are on the draft by then, so the
+    /// refusal says so, and nothing is added.
+    /// </summary>
+    [Fact]
+    public async Task New_quantities_that_still_exceed_the_invoice_are_saved_but_not_added()
+    {
+        var sap = new RecordingSap(Approved(3110), BasedCrateDraft(88123, 100m, 50m))
+        {
+            SaveReturns = 9001,
+            InvoiceTotal = 120m,
+            DraftAfterQuantityChange = BasedCrateDraft(88123, 80m, 50m)
+        };
+        var audit = new RecordingAuditService();
+
+        var result = await Handler(sap, new RecordingFiscalisation(), audit)
+            .Handle(Command(3110, (0, 80m), (1, 50m)), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.ExceedsInvoice", result.FirstError.Code);
+        Assert.StartsWith("The new quantities were saved on draft 88123, but the credit note was not added.", result.FirstError.Description);
+        Assert.Contains("USD 130.00", result.FirstError.Description);
+        Assert.Single(sap.QuantityUpdates);
+        Assert.Empty(sap.Saves);
+        Assert.Contains(audit.Entries, entry => !entry.Success && entry.Details!.Contains("not added"));
+    }
+
+    /// <summary>Guessing wrong strands a credit note that cannot be fiscalised, so an unread invoice room refuses the add.</summary>
+    [Fact]
+    public async Task An_add_whose_invoice_room_cannot_be_read_is_refused_rather_than_guessed()
+    {
+        var sap = new RecordingSap(Approved(3110), OverInvoiceDraft(88123, total: 245.60m))
+        {
+            SaveReturns = 9001,
+            CustomerCreditNotesReadFails = true
+        };
+
+        var result = await Handler(sap, new RecordingFiscalisation(), new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.InvoiceRoomUnchecked", result.FirstError.Code);
+        Assert.Empty(sap.Saves);
+    }
+
+    /// <summary>A draft copied from invoice 77001, one copied line and one typed on top, carrying <paramref name="total"/>.</summary>
+    private static SAPCreditNote OverInvoiceDraft(int docEntry, decimal total)
+    {
+        var draft = OpenDraft(docEntry);
+        draft.DocTotal = total;
+        draft.DocumentLines =
+        [
+            new SAPCreditNoteLine { LineNum = 0, ItemCode = "CRA001", Quantity = 10, UnitPrice = 1m, BaseType = 13, BaseEntry = 77001, BaseLine = 0 },
+            new SAPCreditNoteLine { LineNum = 1, ItemCode = "CRA001", Quantity = 10, UnitPrice = 1m, BaseType = -1 }
+        ];
+        return draft;
+    }
+
+    /// <summary><see cref="CrateDraft"/> with its lines copied from invoice 77001.</summary>
+    private static SAPCreditNote BasedCrateDraft(int docEntry, decimal white, decimal black)
+    {
+        var draft = CrateDraft(docEntry, white, black);
+        foreach (var line in draft.DocumentLines!)
+        {
+            line.BaseType = 13;
+            line.BaseEntry = 77001;
+            line.BaseLine = line.LineNum;
+        }
+
+        return draft;
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -990,6 +1179,13 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         /// <summary>The added credit note's Customer Ref. No.</summary>
         public string? NumAtCard { get; init; }
 
+        /// <summary>Invoice 77001's total, which a credit note against it may not exceed.</summary>
+        public decimal InvoiceTotal { get; init; } = 1000m;
+
+        /// <summary>The customer's credit notes SAP holds since the invoice, earlier credits against it among them.</summary>
+        public List<SAPCreditNote> CustomerCreditNotes { get; init; } = [];
+        public bool CustomerCreditNotesReadFails { get; init; }
+
         /// <summary>What SAP answers the already-credited check with.</summary>
         public List<SAPCreditNote> AlreadyKeyed { get; init; } = [];
         public bool AlreadyKeyedReadFails { get; init; }
@@ -1059,13 +1255,17 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
             // which is a different number from the BaseEntry the credit note carries.
             nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync)
                 => Task.FromResult<Invoice?>((int)args![0]! == 77001
-                    ? new Invoice { DocEntry = 77001, DocNum = 5501, Comments = BaseInvoiceComments }
+                    ? new Invoice { DocEntry = 77001, DocNum = 5501, DocDate = "2026-11-09T00:00:00Z", CardCode = "SPA059", DocTotal = InvoiceTotal, DocCurrency = "USD", Comments = BaseInvoiceComments }
                     : null),
             // The same invoice found by the number a memo with nothing copied names in Customer Ref. No.
             nameof(ISAPServiceLayerClient.GetInvoiceHeadersByDocNumAsync)
                 => Task.FromResult((int)args![0]! == 5501
-                    ? new List<Invoice> { new() { DocEntry = 77001, DocNum = 5501, CardCode = "SPA059", Comments = BaseInvoiceComments } }
+                    ? new List<Invoice> { new() { DocEntry = 77001, DocNum = 5501, DocDate = "2026-11-09T00:00:00Z", CardCode = "SPA059", DocTotal = InvoiceTotal, DocCurrency = "USD", Comments = BaseInvoiceComments } }
                     : new List<Invoice>()),
+            nameof(ISAPServiceLayerClient.GetCreditNotesByCustomerAsync)
+                => CustomerCreditNotesReadFails
+                    ? throw new HttpRequestException("SAP is not answering")
+                    : Task.FromResult(CustomerCreditNotes.ToList()),
             _ => throw new InvalidOperationException($"{method.Name} was not expected.")
         };
 
