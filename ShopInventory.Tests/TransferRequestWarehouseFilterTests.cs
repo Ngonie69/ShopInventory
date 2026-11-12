@@ -78,7 +78,7 @@ public class TransferRequestWarehouseFilterTests
         var approvals = StubProxy.For<IInventoryTransferApprovalService>((method, _) =>
             method.Name == nameof(IInventoryTransferApprovalService.EnrichAsync) ? Task.CompletedTask : null);
         var handler = new GetPagedTransferRequestsHandler(
-            sapClient, approvals, Options.Create(new SAPSettings { Enabled = true }),
+            sapClient, approvals, SapApprovalStandIns.NoTemplateCovers(), Options.Create(new SAPSettings { Enabled = true }),
             NullLogger<GetPagedTransferRequestsHandler>.Instance);
 
         var result = await handler.Handle(

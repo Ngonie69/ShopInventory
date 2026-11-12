@@ -118,6 +118,16 @@ public class InventoryTransferRequestDto
     public string? ApprovalTemplateName { get; set; }
     public List<ApprovalStageProgressDto> ApprovalStages { get; set; } = [];
     public List<InventoryTransferRequestLineDto>? Lines { get; set; }
+
+    /// <summary>
+    /// SAP's own approval templates that cover this request's route: once approved here, converting it
+    /// saves a SAP draft for SAP's approval instead of posting. Empty when none does, when the route
+    /// touches a depot or a van, or when SAP's templates could not be read (<see cref="SapApprovalKnown"/>).
+    /// </summary>
+    public List<string> SapApprovalTemplates { get; set; } = [];
+
+    /// <summary>False when SAP's templates could not be read, so <see cref="SapApprovalTemplates"/> says nothing.</summary>
+    public bool SapApprovalKnown { get; set; }
 }
 
 /// <summary>
@@ -261,6 +271,22 @@ public class TransferRequestConvertedResponseDto
     public string Message { get; set; } = "Transfer request converted successfully";
     public int RequestDocEntry { get; set; }
     public InventoryTransferDto? Transfer { get; set; }
+
+    /// <summary>
+    /// Where the request stands with SAP's own approval, when one of SAP's transfer templates covers its
+    /// route: Saved (sent to SAP as a draft just now), AwaitingSapClient (the draft waits to be added in the
+    /// B1 client), Pending (SAP's approver has it), or Added (SAP approved it and it is now a transfer).
+    /// Null when SAP's approval does not apply.
+    /// </summary>
+    public string? SapApproval { get; set; }
+
+    /// <summary>The SAP draft the transfer waits in for SAP's approval.</summary>
+    public int? SapDraftDocEntry { get; set; }
+
+    public int? SapDraftDocNum { get; set; }
+
+    /// <summary>The SAP approval templates that cover the route.</summary>
+    public List<string> SapApprovalTemplates { get; set; } = [];
 }
 
 public class TransferRequestDecisionResponseDto

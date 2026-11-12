@@ -1,12 +1,18 @@
 using ShopInventory.Common.Stock;
 ﻿using Microsoft.Data.Sqlite;
+using ErrorOr;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.DTOs;
 using ShopInventory.Features.InventoryTransfers.Commands.ConvertTransferRequest;
+using ShopInventory.Features.InventoryTransfers.SapApproval;
+using ShopInventory.Features.SapTransferApprovals.Commands.AddApprovedSapTransfer;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -461,6 +467,240 @@ public sealed class TransferRequestConversionTests : IDisposable
         Assert.Equal(0, sap.Conversions);
     }
 
+    // ── SAP's own approval ──────────────────────────────
+    //
+    // CMB to CMFS is covered by SAP's template "Transfer To CMFS1" (query 337 on the test company).
+    // Once the app's approval is complete, the conversion sends it to SAP as a draft instead of
+    // posting, and reports the draft on every press until SAP approves it; then it adds it.
+
+    private const string ToCmfsQuery =
+        "SELECT Distinct 'TRUE' FROM OWTR T0 WHERE T0.\"ToWhsCode\"= $[OWTR.ToWhsCode] and T0.\"ToWhsCode\" = 'CMFS'";
+
+    [Fact]
+    public async Task A_request_on_a_route_SAP_approves_is_saved_to_SAP_as_a_draft_not_posted()
+    {
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var sap = SapCovered();
+        await ApproveEveryStageAsync(admin, sap);
+        var store = new AlwaysAcquiresStore();
+
+        var result = await Handler(sap, store).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Null(result.Value.Transfer);
+        Assert.Equal("Saved", result.Value.SapApproval);
+        Assert.Equal(501, result.Value.SapDraftDocNum);
+        Assert.Equal(["Transfer To CMFS1"], result.Value.SapApprovalTemplates);
+        Assert.Contains("draft 501", result.Value.Message);
+        Assert.Equal(0, sap.Conversions);
+
+        // The draft is the transfer posting would have made: same warehouses, lines and marker.
+        var draft = Assert.Single(sap.SavedDrafts);
+        Assert.Equal(("CMB", "CMFS"), (draft.FromWarehouse, draft.ToWarehouse));
+        Assert.Equal($"ITR-{RequestDocEntry}", draft.OrderNumber);
+        Assert.Equal(20, Assert.Single(draft.Lines!).Quantity);
+        Assert.StartsWith($"Converted from Transfer Request #{RequestDocEntry}.", draft.Comments);
+
+        // Still approved, not generated: nothing has moved. And not kept for replay, so the next
+        // press asks SAP again.
+        Assert.Equal(ApprovalRequestStatuses.Approved, Assert.Single(_context.ApprovalRequests).Status);
+        Assert.Empty(store.Completed);
+    }
+
+    [Theory]
+    [InlineData("sasWithout", "AwaitingSapClient", "waiting to be added in the SAP client")]
+    [InlineData("sasPending", "Pending", "waiting for SAP's approval")]
+    public async Task Converting_again_reports_the_draft_without_saving_another(string status, string state, string says)
+    {
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var sap = SapCovered(Draft(status));
+        await ApproveEveryStageAsync(admin, sap);
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Equal(state, result.Value.SapApproval);
+        Assert.Contains(says, result.Value.Message);
+        Assert.Null(result.Value.Transfer);
+        Assert.Empty(sap.SavedDrafts);
+        Assert.Empty(sap.Adds);
+        Assert.Equal(0, sap.Conversions);
+    }
+
+    [Fact]
+    public async Task A_draft_SAP_rejected_is_refused_and_nothing_moves()
+    {
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var sap = SapCovered(Draft("sasRejected"));
+        await ApproveEveryStageAsync(admin, sap);
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.SapApprovalRejected", result.FirstError.Code);
+        Assert.Empty(sap.SavedDrafts);
+        Assert.Empty(sap.Adds);
+        Assert.Equal(0, sap.Conversions);
+    }
+
+    [Fact]
+    public async Task Once_SAP_approves_the_draft_converting_adds_it()
+    {
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var sap = SapCovered(Draft("sasApproved"));
+        await ApproveEveryStageAsync(admin, sap);
+
+        var result = await Handler(sap).Handle(
+            new ConvertTransferRequestCommand(RequestDocEntry, admin.Id, Username: "ngoni"), default);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        var add = Assert.Single(sap.Adds);
+        Assert.Equal(90001, add.DraftEntry);
+        Assert.Equal("ngoni", add.Username);
+        Assert.Equal("Added", result.Value.SapApproval);
+        Assert.Equal(8801, result.Value.Transfer?.DocNum);
+        Assert.Empty(sap.SavedDrafts);
+        Assert.Equal(0, sap.Conversions);
+    }
+
+    [Fact]
+    public async Task A_draft_added_in_the_SAP_client_closes_the_request_without_another_draft()
+    {
+        // SAP approved it and its originator added it in B1: the transfer carries the marker.
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var sap = SapCovered(Draft("sasWithout", "bost_Close"));
+        sap = new RecordingSapClient
+        {
+            From = "CMB",
+            To = "CMFS",
+            Templates = sap.Templates,
+            Queries = sap.Queries,
+            Drafts = sap.Drafts,
+            InSap = new InventoryTransfer { DocEntry = 8800, DocNum = 8801, FromWarehouse = "CMB", ToWarehouse = "CMFS" }
+        };
+        await ApproveEveryStageAsync(admin, sap);
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Equal(8801, result.Value.Transfer?.DocNum);
+        Assert.Equal(1, sap.Closes);
+        Assert.Empty(sap.SavedDrafts);
+        Assert.Equal(0, sap.Conversions);
+        Assert.Equal(ApprovalRequestStatuses.Generated, Assert.Single(_context.ApprovalRequests).Status);
+    }
+
+    [Fact]
+    public async Task A_route_no_SAP_template_covers_posts_as_before()
+    {
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var covered = SapCovered();
+        var sap = new RecordingSapClient { From = "CMB", To = "CMH", Templates = covered.Templates, Queries = covered.Queries };
+        await ApproveEveryStageAsync(admin, sap);
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.NotNull(result.Value.Transfer);
+        Assert.Null(result.Value.SapApproval);
+        Assert.Equal(1, sap.Conversions);
+        Assert.Empty(sap.SavedDrafts);
+    }
+
+    [Fact]
+    public async Task A_van_request_never_reads_SAP_templates()
+    {
+        // KEFBYC to VAN010, the default route here: depots and vans convert as they always have.
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var sap = new RecordingSapClient { Templates = [AlwaysTemplate()] };
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.NotNull(result.Value.Transfer);
+        Assert.Equal(0, sap.TemplateReads);
+        Assert.Equal(1, sap.Conversions);
+    }
+
+    [Fact]
+    public async Task Nothing_is_converted_when_SAP_templates_cannot_be_read()
+    {
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var sap = new RecordingSapClient { From = "CMB", To = "CMFS", TemplateFailure = new HttpRequestException("SAP is down") };
+        await ApproveEveryStageAsync(admin, sap);
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.SapConnectionError", result.FirstError.Code);
+        Assert.Equal(0, sap.Conversions);
+        Assert.Empty(sap.SavedDrafts);
+    }
+
+    private static RecordingSapClient SapCovered(params SAPStockTransferDraft[] drafts) => new()
+    {
+        From = "CMB",
+        To = "CMFS",
+        Templates =
+        [
+            new SAPApprovalTemplateCondition
+            {
+                Code = 71,
+                Name = "Transfer To CMFS1",
+                IsActive = "tYES",
+                UseTerms = "tYES",
+                ApprovalTemplateDocuments = [new SAPApprovalTemplateDocument { DocumentType = "atdtInventoryTransfer" }],
+                ApprovalTemplateQueries = [new SAPApprovalTemplateQuery { QueryID = 337 }]
+            }
+        ],
+        Queries = { [337] = ToCmfsQuery },
+        Drafts = [.. drafts]
+    };
+
+    private static SAPApprovalTemplateCondition AlwaysTemplate() => new()
+    {
+        Code = 6,
+        Name = "Stock transfer",
+        IsActive = "tYES",
+        UseTerms = "tNO",
+        ApprovalTemplateDocuments = [new SAPApprovalTemplateDocument { DocumentType = "atdtInventoryTransfer" }]
+    };
+
+    private static SAPStockTransferDraft Draft(string authorizationStatus, string documentStatus = "bost_Open") => new()
+    {
+        DocEntry = 90001,
+        DocNum = 501,
+        DocObjectCode = "67",
+        DocumentStatus = documentStatus,
+        AuthorizationStatus = authorizationStatus,
+        FromWarehouse = "CMB",
+        ToWarehouse = "CMFS",
+        U_OrderNumber = $"ITR-{RequestDocEntry}"
+    };
+
+    /// <summary>
+    /// Completes the app's own approval of the request <paramref name="sap"/> serves, one stage at a time,
+    /// without generating — so the press under test is the one that reaches SAP.
+    /// </summary>
+    private async Task ApproveEveryStageAsync(User admin, RecordingSapClient sap)
+    {
+        var context = ApprovalDocumentContext.ForTransferRequest(sap.Request());
+        await ApprovalService().EnsureRequestAsync(context, null, default);
+        for (var round = 0; round < 5; round++)
+        {
+            var (_, stages) = await ApprovalService().GetProgressAsync(context, default);
+            var pending = stages.FirstOrDefault(stage => stage.Status == ApprovalRequestStatuses.Pending);
+            if (pending is null)
+                break;
+
+            var decided = await Handler(sap).Handle(
+                new ConvertTransferRequestCommand(RequestDocEntry, admin.Id, pending.StageId, null, false), default);
+            Assert.False(decided.IsError, string.Join("; ", decided.Errors.Select(error => error.Description)));
+        }
+
+        Assert.Equal(ApprovalRequestStatuses.Approved, Assert.Single(_context.ApprovalRequests).Status);
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     private Task<ApprovalRequestEntity> OpenApprovalAsync(User originator)
@@ -504,8 +744,13 @@ public sealed class TransferRequestConversionTests : IDisposable
             // No till has sold from Source, so the stock check must not even be asked.
             StubProxy.Unused<IStockValidationService>(),
             new UnpostedTillClaims(_context, Options.Create(new DailyStockSettings()), NullLogger<UnpostedTillClaims>.Instance),
+            new SapTransferApprovalRoutes(sap.AsClient(), _templateCache, NullLogger<SapTransferApprovalRoutes>.Instance),
+            sap.AsSender(),
             Options.Create(new SAPSettings { Enabled = true }),
             NullLogger<ConvertTransferRequestHandler>.Instance);
+
+    /// <summary>SAP's templates are kept between presses, as the application keeps them.</summary>
+    private readonly IMemoryCache _templateCache = new MemoryCache(new MemoryCacheOptions());
 
     /// <summary>
     /// Answers the two calls a conversion makes and counts the conversions, so a test can assert
@@ -515,6 +760,20 @@ public sealed class TransferRequestConversionTests : IDisposable
     {
         public int Conversions { get; private set; }
         public int Closes { get; private set; }
+
+        public string From { get; init; } = Source;
+        public string To { get; init; } = Destination;
+
+        /// <summary>SAP's approval templates and the queries they name.</summary>
+        public List<SAPApprovalTemplateCondition> Templates { get; init; } = [];
+        public Dictionary<int, string> Queries { get; init; } = [];
+        public Exception? TemplateFailure { get; init; }
+        public int TemplateReads { get; private set; }
+
+        /// <summary>The drafts carrying the request's marker, newest first.</summary>
+        public List<SAPStockTransferDraft> Drafts { get; init; } = [];
+        public List<CreateInventoryTransferRequest> SavedDrafts { get; } = [];
+        public List<AddApprovedSapTransferCommand> Adds { get; } = [];
 
         /// <summary>What the lookup by order number finds: a transfer an earlier conversion made.</summary>
         public InventoryTransfer? InSap { get; init; }
@@ -527,17 +786,90 @@ public sealed class TransferRequestConversionTests : IDisposable
                 nameof(ISAPServiceLayerClient.FindStockTransferByOrderNumberAsync) => Find((string)args![0]!),
                 nameof(ISAPServiceLayerClient.CloseInventoryTransferRequestAsync) => Close(),
                 nameof(ISAPServiceLayerClient.GetInventoryTransferRequestByDocEntryAsync) =>
-                    (object)Task.FromResult<InventoryTransferRequest?>(new InventoryTransferRequest
-                    {
-                        DocEntry = RequestDocEntry,
-                        DocNum = RequestDocEntry,
-                        DocumentStatus = "bost_Open",
-                        FromWarehouse = Source,
-                        ToWarehouse = Destination
-                    }),
+                    (object)Task.FromResult<InventoryTransferRequest?>(Request()),
                 nameof(ISAPServiceLayerClient.ConvertTransferRequestToTransferAsync) => Convert(),
+                nameof(ISAPServiceLayerClient.GetApprovalTemplateConditionsAsync) => ReadTemplates(),
+                nameof(ISAPServiceLayerClient.GetUserQueriesAsync) => Task.FromResult(
+                    ((IReadOnlyCollection<int>)args![0]!)
+                        .Where(Queries.ContainsKey)
+                        .Select(key => new SAPUserQuery { InternalKey = key, QueryCategory = 19, Query = Queries[key] })
+                        .ToList()),
+                nameof(ISAPServiceLayerClient.FindStockTransferDraftsByOrderNumberAsync) =>
+                    Task.FromResult(Drafts.Where(draft => draft.U_OrderNumber == (string)args![0]!).ToList()),
+                nameof(ISAPServiceLayerClient.CreateStockTransferDraftAsync) => SaveDraft((CreateInventoryTransferRequest)args![0]!),
+                nameof(ISAPServiceLayerClient.GetInventoryTransferByDocEntryAsync) =>
+                    Task.FromResult<InventoryTransfer?>(new InventoryTransfer
+                    {
+                        DocEntry = (int)args![0]!,
+                        DocNum = 8801,
+                        FromWarehouse = From,
+                        ToWarehouse = To
+                    }),
                 _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
             });
+
+        /// <summary>The mediator, as far as the conversion uses it: the add of a SAP-approved draft.</summary>
+        public ISender AsSender() =>
+            StubProxy.For<ISender>((method, args) => args?[0] switch
+            {
+                AddApprovedSapTransferCommand add => AddDraft(add),
+                _ => throw new InvalidOperationException($"Unexpected request: {args?[0]?.GetType().Name}")
+            });
+
+        public InventoryTransferRequest Request() => new()
+        {
+            DocEntry = RequestDocEntry,
+            DocNum = RequestDocEntry,
+            DocumentStatus = "bost_Open",
+            DocDate = "2026-11-11",
+            FromWarehouse = From,
+            ToWarehouse = To,
+            StockTransferLines =
+            [
+                new InventoryTransferRequestLine { LineNum = 0, ItemCode = "ICA004", Quantity = 20, FromWarehouseCode = From, WarehouseCode = To }
+            ]
+        };
+
+        private Task<List<SAPApprovalTemplateCondition>> ReadTemplates()
+        {
+            TemplateReads++;
+            return TemplateFailure is null
+                ? Task.FromResult(Templates.ToList())
+                : Task.FromException<List<SAPApprovalTemplateCondition>>(TemplateFailure);
+        }
+
+        private Task<SAPStockTransferDraft> SaveDraft(CreateInventoryTransferRequest transfer)
+        {
+            SavedDrafts.Add(transfer);
+            return Task.FromResult(new SAPStockTransferDraft
+            {
+                DocEntry = 90001,
+                DocNum = 501,
+                DocObjectCode = "67",
+                DocumentStatus = "bost_Open",
+                AuthorizationStatus = "sasWithout",
+                FromWarehouse = transfer.FromWarehouse,
+                ToWarehouse = transfer.ToWarehouse,
+                U_OrderNumber = transfer.OrderNumber
+            });
+        }
+
+        private Task<ErrorOr<AddApprovedSapTransferResultDto>> AddDraft(AddApprovedSapTransferCommand add)
+        {
+            Adds.Add(add);
+            return Task.FromResult<ErrorOr<AddApprovedSapTransferResultDto>>(new AddApprovedSapTransferResultDto
+            {
+                DraftEntry = add.DraftEntry,
+                DraftNum = 501,
+                FromWarehouse = From,
+                ToWarehouse = To,
+                TransferDocEntry = 8800,
+                TransferDocNum = 8801,
+                Resolved = true,
+                ClosedRequestDocNums = [RequestDocEntry],
+                Message = $"Inventory transfer #8801 added to SAP from draft 501. Transfer request #{RequestDocEntry} is closed."
+            });
+        }
 
         private Task<InventoryTransfer?> Find(string orderNumber)
         {
@@ -596,8 +928,13 @@ public sealed class TransferRequestConversionTests : IDisposable
         public Task<bool> RenewAsync(long requestId, TimeSpan lease, CancellationToken cancellationToken)
             => Task.FromResult(true);
 
+        public List<long> Completed { get; } = [];
+
         public Task CompleteAsync<TResponse>(long requestId, TResponse response, CancellationToken cancellationToken)
-            => Task.CompletedTask;
+        {
+            Completed.Add(requestId);
+            return Task.CompletedTask;
+        }
 
         public Task ReleaseAsync(long requestId, CancellationToken cancellationToken) => Task.CompletedTask;
 

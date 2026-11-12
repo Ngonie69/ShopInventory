@@ -18,6 +18,20 @@ otherwise be surprised.
 
 ### Changed
 
+- **Converting a transfer request on a route SAP's own approval covers no longer posts the transfer.**
+  Where an active SAP approval template on inventory transfers would hold the route (for example
+  "Transfer To CMFS1" for anything into CMFS), and the route touches no depot or van, Convert — once
+  the request's approval in the app is complete — saves the transfer to SAP as a draft instead. Someone
+  adds that draft in the SAP client, which is when SAP's template holds it for its approver; once SAP
+  approves it, Convert (or SAP-Held Transfers) posts it and closes the request. `POST
+  /api/InventoryTransfer/request/{docEntry}/convert` and the approval decision route answer 200 with
+  `transfer: null` and the new `sapApproval`, `sapDraftDocEntry`, `sapDraftDocNum` and
+  `sapApprovalTemplates` fields meanwhile; a client that read `transfer: null` as "awaiting approval in
+  the app" should read `sapApproval` too. A draft SAP rejected answers 409
+  `InventoryTransfer.SapApprovalRejected`. Depot and van requests convert exactly as before. Each draft
+  line names the item's inventory unit (`UoMEntry`), because SAP refuses a transfer draft without one
+  ("specify a UoM code"); posted transfers are unchanged.
+
 - **Credit memo fiscalisation no longer stops at a memo held for REVMax.** When REVMax could not be
   asked whether it filed a memo's original invoice, the scheduled sweep (`sap-credit-note-fiscalisation`)
   ended the whole pass. That memo was the oldest, so it came first every pass, and no newer memo was

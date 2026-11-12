@@ -383,7 +383,8 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         if (userId is null)
             return Unauthorized();
 
-        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry, userId.Value), cancellationToken);
+        var result = await mediator.Send(
+            new ConvertTransferRequestCommand(docEntry, userId.Value, Username: User.Identity?.Name), cancellationToken);
         return result.Match(
             value => value.Transfer is null
                 ? Ok(value)

@@ -1,3 +1,4 @@
+using ShopInventory.Features.InventoryTransfers.SapApproval;
 using ShopInventory.Models;
 
 namespace ShopInventory.IntegrationTests;
@@ -190,5 +191,97 @@ public class SapTransferApprovalReadTests(SapClientFixture fixture)
 
         var after = await fixture.Client.GetStockTransfersAfterAsync(newest.Value - 5, transfer.FromWarehouse, transfer.ToWarehouse);
         Assert.Contains(after, found => found.DocEntry == newest.Value);
+    }
+
+    /// <summary>
+    /// Every active SAP template on inventory transfers must be one the app can answer for a route:
+    /// a conversion on a route a template it cannot read covers would post past SAP's approval. Run it
+    /// against production (SAP__CompanyDB) before relying on the conversion rule there.
+    /// </summary>
+    [SapFact]
+    public async Task Every_active_transfer_template_condition_can_be_answered_for_a_route()
+    {
+        var templates = (await fixture.Client.GetApprovalTemplateConditionsAsync())
+            .Where(template => template.IsActive == "tYES"
+                && (template.ApprovalTemplateDocuments ?? []).Any(document => document.DocumentType == "atdtInventoryTransfer"))
+            .ToList();
+        Assert.False(templates.Count == 0, "SAP holds no active approval template on inventory transfers.");
+
+        var queries = (await fixture.Client.GetUserQueriesAsync(
+                templates.SelectMany(template => template.ApprovalTemplateQueries ?? []).Select(query => query.QueryID).ToList()))
+            .GroupBy(query => query.InternalKey)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        var unreadable = templates
+            .Select(template => SapTransferApprovalRoutes.Compile(template, queries))
+            .Where(template => template.Unreadable.Count > 0)
+            .Select(template => $"#{template.Code} '{template.Name}': {string.Join("; ", template.Unreadable)}")
+            .ToList();
+
+        Assert.True(unreadable.Count == 0, string.Join(Environment.NewLine, unreadable));
+    }
+
+    /// <summary>
+    /// The reading of a template checked against SAP's own decisions: every transfer draft SAP held
+    /// under a template — read here from the approved queue and the approval requests behind it — must
+    /// be on a route the app says that same template covers. A miss means a conversion on that route
+    /// would post past SAP's approval.
+    /// </summary>
+    /// <remarks>
+    /// Only the last year of SAP's decisions is compared: templates get re-pointed. On KEFALOS_TEST_3
+    /// (read 2026-11-12) template #69 "CMFS Stock Transfers" held transfers into CMFS from Aug to Oct
+    /// 2022 and only transfers out of CMFS since; its 2022 drafts are still in the approved queue, and
+    /// they are the three of 84 the template as it reads today does not cover.
+    /// </remarks>
+    [SapFact]
+    public async Task Every_transfer_SAP_held_is_on_a_route_its_template_covers_here()
+    {
+        var templates = (await fixture.Client.GetApprovalTemplateConditionsAsync())
+            .Where(template => template.IsActive == "tYES"
+                && (template.ApprovalTemplateDocuments ?? []).Any(document => document.DocumentType == "atdtInventoryTransfer"))
+            .ToList();
+        var queries = (await fixture.Client.GetUserQueriesAsync(
+                templates.SelectMany(template => template.ApprovalTemplateQueries ?? []).Select(query => query.QueryID).ToList()))
+            .GroupBy(query => query.InternalKey)
+            .ToDictionary(group => group.Key, group => group.ToList());
+        var compiled = templates.ToDictionary(template => template.Code, template => SapTransferApprovalRoutes.Compile(template, queries));
+
+        var (drafts, _) = await fixture.Client.GetApprovedStockTransferDraftsAsync(1, 100, filter: TransfersOnly);
+        var byEntry = drafts.ToDictionary(draft => draft.DocEntry);
+        var requests = await fixture.Client.GetStockTransferApprovalRequestsAsync(byEntry.Keys.ToList());
+        var newest = requests.Select(request => DateTime.TryParse(request.CreationDate, out var created) ? created : DateTime.MinValue).DefaultIfEmpty().Max();
+        var since = newest.AddYears(-1);
+
+        var checkedCount = 0;
+        var misses = new List<string>();
+        foreach (var request in requests)
+        {
+            if (request.DraftEntry is not int draftEntry || !byEntry.TryGetValue(draftEntry, out var draft) ||
+                request.ApprovalTemplatesID is not int templateCode || !compiled.TryGetValue(templateCode, out var template))
+            {
+                continue; // a template since switched off says nothing about today's routes
+            }
+
+            if (!DateTime.TryParse(request.CreationDate, out var held) || held < since)
+            {
+                continue;
+            }
+
+            checkedCount++;
+            if (!template.Holds(draft.FromWarehouse, draft.ToWarehouse))
+                misses.Add($"draft {draft.DocNum} {draft.FromWarehouse}->{draft.ToWarehouse} held by #{template.Code} '{template.Name}'");
+        }
+
+        Assert.True(checkedCount > 0, "No approved transfer draft is held by a template that is still active, so nothing was compared.");
+        Assert.True(misses.Count == 0, $"{misses.Count} of {checkedCount}:{Environment.NewLine}{string.Join(Environment.NewLine, misses)}");
+    }
+
+    [SapFact]
+    public async Task Transfer_drafts_are_looked_up_by_their_order_number_marker()
+    {
+        // No request has DocEntry 0, so nothing carries ITR-0: SAP must accept the filter and answer empty.
+        var drafts = await fixture.Client.FindStockTransferDraftsByOrderNumberAsync("ITR-0");
+
+        Assert.Empty(drafts);
     }
 }

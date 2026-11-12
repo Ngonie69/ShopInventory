@@ -55,6 +55,14 @@ public class Item
     [JsonPropertyName("ManageSerialNumbers")]
     public string? ManageSerialNumbers { get; set; }
 
+    /// <summary>The item's UoM group (<c>OITM.UgpEntry</c>); -1 is the manual group.</summary>
+    [JsonPropertyName("UoMGroupEntry")]
+    public int? UoMGroupEntry { get; set; }
+
+    /// <summary>The unit the item is stocked in (<c>OITM.IUoMEntry</c>), which a transfer counts in.</summary>
+    [JsonPropertyName("InventoryUoMEntry")]
+    public int? InventoryUoMEntry { get; set; }
+
     [JsonPropertyName("QuantityOnStock")]
     public decimal QuantityOnStock { get; set; }
 

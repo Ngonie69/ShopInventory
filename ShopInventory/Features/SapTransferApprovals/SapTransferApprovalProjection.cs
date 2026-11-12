@@ -1,6 +1,7 @@
 using ShopInventory.DTOs;
 using ShopInventory.Features.CreditNoteApprovals;
 using ShopInventory.Models;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.SapTransferApprovals;
 
@@ -65,11 +66,18 @@ internal static class SapTransferApprovalProjection
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    /// <summary>The transfer requests the draft's lines were copied from in the B1 client.</summary>
+    /// <summary>
+    /// The transfer requests the draft was made from: those its lines were copied from in the B1 client,
+    /// and the one a conversion in this app saved it for SAP's approval from, named by its
+    /// <c>ITR-{DocEntry}</c> marker. Either way the request is closed once the draft is added.
+    /// </summary>
     public static IReadOnlyList<int> LinkedRequestEntries(SAPStockTransferDraft draft) =>
         (draft.StockTransferLines ?? [])
             .Where(line => SapStockTransferBaseTypes.IsTransferRequest(line.BaseType) && line.BaseEntry is > 0)
             .Select(line => line.BaseEntry!.Value)
+            .Concat(IsTransferDraft(draft) && InventoryTransferRequestConversion.RequestDocEntryFrom(draft.U_OrderNumber) is int marked
+                ? [marked]
+                : [])
             .Distinct()
             .Order()
             .ToList();
