@@ -1269,6 +1269,13 @@
                folds a whole day into one invoice per customer. There is still no endpoint that
                excludes a sale from the close, and no receipt PDF is kept for one. *@
             <div class="ops-drawer-foot">
+                @{ var footReason = FootReason(selectedSale); }
+                @if (footReason is not null)
+                {
+                    @* First in the row so it takes the free space on the left and the buttons keep
+                       their place on the right. *@
+                    <span class="ops-ds-foot-why">@footReason</span>
+                }
                 <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseDrawer">Close</button>
                 @if (string.Equals(selectedSale.FiscalizationStatus, "Success", StringComparison.OrdinalIgnoreCase))
                 {
@@ -1332,12 +1339,6 @@
                             <span>Post without receipt</span>
                         }
                     </button>
-                }
-                else if (!string.IsNullOrWhiteSpace(selectedSale.PostRefusal) && !selectedSale.CanRetryFiscalisation)
-                {
-                    @* The reason stands in the button's place rather than a disabled button
-                       standing there greyed out with nothing to explain it. *@
-                    <span class="ops-ds-foot-why">@selectedSale.PostRefusal</span>
                 }
             </div>
         </aside>
@@ -1767,6 +1768,35 @@
         canWrite && (sale.CanPostToSap || CanPostWithoutReceipt(sale));
 
     private bool CanRetryFiscal(DesktopSaleDto sale) => canWrite && sale.CanRetryFiscalisation;
+
+    /// <summary>
+    /// The sentence the drawer footer shows when a button someone would look for is not there, or null.
+    /// </summary>
+    /// <remarks>
+    /// A sale that failed or is still pending fiscalisation is looked at for its Retry button first, so
+    /// when the API refuses the retry its reason comes first. It used to be shown only when no post
+    /// button stood in its place, and "Post without receipt" always did for an Admin, so a sale marked
+    /// for reconciliation sat "Fiscal Failed" with no Retry and no word on why. The post refusal still
+    /// stands in for a missing post button, as before.
+    /// </remarks>
+    private string? FootReason(DesktopSaleDto sale)
+    {
+        var unsigned =
+            string.Equals(sale.FiscalizationStatus, "Failed", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(sale.FiscalizationStatus, "Pending", StringComparison.OrdinalIgnoreCase);
+
+        if (unsigned && !string.IsNullOrWhiteSpace(sale.FiscaliseRefusal))
+        {
+            return sale.FiscaliseRefusal;
+        }
+
+        var postButtonShown = (canWrite && sale.CanPostToSap) || CanPostWithoutReceipt(sale);
+        return !postButtonShown &&
+               !sale.CanRetryFiscalisation &&
+               !string.IsNullOrWhiteSpace(sale.PostRefusal)
+            ? sale.PostRefusal
+            : null;
+    }
 
     // A row is ticked for either verb. Fiscalisation failures used to have no box, so a day of them
     // meant opening each one and pressing Retry in its drawer.
