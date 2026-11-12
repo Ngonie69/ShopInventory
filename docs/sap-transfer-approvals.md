@@ -159,9 +159,21 @@ every active transfer template there is readable, and SAP's own decisions agree 
 drafts held by a still-active template, 81 are on a route the app says that template covers; the other
 3 are 2022 drafts of template #69 "CMFS Stock Transfers", which held transfers *into* CMFS until Oct 2022
 and has held only transfers *out of* CMFS since (so the test compares the last year only).
-**Production's templates have not been read**; run
-`Every_active_transfer_template_condition_can_be_answered_for_a_route` and
-`Every_transfer_SAP_held_is_on_a_route_its_template_covers_here` with `SAP__CompanyDB` set to it first.
+**Production (`KEFALOS_USD_NEW2`), read 2026-11-12, reads only.** Both of those tests pass with
+`SAP__CompanyDB` set to it. Read through the app's own client and parser:
+
+- 83 approval templates, 40 of them active on inventory transfers. Every one of the 40 is the
+  one-query shape above (template #59 "Graniteside Centre" has two queries), and all 40 are readable.
+- SAP's own decisions: 3,894 approval requests on transfers were created from 1 Oct 2026. The 3,796
+  under a template still active are all on a route the app says that template holds; the other 98
+  were under templates since switched off.
+- What Convert now does with the newest 1,000 requests (30 Sep – 11 Nov 2026): 676 touch a depot or
+  a van and convert as before, 3 are on no template's route, and **321 go to SAP as a draft**, about
+  7 or 8 a day. Of those 321: WAREH to the production warehouses 192 ("Trans From Warehouse" with
+  "Prod transfers", "Icecream Approval" or "Transfers to Yoghurt"), WASHBAY or DISPYOG to PROYG 2 53,
+  CMB to CMFS 30, into the dispatch warehouses 37, and 9 others.
+- The open queue holds more than 3,000 requests, back to June 2025; of the newest 3,000, 1,494 are on
+  a covered route.
 
 **What a conversion does** (`ConvertTransferRequestHandler`, after the app's approval is complete and
 the `ITR-{DocEntry}` transfer lookup found nothing):
@@ -197,15 +209,12 @@ client, the app's approval stood in as complete:
 - A CMFS → CMB request was refused before any write: the test company holds no CMFS batches of
   its items.
 
-**Not yet proven, in order:**
-
-1. That adding the app's draft in the B1 client starts SAP's approval for it (the B1 user must be on the
-   template's originator list; in production about 1,250 of 6,644 transfers between 14 Sep and 8 Nov
-   matched a template but were keyed by someone not on it, and went through unheld), and whether
-   SAP keeps the same draft or makes a copy (the marker lookup handles either). The run's draft on
-   `KEFALOS_TEST_3` is waiting for exactly this: add it in the B1 client as a user on the
-   "Trans From Warehouse" template's originator list.
-2. Production's templates, as above.
+**Not yet proven:** that adding the app's draft in the B1 client starts SAP's approval for it (the B1
+user must be on the template's originator list; in production about 1,250 of 6,644 transfers between
+14 Sep and 8 Nov matched a template but were keyed by someone not on it, and went through unheld), and
+whether SAP keeps the same draft or makes a copy (the marker lookup handles either). The run's draft on
+`KEFALOS_TEST_3` is waiting for exactly this: add it in the B1 client as a user on the
+"Trans From Warehouse" template's originator list.
 
 ## The add has not been run against SAP
 
