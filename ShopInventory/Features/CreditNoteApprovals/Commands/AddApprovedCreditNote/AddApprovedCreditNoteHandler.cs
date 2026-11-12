@@ -42,6 +42,7 @@ public sealed class AddApprovedCreditNoteHandler(
     IStockLedger stockLedger,
     IIdempotencyRequestStore idempotencyRequestStore,
     ICreditNoteAlreadyCreditedIndex alreadyCreditedIndex,
+    ISapApprovalLookups lookups,
     IAuditService auditService,
     IOptions<SAPSettings> sapSettings,
     IOptions<CreditNoteApprovalSettings> approvalSettings,
@@ -264,6 +265,15 @@ public sealed class AddApprovedCreditNoteHandler(
 
             var creditNote = identified
                 ?? (createdDocEntry is int entry ? await TryReadCreditNoteAsync(entry) : null);
+
+            // The memo is created under the app's SAP account, so its Remarks name who raised the draft.
+            // The read-back copy keeps the remarks it was added with: they are the reason the fiscal
+            // receipt files, and the sync job picks the new remarks up for the projection.
+            if (docEntry is int addedEntry)
+            {
+                await TryNoteRaisedByAsync(addedEntry, creditNote?.Comments ?? draft.Comments, request.OriginatorID ?? draft.UserSign, command.Code);
+            }
+
             if (creditNote is not null)
             {
                 await TryProjectAsync(creditNote);
@@ -482,6 +492,53 @@ public sealed class AddApprovedCreditNoteHandler(
             UserMessage = result.Success ? null : result.UserMessage,
             ReceiptGlobalNo = result.ReceiptGlobalNo
         };
+    }
+
+    /// <summary>
+    /// Appends "Raised by …" to the added credit memo's Remarks. Best effort: the credit note exists
+    /// whatever happens here, and a memo without the name is only less informative.
+    /// </summary>
+    private async Task TryNoteRaisedByAsync(int docEntry, string? comments, int? originatorId, int code)
+    {
+        SAPUser? originator = null;
+        if (originatorId is int userId)
+        {
+            try
+            {
+                originator = await lookups.GetUserAsync(userId, CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                // Still worth naming by key: "SAP user 31" can be looked up, a blank cannot.
+                logger.LogWarning(exception, "Could not read SAP user {UserId}, who raised approval request {Code}", userId, code);
+            }
+        }
+
+        var raisedBy = CreditNoteRaisedByRemark.Describe(originator, originatorId);
+        if (raisedBy is null)
+        {
+            logger.LogWarning("Approval request {Code} names nobody who raised it, so credit note {DocEntry}'s remarks are left alone", code, docEntry);
+            return;
+        }
+
+        var remarks = CreditNoteRaisedByRemark.Append(comments, raisedBy);
+        if (remarks is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await sap.UpdateCreditNoteFieldsAsync(
+                docEntry,
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["Comments"] = remarks },
+                CancellationToken.None);
+            logger.LogInformation("Credit note {DocEntry} from approval request {Code}: remarks now say \"{RaisedBy}\"", docEntry, code, raisedBy);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Credit note {DocEntry} was added, but \"{RaisedBy}\" could not be written to its remarks", docEntry, raisedBy);
+        }
     }
 
     private async Task TryProjectAsync(SAPCreditNote creditNote)

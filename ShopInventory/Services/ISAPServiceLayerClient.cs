@@ -780,6 +780,11 @@ public interface ISAPServiceLayerClient
     Task<List<SAPCreditNote>> GetPagedCreditNotesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<SAPCreditNote?> GetCreditNoteByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
     Task<SAPCreditNote?> GetCreditNoteByDocNumAsync(int docNum, CancellationToken cancellationToken = default);
+
+    /// <summary>Sets text header fields on an existing credit memo (PATCH). Fields not named are left as they are.</summary>
+    Task UpdateCreditNoteFieldsAsync(
+        int docEntry, IReadOnlyDictionary<string, string> fields, CancellationToken cancellationToken = default);
+
     Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);

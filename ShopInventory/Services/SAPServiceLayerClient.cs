@@ -2439,6 +2439,35 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
     }
 
+    public async Task UpdateCreditNoteFieldsAsync(
+        int docEntry,
+        IReadOnlyDictionary<string, string> fields,
+        CancellationToken cancellationToken = default)
+    {
+        await BeforeSendAsync(EnsureAuthenticatedAsync(cancellationToken));
+        var currentSession = _sessionId;
+
+        var patchPayload = JsonSerializer.Serialize(fields);
+        var url = $"CreditNotes({docEntry})";
+
+        var response = await _httpClient.SendAsync(CreateSapJsonRequest(HttpMethod.Patch, url, patchPayload), cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
+            response = await _httpClient.SendAsync(CreateSapJsonRequest(HttpMethod.Patch, url, patchPayload), cancellationToken);
+        }
+
+        using var responseOwner = response;
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new Exception($"Failed to update credit note {docEntry}: {response.StatusCode} - {errorContent}");
+        }
+    }
+
     public async Task<Invoice?> GetInvoiceByDocNumAsync(
         int docNum,
         CancellationToken cancellationToken = default)

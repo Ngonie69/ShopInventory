@@ -136,6 +136,14 @@ characters** (error 207, counted before percent-encoding). A page of 24 pairs wi
 clause went over on production and the whole check failed. Pairs now share one date bound per read, and the
 caller compares each note against its own draft's day.
 
+## The credit warehouse
+
+Returns go to `WASHBAY`. The drawer shows the warehouse every line credits into (a fact beside the
+dates, and a Whse column on the lines), and when any line names another warehouse it says so in a
+notice above the reason, again beside the Approve button, and in the add confirm. Nothing is refused:
+some returns may rightly go elsewhere, and the warehouse is corrected in SAP, not here. The expected
+code is `CreditNoteReturnWarehouse.Expected` in the Web.
+
 ## What happens on the add
 
 0. **Quantities, if the person changed any.** The page offers each line's quantity as a box once the
@@ -151,9 +159,16 @@ caller compares each note against its own draft's day.
 2. The new credit note's DocEntry comes from SAP's answer when it names the document, else from the
    request's `ObjectEntry`. If neither names it the add still succeeds, unresolved, and the projection
    sync job surfaces the document within minutes.
-3. The credit note is read back and written through to the local projection, so the Credit Notes list
+3. Once the memo is found, its Remarks get ` | Raised by <name> (<user code>)` after the reason, with
+   `PATCH CreditNotes(n)`. SAP records the app's own SAP account as the memo's creator, so without this nobody could tell from
+   the document who keyed the return. The name is the approval request's originator (the draft's
+   `UserSign` if the request names none), looked up in OUSR; if SAP cannot name them it says `SAP user
+   <key>`. The reason is shortened to keep the note inside ORIN.Comments' 254 characters. Best effort:
+   a refused PATCH is logged and the add stands. The fiscal receipt still files the reason alone, and
+   the local projection shows the note once the sync job next reads the memo.
+4. The credit note as read back is written through to the local projection, so the Credit Notes list
    shows it at once.
-4. It is fiscalised through `IFiscalizationService.FiscalizeCreditNoteAsync` and the fiscal transaction is
+5. It is fiscalised through `IFiscalizationService.FiscalizeCreditNoteAsync` and the fiscal transaction is
    recorded (`DocumentType = CreditNote`, `SourceSystem = CreditNoteApprovalAdd`) — that row is what makes
    the Credit Notes list say "Fiscalised". A failure is an Exception Center incident
    (`Source = credit-note-fiscalization`); the add stands.

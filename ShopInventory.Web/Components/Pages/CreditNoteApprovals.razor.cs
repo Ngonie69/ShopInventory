@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.JSInterop;
 using MudBlazor;
 using ShopInventory.Web.Data;
+using ShopInventory.Web.Features.CreditNoteApprovals;
 using ShopInventory.Web.Features.CreditNoteApprovals.Commands.AddApprovedCreditNote;
 using ShopInventory.Web.Features.CreditNoteApprovals.Commands.DecideCreditNoteApproval;
 using ShopInventory.Web.Features.CreditNoteApprovals.Queries.GetCreditNoteApproval;
@@ -742,6 +743,37 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
     /// <summary>The draft's quantities may be changed: the request is ready to add and this person may add it.</summary>
     private bool CanEditQuantities => mayAdd && detail?.Request.CanAdd == true;
+
+    /// <summary>Every warehouse the open draft credits stock into, in line order.</summary>
+    private IReadOnlyList<string> CreditWarehouses =>
+        detail is null ? [] : CreditNoteReturnWarehouse.Used(detail.Lines);
+
+    /// <summary>The warehouses the open draft credits into other than the wash bay's.</summary>
+    private IReadOnlyList<string> UnusualWarehouses =>
+        detail is null ? [] : CreditNoteReturnWarehouse.Unusual(detail.Lines);
+
+    private static string JoinWarehouses(IReadOnlyList<string> codes) => codes.Count switch
+    {
+        0 => "—",
+        1 => codes[0],
+        _ => string.Join(", ", codes.Take(codes.Count - 1)) + " and " + codes[^1],
+    };
+
+    /// <summary>What the approver should do about an unusual warehouse at the step the request is at.</summary>
+    private static string UnusualWarehouseAdvice(CreditNoteApprovalListItemDto request)
+    {
+        if (request.CanDecide && request.CanApprove)
+        {
+            return "Check it is right before approving. If it is wrong, reject it so the draft is corrected in SAP.";
+        }
+
+        if (request.CanAdd)
+        {
+            return "Check it is right before adding. If it is wrong, correct the draft's warehouse in SAP first.";
+        }
+
+        return "Check the credit note's warehouse in SAP.";
+    }
 
     private static string FormatQuantityInput(decimal quantity) =>
         quantity.ToString("0.######", CultureInfo.InvariantCulture);

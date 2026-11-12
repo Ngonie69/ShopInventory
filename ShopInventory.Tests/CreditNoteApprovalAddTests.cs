@@ -800,6 +800,51 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         Assert.DoesNotContain(nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync), sap.Calls);
     }
 
+    /// <summary>
+    /// SAP records the app's own account as the memo's creator, so the remarks name who raised the
+    /// draft. The receipt still files the reason alone: the name is for SAP's readers, not ZIMRA's.
+    /// </summary>
+    [Fact]
+    public async Task Adding_writes_who_raised_the_draft_into_the_credit_notes_remarks()
+    {
+        var sap = new RecordingSap(Approved(3110), OpenDraft(88123)) { SaveReturns = 9001, DraftAfterSave = ClosedDraft(88123) };
+        var fiscal = new RecordingFiscalisation();
+
+        var result = await Handler(sap, fiscal, new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        var update = Assert.Single(sap.CreditNoteUpdates);
+        Assert.Equal(9001, update.DocEntry);
+        Assert.Equal("Damaged goods | Raised by Jane Moyo (jmoyo)", Assert.Single(update.Fields, field => field.Key == "Comments").Value);
+        Assert.Single(update.Fields);
+
+        Assert.Equal("Damaged goods", Assert.Single(fiscal.Calls).Document.Comments);
+        Assert.True(
+            sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.UpdateCreditNoteFieldsAsync)) > sap.Calls.IndexOf(nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync)),
+            "the remarks are written to the credit note, after the add, never to the draft");
+    }
+
+    /// <summary>The name is a courtesy: SAP refusing it, or not knowing the user, never fails the add.</summary>
+    [Fact]
+    public async Task Remarks_that_cannot_be_written_leave_the_add_standing()
+    {
+        var refused = new RecordingSap(Approved(3110), OpenDraft(88123)) { SaveReturns = 9001, DraftAfterSave = ClosedDraft(88123), RefuseCreditNoteUpdates = true };
+        var refusedResult = await Handler(refused, new RecordingFiscalisation(), new RecordingAuditService()).Handle(Command(3110), CancellationToken.None);
+
+        Assert.False(refusedResult.IsError);
+        Assert.Equal(9001, refusedResult.Value.CreditNoteDocEntry);
+
+        // A user SAP cannot name is still named by key, which can be looked up. Another request, so the
+        // idempotency store does not replay the first add.
+        var unknown = new RecordingSap(Approved(3111), OpenDraft(88123)) { SaveReturns = 9001, DraftAfterSave = ClosedDraft(88123) };
+        var lookups = new FakeSapApprovalLookups { Unavailable = true };
+        var unknownResult = await Handler(unknown, new RecordingFiscalisation(), new RecordingAuditService(), lookups: lookups)
+            .Handle(Command(3111), CancellationToken.None);
+
+        Assert.False(unknownResult.IsError);
+        Assert.Equal("Damaged goods | Raised by SAP user 31", Assert.Single(unknown.CreditNoteUpdates).Fields["Comments"]);
+    }
+
     /// <summary>Quantities that match the draft change nothing, so the draft is added untouched.</summary>
     [Fact]
     public async Task Quantities_equal_to_the_drafts_leave_the_draft_alone()
@@ -824,7 +869,8 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         IIdempotencyRequestStore? store = null,
         IStockLedger? ledger = null,
         ICreditNoteApprovalStageScope? scope = null,
-        FakeAlreadyCreditedIndex? index = null) => new(
+        FakeAlreadyCreditedIndex? index = null,
+        FakeSapApprovalLookups? lookups = null) => new(
         _context,
         sap.AsClient(),
         scope ?? FixedStageScope.EveryStage,
@@ -839,10 +885,19 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         ledger ?? Ledger(),
         store ?? Store(),
         index ?? FakeAlreadyCreditedIndex.Empty,
+        lookups ?? Lookups(),
         audit,
         Options.Create(new SAPSettings { Enabled = true }),
         Options.Create(new CreditNoteApprovalSettings { FiscaliseAfterAdd = fiscaliseAfterAdd }),
         NullLogger<AddApprovedCreditNoteHandler>.Instance);
+
+    /// <summary>SAP user 31, who raised every request here unless a test says otherwise.</summary>
+    private static FakeSapApprovalLookups Lookups()
+    {
+        var lookups = new FakeSapApprovalLookups();
+        lookups.Users[31] = new SAPUser { InternalKey = 31, UserCode = "jmoyo", UserName = "Jane Moyo" };
+        return lookups;
+    }
 
     private StockLedger Ledger()
         => new(_context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance);
@@ -910,7 +965,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
 
     private static SAPApprovalRequest WithStatus(int code, string status) => new()
     {
-        Code = code, ObjectType = SapObjectTypes.CreditNote, Status = status, DraftEntry = 88123, CurrentStage = 4
+        Code = code, ObjectType = SapObjectTypes.CreditNote, Status = status, DraftEntry = 88123, CurrentStage = 4, OriginatorID = 31
     };
 
     private static SAPCreditNote ClosedDraft(int docEntry)
@@ -995,6 +1050,11 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         public bool AlreadyKeyedReadFails { get; init; }
 
         public List<(int DraftEntry, CancellationToken Token)> Saves { get; } = [];
+
+        /// <summary>Every header PATCH of a credit memo, with the fields it set.</summary>
+        public List<(int DocEntry, IReadOnlyDictionary<string, string> Fields)> CreditNoteUpdates { get; } = [];
+
+        public bool RefuseCreditNoteUpdates { get; init; }
         public List<SAPCreditNote> Projected { get; } = [];
 
         /// <summary>Every SAP call, in the order it was made.</summary>
@@ -1049,6 +1109,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
             nameof(ISAPServiceLayerClient.GetNewestCreditNoteForCustomerAsync)
                 => Task.FromResult(NewestPast((int)args![1]!)),
             nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync) => Save(args!),
+            nameof(ISAPServiceLayerClient.UpdateCreditNoteFieldsAsync) => UpdateCreditNote(args!),
             nameof(ISAPServiceLayerClient.GetCreditNotesByCustomerTotalsAsync)
                 => AlreadyKeyedReadFails
                     ? throw new HttpRequestException("SAP is not answering")
@@ -1091,6 +1152,17 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
 
             QuantityUpdates.Add(((int)args[0]!, (IReadOnlyList<SapDraftLineQuantityChange>)args[1]!, (CancellationToken)args[2]!));
             _quantitiesChanged = true;
+            return Task.CompletedTask;
+        }
+
+        private Task UpdateCreditNote(object?[] args)
+        {
+            if (RefuseCreditNoteUpdates)
+            {
+                throw new HttpRequestException("SAP refused the remarks");
+            }
+
+            CreditNoteUpdates.Add(((int)args[0]!, (IReadOnlyDictionary<string, string>)args[1]!));
             return Task.CompletedTask;
         }
 

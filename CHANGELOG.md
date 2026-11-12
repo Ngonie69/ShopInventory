@@ -18,6 +18,12 @@ otherwise be surprised.
 
 ### Changed
 
+- **A credit memo added from an approved draft names who raised it in its Remarks.** `POST
+  /api/credit-note-approvals/{code}/add` now appends ` | Raised by <name> (<user code>)` to the new
+  credit memo's Remarks (ORIN.Comments) after SAP adds it, because SAP records the app's own account
+  as its creator. Anything that reads a credit memo's Remarks verbatim will see the extra text; the
+  fiscal receipt does not.
+
 - **Every odometer reading is kilometres; the per-route Miles setting is gone.** CBD, West 1 and
   Bulawayo UPC were set to read miles, and every report multiplied their readings by 1.609. Their
   readings are now taken as kilometres like every other truck's, so their reported distances (and km
