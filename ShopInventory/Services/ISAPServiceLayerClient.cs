@@ -1256,6 +1256,28 @@ public interface ISAPServiceLayerClient
     /// </remarks>
     Task<int?> SaveStockTransferDraftToDocumentAsync(int draftDocEntry, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Every SAP approval template with its document types, conditions and the user queries they name
+    /// — what decides whether SAP would hold an inventory transfer between two warehouses.
+    /// </summary>
+    Task<List<SAPApprovalTemplateCondition>> GetApprovalTemplateConditionsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>The user queries (OUQR) with these internal keys, with their SQL text.</summary>
+    Task<List<SAPUserQuery>> GetUserQueriesAsync(IReadOnlyCollection<int> internalKeys, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The inventory transfer drafts (<c>DocObjectCode 67</c>) carrying <paramref name="orderNumber"/> in
+    /// <c>U_OrderNumber</c>, newest first, headers only.
+    /// </summary>
+    Task<List<SAPStockTransferDraft>> FindStockTransferDraftsByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves an inventory transfer as a SAP draft (<c>POST StockTransferDrafts</c>) with the lines and
+    /// batch picks <see cref="CreateInventoryTransferAsync(CreateInventoryTransferRequest, CancellationToken)"/>
+    /// would post. No stock moves.
+    /// </summary>
+    Task<SAPStockTransferDraft> CreateStockTransferDraftAsync(CreateInventoryTransferRequest request, CancellationToken cancellationToken = default);
+
     // Quotation Operations (from SAP)
     Task<List<SAPQuotation>> GetQuotationsFromSAPAsync(CancellationToken cancellationToken = default);
     Task<List<SAPQuotation>> GetPagedQuotationsFromSAPAsync(int page, int pageSize, CancellationToken cancellationToken = default);

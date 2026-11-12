@@ -563,6 +563,55 @@ public sealed class InventoryTransferBatchSerialAllocationTests
         Assert.Equal(0, sap.TransferPosts);
     }
 
+    /// <summary>
+    /// A draft names each line's unit; a posted transfer still names none. SAP refused a draft of
+    /// a request on the test company without one (1470000315, "specify a UoM code") although the
+    /// same lines post with none, so the draft names the inventory unit posting would have counted in.
+    /// </summary>
+    [Fact]
+    public async Task A_draft_line_names_the_items_inventory_unit_and_a_posted_line_names_none()
+    {
+        var sap = new AllocationServiceLayer
+        {
+            Items =
+            {
+                ["ITEM-A"] = (Batch: false, Serial: false),
+                ["ITEM-M"] = (Batch: false, Serial: false)
+            },
+            InventoryUnits =
+            {
+                ["ITEM-A"] = (Group: 3, Entry: 7),
+                ["ITEM-M"] = (Group: -1, Entry: -1)
+            }
+        };
+        var client = CreateClient(sap);
+        CreateInventoryTransferRequest Transfer() => new()
+        {
+            FromWarehouse = "WH-1",
+            ToWarehouse = "WH-2",
+            Lines =
+            [
+                new() { ItemCode = "ITEM-A", Quantity = 4 },
+                new() { ItemCode = "ITEM-M", Quantity = 2 }
+            ]
+        };
+
+        await client.CreateStockTransferDraftAsync(Transfer(), CancellationToken.None);
+        using (var draft = JsonDocument.Parse(sap.PostedDraft!))
+        {
+            Assert.Equal("67", draft.RootElement.GetProperty("DocObjectCode").GetString());
+            var lines = draft.RootElement.GetProperty("StockTransferLines");
+            Assert.Equal(7, lines[0].GetProperty("UoMEntry").GetInt32());
+            Assert.False(lines[1].TryGetProperty("UoMEntry", out _), "a manual-unit item has no unit to name");
+        }
+
+        await client.CreateInventoryTransferAsync(Transfer(), CancellationToken.None);
+        using var posted = JsonDocument.Parse(sap.PostedTransfer!);
+        Assert.All(
+            posted.RootElement.GetProperty("StockTransferLines").EnumerateArray(),
+            line => Assert.False(line.TryGetProperty("UoMEntry", out _), "posting is unchanged"));
+    }
+
     private static TransferPreFetchedData PreFetched(params (string ItemCode, string BatchNumber, decimal Quantity)[] batches)
     {
         var prefetched = new TransferPreFetchedData();
@@ -608,6 +657,9 @@ public sealed class InventoryTransferBatchSerialAllocationTests
     {
         public Dictionary<string, (bool Batch, bool Serial)> Items { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Items' UoM group and inventory unit, for the items that report them.</summary>
+        public Dictionary<string, (int Group, int Entry)> InventoryUnits { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>Items the bulk metadata read leaves out, as SAP does when a read partly fails.</summary>
         public HashSet<string> OmitFromBulkMetadata { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -629,6 +681,7 @@ public sealed class InventoryTransferBatchSerialAllocationTests
         public string? PatchReplacesCollections { get; private set; }
         public int TransferPosts { get; private set; }
         public string? PostedTransfer { get; private set; }
+        public string? PostedDraft { get; private set; }
 
         /// <summary>The (batch number, quantity) pairs posted for one line, in payload order.</summary>
         public List<(string BatchNumber, decimal Quantity)> PostedBatchAllocations(int lineIndex)
@@ -720,6 +773,13 @@ public sealed class InventoryTransferBatchSerialAllocationTests
                 return Json($"{{\"value\":[{string.Join(",", rows)}]}}");
             }
 
+            if (target.EndsWith("/StockTransferDrafts", StringComparison.Ordinal) &&
+                request.Method == HttpMethod.Post)
+            {
+                PostedDraft = await request.Content!.ReadAsStringAsync(cancellationToken);
+                return Json("{\"DocEntry\":301,\"DocNum\":401,\"DocObjectCode\":\"67\"}", HttpStatusCode.Created);
+            }
+
             if (target.EndsWith("/StockTransfers", StringComparison.Ordinal) &&
                 request.Method == HttpMethod.Post)
             {
@@ -734,9 +794,9 @@ public sealed class InventoryTransferBatchSerialAllocationTests
             throw new InvalidOperationException($"Unexpected SAP request: {request.Method} {target}");
         }
 
-        private static string ItemJson(string itemCode, (bool Batch, bool Serial) flags) =>
+        private string ItemJson(string itemCode, (bool Batch, bool Serial) flags) =>
             $$"""
-              {"ItemCode":"{{itemCode}}","ManageBatchNumbers":"{{(flags.Batch ? "tYES" : "tNO")}}","ManageSerialNumbers":"{{(flags.Serial ? "tYES" : "tNO")}}"}
+              {"ItemCode":"{{itemCode}}","ManageBatchNumbers":"{{(flags.Batch ? "tYES" : "tNO")}}","ManageSerialNumbers":"{{(flags.Serial ? "tYES" : "tNO")}}"{{(InventoryUnits.TryGetValue(itemCode, out var unit) ? $",\"UoMGroupEntry\":{unit.Group},\"InventoryUoMEntry\":{unit.Entry}" : "")}}}
               """;
 
         private static HttpResponseMessage Json(

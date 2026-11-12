@@ -105,6 +105,67 @@ public class SAPApprovalTemplate
     public string? IsActive { get; set; }
 }
 
+/// <summary>
+/// An approval template (OWTM) as far as its trigger goes: which documents it covers, whether it has
+/// conditions, and the user queries those conditions are.
+/// </summary>
+public class SAPApprovalTemplateCondition
+{
+    [JsonPropertyName("Code")]
+    public int Code { get; set; }
+
+    [JsonPropertyName("Name")]
+    public string? Name { get; set; }
+
+    /// <summary>tYES or tNO.</summary>
+    [JsonPropertyName("IsActive")]
+    public string? IsActive { get; set; }
+
+    /// <summary>tYES when the template applies only "when the following applies"; tNO means always.</summary>
+    [JsonPropertyName("UseTerms")]
+    public string? UseTerms { get; set; }
+
+    [JsonPropertyName("ApprovalTemplateDocuments")]
+    public List<SAPApprovalTemplateDocument>? ApprovalTemplateDocuments { get; set; }
+
+    /// <summary>Plain-term conditions (document total, quantity …). Counted only: none can be answered for a transfer before it exists.</summary>
+    [JsonPropertyName("ApprovalTemplateTerms")]
+    public List<System.Text.Json.JsonElement>? ApprovalTemplateTerms { get; set; }
+
+    [JsonPropertyName("ApprovalTemplateQueries")]
+    public List<SAPApprovalTemplateQuery>? ApprovalTemplateQueries { get; set; }
+}
+
+public class SAPApprovalTemplateDocument
+{
+    /// <summary><c>atdtInventoryTransfer</c>, <c>atdtInventoryTransferRequest</c>, …</summary>
+    [JsonPropertyName("DocumentType")]
+    public string? DocumentType { get; set; }
+}
+
+public class SAPApprovalTemplateQuery
+{
+    /// <summary>The user query's <c>InternalKey</c>.</summary>
+    [JsonPropertyName("QueryID")]
+    public int QueryID { get; set; }
+}
+
+/// <summary>A saved user query (OUQR).</summary>
+public class SAPUserQuery
+{
+    [JsonPropertyName("InternalKey")]
+    public int InternalKey { get; set; }
+
+    [JsonPropertyName("QueryCategory")]
+    public int QueryCategory { get; set; }
+
+    [JsonPropertyName("QueryDescription")]
+    public string? QueryDescription { get; set; }
+
+    [JsonPropertyName("Query")]
+    public string? Query { get; set; }
+}
+
 /// <summary>An approval stage (OWST) and the users allowed to decide it.</summary>
 public class SAPApprovalStage
 {

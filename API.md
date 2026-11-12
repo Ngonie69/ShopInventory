@@ -1943,6 +1943,25 @@ runs at a time, whoever asks: a second answers 409 `InventoryTransfer.Conversion
 cannot be searched, nothing is posted and the call answers `InventoryTransfer.SapConnectionError`.
 Transfers converted before the marker existed, or in the SAP client, carry none and are not found.
 
+**SAP's own approval.** When the request's route is one an active SAP approval template on inventory
+transfers covers — and neither end, nor any line's warehouse, is a depot (KEFGRC, CORMACH, KEFBYC and
+their shops) or a van — a conversion whose approval here is complete does not post. It saves the
+transfer to SAP as a draft carrying `ITR-{docEntry}`, and the call answers 200 with `transfer: null`
+and these fields (null or empty when SAP's approval does not apply):
+
+| Field | Meaning |
+|---|---|
+| `sapApproval` | `Saved` (sent to SAP just now), `AwaitingSapClient` (the draft waits to be added in the B1 client, which is what starts SAP's approval), `Pending` (SAP's approver has it), `Added` (SAP approved it and this call added it; `transfer` is set) |
+| `sapDraftDocEntry`, `sapDraftDocNum` | The SAP draft |
+| `sapApprovalTemplates` | The SAP templates covering the route |
+
+Converting again finds the draft by its marker and never saves a second one. Once SAP has approved it,
+the call adds it through the SAP-held transfers add (§50a), which closes the request. A draft SAP's
+approver rejected answers 409 `InventoryTransfer.SapApprovalRejected`. If SAP's templates cannot be
+read (and none were read in the last 12 hours), nothing is posted: `InventoryTransfer.SapConnectionError`.
+See `docs/sap-transfer-approvals.md`. The request reads (`GET .../requests`, `.../requests/{warehouseCode}`,
+`.../request/{docEntry}`) carry `sapApprovalTemplates` and `sapApprovalKnown` on each open request.
+
 `POST /api/InventoryTransfer/request/{docEntry}/close` turns a request down, and closes the SAP
 document either way. For a request raised directly in SAP that is the whole of it — there is no
 approval to decide, so nothing is routed and no stage can refuse the caller. For a request raised

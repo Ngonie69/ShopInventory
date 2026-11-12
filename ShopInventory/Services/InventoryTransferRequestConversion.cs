@@ -29,6 +29,18 @@ public static class InventoryTransferRequestConversion
     public static string OrderNumberFor(int requestDocEntry) => $"ITR-{requestDocEntry}";
 
     /// <summary>
+    /// The request DocEntry an <see cref="OrderNumberFor"/> marker names, or null when
+    /// <paramref name="orderNumber"/> is not one.
+    /// </summary>
+    public static int? RequestDocEntryFrom(string? orderNumber)
+        => orderNumber is { } value &&
+           value.Trim().StartsWith("ITR-", StringComparison.OrdinalIgnoreCase) &&
+           int.TryParse(value.Trim()[4..], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var docEntry) &&
+           docEntry > 0
+            ? docEntry
+            : null;
+
+    /// <summary>
     /// The earliest date a transfer made from this request can carry. Every conversion is dated on
     /// or after the request, so the lookup never needs to read further back than this.
     /// </summary>

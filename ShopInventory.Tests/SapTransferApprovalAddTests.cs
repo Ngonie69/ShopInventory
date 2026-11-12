@@ -396,6 +396,34 @@ public sealed class SapTransferApprovalAddTests : IDisposable
         Assert.Equal((22788, 151700, 112500), (generated.RequestDocEntry, generated.TransferDocEntry, generated.TransferDocNum));
     }
 
+    /// <summary>
+    /// A draft a conversion here saved for SAP's approval copies nothing in SAP's sense — it is posted
+    /// fresh, as the conversion posts — and names its request by the <c>ITR-{DocEntry}</c> marker
+    /// instead. Adding it must close that request just the same.
+    /// </summary>
+    [Fact]
+    public async Task The_request_a_conversion_sent_to_SAP_for_approval_is_closed_after_the_add()
+    {
+        var admin = await UserAsync(ApplicationRoles.Admin);
+        var draft = HeldTransfers.Draft(
+            90001, "CMB", "CMFS",
+            HeldTransfers.Line(0, "ICA004", 20m, "CMB", "CMFS"));
+        draft.U_OrderNumber = InventoryTransferRequestConversion.OrderNumberFor(4101);
+        var request = HeldTransfers.Request(80001, 90001);
+        var sap = new FakeTransferSap(draft, request) { RequestsAfterSave = [request.Generated(151800)] };
+        sap.Transfers[151800] = HeldTransfers.TransferLike(draft, 151800, 112600);
+        sap.TransferRequests[4101] = HeldTransfers.OpenRequest(4101, 10834, "CMB", "CMFS");
+        var approvals = new RecordingTransferApprovals();
+
+        var result = await Handler(sap, approvals: approvals).Handle(Command(90001, admin), CancellationToken.None);
+
+        Assert.False(result.IsError, Describe(result));
+        Assert.Equal([4101], sap.ClosedRequests);
+        Assert.Equal([10834], result.Value.ClosedRequestDocNums);
+        var generated = Assert.Single(approvals.Generated);
+        Assert.Equal((4101, 151800, 112600), (generated.RequestDocEntry, generated.TransferDocEntry, generated.TransferDocNum));
+    }
+
     [Fact]
     public async Task A_request_sap_closed_itself_is_not_closed_twice_and_one_that_will_not_close_is_said()
     {

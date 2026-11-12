@@ -394,7 +394,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // IncomingPayment.DocTotal is computed from them. Dropping them to save payload would silently
     // understate every non-cash payment.
     private const string IncomingPaymentSelect = "$select=DocEntry,DocNum,DocDate,DueDate,CardCode,CardName,DocCurrency,CashSum,CashSumFC,TransferSum,Remarks,JournalRemarks,TransferReference,TransferDate,TransferAccount,CashAccount,CounterReference,Cancelled,PaymentInvoices,PaymentChecks,PaymentCreditCards";
-    private const string ItemSelect = "$select=ItemCode,ItemName,ItemType,ItemsGroupCode,BarCode,ManageBatchNumbers,ManageSerialNumbers,QuantityOnStock,QuantityOrderedFromVendors,QuantityOrderedByCustomers,InventoryUOM,SalesUnit,PurchaseUnit,DefaultWarehouse,U_ItemGroup";
+    private const string ItemSelect = "$select=ItemCode,ItemName,ItemType,ItemsGroupCode,BarCode,ManageBatchNumbers,ManageSerialNumbers,UoMGroupEntry,InventoryUoMEntry,QuantityOnStock,QuantityOrderedFromVendors,QuantityOrderedByCustomers,InventoryUOM,SalesUnit,PurchaseUnit,DefaultWarehouse,U_ItemGroup";
 
     /// <summary>Rows per request when walking a document list.</summary>
     private const int DocumentListPageSize = 500;
@@ -11949,7 +11949,7 @@ ORDER BY T0."DocEntry"
                     " or ",
                     safeItemCodes.Select(code => $"ItemCode eq '{code}'"));
                 var endpoint =
-                    "Items?$select=ItemCode,ManageBatchNumbers,ManageSerialNumbers" +
+                    "Items?$select=ItemCode,ManageBatchNumbers,ManageSerialNumbers,UoMGroupEntry,InventoryUoMEntry" +
                     $"&$filter=({itemFilter})&$top={chunk.Length}";
 
                 var requestSession = _sessionId;
@@ -12113,6 +12113,77 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         CreateInventoryTransferRequest request,
         TransferPreFetchedData? preFetchedData,
         CancellationToken cancellationToken = default)
+    {
+        var responseContent = await SendInventoryTransferAsync(request, preFetchedData, asDraft: false, cancellationToken);
+
+        var createdTransfer = JsonSerializer.Deserialize<InventoryTransfer>(responseContent);
+
+        _logger.LogInformation("Inventory transfer created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}",
+            createdTransfer?.DocEntry, createdTransfer?.DocNum);
+
+        // Published here, at the one method every transfer goes through, rather than from the callers:
+        // desktop integration, market breakages, the posting job, the pending-transfer poster and
+        // request conversion all create transfers, and publishing from any one of them would have
+        // described a fifth of the stock that moves.
+        //
+        // After the success branch only. A transfer SAP refused moved nothing, and the throws in
+        // SendInventoryTransferAsync have already left by then.
+        if (createdTransfer != null && _webhookEventPublisher != null)
+        {
+            await _webhookEventPublisher.PublishAsync(
+                WebhookEventTypes.StockTransfer,
+                new
+                {
+                    docEntry = createdTransfer.DocEntry,
+                    docNum = createdTransfer.DocNum,
+                    docDate = createdTransfer.DocDate,
+                    fromWarehouse = createdTransfer.FromWarehouse,
+                    toWarehouse = createdTransfer.ToWarehouse,
+                    lineCount = createdTransfer.StockTransferLines?.Count ?? 0,
+                    comments = createdTransfer.Comments
+                });
+        }
+
+        return createdTransfer ?? throw new Exception("Failed to deserialize created inventory transfer");
+    }
+
+    /// <summary>
+    /// Saves the inventory transfer <paramref name="request"/> describes as a SAP draft instead of
+    /// posting it: the same lines, batch and serial picks and header as
+    /// <see cref="CreateInventoryTransferAsync(CreateInventoryTransferRequest, CancellationToken)"/>
+    /// would post, but no stock moves.
+    /// </summary>
+    /// <remarks>
+    /// The way a conversion hands a transfer to SAP's own approval procedure. SAP runs its templates
+    /// only in the B1 client, and only when a document is added there, so this draft waits for someone
+    /// to open it in the client and add it; SAP then holds it for its approver, as it would a transfer
+    /// keyed there. Nothing is published to webhooks: no stock has moved.
+    /// </remarks>
+    public async Task<SAPStockTransferDraft> CreateStockTransferDraftAsync(
+        CreateInventoryTransferRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var responseContent = await SendInventoryTransferAsync(request, null, asDraft: true, cancellationToken);
+
+        var draft = JsonSerializer.Deserialize<SAPStockTransferDraft>(responseContent)
+            ?? throw new Exception("SAP saved the transfer draft but its answer could not be read");
+
+        _logger.LogInformation("Inventory transfer saved as SAP draft. DocEntry: {DocEntry}, DocNum: {DocNum}",
+            draft.DocEntry, draft.DocNum);
+
+        return draft;
+    }
+
+    /// <summary>
+    /// Builds the SAP payload for an inventory transfer — allocating batches and serials to every line
+    /// that needs them — and posts it to <c>StockTransfers</c>, or to <c>StockTransferDrafts</c> when
+    /// <paramref name="asDraft"/>. Answers SAP's response body; throws with SAP's own sentence on a refusal.
+    /// </summary>
+    private async Task<string> SendInventoryTransferAsync(
+        CreateInventoryTransferRequest request,
+        TransferPreFetchedData? preFetchedData,
+        bool asDraft,
+        CancellationToken cancellationToken)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
@@ -12371,6 +12442,16 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             var managesBatches = item?.ManageBatchNumbers == "tYES";
             var managesSerials = item?.ManageSerialNumbers == "tYES";
+
+            // A draft names the unit; a posted transfer never has. Posted with no unit, a line counts
+            // in the item's inventory unit, but the same lines saved as a draft (a request on the test
+            // company, 2026-11-12) were refused: "Cannot add or update document; specify a UoM code"
+            // (1470000315). Naming the inventory unit keeps the draft meaning what posting it would
+            // have. The manual group (-1) has no unit to name.
+            if (asDraft && item is { InventoryUoMEntry: > 0, UoMGroupEntry: not -1 })
+            {
+                linePayload["UoMEntry"] = item.InventoryUoMEntry.Value;
+            }
 
             // Add batch numbers if specified
             if (line.BatchNumbers != null && line.BatchNumbers.Count > 0)
@@ -12668,11 +12749,20 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             payload["VehiclePlate"] = request.VehiclePlate;
         }
 
-        var jsonPayload = JsonSerializer.Serialize(payload);
-        _logger.LogInformation("Creating inventory transfer with payload (truncated): {Payload}",
-            jsonPayload.Length > 2000 ? jsonPayload[..2000] + "..." : jsonPayload);
+        // A transfer draft is told which document it will become: the drafts set holds every kind.
+        if (asDraft)
+        {
+            payload["DocObjectCode"] = SapObjectTypes.StockTransfer;
+        }
 
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "StockTransfers")
+        var entitySet = asDraft ? "StockTransferDrafts" : "StockTransfers";
+        var what = asDraft ? "inventory transfer draft" : "inventory transfer";
+
+        var jsonPayload = JsonSerializer.Serialize(payload);
+        _logger.LogInformation("Creating {What} with payload (truncated): {Payload}",
+            what, jsonPayload.Length > 2000 ? jsonPayload[..2000] + "..." : jsonPayload);
+
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, entitySet)
         {
             Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json")
         };
@@ -12685,7 +12775,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
 
-            httpRequest = new HttpRequestMessage(HttpMethod.Post, "StockTransfers")
+            httpRequest = new HttpRequestMessage(HttpMethod.Post, entitySet)
             {
                 Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json")
             };
@@ -12698,8 +12788,8 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogError("Failed to create inventory transfer: {StatusCode} - {Error}",
-                response.StatusCode, responseContent);
+            _logger.LogError("Failed to create {What}: {StatusCode} - {Error}",
+                what, response.StatusCode, responseContent);
 
             // SAP's own sentence rather than the envelope around it. The raw response is on the
             // log line above; what reaches a person — a queue entry's error, a held transfer's,
@@ -12727,38 +12817,10 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                     + $"stock — a retry on its own cannot clear it. SAP said: {sapMessage}");
             }
 
-            throw new Exception($"Failed to create inventory transfer: {response.StatusCode} - {sapMessage}");
+            throw new Exception($"Failed to create {what}: {response.StatusCode} - {sapMessage}");
         }
 
-        var createdTransfer = JsonSerializer.Deserialize<InventoryTransfer>(responseContent);
-
-        _logger.LogInformation("Inventory transfer created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}",
-            createdTransfer?.DocEntry, createdTransfer?.DocNum);
-
-        // Published here, at the one method every transfer goes through, rather than from the callers:
-        // desktop integration, market breakages, the posting job, the pending-transfer poster and
-        // request conversion all create transfers, and publishing from any one of them would have
-        // described a fifth of the stock that moves.
-        //
-        // After the success branch only. A transfer SAP refused moved nothing, and the throws above
-        // have already left this method by then.
-        if (createdTransfer != null && _webhookEventPublisher != null)
-        {
-            await _webhookEventPublisher.PublishAsync(
-                WebhookEventTypes.StockTransfer,
-                new
-                {
-                    docEntry = createdTransfer.DocEntry,
-                    docNum = createdTransfer.DocNum,
-                    docDate = createdTransfer.DocDate,
-                    fromWarehouse = createdTransfer.FromWarehouse,
-                    toWarehouse = createdTransfer.ToWarehouse,
-                    lineCount = createdTransfer.StockTransferLines?.Count ?? 0,
-                    comments = createdTransfer.Comments
-                });
-        }
-
-        return createdTransfer ?? throw new Exception("Failed to deserialize created inventory transfer");
+        return responseContent;
     }
 
     /// <summary>

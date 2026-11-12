@@ -5047,21 +5047,52 @@ else if (pendingActionTitle is not null)
         => ShowsRequestConversionAction(request) && CanActOnRequestSource(request);
 
     // Every conversion passes through the request's approval, whatever the role: the server records
-    // the converter's own stage decision first, and posts only once every stage is approved.
+    // the converter's own stage decision first, and posts only once every stage is approved. On a route
+    // one of SAP's own approval templates covers (never a depot or a van), "posts" becomes "goes to SAP
+    // as a draft": SAP's approver decides it there, and converting again once SAP approves posts it.
     private string RequestConversionActionNote(InventoryTransferRequestDto request)
-        => CanActOnRequestSource(request)
-            ? string.Equals(request.ApprovalStatus, "Approved", StringComparison.OrdinalIgnoreCase)
+    {
+        if (!CanActOnRequestSource(request))
+        {
+            return $"{request.FromWarehouse} is not one of your assigned warehouses. " +
+                   $"Converting issues stock out of {request.FromWarehouse}, so it is for whoever runs " +
+                   "that warehouse, a stock officer, or an administrator.";
+        }
+
+        var sap = SapApprovalNames(request);
+        var decidable = request.ApprovalStages.FirstOrDefault(stage => CanCurrentUserDecideStage(request, stage));
+
+        if (sap is null)
+        {
+            return string.Equals(request.ApprovalStatus, "Approved", StringComparison.OrdinalIgnoreCase)
                 ? "Approved. Converting posts the inventory transfer to SAP."
                 : IsOwnRequest(request)
                     ? "You raised this request, so someone else has to approve it before it can post to SAP."
                     : request.ApprovalStages.Count == 0
                         ? "Raised in SAP. Converting opens its approval, and it posts once that is approved."
-                        : request.ApprovalStages.FirstOrDefault(stage => CanCurrentUserDecideStage(request, stage)) is { } stage
-                            ? $"Converting approves {stage.StageName}, and posts the transfer once every stage is approved."
-                            : $"{GetApprovalDisplayStatus(request)}. It posts to SAP once that is approved."
-            : $"{request.FromWarehouse} is not one of your assigned warehouses. " +
-              $"Converting issues stock out of {request.FromWarehouse}, so it is for whoever runs " +
-              "that warehouse, a stock officer, or an administrator.";
+                        : decidable is not null
+                            ? $"Converting approves {decidable.StageName}, and posts the transfer once every stage is approved."
+                            : $"{GetApprovalDisplayStatus(request)}. It posts to SAP once that is approved.";
+        }
+
+        var toSap = $"it goes to SAP as a draft for SAP's own approval ({sap}), and posts once SAP approves it";
+        return string.Equals(request.ApprovalStatus, "Approved", StringComparison.OrdinalIgnoreCase)
+            ? $"Approved here. SAP's own approval ({sap}) covers this route, so converting saves the transfer to SAP " +
+              "as a draft. Add that draft in the SAP client to send it to SAP's approver, then convert again once SAP approves it."
+            : IsOwnRequest(request)
+                ? $"You raised this request, so someone else has to approve it here; then {toSap}."
+                : request.ApprovalStages.Count == 0
+                    ? $"Raised in SAP. Converting opens its approval here; once that is approved, {toSap}."
+                    : decidable is not null
+                        ? $"Converting approves {decidable.StageName}. Once every stage is approved, {toSap}."
+                        : $"{GetApprovalDisplayStatus(request)}. Once that is approved, {toSap}.";
+    }
+
+    /// <summary>"'Transfer To CMFS1'", or null when no SAP template covers the request's route.</summary>
+    private static string? SapApprovalNames(InventoryTransferRequestDto request)
+        => request.SapApprovalTemplates is { Count: > 0 } templates
+            ? string.Join(", ", templates.Select(name => $"'{name}'"))
+            : null;
 
     private bool CanCurrentUserDecideStage(InventoryTransferRequestDto? request, ApprovalStageProgressModel stage)
     {

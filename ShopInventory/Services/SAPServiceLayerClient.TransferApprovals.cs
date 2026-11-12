@@ -23,6 +23,18 @@ public partial class SAPServiceLayerClient
 
     private const string NewestStockTransferSelect = "$select=DocEntry";
 
+    /// <summary>A draft this app saved for SAP's approval, found again by its request marker.</summary>
+    private const string StockTransferDraftMarkerSelect =
+        "$select=DocEntry,DocNum,DocDate,CreationDate,FromWarehouse,ToWarehouse,DocumentStatus,AuthorizationStatus,DocObjectCode,U_OrderNumber";
+
+    private const string ApprovalTemplateConditionSelect =
+        "$select=Code,Name,IsActive,UseTerms,ApprovalTemplateDocuments,ApprovalTemplateTerms,ApprovalTemplateQueries";
+
+    private const string UserQuerySelect = "$select=InternalKey,QueryCategory,QueryDescription,Query";
+
+    /// <summary>How many query keys go into one <c>InternalKey eq … or …</c> filter.</summary>
+    private const int UserQueryKeyChunkSize = 20;
+
     /// <summary>How many keys go into one <c>… eq … or …</c> filter, as for the credit memo drafts.</summary>
     private const int StockTransferKeyChunkSize = 20;
 
@@ -229,6 +241,86 @@ public partial class SAPServiceLayerClient
         }
 
         return requests;
+    }
+
+    public async Task<List<SAPApprovalTemplateCondition>> GetApprovalTemplateConditionsAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        // The Service Layer cannot filter on a template's document types (a collection), so every
+        // template is read; there are under a hundred, and the caller keeps them for minutes.
+        var templates = new List<SAPApprovalTemplateCondition>();
+        string? url = $"ApprovalTemplates?{ApprovalTemplateConditionSelect}&$orderby=Code";
+        for (var page = 0; url is not null && page < 20; page++)
+        {
+            var read = await ReadSapJsonAsync<SAPResponse<SAPApprovalTemplateCondition>>(
+                url, $"read approval templates (page {page + 1})", cancellationToken, pageSize: 200);
+            templates.AddRange(read?.Value ?? []);
+            url = NextLinkPath(read?.NextLink);
+        }
+
+        return templates;
+    }
+
+    public async Task<List<SAPUserQuery>> GetUserQueriesAsync(
+        IReadOnlyCollection<int> internalKeys,
+        CancellationToken cancellationToken = default)
+    {
+        var keys = internalKeys.Where(key => key > 0).Distinct().Order().ToList();
+        if (keys.Count == 0)
+        {
+            return [];
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var queries = new List<SAPUserQuery>(keys.Count);
+        foreach (var chunk in keys.Chunk(UserQueryKeyChunkSize))
+        {
+            var filter = string.Join(" or ", chunk.Select(key => $"InternalKey eq {key}"));
+            var page = await ReadSapJsonAsync<SAPResponse<SAPUserQuery>>(
+                $"UserQueries?$filter={Uri.EscapeDataString(filter)}&{UserQuerySelect}",
+                $"read {chunk.Length} user quer{(chunk.Length == 1 ? "y" : "ies")}",
+                cancellationToken,
+                pageSize: chunk.Length * 2);
+            queries.AddRange(page?.Value ?? []);
+        }
+
+        return queries;
+    }
+
+    public async Task<List<SAPStockTransferDraft>> FindStockTransferDraftsByOrderNumberAsync(
+        string orderNumber,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(orderNumber))
+        {
+            return [];
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        // Measured on KEFALOS_TEST_3 (2026-11-12): the drafts set filters on U_OrderNumber.
+        var filter = $"DocObjectCode eq '{SapObjectTypes.StockTransfer}' and U_OrderNumber eq '{EscapeODataStringLiteral(orderNumber.Trim())}'";
+        var page = await ReadSapJsonAsync<SAPResponse<SAPStockTransferDraft>>(
+            $"StockTransferDrafts?$filter={Uri.EscapeDataString(filter)}&{StockTransferDraftMarkerSelect}&$orderby=DocEntry desc&$top=20",
+            $"look for stock transfer drafts marked {orderNumber}",
+            cancellationToken,
+            pageSize: 20);
+
+        return page?.Value ?? [];
+    }
+
+    /// <summary>The path after the Service Layer root of an <c>odata.nextLink</c>, or null at the last page.</summary>
+    private static string? NextLinkPath(string? nextLink)
+    {
+        if (string.IsNullOrWhiteSpace(nextLink))
+        {
+            return null;
+        }
+
+        var marker = nextLink.IndexOf("/b1s/v1/", StringComparison.OrdinalIgnoreCase);
+        return marker >= 0 ? nextLink[(marker + "/b1s/v1/".Length)..] : nextLink.TrimStart('/');
     }
 
     public Task<SAPStockTransferDraft?> GetStockTransferDraftAsync(int docEntry, CancellationToken cancellationToken = default)

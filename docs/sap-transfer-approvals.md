@@ -115,13 +115,97 @@ What changes for a request draft:
 - The page's notice links to the Transfers page opened on that request
   (`/inventory-transfers?requestDocEntry=…`).
 
-**Unmeasured.** None of this has been read from a live request draft: the test company's login was
+**2026-11-12:** `The_request_draft_queue_is_accepted_and_holds_only_request_drafts` and
+`Both_kinds_count_as_the_sum_of_each` passed against `KEFALOS_TEST_3`, so SAP accepts the object code and
+the counts add up. An add of a request draft is still unmeasured.
+
+**Unmeasured (as written 2026-11-11).** None of this has been read from a live request draft: the test company's login was
 refused when it was built (2026-11-11). Before relying on it, run
 `ShopInventory.IntegrationTests` with `SHOPINVENTORY_SAP_TESTS=1` — the request-draft reads settle the
 object code (`The_request_draft_queue_is_accepted_and_holds_only_request_drafts`) and that the two
 counts add up — and record here how many approved request drafts there are, and what one add answers.
 
 Laid out from the "SAP-Held Transfer Requests" design canvas (November 2026).
+
+## Conversions on routes SAP approves
+
+Asked for 2026-11-12: converting a transfer request must respect SAP's own approval where SAP has one,
+and convert only once SAP has approved it — except depots and van sales. The user chose, of three
+designs, to send the transfer to SAP as a draft, and to keep the app's own approval as well.
+
+**Why a draft and a B1 step.** SAP's templates never run for a document that arrives over the Service
+Layer (tested 2026-11-06, with "Enable Approval Process in DI" off and on: every transfer template's
+condition is a B1 screen query on `$[OWTR.…]`), and a draft posted over the Service Layer never opens
+an approval request either. SAP holds a transfer only when someone *adds* it in the B1 client. So the
+conversion makes the draft, and a B1 user adds it.
+
+**What decides "a route SAP approves"** — `SapTransferApprovalRoutes`:
+
+1. Any warehouse on the request (header or line) is a depot centre or shop (`FactoryDepartments.Depots`:
+   KEFGRC/KEFGRS, CORMACH/CORMACH2, KEFBYC/KEFBYS) or a van (`VAN` and a number): excluded, converts as
+   before, and SAP is not read.
+2. Otherwise the active `ApprovalTemplates` on `atdtInventoryTransfer` are read with their user queries
+   (`UserQueries`), kept 10 minutes, the last good read used for 12 hours if a refresh fails. A template
+   holds the route when it has no conditions (`UseTerms` tNO, SAP's "Always"), or when any one of its
+   queries holds for the request's header From/To. Originator lists are not read: who will add the
+   draft in B1 is not known.
+3. `SapTransferTemplateCondition` reads a query's WHERE clause — `=`, `<>`, `LIKE`/`NOT LIKE`, `IN`,
+   `AND`/`OR`/`NOT`, brackets — over `Filler` (From) and `ToWhsCode` (To), each as `T0."x"` or
+   `$[OWTR.x]`. Anything else (another column, a join, a function, plain terms on totals) is
+   *unreadable*: logged, and it never sends a conversion to SAP.
+
+Checked live against `KEFALOS_TEST_3` on 2026-11-12 (`ShopInventory.IntegrationTests`, read-only):
+every active transfer template there is readable, and SAP's own decisions agree — of the 84 approved
+drafts held by a still-active template, 81 are on a route the app says that template covers; the other
+3 are 2022 drafts of template #69 "CMFS Stock Transfers", which held transfers *into* CMFS until Oct 2022
+and has held only transfers *out of* CMFS since (so the test compares the last year only).
+**Production's templates have not been read**; run
+`Every_active_transfer_template_condition_can_be_answered_for_a_route` and
+`Every_transfer_SAP_held_is_on_a_route_its_template_covers_here` with `SAP__CompanyDB` set to it first.
+
+**What a conversion does** (`ConvertTransferRequestHandler`, after the app's approval is complete and
+the `ITR-{DocEntry}` transfer lookup found nothing):
+
+| SAP draft carrying `ITR-{DocEntry}` | Answer |
+|---|---|
+| none open | saves one (`POST StockTransferDrafts`, `DocObjectCode 67`, the same lines, batch picks and remarks posting would send, plus each line's `UoMEntry` — see below) — `sapApproval: Saved` |
+| open, `sasWithout` | `AwaitingSapClient`: add it in the B1 client |
+| open, `sasPending` | `Pending` |
+| open, `sasApproved` | adds it through the SAP-held add below — `Added` |
+| open, `sasRejected` | 409 `InventoryTransfer.SapApprovalRejected` |
+
+A transfer that already carries the marker — SAP approved the draft and its originator added it in B1 —
+is found first and closes the request, as for any earlier conversion. The SAP-held add treats a
+transfer draft carrying `ITR-{n}` as made from request *n* (`LinkedRequestEntries`), so adding it from
+SAP-Held Transfers closes that request and marks the app's approval generated, as for a draft whose
+lines B1 copied from the request. A waiting answer is never stored for replay, so the next press asks
+SAP again.
+
+**The draft write, run once on `KEFALOS_TEST_3` (2026-11-12)** — the real handler and Service Layer
+client, the app's approval stood in as complete:
+
+- A WAREH → PROYG 2 request under the "Trans From Warehouse" template (4 lines, one batch-managed)
+  became a draft: `bost_Open`, `sasWithout`, `DocObjectCode 67`, `U_OrderNumber ITR-{DocEntry}`, every
+  line's item, quantity, warehouses and unit as on the request, and the batch line picked from a batch
+  at the source. The request stayed open and nothing moved. Pressing Convert again answered
+  `AwaitingSapClient` with the same draft, and the marker finds exactly one.
+- The first attempt was refused, writing nothing: **a draft line must name its unit.** SAP answered
+  `1470000315 Cannot add or update document; specify a UoM code` to lines that post fine with none.
+  Draft lines now carry the item's inventory `UoMEntry` (what a posted line counts in when it names
+  none); posted transfers are unchanged. Two of the four items have no default sales unit, which may be
+  what SAP fell back to for a draft — not tested.
+- A CMFS → CMB request was refused before any write: the test company holds no CMFS batches of
+  its items.
+
+**Not yet proven, in order:**
+
+1. That adding the app's draft in the B1 client starts SAP's approval for it (the B1 user must be on the
+   template's originator list; in production about 1,250 of 6,644 transfers between 14 Sep and 8 Nov
+   matched a template but were keyed by someone not on it, and went through unheld), and whether
+   SAP keeps the same draft or makes a copy (the marker lookup handles either). The run's draft on
+   `KEFALOS_TEST_3` is waiting for exactly this: add it in the B1 client as a user on the
+   "Trans From Warehouse" template's originator list.
+2. Production's templates, as above.
 
 ## The add has not been run against SAP
 

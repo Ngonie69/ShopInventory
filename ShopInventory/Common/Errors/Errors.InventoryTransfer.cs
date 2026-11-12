@@ -115,6 +115,16 @@ public static partial class Errors
                 $"Transfer request #{requestDocNum} is already being converted. Give it a moment and refresh; " +
                 "converting it again could post a second transfer.");
 
+        /// <summary>
+        /// SAP's own approver rejected the draft a conversion saved for SAP's approval. Nothing moved, and
+        /// converting again would only find the same rejected draft.
+        /// </summary>
+        public static Error SapApprovalRejected(int requestDocNum, int draftNum, string templates) =>
+            Error.Conflict(
+                "InventoryTransfer.SapApprovalRejected",
+                $"SAP's approver rejected draft {draftNum} of transfer request #{requestDocNum} ({templates}), so nothing " +
+                "was transferred. Close the request, or remove the draft in the SAP client and convert again to send a new one.");
+
         public static Error PendingTransferNotFound(Guid id) =>
             Error.NotFound("InventoryTransfer.PendingTransferNotFound", $"Pending inventory transfer {id} was not found.");
 

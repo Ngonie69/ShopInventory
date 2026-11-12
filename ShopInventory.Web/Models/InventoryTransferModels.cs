@@ -252,6 +252,14 @@ public class InventoryTransferRequestDto
 
     [JsonPropertyName("lines")]
     public List<InventoryTransferRequestLineDto>? Lines { get; set; }
+
+    /// <summary>SAP's own approval templates covering this route; converting then saves a SAP draft for SAP's approval.</summary>
+    [JsonPropertyName("sapApprovalTemplates")]
+    public List<string> SapApprovalTemplates { get; set; } = [];
+
+    /// <summary>False when the API could not read SAP's templates.</summary>
+    [JsonPropertyName("sapApprovalKnown")]
+    public bool SapApprovalKnown { get; set; }
 }
 
 /// <summary>

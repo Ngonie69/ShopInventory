@@ -4,6 +4,7 @@ using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
+using ShopInventory.Features.InventoryTransfers.SapApproval;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
@@ -13,6 +14,7 @@ namespace ShopInventory.Features.InventoryTransfers.Queries.GetTransferRequestsB
 public sealed class GetTransferRequestsByWarehouseHandler(
     ISAPServiceLayerClient sapClient,
     IInventoryTransferApprovalService approvalService,
+    ISapTransferApprovalRoutes sapRoutes,
     IOptions<SAPSettings> settings,
     ILogger<GetTransferRequestsByWarehouseHandler> logger
 ) : IRequestHandler<GetTransferRequestsByWarehouseQuery, ErrorOr<TransferRequestListResponseDto>>
@@ -36,6 +38,7 @@ public sealed class GetTransferRequestsByWarehouseHandler(
 
             var transferRequestDtos = transferRequests.ToDto();
             await approvalService.EnrichAsync(transferRequestDtos, cancellationToken);
+            await sapRoutes.AnnotateAsync(transferRequestDtos, cancellationToken);
 
             return new TransferRequestListResponseDto
             {

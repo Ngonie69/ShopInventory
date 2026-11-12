@@ -64,6 +64,13 @@ public class SAPStockTransferDraft
     [JsonPropertyName("AttachmentEntry")]
     public int? AttachmentEntry { get; set; }
 
+    /// <summary>
+    /// <c>ITR-{DocEntry}</c> on a draft this app saved from a transfer request for SAP's approval —
+    /// the same marker the transfer it becomes carries.
+    /// </summary>
+    [JsonPropertyName("U_OrderNumber")]
+    public string? U_OrderNumber { get; set; }
+
     [JsonPropertyName("StockTransferLines")]
     public List<SAPStockTransferDraftLine>? StockTransferLines { get; set; }
 }

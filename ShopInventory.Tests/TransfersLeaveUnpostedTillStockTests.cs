@@ -251,6 +251,8 @@ public sealed class TransfersLeaveUnpostedTillStockTests : IDisposable
             new NoOpNotificationService(),
             Validation(sap),
             TillClaims(),
+            SapApprovalStandIns.NoTemplateCovers(),
+            StubProxy.Unused<MediatR.ISender>(),
             Options.Create(new SAPSettings { Enabled = true }),
             NullLogger<ConvertTransferRequestHandler>.Instance);
 

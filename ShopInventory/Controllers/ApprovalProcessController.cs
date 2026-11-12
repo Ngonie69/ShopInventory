@@ -124,7 +124,9 @@ public sealed class ApprovalProcessController(
         if (string.Equals(request.Decision, ApprovalDecisionValues.Approved, StringComparison.OrdinalIgnoreCase))
         {
             var result = await mediator.Send(
-                new ConvertTransferRequestCommand(docEntry, userId.Value, request.StageId, request.Remarks, request.GenerateDocument), cancellationToken);
+                new ConvertTransferRequestCommand(
+                    docEntry, userId.Value, request.StageId, request.Remarks, request.GenerateDocument, User.Identity?.Name),
+                cancellationToken);
             return result.Match(value => Ok(value), errors => Problem(errors));
         }
 
