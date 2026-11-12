@@ -892,7 +892,10 @@
     private static bool MileageWasCorrected(DepartureComplianceDay day) =>
         day.MileageCorrection is { } correction && (correction.StartingCorrected || correction.ClosingCorrected);
 
-    /// <summary>What the rep typed, beside a reading an Admin has since changed.</summary>
+    /// <summary>
+    /// What the rep typed, beside a reading an Admin has since changed. Short, because it sits under
+    /// the figure in a narrow panel; the row and the trail line below already say it was corrected.
+    /// </summary>
     private static string? RecordedNote(MileageCorrectionSummary? correction, bool starting)
     {
         if (correction is null)
@@ -909,7 +912,7 @@
             return null;
         }
 
-        return recorded is { } value ? $"corrected; rep typed {value:N0}" : "corrected; rep left it blank";
+        return recorded is { } value ? $"rep typed {value:N0}" : "rep left it blank";
     }
 
     private static string CorrectionTrail(MileageCorrectionSummary correction)
