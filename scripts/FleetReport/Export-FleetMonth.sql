@@ -42,7 +42,6 @@ COPY (
            r."Name"         AS route_name,
            r."Territory"    AS territory,
            r."TruckRegNo"   AS truck_reg,
-           r."OdometerUnit"::text AS odometer_unit,
            r."IsActive"     AS is_active,
            r."DeletedAt" IS NOT NULL AS is_deleted
     FROM "Routes" r
@@ -62,7 +61,6 @@ COPY (
            d."RouteName"             AS route_name,
            d."Territory"             AS territory,
            d."TruckRegNo"            AS truck_reg,
-           d."OdometerUnit"::text    AS odometer_unit,
            d."AreaName"              AS area_name,
            (d."DepartedAt" AT TIME ZONE 'Africa/Harare')::timestamp(0) AS departed_cat,
            d."DepartedLatitude"      AS departed_lat,

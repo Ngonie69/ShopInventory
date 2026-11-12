@@ -91,6 +91,26 @@ public sealed partial class ApiKeyWithUserTokenRoleGateTests(ITestOutputHelper o
         Assert.True(outcome.Result.Forbidden);
     }
 
+    /// <summary>
+    /// Correcting a rep's odometer readings is the Admin's alone. A Manager views the van reports and a
+    /// POD operator holds users.edit, which the other van writes accept; neither may change a reading.
+    /// </summary>
+    [Fact]
+    public async Task Only_an_admin_on_the_web_can_correct_a_days_mileage()
+    {
+        await using var services = BuildServices();
+        var correctMileage = Action<VanSalesReportController>(nameof(VanSalesReportController.CorrectRouteDayMileage));
+
+        foreach (var role in new[] { ApplicationRoles.Manager, ApplicationRoles.PodOperator, ApplicationRoles.Sales })
+        {
+            var refused = await EvaluateAsync(services, correctMileage, WebApiKey, UserToken(role));
+            Assert.True(refused.Result.Forbidden, $"{role} must not correct a reading");
+        }
+
+        var admin = await EvaluateAsync(services, correctMileage, WebApiKey, UserToken(ApplicationRoles.Admin));
+        Assert.True(admin.Result.Succeeded, "an Admin corrects readings");
+    }
+
     [Fact]
     public async Task A_web_user_holding_one_of_the_roles_passes()
     {

@@ -17,15 +17,14 @@ using Xunit;
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// The daily truck report, and the three things it needed that the system had nowhere to put: the unit
-/// a truck's odometer counts in, the area a round worked, and the office's own figures for a truck's day.
+/// The daily truck report, and the two things it needed that the system had nowhere to put: the area a
+/// round worked, and the office's own figures for a truck's day.
 /// </summary>
 /// <remarks>
 /// The report replaces a workbook the office typed by hand. Reconciled against production for the week
 /// of 1 October 2026 the workbook's sales were right and three other things were not: the system read
-/// 13.4% under it because online sales are stored before tax, three trucks' distances were 62% of what
-/// they drove because their odometers read miles, and fuel, account sales and targets were in the
-/// workbook and nowhere else.
+/// 13.4% under it because online sales are stored before tax, and fuel, account sales and targets were
+/// in the workbook and nowhere else. Every odometer reading is kilometres.
 /// </remarks>
 public sealed class VanDailyTruckReportTests : IDisposable
 {
@@ -62,7 +61,6 @@ public sealed class VanDailyTruckReportTests : IDisposable
             Code = "WEST1",
             Name = "West 1 Truck",
             Territory = "Harare",
-            OdometerUnit = OdometerUnit.Miles,
             DailySalesTarget = 2500m
         };
         _upc1 = new RouteEntity { Code = "UPC1", Name = "Upc 1", Territory = "UPC", DailySalesTarget = 3000m };
@@ -95,41 +93,41 @@ public sealed class VanDailyTruckReportTests : IDisposable
 
     // --- The odometer ---
 
-    [Theory]
-    [InlineData(OdometerUnit.Kilometres, 37)]
-    [InlineData(OdometerUnit.Miles, 60)]
-    public void Two_readings_become_kilometres_whatever_the_odometer_counts_in(OdometerUnit unit, int kilometres)
+    [Fact]
+    public void Two_readings_are_the_kilometres_between_them()
     {
-        // West 1 on Thursday 1 October: 332644 to 332681. The workbook made it 59.5 km.
-        Assert.Equal(kilometres, OdometerDistance.Kilometres(332644, 332681, unit));
+        Assert.Equal(37, OdometerDistance.Kilometres(332644, 332681));
     }
 
     [Fact]
     public void A_reading_that_ran_backwards_is_no_distance_at_all()
     {
-        Assert.Null(OdometerDistance.Kilometres(332681, 332644, OdometerUnit.Miles));
-        Assert.Null(OdometerDistance.Kilometres(332644, null, OdometerUnit.Miles));
+        Assert.Null(OdometerDistance.Kilometres(332681, 332644));
+        Assert.Null(OdometerDistance.Kilometres(332644, null));
     }
 
+    /// <summary>
+    /// West 1 was one of three trucks whose readings were once converted from miles. Every reading is
+    /// kilometres now, so its 332644 to 332681 is 37 km, not 60.
+    /// </summary>
     [Fact]
-    public async Task A_truck_that_reads_miles_is_reported_in_kilometres()
+    public async Task Every_reading_is_kilometres_and_nothing_converts()
     {
-        AddDay(Rep, Thursday, start: 332644, close: 332681, unit: OdometerUnit.Miles);
+        AddDay(Rep, Thursday, start: 332644, close: 332681);
         await _context.SaveChangesAsync();
 
         var day = Day(await ReportAsync(), _west1, Thursday);
 
         Assert.Equal(332644, day.StartingMileage);
-        Assert.Equal("Miles", day.OdometerUnit);
-        Assert.Equal(60, day.Kilometres);
+        Assert.Equal(37, day.Kilometres);
     }
 
     /// <summary>Both reps may read the odometer. Adding their readings would double the trip.</summary>
     [Fact]
     public async Task Two_reps_reading_one_odometer_is_one_trip()
     {
-        AddDay(Rep, Thursday, start: 1000, close: 1100, unit: OdometerUnit.Kilometres);
-        AddDay(Mate, Thursday, start: 1000, close: 1090, unit: OdometerUnit.Kilometres);
+        AddDay(Rep, Thursday, start: 1000, close: 1100);
+        AddDay(Mate, Thursday, start: 1000, close: 1090);
         await _context.SaveChangesAsync();
 
         Assert.Equal(100, Day(await ReportAsync(), _west1, Thursday).Kilometres);
@@ -251,7 +249,7 @@ public sealed class VanDailyTruckReportTests : IDisposable
     [Fact]
     public async Task Distance_with_no_sales_is_picked_out()
     {
-        AddDay(Rep, Friday, start: 1000, close: 1200, unit: OdometerUnit.Kilometres);
+        AddDay(Rep, Friday, start: 1000, close: 1200);
         await _context.SaveChangesAsync();
 
         var report = await ReportAsync();
@@ -337,7 +335,7 @@ public sealed class VanDailyTruckReportTests : IDisposable
             FuelLitres = 50m,
             AccountSales = 388m
         });
-        AddDay(Rep, Monday, start: 1000, close: 1100, unit: OdometerUnit.Miles);
+        AddDay(Rep, Monday, start: 1000, close: 1100);
         await _context.SaveChangesAsync();
 
         var report = await ReportAsync();
@@ -350,9 +348,9 @@ public sealed class VanDailyTruckReportTests : IDisposable
         Assert.Equal(388m, west1.AccountSales);
         Assert.Equal(2, west1.DaysReported);
 
-        // 100 miles is 161 km, on 50 litres.
-        Assert.Equal(161, west1.Kilometres);
-        Assert.Equal(3.22m, west1.KilometresPerLitre);
+        // 100 km on 50 litres.
+        Assert.Equal(100, west1.Kilometres);
+        Assert.Equal(2m, west1.KilometresPerLitre);
 
         // The fleet's target is every live route's: 2,500 and 3,000 a day over five days.
         Assert.Equal(27500m, report.Total.PeriodTarget);
@@ -440,45 +438,32 @@ public sealed class VanDailyTruckReportTests : IDisposable
     // --- The route ---
 
     [Fact]
-    public async Task A_route_keeps_its_odometer_unit_and_its_target()
+    public async Task A_route_keeps_its_target()
     {
-        var saved = await SaveRouteAsync(_upc1, odometerUnit: "miles", dailySalesTarget: 3200m);
+        var saved = await SaveRouteAsync(_upc1, dailySalesTarget: 3200m);
 
         Assert.False(saved.IsError);
-        Assert.Equal("Miles", saved.Value.OdometerUnit);
         Assert.Equal(3200m, saved.Value.DailySalesTarget);
 
         var listed = (await new GetRoutesHandler(_context).Handle(new GetRoutesQuery(), CancellationToken.None)).Value;
-        Assert.Equal("Miles", listed.Single(route => route.Id == _upc1.Id).OdometerUnit);
-    }
-
-    /// <summary>A save that does not name a unit is an older page, and must not turn miles into kilometres.</summary>
-    [Fact]
-    public async Task A_save_that_names_no_unit_leaves_the_unit_alone()
-    {
-        var saved = await SaveRouteAsync(_west1, odometerUnit: null, dailySalesTarget: 2500m);
-
-        Assert.Equal("Miles", saved.Value.OdometerUnit);
+        Assert.Equal(3200m, listed.Single(route => route.Id == _upc1.Id).DailySalesTarget);
     }
 
     [Fact]
     public async Task A_target_of_nothing_is_no_target()
     {
-        var saved = await SaveRouteAsync(_west1, odometerUnit: null, dailySalesTarget: 0m);
+        var saved = await SaveRouteAsync(_west1, dailySalesTarget: 0m);
 
         Assert.Null(saved.Value.DailySalesTarget);
     }
 
-    [Theory]
-    [InlineData("furlongs", null, "Routes.OdometerUnitUnknown")]
-    [InlineData("7", null, "Routes.OdometerUnitUnknown")]
-    [InlineData(null, -1.0, "Routes.DailySalesTargetNegative")]
-    public async Task A_unit_or_target_that_cannot_be_right_is_refused(string? unit, double? target, string code)
+    [Fact]
+    public async Task A_negative_target_is_refused()
     {
-        var result = await SaveRouteAsync(_west1, unit, (decimal?)target);
+        var result = await SaveRouteAsync(_west1, dailySalesTarget: -1m);
 
         Assert.True(result.IsError);
-        Assert.Equal(code, result.FirstError.Code);
+        Assert.Equal("Routes.DailySalesTargetNegative", result.FirstError.Code);
     }
 
     // --- Gross profit ---
@@ -555,12 +540,12 @@ public sealed class VanDailyTruckReportTests : IDisposable
         new SaveVanTruckDayEntryHandler(_context, new NoOpAuditService(), NullLogger<SaveVanTruckDayEntryHandler>.Instance)
             .Handle(new SaveVanTruckDayEntryCommand(_west1.Id, day, area, fuel, account, null, Rep), CancellationToken.None);
 
-    private Task<ErrorOr.ErrorOr<RouteDto>> SaveRouteAsync(RouteEntity route, string? odometerUnit, decimal? dailySalesTarget) =>
+    private Task<ErrorOr.ErrorOr<RouteDto>> SaveRouteAsync(RouteEntity route, decimal? dailySalesTarget) =>
         new SaveRouteHandler(_context, new NoOpAuditService(), NullLogger<SaveRouteHandler>.Instance)
             .Handle(
                 new SaveRouteCommand(
                     route.Id, route.Code, route.Name, route.Territory, null, null, null, null, true, Rep,
-                    odometerUnit, dailySalesTarget),
+                    dailySalesTarget),
                 CancellationToken.None);
 
     private static RouteStopEntity Stop(RouteEntity route, string name, DayOfWeek day, int sequence, int alternateSet = 0) =>
@@ -583,7 +568,6 @@ public sealed class VanDailyTruckReportTests : IDisposable
         DateTime day,
         int? start = null,
         int? close = null,
-        OdometerUnit unit = OdometerUnit.Kilometres,
         int planned = 0,
         string? area = null,
         DateTime? returnedAtUtc = null)
@@ -600,7 +584,6 @@ public sealed class VanDailyTruckReportTests : IDisposable
             ReturnedAt = returnedAtUtc ?? (close.HasValue ? DateTime.SpecifyKind(day.AddHours(13), DateTimeKind.Utc) : null),
             StartingMileage = start,
             ClosingMileage = close,
-            OdometerUnit = unit,
             PlannedCustomerCount = planned,
             AreaName = area
         });

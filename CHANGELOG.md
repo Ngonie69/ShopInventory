@@ -18,6 +18,21 @@ otherwise be surprised.
 
 ### Changed
 
+- **Every odometer reading is kilometres; the per-route Miles setting is gone.** CBD, West 1 and
+  Bulawayo UPC were set to read miles, and every report multiplied their readings by 1.609. Their
+  readings are now taken as kilometres like every other truck's, so their reported distances (and km
+  a litre) drop to about 62% of what reports showed before, including for past days. `odometerUnit`
+  is removed from `RouteDto`, `SaveRouteRequest`, the compliance report's days and the truck report's
+  days; a client still sending it on a route save is ignored. The fleet export
+  (`scripts/FleetReport/Export-FleetMonth.sql`) no longer has an `odometer_unit` column, and the
+  fleet workbook's Van days sheet has no Unit column. Migration `RemoveOdometerUnit` drops both
+  columns; its Down restores the three seeded miles routes.
+- **An Admin can correct the odometer readings on a rep's trading day.** `PUT
+  /api/van-sales/route-days/{id}/mileage` (Admin only), from the Departure Compliance page. The day
+  is corrected in place, so every report and the handset read the new figures; each correction is
+  kept with what the rep typed, who changed it and why, and the compliance report's days carry it as
+  `mileageCorrection`.
+
 - **Converting a transfer request on a route SAP's own approval covers no longer posts the transfer.**
   Where an active SAP approval template on inventory transfers would hold the route (for example
   "Transfer To CMFS1" for anything into CMFS), and the route touches no depot or van, Convert — once

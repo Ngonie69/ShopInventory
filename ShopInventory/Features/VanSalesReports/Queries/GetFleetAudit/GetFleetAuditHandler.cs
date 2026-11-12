@@ -97,8 +97,7 @@ public sealed class GetFleetAuditHandler(
                 day.Username,
                 Rep = day.User == null ? null : day.User.FirstName + " " + day.User.LastName,
                 day.StartingMileage,
-                day.ClosingMileage,
-                day.OdometerUnit
+                day.ClosingMileage
             })
             .ToListAsync(cancellationToken);
 
@@ -109,7 +108,7 @@ public sealed class GetFleetAuditHandler(
                 day.TradingDate,
                 day.RouteName,
                 Rep = string.IsNullOrWhiteSpace(day.Rep?.Trim()) ? day.Username : day.Rep!.Trim(),
-                Km = OdometerDistance.Kilometres(day.StartingMileage, day.ClosingMileage, day.OdometerUnit)
+                Km = OdometerDistance.Kilometres(day.StartingMileage, day.ClosingMileage)
             })
             .Where(day => day.Key is not null)
             .GroupBy(day => (day.Key!, day.TradingDate))

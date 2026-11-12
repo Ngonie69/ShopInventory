@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Telematics;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Features.VanSalesReports.Commands.CorrectVanRouteDayMileage;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 using ShopInventory.Services.Telematics;
@@ -64,6 +65,7 @@ public sealed class GetDepartureComplianceReportHandler(
         var (windowStartUtc, windowEndUtc) = VanSalesFacts.ToUtcWindow(from, to);
 
         var days = await LoadDaysAsync(query, from, to, cancellationToken);
+        var corrections = await LoadMileageCorrectionsAsync(days.Values, from, to, cancellationToken);
         var visits = await LoadVisitsAsync(query, windowStartUtc, windowEndUtc, cancellationToken);
         var sales = await LoadSalesAsync(query, from, to, cancellationToken);
         var newCustomers = await LoadNewCustomersAsync(windowStartUtc, windowEndUtc, cancellationToken);
@@ -139,7 +141,11 @@ public sealed class GetDepartureComplianceReportHandler(
             // declaration is measured against takings in its own currency, never a mix.
             var sale = saleAccumulator?.ToTotals(day?.DeclaredCurrency);
 
-            rows.Add(BuildRow(key, day, visit, sale, trucks, newCustomerCount, name, telematicsDay));
+            var mileageCorrection = day is null
+                ? null
+                : MileageCorrectionSummary.From(corrections[day.Id], day.StartingMileage, day.ClosingMileage);
+
+            rows.Add(BuildRow(key, day, visit, sale, trucks, newCustomerCount, name, telematicsDay, mileageCorrection));
         }
 
         var ordered = rows
@@ -170,7 +176,8 @@ public sealed class GetDepartureComplianceReportHandler(
         VanTruckDays trucks,
         int newCustomerCount,
         UserName? name,
-        DepartureComplianceTelematicsDto? telematics)
+        DepartureComplianceTelematicsDto? telematics,
+        MileageCorrectionSummaryDto? mileageCorrection)
     {
         var repDay = new VanSalesDayKey(key.UserId, key.TradingDate);
         var truck = trucks.Find(repDay);
@@ -226,13 +233,13 @@ public sealed class GetDepartureComplianceReportHandler(
 
             StartingMileage: day?.StartingMileage,
             ClosingMileage: day?.ClosingMileage,
-            OdometerUnit: (day?.OdometerUnit ?? OdometerUnit.Kilometres).ToString(),
             AreaName: day?.AreaName,
 
             HasDayRecord: day is not null,
             IsClosed: day?.IsClosed ?? false,
             Notes: day?.Notes,
-            Telematics: telematics);
+            Telematics: telematics,
+            MileageCorrection: mileageCorrection);
     }
 
     private static DepartureComplianceSummary Summarise(List<DepartureComplianceDayDto> rows)
@@ -413,6 +420,34 @@ public sealed class GetDepartureComplianceReportHandler(
         var days = await queryable.ToListAsync(cancellationToken);
 
         return days.ToDictionary(day => new DayKey(day.UserId, day.TradingDate));
+    }
+
+    /// <summary>
+    /// The correction trail of every day loaded, by day. Read by the days' trading dates rather than by
+    /// their ids, so a month of days is one range scan and not a list of hundreds of ids.
+    /// </summary>
+    private async Task<ILookup<int, VanRouteDayMileageCorrectionEntity>> LoadMileageCorrectionsAsync(
+        IEnumerable<VanRouteDayEntity> days,
+        DateTime from,
+        DateTime to,
+        CancellationToken cancellationToken)
+    {
+        var dayIds = days.Select(day => day.Id).ToHashSet();
+
+        if (dayIds.Count == 0)
+        {
+            return Array.Empty<VanRouteDayMileageCorrectionEntity>().ToLookup(correction => correction.VanRouteDayId);
+        }
+
+        var corrections = await db.VanRouteDayMileageCorrections
+            .AsNoTracking()
+            .Where(correction => correction.VanRouteDay!.TradingDate >= from
+                                 && correction.VanRouteDay.TradingDate <= to)
+            .ToListAsync(cancellationToken);
+
+        return corrections
+            .Where(correction => dayIds.Contains(correction.VanRouteDayId))
+            .ToLookup(correction => correction.VanRouteDayId);
     }
 
     private async Task<Dictionary<DayKey, VisitTotals>> LoadVisitsAsync(

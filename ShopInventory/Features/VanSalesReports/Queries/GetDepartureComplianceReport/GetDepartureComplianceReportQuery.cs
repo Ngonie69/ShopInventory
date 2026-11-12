@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using ErrorOr;
 using MediatR;
+using ShopInventory.Features.VanSalesReports.Commands.CorrectVanRouteDayMileage;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
@@ -165,14 +166,17 @@ public sealed record DepartureComplianceDayDto(
 
     int? StartingMileage,
     int? ClosingMileage,
-    string OdometerUnit,
     string? AreaName,
 
     bool HasDayRecord,
     bool IsClosed,
     string? Notes,
 
-    DepartureComplianceTelematicsDto? Telematics = null
+    DepartureComplianceTelematicsDto? Telematics = null,
+
+    // Null on a day whose readings no Admin has corrected. Where it is set, the two mileages above
+    // are the corrected ones and this says what the rep typed.
+    MileageCorrectionSummaryDto? MileageCorrection = null
 )
 {
     /// <summary>
@@ -214,8 +218,7 @@ public sealed record DepartureComplianceDayDto(
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(SystemTotalSales / ProductiveCalls, 2) : null;
 
-    public int? KilometresTravelled => OdometerDistance.Kilometres(
-        StartingMileage, ClosingMileage, OdometerDistance.ParseUnit(OdometerUnit));
+    public int? KilometresTravelled => OdometerDistance.Kilometres(StartingMileage, ClosingMileage);
 
     public decimal? DeclaredTotal =>
         DeclaredCash is null && DeclaredEcocash is null && DeclaredInnbucks is null

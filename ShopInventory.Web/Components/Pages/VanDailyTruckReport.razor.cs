@@ -425,8 +425,7 @@ public partial class VanDailyTruckReport : IDisposable
             return null;
         }
 
-        var unit = VanOdometer.ReadsMiles(day.OdometerUnit) ? "miles" : "km";
-        return $"Odometer {day.StartingMileage?.ToString("N0") ?? "?"} to {day.ClosingMileage?.ToString("N0") ?? "?"} {unit}";
+        return $"Odometer {day.StartingMileage?.ToString("N0") ?? "?"} to {day.ClosingMileage?.ToString("N0") ?? "?"} km";
     }
 
     /// <summary>What a day's CCR was measured against, said in full on hover.</summary>

@@ -94,6 +94,12 @@ public interface IVanSalesReportService
     Task<(VanTruckDayEntry? Entry, string? Error)> SaveTruckDayEntryAsync(
         int routeId, DateTime tradingDate, VanTruckDayEntryInput entry);
 
+    /// <summary>
+    /// Corrects the odometer readings a rep typed on one trading day. Admin only. Returns null on
+    /// success, or the server's refusal in words a person can act on.
+    /// </summary>
+    Task<string?> CorrectRouteDayMileageAsync(int vanRouteDayId, MileageCorrectionInput correction);
+
     /// <summary>Deletes a route. Returns null on success, or the server's refusal.</summary>
     Task<string?> DeleteRouteAsync(int id);
 
@@ -133,7 +139,8 @@ public interface IVanSalesReportService
 /// <c>api/van-sales/routes</c>, <c>api/van-sales/route-stops</c>,
 /// <c>api/van-sales/route-stops/reorder</c>, <c>api/van-sales/telematics/vehicles</c>,
 /// <c>api/van-sales/fleet-audit</c>, <c>api/van-sales/fleet/{registration}/business-partner</c>,
-/// <c>api/van-sales/truck-report</c> and <c>api/van-sales/truck-days/{routeId}/{tradingDate}</c>
+/// <c>api/van-sales/truck-report</c>, <c>api/van-sales/truck-days/{routeId}/{tradingDate}</c> and
+/// <c>api/van-sales/route-days/{id}/mileage</c>
 /// — and the exception is logged rather than only returned as null, so a wrong URL leaves a trail.
 /// </remarks>
 public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReportService> logger)
@@ -404,7 +411,6 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
                 temperatureMinC = route.TemperatureMinC,
                 temperatureMaxC = route.TemperatureMaxC,
                 temperatureProbeChannel = route.TemperatureProbeChannel,
-                odometerUnit = route.OdometerUnit,
                 dailySalesTarget = route.DailySalesTarget
             };
 
@@ -478,6 +484,44 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         {
             logger.LogError(ex, "Error saving the truck day entry for route {RouteId}", routeId);
             return (null, $"The figures could not be saved: {ex.Message}");
+        }
+    }
+
+    public async Task<string?> CorrectRouteDayMileageAsync(int vanRouteDayId, MileageCorrectionInput correction)
+    {
+        try
+        {
+            var payload = new
+            {
+                startingMileage = correction.StartingMileage,
+                closingMileage = correction.ClosingMileage,
+                expectedStartingMileage = correction.ExpectedStartingMileage,
+                expectedClosingMileage = correction.ExpectedClosingMileage,
+                reason = correction.Reason
+            };
+
+            var response = await httpClient.PutAsJsonAsync($"api/van-sales/route-days/{vanRouteDayId}/mileage", payload);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            // A refused reading is something the Admin can put right, so the server's own words are shown.
+            var problem = response.StatusCode == System.Net.HttpStatusCode.Forbidden
+                ? "Only an Admin can correct mileage."
+                : await ReadProblemDetailAsync(response);
+
+            logger.LogWarning(
+                "Correcting the mileage on van day {VanRouteDayId} failed with {Status}: {Detail}",
+                vanRouteDayId, (int)response.StatusCode, problem);
+
+            return problem;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error correcting the mileage on van day {VanRouteDayId}", vanRouteDayId);
+            return $"The readings could not be saved: {ex.Message}";
         }
     }
 

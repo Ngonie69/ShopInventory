@@ -147,9 +147,6 @@ public static class DbInitializer
                 Code = seed.Code,
                 Name = seed.Name,
                 Territory = seed.Territory,
-                OdometerUnit = VanSalesRouteSeedData.MileOdometerRoutes.Contains(seed.Code)
-                    ? OdometerUnit.Miles
-                    : OdometerUnit.Kilometres,
                 DailySalesTarget = VanSalesRouteSeedData.DailySalesTargetOf(seed),
                 IsActive = true,
                 SeedKey = seed.Code,

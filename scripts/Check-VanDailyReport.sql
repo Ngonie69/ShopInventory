@@ -444,8 +444,8 @@ WHERE submitted
 ORDER BY j.day, truck;
 
 \echo
-\echo '== 9. Distance. The sheet converts CBD, WEST 1 and Bulawayo UPC from miles; the handset figure'
-\echo '      is whatever the rep typed off the same odometer, so compare the readings before the km'
+\echo '== 9. Distance, in kilometres. The handset figure is whatever the rep typed off the odometer,'
+\echo '      so compare the readings before the km'
 :core
 SELECT to_char(day, 'Dy DD')   AS day,
        territory,

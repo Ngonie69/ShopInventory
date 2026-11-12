@@ -66,13 +66,6 @@ public static class VanSalesRouteSeedData
     public const string BulawayoTerritory = "Bulawayo";
 
     /// <summary>
-    /// The routes whose truck's odometer reads miles: CBD, West 1 and Bulawayo UPC. Everything else
-    /// reads kilometres. The office corrects this on the routes page when a truck is replaced.
-    /// </summary>
-    public static readonly IReadOnlySet<string> MileOdometerRoutes =
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "CBDCZA", "WEST1", "BYOUPC" };
-
-    /// <summary>
     /// What a truck is expected to sell on a working day, VAT included: 3,000 on an upcountry trip and
     /// 2,500 in town. The figures the daily workbook used, and editable on the routes page.
     /// </summary>
