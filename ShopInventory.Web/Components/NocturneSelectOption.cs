@@ -17,6 +17,8 @@ public interface INocturneSelectOption<out TValue>
     string Label { get; }
     string? Family { get; }
     string? Hint { get; }
+    string? Detail { get; }
+    string? Group { get; }
     bool Disabled { get; }
     bool IsUnset { get; }
     bool RuleAfter { get; }
@@ -56,6 +58,18 @@ public sealed class NocturneSelectOption<TValue> : INocturneSelectOption<TValue>
 
     /// <summary>Trailing muted text: a count, a code, a currency.</summary>
     public string? Hint { get; init; }
+
+    /// <summary>
+    /// Muted text beside the label that says what the label names — a warehouse's name beside its
+    /// code. The menu shows it and a search matches it; the closed trigger reads the label alone.
+    /// </summary>
+    public string? Detail { get; init; }
+
+    /// <summary>
+    /// The heading this row sits under. The menu draws a heading wherever the group changes from
+    /// the row before, so rows of one group must be adjacent. Null rows carry no heading.
+    /// </summary>
+    public string? Group { get; init; }
 
     /// <summary>Shown, but not selectable.</summary>
     public bool Disabled { get; init; }

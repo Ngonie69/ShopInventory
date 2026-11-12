@@ -32,11 +32,15 @@ public sealed class GetPagedTransferRequestsHandler(
             var page = request.Page < 1 ? 1 : request.Page;
             var pageSize = request.PageSize < 1 ? 20 : request.PageSize > 100 ? 100 : request.PageSize;
 
-            var transferRequests = await sapClient.GetPagedInventoryTransferRequestsAsync(
-                page, pageSize, documentStatus, cancellationToken);
+            var fromWarehouse = NullIfBlank(request.FromWarehouse);
+            var toWarehouse = NullIfBlank(request.ToWarehouse);
 
-            logger.LogInformation("Retrieved {Count} transfer requests (page {Page}, status {Status})",
-                transferRequests.Count, page, documentStatus ?? "all");
+            var transferRequests = await sapClient.GetPagedInventoryTransferRequestsAsync(
+                page, pageSize, documentStatus, fromWarehouse, toWarehouse, cancellationToken);
+
+            logger.LogInformation(
+                "Retrieved {Count} transfer requests (page {Page}, status {Status}, from {FromWarehouse}, to {ToWarehouse})",
+                transferRequests.Count, page, documentStatus ?? "all", fromWarehouse ?? "any", toWarehouse ?? "any");
 
             var transferRequestDtos = transferRequests.ToDto();
             await approvalService.EnrichAsync(transferRequestDtos, cancellationToken);
@@ -71,6 +75,9 @@ public sealed class GetPagedTransferRequestsHandler(
             return Errors.InventoryTransfer.CreationFailed(ex.Message);
         }
     }
+
+    private static string? NullIfBlank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>
     /// Maps the caller's status to the SAP literal, or null for "every status". Only known values

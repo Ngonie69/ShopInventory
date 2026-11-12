@@ -416,6 +416,116 @@
     background: var(--nsel-rule);
 }
 
+/* The listbox wraps the rows for the screen reader only; its rows lay out as
+   the menu's own children, so the menu's gap and padding reach them. */
+.nsel-list {
+    display: contents;
+}
+
+/* ── Groups, detail and the search box ───────────────────────────────────────
+   For a list long enough to need them — every warehouse in SAP. A group heading
+   is the caption's type one step quieter than a row; mute-3 rather than faint,
+   because at 10px faint does not hold 4.5:1 on the surface. */
+.nsel-group {
+    padding: 7px 10px 3px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--nsel-mute-3);
+}
+
+/* A row with a detail is a code and a name: the code holds a column so the
+   names line up, and the name gives way first when the menu runs out of width. */
+.nsel .nsel-item.nsel-has-detail .nsel-label {
+    flex: none;
+    min-width: 5.6em;
+    color: var(--nsel-ink);
+}
+
+.nsel-detail {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--nsel-mute-3);
+}
+
+.nsel.nsel-searchable .nsel-menu {
+    max-width: var(--nsel-search-max-w, 400px);
+    max-height: min(440px, 62vh);
+}
+
+/* Pinned to the top of the menu so it stays in reach while the rows scroll. A
+   sticky box sticks to the scrollport, which is the menu's padding edge, so the
+   opaque fill reaches out over the side padding and scrolled rows never show
+   through beside or above the box. */
+.nsel-search {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: 0 calc(-1 * var(--noct-s2));
+    padding: var(--noct-s1) var(--noct-s2) var(--noct-s2);
+    background: var(--nsel-surface);
+}
+
+.nsel-search-icon {
+    position: absolute;
+    left: calc(var(--noct-s2) + 10px);
+    top: 50%;
+    transform: translateY(calc(-50% + 1px));
+    color: var(--nsel-mute-3);
+    pointer-events: none;
+}
+
+/* Two classes deep for the same reason as the trigger: app.css repaints
+   `.dark-theme input`. */
+.nsel .nsel-search-input {
+    width: 100%;
+    height: 32px;
+    padding: 0 10px 0 30px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--nsel-ink);
+    background: var(--nsel-field-bg);
+    border: 1px solid var(--nsel-field-edge);
+    border-radius: var(--nsel-r-md);
+    outline: none;
+    box-shadow: none;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s;
+}
+
+.nsel .nsel-search-input:focus {
+    border-color: rgba(var(--nsel-accent-rgb), .55);
+    background: var(--nsel-field-bg);
+}
+
+/* `.nsel *` paints text with currentColor in WebKit, which would draw the
+   placeholder in full ink; it needs its own fill as well as its colour. */
+.nsel .nsel-search-input::placeholder {
+    color: var(--noct-placeholder);
+    -webkit-text-fill-color: var(--noct-placeholder);
+    opacity: 1;
+}
+
+/* What choosing a row does, pinned under the list. Opaque for the same reason
+   the search box is. */
+.nsel-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    margin: var(--noct-s1) calc(-1 * var(--noct-s2)) calc(-1 * var(--noct-s2));
+    padding: 8px 12px 9px;
+    border-top: 1px solid var(--nsel-rule);
+    background: var(--nsel-surface);
+    font-size: 11.5px;
+    line-height: 1.45;
+    white-space: normal;
+    color: var(--nsel-mute-2);
+}
+
 /* ── Size and layout variants ────────────────────────────────────────────── */
 
 /* Rows-per-page and other in-toolbar pickers, where the label is a number. */
@@ -508,11 +618,38 @@
         font-size: 16px;
     }
 
+    .nsel .nsel-search-input {
+        font-size: 16px;
+    }
+
     /* A menu hung off the trailing control in a filter row would otherwise run
        off the right edge. */
     .nsel:last-child .nsel-menu {
         left: auto;
         right: 0;
+    }
+
+    /* A searchable menu is wider than a phone's filter column, so whichever edge
+       it hangs from it runs off the other; and it holds a text box, so the
+       keyboard rises under it. On a phone it is a sheet across the top of the
+       screen instead, over a scrim, clear of the keyboard, and hung under the app
+       bar the way the notification panel is — the bar stacks above page content,
+       so a sheet at the very top loses its first rows behind it. It must stay
+       after the last-child rule above, which it beats only by coming later. */
+    .nsel.nsel-searchable .nsel-menu {
+        position: fixed;
+        top: calc(var(--kf-topbar-h, 54px) + 8px);
+        right: 12px;
+        bottom: auto;
+        left: 12px;
+        width: auto;
+        min-width: 0;
+        max-width: none;
+        max-height: min(440px, calc(100vh - var(--kf-topbar-h, 54px) - 24px));
+    }
+
+    .nsel.nsel-searchable .nsel-veil {
+        background: var(--noct-scrim);
     }
 }
 

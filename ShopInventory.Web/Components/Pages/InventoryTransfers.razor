@@ -3,6 +3,7 @@
 @using Microsoft.AspNetCore.WebUtilities
 @using System.Text
 @using ShopInventory.Web.Services
+@using ShopInventory.Web.Features.InventoryTransfers
 @attribute [Authorize(Roles = UserRoles.InventoryTransferViewRoles)]
 @inject IInventoryTransferService TransferService
 @inject IApprovalProcessService ApprovalProcessService
@@ -399,16 +400,22 @@ else if (pendingActionTitle is not null)
                     <div class="itx-field">
                         <label for="itx-req-from-wh">From warehouse</label>
                         <NocturneSelect Id="itx-req-from-wh" Class="nsel-block" Options="RequestFromWarehouseSelectOptions"
-                                        @bind-Value="_requestFromWarehouseFilter" OnChanged="ResetPaging"
+                                        @bind-Value="_requestFromWarehouseFilter" OnChanged="RequestWarehouseFilterChanged"
                                         Caption="Filter by source" AriaLabel="Filter by source warehouse"
-                                        Placeholder="Any source" />
+                                        Placeholder="Any source" Searchable="seesEveryWarehouse"
+                                        SearchPlaceholder="Code or name…"
+                                        Footnote="@(seesEveryWarehouse ? RequestWarehouseFootnote : null)"
+                                        Disabled="isLoadingRequests" />
                     </div>
                     <div class="itx-field">
                         <label for="itx-req-to-wh">To warehouse</label>
                         <NocturneSelect Id="itx-req-to-wh" Class="nsel-block" Options="RequestToWarehouseSelectOptions"
-                                        @bind-Value="_requestToWarehouseFilter" OnChanged="ResetPaging"
+                                        @bind-Value="_requestToWarehouseFilter" OnChanged="RequestWarehouseFilterChanged"
                                         Caption="Filter by destination" AriaLabel="Filter by destination warehouse"
-                                        Placeholder="Any destination" />
+                                        Placeholder="Any destination" Searchable="seesEveryWarehouse"
+                                        SearchPlaceholder="Code or name…"
+                                        Footnote="@(seesEveryWarehouse ? RequestWarehouseFootnote : null)"
+                                        Disabled="isLoadingRequests" />
                     </div>
                     <div class="itx-field">
                         <label for="itx-req-requester">Requester</label>
@@ -430,7 +437,7 @@ else if (pendingActionTitle is not null)
                     </div>
                     <div class="itx-filters-foot">
                         <button type="button" class="itx-btn itx-btn-sm" @onclick="ClearRequestFilters"
-                                disabled="@(!HasActiveRequestFilters)">
+                                disabled="@(!HasActiveRequestFilters || isLoadingRequests)">
                             Clear all filters
                         </button>
                     </div>
@@ -442,17 +449,39 @@ else if (pendingActionTitle is not null)
             {
                 <div class="itx-empty">
                     <div class="itx-spin" role="status" aria-label="Loading" style="margin:0 auto .8rem;"></div>
-                    <p>Loading transfer requests…</p>
+                    <p>
+                        @if (seesEveryWarehouse && (!string.IsNullOrWhiteSpace(_requestFromWarehouseFilter) || !string.IsNullOrWhiteSpace(_requestToWarehouseFilter)))
+                        {
+                            <text>Asking SAP for requests @RequestPendingWarehouseText…</text>
+                        }
+                        else
+                        {
+                            <text>Loading transfer requests…</text>
+                        }
+                    </p>
                 </div>
             }
             else if (transferRequests?.Any() == true)
             {
+                @if (RequestsScopedToWarehouse)
+                {
+                    <div class="itx-scope">
+                        <i class="bi bi-database" aria-hidden="true"></i>
+                        <span class="itx-scope-text">
+                            Every @(RequestDocumentWord)request <strong>@RequestWarehouseScopeText</strong>,
+                            read from SAP — not only the newest @transferRequestBatchSize.
+                        </span>
+                        <button type="button" class="itx-btn itx-btn-sm" @onclick="ClearRequestWarehouseFilters">
+                            Clear warehouse
+                        </button>
+                    </div>
+                }
                 <div class="itx-summary">
                     <div class="itx-summary-item">
                         <div class="itx-summary-k">Requests</div>
                         <div class="itx-summary-v">
                             @FilteredRequestCount
-                            <span class="itx-summary-scope">on page @requestPage</span>
+                            <span class="itx-summary-scope">@RequestSummaryScope</span>
                         </div>
                     </div>
                     <div class="itx-summary-item">
@@ -464,7 +493,7 @@ else if (pendingActionTitle is not null)
                         <div class="itx-summary-v">@FilteredRequests.Count(CanCurrentUserDecide)</div>
                     </div>
                     <div class="itx-summary-range">
-                        @if (HasActiveRequestFilters)
+                        @if (RequestPageIsSifted)
                         {
                             <span>Filtered from @transferRequestCount on this page</span>
                         }
@@ -614,6 +643,21 @@ else if (pendingActionTitle is not null)
                     </button>
                 </div>
             }
+            else if (RequestsScopedToWarehouse)
+            {
+                <div class="itx-empty">
+                    <i class="bi bi-box-seam itx-empty-icon"></i>
+                    <h6>No @(RequestDocumentWord)requests @RequestWarehouseScopeText in SAP</h6>
+                    <p>
+                        @(requestDocumentStatus == AllRequestsFilter
+                            ? "SAP holds no transfer request between these warehouses. Pick another warehouse."
+                            : "Pick another warehouse, or set Documents to All to include every request.")
+                    </p>
+                    <button type="button" class="itx-btn" @onclick="ClearRequestWarehouseFilters">
+                        Clear warehouse
+                    </button>
+                </div>
+            }
             else
             {
                 <div class="itx-empty">
@@ -695,14 +739,16 @@ else if (pendingActionTitle is not null)
                         <NocturneSelect Id="itx-pending-from-wh" Class="nsel-block" Options="PendingFromWarehouseSelectOptions"
                                         @bind-Value="_pendingFromWarehouseFilter" OnChanged="ResetPaging"
                                         Caption="Filter by source" AriaLabel="Filter by source warehouse"
-                                        Placeholder="Any source" />
+                                        Placeholder="Any source" Searchable="seesEveryWarehouse"
+                                        SearchPlaceholder="Code or name…" />
                     </div>
                     <div class="itx-field">
                         <label for="itx-pending-to-wh">To warehouse</label>
                         <NocturneSelect Id="itx-pending-to-wh" Class="nsel-block" Options="PendingToWarehouseSelectOptions"
                                         @bind-Value="_pendingToWarehouseFilter" OnChanged="ResetPaging"
                                         Caption="Filter by destination" AriaLabel="Filter by destination warehouse"
-                                        Placeholder="Any destination" />
+                                        Placeholder="Any destination" Searchable="seesEveryWarehouse"
+                                        SearchPlaceholder="Code or name…" />
                     </div>
                     <div class="itx-field">
                         <label for="itx-pending-stage">Awaiting stage</label>
@@ -2079,6 +2125,19 @@ else if (pendingActionTitle is not null)
     private Guid? currentUserId;
     private string? currentUserRole;
 
+    // Administrators and the wash bay act on any warehouse, so their warehouse filters offer every
+    // warehouse rather than the codes on the loaded page, and on the Requests tab a chosen warehouse
+    // is asked of SAP. Everyone else keeps the page's own codes, sifted in place.
+    private const string EveryWarehouseRoles = $"{UserRoles.Admin},{UserRoles.WashBay}";
+    private const string RequestWarehouseFootnote =
+        "Choosing a warehouse asks SAP for all of its requests, not only the ones on this page.";
+    private bool seesEveryWarehouse;
+
+    // The warehouses the loaded requests were asked of SAP for, which is what the scope line
+    // describes — not the filter fields, which change before the reload they cause has landed.
+    private string? loadedRequestFromWarehouse;
+    private string? loadedRequestToWarehouse;
+
     // A manager opens this page to read transfers and requests, and is offered nothing that raises,
     // edits, decides, posts or withdraws one: the API refuses a manager every one of those calls.
     // True when the account holds any role of InventoryTransferRoles, so a manager who also holds,
@@ -2599,30 +2658,20 @@ else if (pendingActionTitle is not null)
             .Prepend(NocturneSelectOption.All("Any approval state"));
 
     private IEnumerable<NocturneSelectOption<string>> RequestFromWarehouseSelectOptions =>
-        RequestFromWarehouseOptions
-            .Select(warehouse => new NocturneSelectOption<string>(warehouse, warehouse, "accent"))
-            .Prepend(NocturneSelectOption.All("Any source"));
+        WarehouseFilterOptions.Build(
+            "Any source",
+            transferRequests?.Select(x => x.FromWarehouse) ?? [],
+            cachedWarehouses,
+            seesEveryWarehouse,
+            _requestFromWarehouseFilter);
 
     private IEnumerable<NocturneSelectOption<string>> RequestToWarehouseSelectOptions =>
-        RequestToWarehouseOptions
-            .Select(warehouse => new NocturneSelectOption<string>(warehouse, warehouse, "accent"))
-            .Prepend(NocturneSelectOption.All("Any destination"));
-
-    private IEnumerable<string> RequestFromWarehouseOptions =>
-        transferRequests?
-            .Select(x => x.FromWarehouse)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(x => x) ?? Enumerable.Empty<string>();
-
-    private IEnumerable<string> RequestToWarehouseOptions =>
-        transferRequests?
-            .Select(x => x.ToWarehouse)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(x => x) ?? Enumerable.Empty<string>();
+        WarehouseFilterOptions.Build(
+            "Any destination",
+            transferRequests?.Select(x => x.ToWarehouse) ?? [],
+            cachedWarehouses,
+            seesEveryWarehouse,
+            _requestToWarehouseFilter);
 
     private IEnumerable<string> RequestStatusOptions =>
         transferRequests?
@@ -2640,15 +2689,23 @@ else if (pendingActionTitle is not null)
         new(OthersQueueFilter, "Awaiting someone else", "neutral")
     ];
 
+    // Held transfers live in this app's database and the tab loads them whole, so a chosen
+    // warehouse sifts what is loaded; there is no SAP page to look past.
     private IEnumerable<NocturneSelectOption<string>> PendingFromWarehouseSelectOptions =>
-        DistinctPendingCodes(SourcesOf)
-            .Select(warehouse => new NocturneSelectOption<string>(warehouse, warehouse, "accent"))
-            .Prepend(NocturneSelectOption.All("Any source"));
+        WarehouseFilterOptions.Build(
+            "Any source",
+            pendingTransfers?.SelectMany(SourcesOf) ?? [],
+            cachedWarehouses,
+            seesEveryWarehouse,
+            _pendingFromWarehouseFilter);
 
     private IEnumerable<NocturneSelectOption<string>> PendingToWarehouseSelectOptions =>
-        DistinctPendingCodes(DestinationsOf)
-            .Select(warehouse => new NocturneSelectOption<string>(warehouse, warehouse, "accent"))
-            .Prepend(NocturneSelectOption.All("Any destination"));
+        WarehouseFilterOptions.Build(
+            "Any destination",
+            pendingTransfers?.SelectMany(DestinationsOf) ?? [],
+            cachedWarehouses,
+            seesEveryWarehouse,
+            _pendingToWarehouseFilter);
 
     // A held transfer's lines can each name their own warehouses, so the header pair is only the
     // first of them. An API older than these lists sends them empty, which reads as the header.
@@ -2670,14 +2727,6 @@ else if (pendingActionTitle is not null)
         stage.WarehouseScope != ApprovalWarehouseScopes.Any && stage.ScopeWarehouses.Count > 0
             ? $" · assigned to {string.Join(", ", stage.ScopeWarehouses)}"
             : string.Empty;
-
-    /// <summary>The distinct codes across the loaded drafts on one end, for a filter list.</summary>
-    private IEnumerable<string> DistinctPendingCodes(Func<PendingInventoryTransferDto, IReadOnlyList<string>> codes) =>
-        pendingTransfers?
-            .SelectMany(codes)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(x => x) ?? Enumerable.Empty<string>();
 
     private IEnumerable<NocturneSelectOption<string>> PendingStageSelectOptions =>
         PendingStageFilterOptions
@@ -2864,6 +2913,7 @@ else if (pendingActionTitle is not null)
         canWriteTransfers = UserRoles.IsInAnyRole(authState.User, UserRoles.InventoryTransferRoles);
         canDecideRequests = canWriteTransfers ||
                             UserRoles.IsInAnyRole(authState.User, UserRoles.TransferRequestReceivingOwnerRoles);
+        seesEveryWarehouse = UserRoles.IsInAnyRole(authState.User, EveryWarehouseRoles);
         assignedWarehouseCodes = authState.User.FindAll("warehouse")
             .Select(claim => claim.Value)
             .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -4152,8 +4202,12 @@ else if (pendingActionTitle is not null)
         requestPage = page < 1 ? 1 : page;
         try
         {
+            var fromWarehouse = seesEveryWarehouse ? NullIfBlank(_requestFromWarehouseFilter) : null;
+            var toWarehouse = seesEveryWarehouse ? NullIfBlank(_requestToWarehouseFilter) : null;
             var (response, error) = await TransferService.GetTransferRequestsAsync(
-                requestPage, transferRequestBatchSize, requestDocumentStatus);
+                requestPage, transferRequestBatchSize, requestDocumentStatus, fromWarehouse, toWarehouse);
+            loadedRequestFromWarehouse = fromWarehouse;
+            loadedRequestToWarehouse = toWarehouse;
             if (response?.TransferRequests != null)
             {
                 // HasMore is inferred from a full page, so the page after an exact multiple comes
@@ -4811,18 +4865,112 @@ else if (pendingActionTitle is not null)
         if (hasMoreRequests) await LoadTransferRequestsAsync(requestPage + 1);
     }
 
-    private void ClearRequestFilters()
+    private async Task ClearRequestFilters()
     {
         _requestSearchString = null;
-        _requestFromWarehouseFilter = null;
-        _requestToWarehouseFilter = null;
         _requestStatusFilter = null;
         _requestRequesterFilter = null;
         _requestProductFilter = null;
         requestFromDate = null;
         requestToDate = null;
-        requestListPage = 1;
+        await ClearRequestWarehouseFilters();
     }
+
+    /// <summary>
+    /// A warehouse filter set by someone who sees every warehouse was asked of SAP, so changing it
+    /// asks again from the first page; for everyone else it sifts the page already loaded.
+    /// </summary>
+    private async Task RequestWarehouseFilterChanged()
+    {
+        ResetPaging();
+        if (seesEveryWarehouse && RequestWarehousesDifferFromLoaded)
+            await LoadTransferRequestsAsync(1);
+    }
+
+    private async Task ClearRequestWarehouseFilters()
+    {
+        _requestFromWarehouseFilter = null;
+        _requestToWarehouseFilter = null;
+        requestListPage = 1;
+        if (seesEveryWarehouse && RequestWarehousesDifferFromLoaded)
+            await LoadTransferRequestsAsync(1);
+    }
+
+    private bool RequestWarehousesDifferFromLoaded =>
+        !string.Equals(NullIfBlank(_requestFromWarehouseFilter), loadedRequestFromWarehouse, StringComparison.OrdinalIgnoreCase) ||
+        !string.Equals(NullIfBlank(_requestToWarehouseFilter), loadedRequestToWarehouse, StringComparison.OrdinalIgnoreCase);
+
+    private static string? NullIfBlank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>The requests on screen were asked of SAP for a warehouse, not sifted from a page.</summary>
+    private bool RequestsScopedToWarehouse =>
+        loadedRequestFromWarehouse is not null || loadedRequestToWarehouse is not null;
+
+    /// <summary>"from DISPCH · Dispatch Cheese to VAN001 · Van Sales CBD", as far as either end is set.</summary>
+    private string RequestWarehouseScopeText
+    {
+        get
+        {
+            var parts = new List<string>(2);
+            if (loadedRequestFromWarehouse is not null)
+                parts.Add($"from {CodeAndName(loadedRequestFromWarehouse)}");
+            if (loadedRequestToWarehouse is not null)
+                parts.Add($"to {CodeAndName(loadedRequestToWarehouse)}");
+            return string.Join(" ", parts);
+        }
+    }
+
+    /// <summary>
+    /// "DISPCH · Dispatch Cheese", or the bare code when SAP's name only repeats it. A dot rather than
+    /// <see cref="WarehouseLabel"/>'s dash, because the sentence it sits in already has one.
+    /// </summary>
+    private string CodeAndName(string code)
+    {
+        var name = WarehouseName(code).Trim();
+        return name.Length == 0 || string.Equals(name, code, StringComparison.OrdinalIgnoreCase)
+            ? code
+            : $"{code} · {name}";
+    }
+
+    /// <summary>The same phrase for the reload in flight, read from the filter fields.</summary>
+    private string RequestPendingWarehouseText
+    {
+        get
+        {
+            var parts = new List<string>(2);
+            if (NullIfBlank(_requestFromWarehouseFilter) is { } from)
+                parts.Add($"from {from}");
+            if (NullIfBlank(_requestToWarehouseFilter) is { } to)
+                parts.Add($"to {to}");
+            return string.Join(" ", parts);
+        }
+    }
+
+    /// <summary>What the request count beside it counts: SAP's answer for a warehouse, or one page.</summary>
+    private string RequestSummaryScope =>
+        RequestsScopedToWarehouse
+            ? requestPage > 1 || hasMoreRequests ? $"in SAP, page {requestPage}" : "in SAP"
+            : $"on page {requestPage}";
+
+    /// <summary>"open", "closed", or nothing — the Documents slice, as a word in a sentence.</summary>
+    private string RequestDocumentWord => requestDocumentStatus switch
+    {
+        OpenRequestsFilter => "open ",
+        ClosedRequestsFilter => "closed ",
+        _ => string.Empty
+    };
+
+    /// <summary>Whether a filter other than a warehouse asked of SAP is narrowing the loaded page.</summary>
+    private bool RequestPageIsSifted =>
+        RequestsScopedToWarehouse
+            ? !string.IsNullOrWhiteSpace(_requestSearchString) ||
+              !string.IsNullOrWhiteSpace(_requestStatusFilter) ||
+              !string.IsNullOrWhiteSpace(_requestRequesterFilter) ||
+              !string.IsNullOrWhiteSpace(_requestProductFilter) ||
+              requestFromDate.HasValue ||
+              requestToDate.HasValue
+            : HasActiveRequestFilters;
 
     // The status select is left alone on purpose: it names the slice the API returned,
     // so clearing it would silently mean a reload rather than a narrowing.

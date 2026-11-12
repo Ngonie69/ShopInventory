@@ -23,9 +23,15 @@
 
    Outside clicks are caught by a fixed veil behind the menu rather than a
    document listener, which keeps the component free of JS interop — the same
-   trade NocturneDateField makes. *@
+   trade NocturneDateField makes.
 
-<div class="nsel @Class @(_open ? "nsel-open" : "") @(Fixed ? "nsel-fixed" : "")" @onkeydown="OnKeyDown" @attributes="Extra">
+   A long list — every warehouse in SAP — opts into `Searchable`: a box at the
+   top of the menu that narrows the rows by label and detail as you type, with
+   Enter taking the first match. Rows may carry a `Group`, and the menu heads
+   each run of one group, so "on this page" and "everything else" read as two
+   lists in one menu. *@
+
+<div class="nsel @Class @(_open ? "nsel-open" : "") @(Fixed ? "nsel-fixed" : "") @(Searchable ? "nsel-searchable" : "")" @onkeydown="OnKeyDown" @attributes="Extra">
     <button type="button" id="@Id"
             class="nsel-btn @(HasValue ? "nsel-set" : "") @FamilyClass(_current?.Family)"
             disabled="@Disabled" @onclick="Toggle"
@@ -61,45 +67,90 @@
         {
             <div class="nsel-veil" @onclick="Close"></div>
         }
-        <div class="nsel-menu" role="listbox" aria-label="@(Caption ?? AriaLabel)">
+        <div class="nsel-menu">
             @if (!string.IsNullOrEmpty(Caption))
             {
                 <div class="nsel-caption">@Caption</div>
             }
-            @if (!_items.Any())
+            @if (Searchable)
             {
-                <div class="nsel-empty">@EmptyText</div>
-            }
-            @for (var i = 0; i < _items.Count; i++)
-            {
-                @* Copied out of the loop: without it every lambda closes over
-                   the same variable and each row selects the last option. *@
-                var index = i;
-                var option = _items[index];
-                var chosen = Matches(option.Value);
-                <button type="button" @key="index" @ref="_itemRefs[index]"
-                        class="nsel-item @FamilyClass(option.Family) @(chosen ? "nsel-on" : "")"
-                        role="option" aria-selected="@chosen" disabled="@option.Disabled"
-                        @onclick="@(() => Pick(option))">
-                    @if (option.Family is not null)
-                    {
-                        <span class="nsel-dot" aria-hidden="true"></span>
-                    }
-                    <span class="nsel-label">@option.Label</span>
-                    @if (!string.IsNullOrEmpty(option.Hint))
-                    {
-                        <span class="nsel-hint">@option.Hint</span>
-                    }
-                    <svg class="nsel-tick" width="12" height="12" viewBox="0 0 24 24" fill="none"
-                         stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
-                         stroke-linejoin="round" aria-hidden="true">
-                        <path d="M4.5 12.5l5 5 10-11"></path>
+                <div class="nsel-search">
+                    <svg class="nsel-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                        <circle cx="11" cy="11" r="6.5"></circle>
+                        <path d="M16 16l4.5 4.5"></path>
                     </svg>
-                </button>
-                @if (option.RuleAfter && index < _items.Count - 1)
+                    <input @ref="_searchRef" type="search" class="nsel-search-input" value="@_query"
+                           placeholder="@SearchPlaceholder" aria-label="@($"Search {Caption ?? AriaLabel ?? "options"}")"
+                           autocomplete="off" spellcheck="false"
+                           @oninput="OnQueryInput" @onkeydown="OnSearchKeyDown" />
+                </div>
+            }
+            @* The list is display: contents, so its rows lay out as the menu's own children while
+               the listbox role covers the rows alone — not the caption, search box or footnote. *@
+            <div class="nsel-list" role="listbox" aria-label="@(Caption ?? AriaLabel)">
+                @if (!_items.Any())
                 {
-                    <div class="nsel-rule"></div>
+                    <div class="nsel-empty">@EmptyText</div>
                 }
+                else
+                {
+                    string? group = null;
+                    var ruled = true;
+                    @for (var i = 0; i < _shown.Count; i++)
+                    {
+                        @* Copied out of the loop: without it every lambda closes over
+                           the same variable and each row selects the last option. *@
+                        var index = i;
+                        var option = _shown[index];
+                        var chosen = Matches(option.Value);
+                        @if (option.Group is not null && !string.Equals(option.Group, group, StringComparison.Ordinal))
+                        {
+                            @if (!ruled)
+                            {
+                                <div class="nsel-rule"></div>
+                            }
+                            <div class="nsel-group" role="presentation">@option.Group</div>
+                        }
+                        group = option.Group;
+                        <button type="button" @key="index" @ref="_itemRefs[index]"
+                                class="nsel-item @FamilyClass(option.Family) @(chosen ? "nsel-on" : "") @(option.Detail is null ? "" : "nsel-has-detail")"
+                                role="option" aria-selected="@chosen" disabled="@option.Disabled"
+                                @onclick="@(() => Pick(option))">
+                            @if (option.Family is not null)
+                            {
+                                <span class="nsel-dot" aria-hidden="true"></span>
+                            }
+                            <span class="nsel-label">@option.Label</span>
+                            @if (option.Detail is not null)
+                            {
+                                <span class="nsel-detail">@option.Detail</span>
+                            }
+                            @if (!string.IsNullOrEmpty(option.Hint))
+                            {
+                                <span class="nsel-hint">@option.Hint</span>
+                            }
+                            <svg class="nsel-tick" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                 stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+                                 stroke-linejoin="round" aria-hidden="true">
+                                <path d="M4.5 12.5l5 5 10-11"></path>
+                            </svg>
+                        </button>
+                        ruled = option.RuleAfter && index < _shown.Count - 1;
+                        @if (ruled)
+                        {
+                            <div class="nsel-rule"></div>
+                        }
+                    }
+                    @if (Searchable && !string.IsNullOrWhiteSpace(_query) && _shown.All(o => o.IsUnset))
+                    {
+                        <div class="nsel-empty">Nothing matches “@_query.Trim()”.</div>
+                    }
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(Footnote))
+            {
+                <div class="nsel-foot">@Footnote</div>
             }
         </div>
     }
@@ -160,11 +211,28 @@
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? Extra { get; set; }
 
+    /// <summary>
+    /// Puts a search box at the top of the menu that narrows the rows by label and detail. Rows
+    /// that mean "no filter" stay, so clearing is always one click away. For lists long enough to
+    /// scroll — every warehouse — not for a status list that fits.
+    /// </summary>
+    [Parameter] public bool Searchable { get; set; }
+
+    /// <summary>What the search box reads while empty.</summary>
+    [Parameter] public string SearchPlaceholder { get; set; } = "Search…";
+
+    /// <summary>A line under the list that says what choosing a row does — that it asks SAP, say.</summary>
+    [Parameter] public string? Footnote { get; set; }
+
     private List<INocturneSelectOption<TValue>> _items = [];
+    private List<INocturneSelectOption<TValue>> _shown = [];
     private ElementReference[] _itemRefs = [];
+    private ElementReference _searchRef;
+    private string _query = string.Empty;
     private bool _open;
     private int _active = -1;
     private bool _focusPending;
+    private bool _focusSearch;
 
     private INocturneSelectOption<TValue>? _current;
 
@@ -173,12 +241,59 @@
     protected override void OnParametersSet()
     {
         _items = Options as List<INocturneSelectOption<TValue>> ?? Options.ToList();
-        if (_itemRefs.Length != _items.Count)
-        {
-            _itemRefs = new ElementReference[_items.Count];
-        }
+        ApplyQuery();
 
         _current = _items.FirstOrDefault(o => Matches(o.Value));
+    }
+
+    /// <summary>
+    /// The rows the menu shows: all of them, or those whose label or detail holds the search text.
+    /// The keyboard walks these, so the element refs are sized to them.
+    /// </summary>
+    private void ApplyQuery()
+    {
+        var query = _query.Trim();
+        _shown = !Searchable || query.Length == 0
+            ? _items
+            : _items.Where(o => o.IsUnset ||
+                                o.Label.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                                (o.Detail?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false))
+                .ToList();
+
+        if (_itemRefs.Length != _shown.Count)
+        {
+            _itemRefs = new ElementReference[_shown.Count];
+        }
+    }
+
+    private void OnQueryInput(ChangeEventArgs e)
+    {
+        _query = e.Value?.ToString() ?? string.Empty;
+        _active = -1;
+        ApplyQuery();
+    }
+
+    /// <summary>
+    /// Enter takes the row the text names: the one whose label it is, else the first whose label
+    /// starts with it, else the first row left. A detail can match too — "wareh" finds every
+    /// "… Warehouse" — so taking the first row alone would choose a name over the code typed.
+    /// </summary>
+    private async Task OnSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter" || string.IsNullOrWhiteSpace(_query))
+        {
+            return;
+        }
+
+        var query = _query.Trim();
+        var candidates = _shown.Where(o => !o.IsUnset && !o.Disabled).ToList();
+        var best = candidates.FirstOrDefault(o => string.Equals(o.Label, query, StringComparison.OrdinalIgnoreCase))
+                   ?? candidates.FirstOrDefault(o => o.Label.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                   ?? candidates.FirstOrDefault();
+        if (best is not null)
+        {
+            await Pick(best);
+        }
     }
 
     // The unset filter and the empty filter are the same filter. Pages disagree
@@ -210,8 +325,15 @@
         _open = !_open;
         if (_open)
         {
-            // Open on the current choice so the arrow keys start where the eye does.
-            _active = _items.FindIndex(o => Matches(o.Value));
+            // Every opening starts from the whole list, not from the last search.
+            _query = string.Empty;
+            ApplyQuery();
+
+            // Open on the current choice so the arrow keys start where the eye does. A searchable
+            // menu opens with the caret in the box instead, so typing narrows at once and the
+            // first ArrowDown lands on the first row rather than the one after the choice.
+            _active = Searchable ? -1 : _shown.FindIndex(o => Matches(o.Value));
+            _focusSearch = Searchable;
         }
     }
 
@@ -230,20 +352,21 @@
                 if (!_open)
                 {
                     Toggle();
-                    _focusPending = _active >= 0;
+                    _focusPending = !Searchable && _active >= 0;
                     break;
                 }
 
                 Step(e.Key == "ArrowDown" ? 1 : -1);
                 break;
 
-            case "Home" when _open:
+            // Left to the search box's caret in a searchable menu.
+            case "Home" when _open && !Searchable:
                 _active = NextSelectable(-1, 1);
                 _focusPending = _active >= 0;
                 break;
 
-            case "End" when _open:
-                _active = NextSelectable(_items.Count, -1);
+            case "End" when _open && !Searchable:
+                _active = NextSelectable(_shown.Count, -1);
                 _focusPending = _active >= 0;
                 break;
         }
@@ -251,10 +374,17 @@
 
     private void Step(int direction)
     {
-        var from = _active < 0 ? (direction > 0 ? -1 : _items.Count) : _active;
+        var from = _active < 0 ? (direction > 0 ? -1 : _shown.Count) : _active;
         var next = NextSelectable(from, direction);
         if (next < 0)
         {
+            // Up past the first row goes back to the search box it came down from.
+            if (direction < 0 && Searchable)
+            {
+                _active = -1;
+                _focusSearch = true;
+            }
+
             return;
         }
 
@@ -264,9 +394,9 @@
 
     private int NextSelectable(int from, int direction)
     {
-        for (var i = from + direction; i >= 0 && i < _items.Count; i += direction)
+        for (var i = from + direction; i >= 0 && i < _shown.Count; i += direction)
         {
-            if (!_items[i].Disabled)
+            if (!_shown[i].Disabled)
             {
                 return i;
             }
@@ -277,6 +407,17 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_focusSearch)
+        {
+            _focusSearch = false;
+            if (_open && Searchable)
+            {
+                await _searchRef.FocusAsync();
+            }
+
+            return;
+        }
+
         if (!_focusPending)
         {
             return;

@@ -13102,21 +13102,32 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     }
 
     /// <summary>
-    /// Gets inventory transfer requests with pagination
+    /// Gets inventory transfer requests with pagination, newest first, optionally narrowed to a
+    /// document status and to the warehouse named at either end of the header.
     /// </summary>
     public async Task<List<InventoryTransferRequest>> GetPagedInventoryTransferRequestsAsync(
         int page,
         int pageSize,
         string? documentStatus = null,
+        string? fromWarehouse = null,
+        string? toWarehouse = null,
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
         var skip = (page - 1) * pageSize;
-        var filter = string.IsNullOrWhiteSpace(documentStatus)
+        var conditions = new List<string>(3);
+        if (!string.IsNullOrWhiteSpace(documentStatus))
+            conditions.Add($"DocumentStatus eq '{SanitizeODataValue(documentStatus)}'");
+        if (!string.IsNullOrWhiteSpace(fromWarehouse))
+            conditions.Add($"FromWarehouse eq '{SanitizeODataValue(fromWarehouse.Trim())}'");
+        if (!string.IsNullOrWhiteSpace(toWarehouse))
+            conditions.Add($"ToWarehouse eq '{SanitizeODataValue(toWarehouse.Trim())}'");
+
+        var filter = conditions.Count == 0
             ? string.Empty
-            : $"$filter={Uri.EscapeDataString($"DocumentStatus eq '{SanitizeODataValue(documentStatus)}'")}&";
+            : $"$filter={Uri.EscapeDataString(string.Join(" and ", conditions))}&";
         var url = $"InventoryTransferRequests?{filter}{InventoryTransferRequestSelect}&$orderby=DocEntry desc&$skip={skip}&$top={pageSize}";
 
         var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
