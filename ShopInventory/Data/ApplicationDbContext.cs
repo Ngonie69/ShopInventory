@@ -132,6 +132,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // One rep's trading day on a route: the departure compliance record
   public DbSet<VanRouteDayEntity> VanRouteDays { get; set; }
 
+  // Every change an Admin made to a trading day's odometer readings, with the rep's own first
+  public DbSet<VanRouteDayMileageCorrectionEntity> VanRouteDayMileageCorrections { get; set; }
+
   // What the office enters for a truck's day: fuel issued, account sales, the area worked
   public DbSet<VanTruckDayEntryEntity> VanTruckDayEntries { get; set; }
 
@@ -2153,6 +2156,29 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.HasOne(e => e.Route)
             .WithMany()
             .HasForeignKey(e => e.RouteId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    modelBuilder.Entity<VanRouteDayMileageCorrectionEntity>(entity =>
+    {
+      entity.ToTable("VanRouteDayMileageCorrections");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.VanRouteDayId, e.CorrectedAt });
+
+      entity.Property(e => e.Reason).IsRequired().HasMaxLength(500);
+      entity.Property(e => e.CorrectedByName).HasMaxLength(100);
+
+      // The trail goes with its day: a day is only removed when its rep's account is.
+      entity.HasOne(e => e.VanRouteDay)
+            .WithMany()
+            .HasForeignKey(e => e.VanRouteDayId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      // The corrector's name is snapshotted, so an Admin's account can go without taking the trail.
+      entity.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(e => e.CorrectedByUserId)
             .OnDelete(DeleteBehavior.SetNull);
     });
 

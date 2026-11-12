@@ -38,7 +38,6 @@ public sealed class GetRoutesHandler(
                 // How many vans run this route. A route with none is either new or forgotten, and the
                 // management page should be able to show which without a second request.
                 db.Users.Count(user => user.RouteId == route.Id),
-                route.OdometerUnit.ToString(),
                 route.DailySalesTarget))
             .ToListAsync(cancellationToken);
     }

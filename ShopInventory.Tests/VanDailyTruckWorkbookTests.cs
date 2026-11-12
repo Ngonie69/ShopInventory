@@ -82,8 +82,8 @@ public class VanDailyTruckWorkbookTests
         Assert.Equal("61.6%", Under(sheet, headings, west, "Achieved").GetFormattedString());
         Assert.Equal("90.0%", Under(sheet, headings, west, "CCR").GetFormattedString());
         Assert.Equal("Rounds (1 list day left out)", Under(sheet, headings, west, "CCR Measured On").GetString());
-        Assert.Equal(412, Under(sheet, headings, west, "Km").GetValue<int>());
-        Assert.Equal(6.87m, Under(sheet, headings, west, "Km A Litre").GetValue<decimal>());
+        Assert.Equal(256, Under(sheet, headings, west, "Km").GetValue<int>());
+        Assert.Equal(4.27m, Under(sheet, headings, west, "Km A Litre").GetValue<decimal>());
         Assert.Equal(320m, Under(sheet, headings, west, "Account Sales (not in Sales)").GetValue<decimal>());
     }
 
@@ -131,7 +131,7 @@ public class VanDailyTruckWorkbookTests
 
         Assert.Contains("they are not in the Sales column", text);
         Assert.Contains("reads low", text);
-        Assert.Contains("Some odometers count in miles", text);
+        Assert.Contains("Every reading is kilometres", text);
         Assert.Contains("$412 was sold by logins that are on no route", text);
 
         int notes = HeadingRow(sheet, "HOW TO READ THIS");
@@ -139,17 +139,15 @@ public class VanDailyTruckWorkbookTests
     }
 
     [Fact]
-    public void A_period_with_nothing_outside_its_routes_and_no_miles_says_neither()
+    public void A_period_with_nothing_outside_its_routes_does_not_mention_it()
     {
         var report = Report();
         report.SalesOutsideRoutes = 0;
-        report.Days.ForEach(day => day.OdometerUnit = VanOdometer.Kilometres);
 
         using var workbook = Open(_service.ExportVanDailyTruckReportToExcel(report));
         var text = TextOf(workbook.Worksheet("Trucks"));
 
         Assert.DoesNotContain("on no route", text);
-        Assert.DoesNotContain("count in miles", text);
     }
 
     [Fact]
@@ -193,8 +191,9 @@ public class VanDailyTruckWorkbookTests
         Assert.Equal(string.Empty, Under(sheet, headings, row, "Flags").GetString());
     }
 
+    /// <summary>Every reading is kilometres, so the sheet names no unit and never mentions miles.</summary>
     [Fact]
-    public void A_mile_odometer_keeps_its_readings_and_gives_its_distance_in_kilometres()
+    public void The_days_sheet_gives_its_readings_and_distance_in_kilometres()
     {
         using var workbook = Open(_service.ExportVanDailyTruckReportToExcel(Report()));
         var sheet = workbook.Worksheet("Days");
@@ -203,8 +202,11 @@ public class VanDailyTruckWorkbookTests
 
         Assert.Equal(88100, Under(sheet, headings, row, "Odometer Out").GetValue<int>());
         Assert.Equal(88228, Under(sheet, headings, row, "Odometer In").GetValue<int>());
-        Assert.Equal("miles", Under(sheet, headings, row, "Odometer Reads").GetString());
-        Assert.Equal(206, Under(sheet, headings, row, "Km").GetValue<int>());
+        Assert.Equal(128, Under(sheet, headings, row, "Km").GetValue<int>());
+
+        var text = TextOf(sheet) + TextOf(workbook.Worksheet("Trucks"));
+        Assert.DoesNotContain("Odometer Reads", text);
+        Assert.DoesNotContain("miles", text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -221,7 +223,7 @@ public class VanDailyTruckWorkbookTests
         Assert.True(Under(sheet, headings, row, "PCR").IsEmpty());
         Assert.True(Under(sheet, headings, row, "Time Out").IsEmpty());
         Assert.True(Under(sheet, headings, row, "Km").IsEmpty());
-        Assert.Equal(string.Empty, Under(sheet, headings, row, "Odometer Reads").GetString());
+        Assert.True(Under(sheet, headings, row, "Odometer Out").IsEmpty());
 
         // The target it missed is still there, so the day can be seen to have had one.
         Assert.Equal(3000m, Under(sheet, headings, row, "Day Target").GetValue<decimal>());
@@ -318,7 +320,7 @@ public class VanDailyTruckWorkbookTests
     }
 
     /// <summary>
-    /// Two trucks over 1 to 8 October 2026. West 1 reads miles, has a target and one round day; its
+    /// Two trucks over 1 to 8 October 2026. West 1 has a target and one round day; its
     /// Friday was closed the next morning and measured against the list, and its Monday was never
     /// reported. Upcountry 2 has no target, no plan and no office figures, and is out today.
     /// </summary>
@@ -348,7 +350,7 @@ public class VanDailyTruckWorkbookTests
             DaysOnWholeList = 1,
             PcrProductiveCalls = 88,
             PcrCallsMade = 112,
-            Kilometres = 412,
+            Kilometres = 256,
             FuelLitres = 60m
         };
 
@@ -397,7 +399,7 @@ public class VanDailyTruckWorkbookTests
                 DaysOnWholeList = 1,
                 PcrProductiveCalls = 95,
                 PcrCallsMade = 121,
-                Kilometres = 412,
+                Kilometres = 256,
                 FuelLitres = 60m
             },
             Exceptions = new VanDailyTruckExceptions { NotReported = 1, BelowTarget = 1, ReturnedLate = 1 },
@@ -414,7 +416,7 @@ public class VanDailyTruckWorkbookTests
                     CustomersVisited = 58, ProductiveCalls = 46, CallsMade = 59, NewCustomers = 2,
                     SalesCount = 50, Sales = 4620.25m, Cash = 4100m, Ecocash = 520.25m,
                     AccountSales = 320m,
-                    StartingMileage = 88100, ClosingMileage = 88228, OdometerUnit = VanOdometer.Miles, Kilometres = 206,
+                    StartingMileage = 88100, ClosingMileage = 88228, Kilometres = 128,
                     FuelLitres = 60m, DailySalesTarget = 3000m
                 },
                 new VanDailyTruckDay
@@ -427,14 +429,14 @@ public class VanDailyTruckWorkbookTests
                     PlannedCustomers = 286, PlannedCallsMade = 52, PlanBasis = "List",
                     CustomersVisited = 52, ProductiveCalls = 42, CallsMade = 53, NewCustomers = 2,
                     SalesCount = 46, Sales = 4620.25m, Cash = 4620.25m,
-                    StartingMileage = 88228, ClosingMileage = 88356, OdometerUnit = VanOdometer.Miles, Kilometres = 206,
+                    StartingMileage = 88228, ClosingMileage = 88356, Kilometres = 128,
                     DailySalesTarget = 3000m
                 },
                 new VanDailyTruckDay
                 {
                     RouteId = 1, RouteCode = "WEST1", RouteName = "West 1", Territory = "Harare",
                     TradingDate = new DateTime(2026, 10, 5), IsWorkingDay = true, IsComplete = true,
-                    OdometerUnit = VanOdometer.Miles, DailySalesTarget = 3000m
+                    DailySalesTarget = 3000m
                 },
                 new VanDailyTruckDay
                 {

@@ -1955,6 +1955,27 @@
     color: var(--vs-faint);
 }
 
+/* An Admin's correction of the odometer readings: what was changed, and the form that changes it.
+   The form is the truck report's `vsk-form`, set inside the detail panel rather than a ledger row. */
+.vs .vsc-mileage-trail {
+    margin-top: 8px;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    color: var(--vs-faint);
+}
+
+.vs .vsc-mileage-action {
+    margin-top: 10px;
+}
+
+.vs .vsk-form.vsc-mileage-form {
+    margin: 14px 0 0;
+}
+
+.vs .vsc-mileage-form .vsk-form-actions {
+    grid-column: 1 / -1;
+}
+
 .vs .vsc-detail-foot {
     margin-top: 13px;
     padding-top: 11px;

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
 using ShopInventory.Common.Security;
+using ShopInventory.Features.VanSalesReports.Commands.CorrectVanRouteDayMileage;
 using ShopInventory.Features.VanSalesReports.Commands.DeleteRoute;
 using ShopInventory.Features.VanSalesReports.Commands.DeleteRouteStop;
 using ShopInventory.Features.VanSalesReports.Commands.ReorderRouteStops;
@@ -747,6 +748,47 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Corrects the odometer readings a rep typed on one trading day. Admin only.
+    /// </summary>
+    /// <remarks>
+    /// The day is corrected in place, so every report and the handset read the new figures, and each
+    /// correction is kept with its reason and the readings it replaced. Both readings are sent as they
+    /// should stand (a null clears one), beside the readings the page showed: if the day no longer
+    /// holds those, the save is refused with 409 rather than written over a reading the rep has since
+    /// entered. The reading in cannot be set while the day is open, because End Day writes it.
+    /// </remarks>
+    /// <param name="id">The trading day: <c>VanRouteDayId</c> on the compliance report's rows.</param>
+    /// <param name="request">The readings, the readings the page showed, and why.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpPut("route-days/{id:int}/mileage")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(typeof(VanRouteDayMileageDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CorrectRouteDayMileage(
+        int id,
+        [FromBody] CorrectRouteDayMileageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new CorrectVanRouteDayMileageCommand(
+                id,
+                request.StartingMileage,
+                request.ClosingMileage,
+                request.ExpectedStartingMileage,
+                request.ExpectedClosingMileage,
+                request.Reason,
+                UserClaimReader.GetUserId(User)),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
     private async Task<IActionResult> SaveStopAsync(
         int? id,
         SaveRouteStopRequest request,
@@ -787,7 +829,6 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 request.TemperatureProbeChannel,
                 request.IsActive,
                 UserClaimReader.GetUserId(User),
-                request.OdometerUnit,
                 request.DailySalesTarget),
             cancellationToken);
 
@@ -846,6 +887,17 @@ public record SaveVanTruckDayEntryRequest(
     decimal? AccountSales = null,
     string? Notes = null);
 
+/// <summary>
+/// A trading day's corrected odometer readings, as the portal submits them. A null clears a reading;
+/// the two expected readings are what the page showed, and must still be what the day holds.
+/// </summary>
+public record CorrectRouteDayMileageRequest(
+    int? StartingMileage,
+    int? ClosingMileage,
+    int? ExpectedStartingMileage,
+    int? ExpectedClosingMileage,
+    string? Reason);
+
 /// <summary>A route as the portal submits it. There is no delete: a route names historical days.</summary>
 public record SaveRouteRequest(
     string Code,
@@ -856,5 +908,4 @@ public record SaveRouteRequest(
     decimal? TemperatureMinC = null,
     decimal? TemperatureMaxC = null,
     byte? TemperatureProbeChannel = null,
-    string? OdometerUnit = null,
     decimal? DailySalesTarget = null);

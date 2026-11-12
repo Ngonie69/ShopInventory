@@ -17,7 +17,7 @@ namespace ShopInventory.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.14")
+                .HasAnnotation("ProductVersion", "10.0.15")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -6192,9 +6192,6 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<int>("OdometerUnit")
-                        .HasColumnType("integer");
-
                     b.Property<string>("SeedKey")
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
@@ -7927,9 +7924,6 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
-                    b.Property<int>("OdometerUnit")
-                        .HasColumnType("integer");
-
                     b.Property<int>("PlannedCustomerCount")
                         .HasColumnType("integer");
 
@@ -8009,6 +8003,53 @@ namespace ShopInventory.Migrations
                         .IsUnique();
 
                     b.ToTable("VanRouteDays", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.VanRouteDayMileageCorrectionEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("ClosingMileage")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CorrectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CorrectedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("CorrectedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("PreviousClosingMileage")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PreviousStartingMileage")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("StartingMileage")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("VanRouteDayId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CorrectedByUserId");
+
+                    b.HasIndex("VanRouteDayId", "CorrectedAt");
+
+                    b.ToTable("VanRouteDayMileageCorrections", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.VanSalesCustomerAccountEntity", b =>
@@ -10356,6 +10397,22 @@ namespace ShopInventory.Migrations
                     b.Navigation("Route");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.VanRouteDayMileageCorrectionEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("CorrectedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("ShopInventory.Models.Entities.VanRouteDayEntity", "VanRouteDay")
+                        .WithMany()
+                        .HasForeignKey("VanRouteDayId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("VanRouteDay");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.VanSalesCustomerAccountEntity", b =>

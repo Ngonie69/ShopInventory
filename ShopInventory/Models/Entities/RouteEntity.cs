@@ -85,12 +85,6 @@ public class RouteEntity
     public byte? TemperatureProbeChannel { get; set; }
 
     /// <summary>
-    /// What the route's truck counts distance in. A rep types the reading as the dashboard shows it,
-    /// and each day snapshots this so the reading can be turned into kilometres.
-    /// </summary>
-    public OdometerUnit OdometerUnit { get; set; } = OdometerUnit.Kilometres;
-
-    /// <summary>
     /// What the truck is expected to sell on a working day, VAT included, or null on a route that is
     /// not held to a target.
     /// </summary>

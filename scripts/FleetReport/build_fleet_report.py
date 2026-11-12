@@ -30,6 +30,13 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+# The Van days sheet's columns. Other sheets reach into it by heading through VAN_DAY_COL, so a column
+# added or removed here cannot leave a formula pointing at its neighbour.
+VAN_DAY_COLUMNS = ['Plate', 'Route', 'Date', 'Van account', 'Area', 'Reps on the truck', 'Out', 'Back', 'Hours out',
+                   'Odometer km', 'GPS fixes', 'GPS km (straight line)', 'Opening reading', 'Closing reading',
+                   'Note', 'Typed as', 'Cost centre', 'Fuel share (L)']
+VAN_DAY_COL = {name: get_column_letter(i) for i, name in enumerate(VAN_DAY_COLUMNS, 1)}
+
 # Told to us directly (2026-11-03): AFQ9644 is the only van with a tracker, and it is UPC 2.
 # Its reps type AHT2239 at Start Day; their odometer readings follow AFQ9644's.
 KNOWN_VANS = {'AFQ9644': ('VAN015', 'UPC 2')}
@@ -49,7 +56,6 @@ FONT = 'Arial'
 HEAD_FILL = PatternFill('solid', start_color='1F3A5F')
 SUB_FILL = PatternFill('solid', start_color='E8EEF5')
 THIN = Side(style='thin', color='C9D3DF')
-KM_PER_MILE = 1.609344
 MAX_PLAUSIBLE_KMH = 150      # a phone fix implying more than this from the last one is a bad fix
 MIN_DAY_LIMIT_KM = 300       # a day's odometer km is suspect above max(this, 3 x the truck's median)
 
@@ -183,7 +189,7 @@ def gps_track_km(points):
 # ── vans from the phone, one row per truck per day ────────────────────────────────────────────
 
 def odometer_day(seq, i, limit):
-    """km (in the truck's own unit) for day i of a truck's reading chain, and how it was got."""
+    """km for day i of a truck's reading chain, and how it was got."""
     s, c = seq[i]['start'], seq[i]['close']
     prev_c = next((seq[j]['close'] for j in range(i - 1, -1, -1) if seq[j]['close'] is not None), None)
     next_s = seq[i + 1]['start'] if i + 1 < len(seq) else None
@@ -223,7 +229,7 @@ def build_vans(vans, tracked_accounts):
 
     # Truck-days from Start Day / End Day.
     days = defaultdict(lambda: dict(rows=[], typed=Counter(), accounts=Counter(), routes=Counter(), area=Counter(),
-                                    units=Counter(), reps=set()))
+                                    reps=set()))
     user_plate = {}  # (username, day) -> plate
     for r in route_days:
         key = (plate_of(r), r['trading_date'])
@@ -235,7 +241,6 @@ def build_vans(vans, tracked_accounts):
             d['routes'][r['route_name']] += 1
         if r['area_name']:
             d['area'][r['area_name'].strip()] += 1
-        d['units'][(r['odometer_unit'] or '0').strip()] += 1
         d['reps'].add(r['username'])
         user_plate[(r['username'], r['trading_date'])] = key[0]
 
@@ -300,11 +305,7 @@ def build_vans(vans, tracked_accounts):
 
     out = []
     for (plate, day), d in sorted(days.items()):
-        unit = d['units'].most_common(1)[0][0] if d['units'] else '0'
         km, note, s, c = odo.get((plate, day), (None, '', None, None))
-        if km is not None and unit in ('1', 'Miles'):
-            km *= KM_PER_MILE
-            note = ('odometer in miles, converted' + ('; ' + note if note else ''))
         tracks = [gps_track_km(points[(u, day)]) for u in d['reps'] if role.get(u) != 'ADR']
         gps_km = max((t[0] for t in tracks if t[0] is not None), default=None)
         fixes = max((t[1] for t in tracks), default=0)
@@ -318,7 +319,7 @@ def build_vans(vans, tracked_accounts):
             area=d['area'].most_common(1)[0][0] if d['area'] else '',
             reps=', '.join(sorted(d['reps'])),
             typed=', '.join(sorted(d['typed'])),
-            odo_start=s, odo_close=c, unit='miles' if unit in ('1', 'Miles') else 'km',
+            odo_start=s, odo_close=c,
             odo_km=km, odo_note=note, gps_points=fixes, gps_km=gps_km,
             start=start_t, end=end_t,
             hours_out=(end_t - start_t).total_seconds() / 3600 if start_t and end_t and end_t > start_t else None))
@@ -452,10 +453,8 @@ def build(month, cartrack_dir, vans_dir, diesel_path, out_path):
         title(ws, f'Van trucks on the phone, {month_name}',
               'One row per truck (plate typed at Start Day) per day. Odometer km is closing minus opening, repaired from the truck\'s '
               'own readings when one was mistyped (see Note). GPS km is straight lines between the phone\'s fixes, for reference only.')
-        cols = ['Plate', 'Route', 'Date', 'Van account', 'Area', 'Reps on the truck', 'Out', 'Back', 'Hours out',
-                'Odometer km', 'GPS fixes', 'GPS km (straight line)', 'Opening reading', 'Closing reading', 'Unit',
-                'Note', 'Typed as', 'Cost centre', 'Fuel share (L)']
-        header(ws, 4, cols, [11, 14, 10, 10, 16, 30, 7, 7, 7, 10, 7, 10, 10, 10, 6, 44, 14, 18, 10])
+        cols = VAN_DAY_COLUMNS
+        header(ws, 4, cols, [11, 14, 10, 10, 16, 30, 7, 7, 7, 10, 7, 10, 10, 10, 44, 14, 18, 10])
         rows = []
         for d in van_days:
             rows.append([d['plate'], d['route'] or route_name.get(d['account'], ''), dt.date.fromisoformat(d['day']),
@@ -464,10 +463,10 @@ def build(month, cartrack_dir, vans_dir, diesel_path, out_path):
                          round(d['hours_out'], 2) if d['hours_out'] else None,
                          round(d['odo_km'], 1) if d['odo_km'] is not None else None, d['gps_points'],
                          round(d['gps_km'], 1) if d['gps_km'] is not None else None,
-                         d['odo_start'], d['odo_close'], d['unit'], d['odo_note'], d['typed'],
+                         d['odo_start'], d['odo_close'], d['odo_note'], d['typed'],
                          centre_of.get(d['account'], ''), None])
         vd_last = write_rows(ws, 5, rows, [None, None, 'dd mmm', None, None, None, 'hh:mm', 'hh:mm', '0.0', '#,##0.0', '0',
-                                           '#,##0.0', '0', '0', None, None, None, None, '#,##0.0'])
+                                           '#,##0.0', '0', '0', None, None, None, '#,##0.0'])
         autofilter(ws, 4, vd_last, len(cols))
     V = lambda col: rng('Van days', col, vd_last)
 
@@ -498,11 +497,11 @@ def build(month, cartrack_dir, vans_dir, diesel_path, out_path):
             ws.cell(row=r, column=2, value=', '.join(f'{a} ({route_name.get(a, "")})' for a in accts) or 'no van route matches this cost centre').font = font()
             formula(ws, r, 3, f'=SUMIFS({D("E")},{D("C")},$A{r})', '#,##0')
             formula(ws, r, 4, f'=SUMIFS({D("G")},{D("C")},$A{r})', '#,##0.00')
-            formula(ws, r, 5, f'=SUMIFS({V("J")},{V("R")},$A{r})' if accts else '=0', '#,##0')
+            formula(ws, r, 5, f'=SUMIFS({V(VAN_DAY_COL['Odometer km'])},{V(VAN_DAY_COL['Cost centre'])},$A{r})' if accts else '=0', '#,##0')
             formula(ws, r, 6, f'=IF(E{r}>0,C{r}/E{r},"")', '0.000')
             formula(ws, r, 7, f'=IF(E{r}>0,C{r}/E{r}*100,"")', '0.0')
             formula(ws, r, 8, f'=IF(AND(C{r}>0,E{r}>0),E{r}/C{r},"")', '0.00')
-            formula(ws, r, 9, f'=COUNTIFS({V("R")},$A{r},{V("J")},"")' if accts else '=0', '0')
+            formula(ws, r, 9, f'=COUNTIFS({V(VAN_DAY_COL['Cost centre'])},$A{r},{V(VAN_DAY_COL['Odometer km'])},"")' if accts else '=0', '0')
             fr_rows[name] = r
             r += 1
         tot = r
@@ -519,7 +518,9 @@ def build(month, cartrack_dir, vans_dir, diesel_path, out_path):
         # Each truck-day's share of its route's diesel, by km.
         vws = wb['Van days']
         for i in range(5, vd_last + 1):
-            formula(vws, i, 19, f"=IF(OR(R{i}=\"\",J{i}=\"\"),\"\",J{i}*IFERROR(INDEX('Fuel by route'!$F$5:$F${tot - 1},MATCH(R{i},'Fuel by route'!$A$5:$A${tot - 1},0)),0))", '#,##0.0')
+            cc, km = VAN_DAY_COL['Cost centre'], VAN_DAY_COL['Odometer km']
+            formula(vws, i, VAN_DAY_COLUMNS.index('Fuel share (L)') + 1,
+                    f"=IF(OR({cc}{i}=\"\",{km}{i}=\"\"),\"\",{km}{i}*IFERROR(INDEX('Fuel by route'!$F$5:$F${tot - 1},MATCH({cc}{i},'Fuel by route'!$A$5:$A${tot - 1},0)),0))", '#,##0.0')
 
     # ── Daily mileage ──
     ws = wb.create_sheet('Daily mileage')
@@ -532,7 +533,7 @@ def build(month, cartrack_dir, vans_dir, diesel_path, out_path):
         for j, reg in enumerate(regs, 2):
             formula(ws, i, j, f'=SUMIFS({T("G")},{T("A")},"{reg}",{T("B")},$A{i})', '#,##0;-#,##0;"-"')
         for j, p in enumerate(phone_plates, 2 + len(regs)):
-            formula(ws, i, j, f'=SUMIFS({V("J")},{V("A")},"{p}",{V("C")},$A{i})', '#,##0;-#,##0;"-"')
+            formula(ws, i, j, f'=SUMIFS({V(VAN_DAY_COL['Odometer km'])},{V(VAN_DAY_COL['Plate'])},"{p}",{V(VAN_DAY_COL['Date'])},$A{i})', '#,##0;-#,##0;"-"')
     dm_last = 4 + len(days)
     tot = dm_last + 1
     ws.cell(row=tot, column=1, value='Month').font = font(bold=True)
@@ -637,14 +638,13 @@ def build(month, cartrack_dir, vans_dir, diesel_path, out_path):
               'Plate as typed at Start Day; a plate typed a few times one keystroke off a common one is folded into it. '
               'Trucks move between routes, so one plate can serve several van accounts.')
         cols = ['Plate', 'Typed as (truck-days)', 'Km on route days', 'Truck-days', 'Routes worked (days)',
-                'Reps who opened the day (days)', 'Odometer unit']
-        header(ws, 4, cols, [11, 26, 11, 9, 40, 60, 9])
-        info = defaultdict(lambda: dict(typed=Counter(), reps=Counter(), unit='km'))
+                'Reps who opened the day (days)']
+        header(ws, 4, cols, [11, 26, 11, 9, 40, 60])
+        info = defaultdict(lambda: dict(typed=Counter(), reps=Counter()))
         for d in van_days:
             v = info[d['plate']]
             for t in d['typed'].split(', '):
                 v['typed'][t] += 1
-            v['unit'] = d['unit']
         for r in vans['route_days']:
             info[vans['plate_of'](r)]['reps'][r['username']] += 1
         rows = []
@@ -652,10 +652,10 @@ def build(month, cartrack_dir, vans_dir, diesel_path, out_path):
             v = info[p]
             rows.append([p, ', '.join(f'{t} ({n})' for t, n in v['typed'].most_common()), None, sum(plate_routes[p].values()),
                          ', '.join(f'{route_name.get(a, a)} {a}: {n}' for a, n in plate_routes[p].most_common()),
-                         ', '.join(f'{k} ({n})' for k, n in v['reps'].most_common()), v['unit']])
-        pl_last = write_rows(ws, 5, rows, [None, None, '#,##0', '0', None, None, None])
+                         ', '.join(f'{k} ({n})' for k, n in v['reps'].most_common())])
+        pl_last = write_rows(ws, 5, rows, [None, None, '#,##0', '0', None, None])
         for i in range(5, pl_last + 1):
-            formula(ws, i, 3, f'=SUMIFS({V("J")},{V("A")},$A{i})', '#,##0')
+            formula(ws, i, 3, f'=SUMIFS({V(VAN_DAY_COL['Odometer km'])},{V(VAN_DAY_COL['Plate'])},$A{i})', '#,##0')
         autofilter(ws, 4, pl_last, len(cols))
 
     # ── Summary ──
@@ -682,7 +682,7 @@ def build(month, cartrack_dir, vans_dir, diesel_path, out_path):
         col = dm_col[label(reg)]
         dm = f"'Daily mileage'!{col}5:{col}{dm_last}"
         if diesel and reg in links:
-            fuel, basis = f'=SUMIFS({V("S")},{V("A")},"{reg}")', 'Share of route diesel (by km)'
+            fuel, basis = f'=SUMIFS({V(VAN_DAY_COL['Fuel share (L)'])},{V(VAN_DAY_COL['Plate'])},"{reg}")', 'Share of route diesel (by km)'
         elif fills[reg]:
             fuel, basis = f'={round(sum(f["fill_amount_litres"] for f in fills[reg]), 1)}', 'Tank sensor fills'
         else:
@@ -709,9 +709,9 @@ def build(month, cartrack_dir, vans_dir, diesel_path, out_path):
     for p in phone_plates:
         fuelled = diesel and any(a in centre_of for a in plate_routes[p])
         put(row, [plate_label(p), 'Phone',
-                  f'=SUMIFS({V("J")},{V("A")},"{p}")', f'=COUNTIFS({V("A")},"{p}",{V("J")},">=1")',
+                  f'=SUMIFS({V(VAN_DAY_COL['Odometer km'])},{V(VAN_DAY_COL['Plate'])},"{p}")', f'=COUNTIFS({V(VAN_DAY_COL['Plate'])},"{p}",{V(VAN_DAY_COL['Odometer km'])},">=1")',
                   f'=IFERROR(C{row}/D{row},0)', None, None, 'n/a', 'n/a', 'n/a', 'n/a',
-                  f'=SUMIFS({V("S")},{V("A")},"{p}")' if fuelled else None,
+                  f'=SUMIFS({V(VAN_DAY_COL['Fuel share (L)'])},{V(VAN_DAY_COL['Plate'])},"{p}")' if fuelled else None,
                   'Share of route diesel (by km)' if fuelled else
                   ('No diesel under a van cost centre' if diesel else 'No fuel data'),
                   f'=IF(AND(N(L{row})>0,C{row}>0),L{row}/C{row}*100,"")', f'=IF(AND(N(L{row})>0,C{row}>0),C{row}/L{row},"")', None])
@@ -733,7 +733,7 @@ def build(month, cartrack_dir, vans_dir, diesel_path, out_path):
         ('Mileage (van trucks)', 'Closing minus opening odometer per truck per day. A van account can run two trucks on one day, so '
          'trucks are kept apart by plate. When a day\'s figure is impossible (negative, or more than three times that truck\'s '
          'usual day and over 300 km), the truck\'s own previous close or next opening is used and the Van days Note says so. '
-         'Readings in miles are converted. When a missing End Day is filled from the next opening reading after a weekend, '
+         'Every reading is kilometres. When a missing End Day is filled from the next opening reading after a weekend, '
          'any weekend driving lands on the earlier day. Driving on a day nobody opened a route day is not counted.'),
         ('Plates', 'Folded as probable typos: ' + (', '.join(f'{k} as {v}' for k, v in sorted(folded.items())) or 'none') + '.'),
         ('Places', 'Cartrack: the place each moving trip ended. Van trucks: shops checked into by the reps on the truck that day. '

@@ -3847,6 +3847,7 @@ handlers and are not recorded twice.
 | PUT | `/api/van-sales/fleet/{registration}/business-partner` | `users.edit` or `vansales.routes.manage` | Link a vehicle to the van sales account whose takings it carries |
 | GET | `/api/van-sales/truck-report` | `vansales.attendance.view` | The daily truck report: a row per route per day, and each route's period against its target |
 | PUT | `/api/van-sales/truck-days/{routeId}/{tradingDate}` | `users.edit` or `vansales.routes.manage` | The office's figures for a truck's day: fuel issued, account sales and the area worked |
+| PUT | `/api/van-sales/route-days/{id}/mileage` | role `Admin` | Correct the odometer readings a rep typed on one trading day, keeping what they typed |
 | GET | `/api/van-sales/visits` | `vansales.attendance.view` | A page of van sales calls, newest first |
 | GET | `/api/van-sales/visits/report` | `vansales.attendance.view` | Time on the round, summarised per rep |
 | GET | `/api/van-sales/invoices` | `invoices.view` | Invoices the van sales app created, with their ZIMRA and SAP state, newest first |
@@ -3951,7 +3952,6 @@ answer for July — rendering July as "the van never moved" reads as a finding.
       "newCustomers": 1,
       "startingMileage": 84210,
       "closingMileage": 84357,
-      "odometerUnit": "Kilometres",
       "areaName": "Guruve, Mvurwi",
       "hasDayRecord": true,
       "isClosed": true,
@@ -4041,9 +4041,13 @@ signed receipt's total, or failing that is grossed up from its lines at each lin
 2026-10-13 the online half was reported as stored, so a van that sold only online read 13.4% under
 the cash its rep declared.
 
-`startingMileage` and `closingMileage` are as the rep read them, in `odometerUnit` (`Kilometres` or
-`Miles`, from the route). `kilometresTravelled` is always kilometres. `areaName` is the area the
-day was opened for: what the handset named, or the route's stops for the weekday.
+`startingMileage` and `closingMileage` are odometer readings in kilometres, as the rep typed them or
+as an Admin corrected them, and `kilometresTravelled` is the difference. Every reading is
+kilometres; nothing converts. `mileageCorrection` is null on a day no Admin has corrected; where it
+is set it holds `startingCorrected`, `recordedStartingMileage`, `closingCorrected`,
+`recordedClosingMileage` (what the rep typed), and the latest correction's `correctedAt` (CAT),
+`correctedBy` and `reason`, with the number of `corrections`. `areaName` is the area the day was
+opened for: what the handset named, or the route's stops for the weekday.
 
 **The CCR is measured against the day's round, not the truck's whole customer list.** A truck's
 list is every shop it trades with across the week; West 1 held 286 and calls on about sixty a day, a
@@ -4271,13 +4275,11 @@ per van — including a van with no snapshot in the period — with `daysCounted
 
 **Response:** `List<RouteDto>` — `id`, `code`, `name`, `territory`, `truckRegNo`,
 `temperatureMinC`, `temperatureMaxC`, `temperatureProbeChannel`, `isActive`, `assignedUserCount`,
-`odometerUnit`, `dailySalesTarget`.
+`dailySalesTarget`.
 
-`odometerUnit` is `Kilometres` or `Miles`: what the route's truck counts in. A rep types the
-odometer as the dashboard shows it, each trading day snapshots the route's unit, and every distance
-the reports show is kilometres. `dailySalesTarget` is what the truck is expected to sell on a
-working day, VAT included, or null on a route held to no target. A month's target is that figure
-times its Monday-to-Friday days.
+`dailySalesTarget` is what the truck is expected to sell on a working day, VAT included, or null on
+a route held to no target. A month's target is that figure times its Monday-to-Friday days. Every
+odometer reading is kilometres, so a route carries no unit.
 
 The three temperature fields are the round's cold chain. Both limits null — the ordinary case —
 means the route carries nothing chilled and is never judged on temperature.
@@ -4299,19 +4301,16 @@ temperature, so it can only be told, never discovered.
   "temperatureMinC": -18.0,
   "temperatureMaxC": -12.0,
   "temperatureProbeChannel": 1,
-  "odometerUnit": "Kilometres",
   "dailySalesTarget": 2500
 }
 ```
 
-`odometerUnit` may be left out: an existing route keeps its unit and a new one is created in
-kilometres. `dailySalesTarget` is taken as given, so leaving it out clears the target, and a
-target of zero is stored as none.
+`dailySalesTarget` is taken as given, so leaving it out clears the target, and a target of zero is
+stored as none.
 
 **Response:** `RouteDto`. `409 Conflict` on a duplicate code; `PUT` also answers `404` for an
 unknown id. `400` when one temperature limit is set without the other, when the lower limit is
-above the upper, when the probe channel is outside 1-4, when `odometerUnit` is neither
-`Kilometres` nor `Miles`, or when `dailySalesTarget` is negative.
+above the upper, when the probe channel is outside 1-4, or when `dailySalesTarget` is negative.
 
 ##### GET `/api/van-sales/truck-report`
 
@@ -4353,7 +4352,7 @@ rows with `hasActivity` false, not as a gap. Each row carries:
 - `salesCount`, `sales`, `cash`, `ecocash`, `innbucks`, `otherTender`, `untendered`,
   `otherCurrencySales`, `declaredTotal`.
 - `accountSales`, `fuelLitres`, `notes`: the office's entry. `accountSales` is not part of `sales`.
-- `startingMileage`, `closingMileage` as read, `odometerUnit`, and `kilometres`.
+- `startingMileage`, `closingMileage` in kilometres, and `kilometres`.
 - `dailySalesTarget`: the route's target, null off a working day and on a route with none.
 
 `trucks` is one line per route and `total` the fleet: `dailySalesTarget`, `periodTarget` (daily
@@ -4408,6 +4407,38 @@ the save left nothing behind.
 
 `400` for a day that has not happened yet, fuel outside 0 to 2,000 litres, or negative account
 sales. `404` for a route that does not exist.
+
+##### PUT `/api/van-sales/route-days/{id}/mileage`
+
+Corrects the odometer readings a rep typed on one trading day. **Admin only**, judged by the signed-in
+user's role, not by the API key sent beside it. `id` is `vanRouteDayId` on the compliance report's
+rows. Readings are kilometres.
+
+**Body:** `CorrectRouteDayMileageRequest`.
+
+```json
+{
+  "startingMileage": 123400,
+  "closingMileage": 123510,
+  "expectedStartingMileage": 123400,
+  "expectedClosingMileage": 1235100,
+  "reason": "Extra digit on the closing reading"
+}
+```
+
+Both readings are sent as they should stand, so a null clears one. The two `expected` readings are
+what the page showed; if the day no longer holds them (most often because the rep has since ended
+the day) the save is refused with `409 Conflict` rather than written over the rep's reading. The
+day is corrected in place, so every report and the handset read the new figures, and each
+correction is kept with the readings it replaced, who made it and why.
+
+**Response:** `VanRouteDayMileageDto` — `vanRouteDayId`, `startingMileage`, `closingMileage`,
+`kilometresTravelled`, and `correction` (the summary the compliance report carries as
+`mileageCorrection`).
+
+`400` without a reason, for a reading outside 0 to 9,999,999, a reading in below the reading out, a
+reading in on a day that is still open (End Day writes it), or readings the day already holds.
+`403` for anyone but an Admin. `404` for a day that does not exist. `409` for a stale page.
 
 ##### GET `/api/van-sales/telematics/vehicles`
 

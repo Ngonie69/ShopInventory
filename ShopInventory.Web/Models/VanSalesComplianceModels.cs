@@ -175,18 +175,18 @@ public class DepartureComplianceDay
     public int? StartingMileage { get; set; }
     public int? ClosingMileage { get; set; }
 
-    /// <summary>
-    /// What the truck's odometer counts in, <c>Kilometres</c> or <c>Miles</c>. The two mileages above
-    /// are as the rep read them; this is what turns them into <see cref="KilometresTravelled"/>.
-    /// </summary>
-    public string OdometerUnit { get; set; } = VanOdometer.Kilometres;
-
     /// <summary>The area the day was opened for: what the rep named, or the plan for the weekday.</summary>
     public string? AreaName { get; set; }
 
     public bool HasDayRecord { get; set; }
     public bool IsClosed { get; set; }
     public string? Notes { get; set; }
+
+    /// <summary>
+    /// Null on a day whose readings no Admin has corrected. Where it is set, the two mileages above
+    /// are the corrected ones and this says what the rep typed.
+    /// </summary>
+    public MileageCorrectionSummary? MileageCorrection { get; set; }
 
     // The API computes these too, but computed properties are not serialised, so they are derived
     // again here from the same figures. Kept identical to the API's definitions on purpose.
@@ -200,7 +200,7 @@ public class DepartureComplianceDay
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(SystemTotalSales / ProductiveCalls, 2) : null;
 
-    public int? KilometresTravelled => VanOdometer.Distance(StartingMileage, ClosingMileage, OdometerUnit);
+    public int? KilometresTravelled => VanOdometer.Distance(StartingMileage, ClosingMileage);
 
     public decimal? DeclaredTotal =>
         DeclaredCash is null && DeclaredEcocash is null && DeclaredInnbucks is null
@@ -266,6 +266,50 @@ public class DepartureComplianceDay
             : null;
 }
 
+/// <summary>
+/// What an Admin changed about a day's odometer readings. Mirrors the API's
+/// <c>MileageCorrectionSummaryDto</c>.
+/// </summary>
+public class MileageCorrectionSummary
+{
+    /// <summary>Whether the reading out differs from what the rep typed.</summary>
+    public bool StartingCorrected { get; set; }
+
+    /// <summary>The reading out the rep typed. Meaningful only when <see cref="StartingCorrected"/>.</summary>
+    public int? RecordedStartingMileage { get; set; }
+
+    /// <summary>Whether the reading in differs from what the rep typed.</summary>
+    public bool ClosingCorrected { get; set; }
+
+    /// <summary>The reading in the rep typed. Meaningful only when <see cref="ClosingCorrected"/>.</summary>
+    public int? RecordedClosingMileage { get; set; }
+
+    /// <summary>The latest correction, in CAT.</summary>
+    public DateTime CorrectedAt { get; set; }
+
+    public string? CorrectedBy { get; set; }
+
+    public string Reason { get; set; } = string.Empty;
+
+    /// <summary>How many corrections the day has had.</summary>
+    public int Corrections { get; set; }
+}
+
+/// <summary>An Admin's corrected readings for a day, as the page submits them.</summary>
+/// <remarks>
+/// The expected readings are the ones the page showed. The API refuses the save if the day no longer
+/// holds them, which is what stops a page loaded before the rep ended the day from erasing the
+/// rep's evening reading.
+/// </remarks>
+public class MileageCorrectionInput
+{
+    public int? StartingMileage { get; set; }
+    public int? ClosingMileage { get; set; }
+    public int? ExpectedStartingMileage { get; set; }
+    public int? ExpectedClosingMileage { get; set; }
+    public string? Reason { get; set; }
+}
+
 public class DepartureComplianceSummary
 {
     public int DayCount { get; set; }
@@ -290,30 +334,19 @@ public class DepartureComplianceSummary
 
 /// <summary>
 /// Turns two odometer readings into kilometres. The API's <c>OdometerDistance</c>, kept identical on
-/// purpose: three trucks read miles, and a page that subtracted their readings as kilometres showed
-/// 62% of the distance they drove.
+/// purpose. Every reading is kilometres, so nothing converts.
 /// </summary>
 public static class VanOdometer
 {
-    public const string Kilometres = "Kilometres";
-    public const string Miles = "Miles";
-
-    private const decimal KilometresPerMile = 1.609344m;
-
-    public static bool ReadsMiles(string? unit) =>
-        string.Equals(unit?.Trim(), Miles, StringComparison.OrdinalIgnoreCase);
-
     /// <summary>Kilometres between two readings; null when either is missing or the second is lower.</summary>
-    public static int? Distance(int? start, int? close, string? unit)
+    public static int? Distance(int? start, int? close)
     {
         if (start is not { } from || close is not { } to || to < from)
         {
             return null;
         }
 
-        return ReadsMiles(unit)
-            ? (int)Math.Round((to - from) * KilometresPerMile, MidpointRounding.AwayFromZero)
-            : to - from;
+        return to - from;
     }
 }
 
@@ -341,9 +374,6 @@ public class RouteDto
 
     public bool IsActive { get; set; }
     public int AssignedUserCount { get; set; }
-
-    /// <summary>What the route's truck counts distance in: <c>Kilometres</c> or <c>Miles</c>.</summary>
-    public string OdometerUnit { get; set; } = VanOdometer.Kilometres;
 
     /// <summary>
     /// What the truck is expected to sell on a working day, VAT included. Null is a route held to no

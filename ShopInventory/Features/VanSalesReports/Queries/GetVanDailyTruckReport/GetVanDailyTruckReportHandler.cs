@@ -112,7 +112,7 @@ public sealed class GetVanDailyTruckReportHandler(
             .AsNoTracking()
             .Where(route => (route.IsActive && route.DeletedAt == null) || routeIds.Contains(route.Id))
             .Select(route => new RouteFacts(
-                route.Id, route.Code, route.Name, route.Territory, route.OdometerUnit, route.DailySalesTarget,
+                route.Id, route.Code, route.Name, route.Territory, route.DailySalesTarget,
                 route.IsActive && route.DeletedAt == null))
             .ToListAsync(cancellationToken);
 
@@ -330,7 +330,6 @@ public sealed class GetVanDailyTruckReportHandler(
             DeclaredTotal: declared.Count > 0 ? declared.Sum() : null,
             StartingMileage: odometer?.StartingMileage,
             ClosingMileage: odometer?.ClosingMileage,
-            OdometerUnit: (odometer?.OdometerUnit ?? route.OdometerUnit).ToString(),
             Kilometres: odometer?.KilometresTravelled,
             FuelLitres: row.FuelLitres,
             DailySalesTarget: workingDay ? route.DailySalesTarget : null,
@@ -413,7 +412,6 @@ public sealed class GetVanDailyTruckReportHandler(
         string Code,
         string Name,
         string? Territory,
-        OdometerUnit OdometerUnit,
         decimal? DailySalesTarget,
         bool IsLive);
 

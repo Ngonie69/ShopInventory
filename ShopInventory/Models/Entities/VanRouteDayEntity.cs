@@ -78,12 +78,6 @@ public class VanRouteDayEntity
     public string? TruckRegNo { get; set; }
 
     /// <summary>
-    /// What the truck's odometer counted in on the day, from the route. The two mileages below are
-    /// stored as the rep read them; this is what turns them into <see cref="KilometresTravelled"/>.
-    /// </summary>
-    public OdometerUnit OdometerUnit { get; set; } = OdometerUnit.Kilometres;
-
-    /// <summary>
     /// The area the round was planned to work that day: what the handset named, or failing that the
     /// route's stops for the weekday. Null on an upcountry trip, which keeps no weekday, and on a
     /// route with no stops. The office's own entry for the truck-day, where there is one, is what
@@ -102,7 +96,7 @@ public class VanRouteDayEntity
 
     public double? DepartedLongitude { get; set; }
 
-    /// <summary>Odometer on leaving the depot.</summary>
+    /// <summary>Odometer on leaving the depot, in kilometres.</summary>
     public int? StartingMileage { get; set; }
 
     /// <summary>
@@ -126,15 +120,16 @@ public class VanRouteDayEntity
 
     public double? ReturnedLongitude { get; set; }
 
+    /// <summary>Odometer on returning to the depot, in kilometres.</summary>
     public int? ClosingMileage { get; set; }
 
     /// <summary>
-    /// Kilometres travelled, whatever the odometer counts in. Null until the day is closed, and never
-    /// negative. See <see cref="OdometerDistance.Kilometres"/>.
+    /// Kilometres travelled. Null until the day is closed, and never negative.
+    /// See <see cref="OdometerDistance.Kilometres"/>.
     /// </summary>
     [NotMapped]
     public int? KilometresTravelled =>
-        OdometerDistance.Kilometres(StartingMileage, ClosingMileage, OdometerUnit);
+        OdometerDistance.Kilometres(StartingMileage, ClosingMileage);
 
     // --- Returnable transit items ---
 

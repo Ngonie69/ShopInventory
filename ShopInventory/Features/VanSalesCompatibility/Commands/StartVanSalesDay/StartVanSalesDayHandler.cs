@@ -101,7 +101,6 @@ public sealed class StartVanSalesDayHandler(
 
             // What the rep confirmed on the handset, falling back to the route's registered vehicle.
             TruckRegNo = NullIfBlank(request.TruckRegNo) ?? user.Route?.TruckRegNo,
-            OdometerUnit = user.Route?.OdometerUnit ?? OdometerUnit.Kilometres,
             AreaName = areaName,
 
             DepartedAt = departedAt,

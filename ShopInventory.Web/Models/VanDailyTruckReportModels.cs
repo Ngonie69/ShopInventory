@@ -102,7 +102,6 @@ public class VanDailyTruckDay
     public decimal? DeclaredTotal { get; set; }
     public int? StartingMileage { get; set; }
     public int? ClosingMileage { get; set; }
-    public string OdometerUnit { get; set; } = VanOdometer.Kilometres;
     public int? Kilometres { get; set; }
     public decimal? FuelLitres { get; set; }
 

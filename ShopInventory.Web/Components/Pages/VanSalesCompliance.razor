@@ -352,6 +352,10 @@
 
                             <span class="vsc-num vsc-right @KilometreInk(day)">
                                 @(day.KilometresTravelled?.ToString("N0") ?? "—")
+                                @if (MileageWasCorrected(day))
+                                {
+                                    <span class="vsc-sub">corrected</span>
+                                }
                             </span>
 
                             <span class="vsc-cell">
@@ -372,12 +376,30 @@
                                     <div class="vsc-panel-title">Departure record</div>
                                     @Item("Out", FormatTime(day.TimeOut), !day.HasDayRecord)
                                     @Item("Back in", day.HasDayRecord && !day.IsClosed ? "still out" : FormatTime(day.TimeIn), day.HasDayRecord && !day.IsClosed)
-                                    @Item("Odometer out", day.StartingMileage?.ToString("N0") ?? "—", false)
-                                    @Item("Odometer in", day.ClosingMileage?.ToString("N0") ?? "—", false)
+                                    @ItemWithNote("Odometer out", Km(day.StartingMileage), RecordedNote(day.MileageCorrection, starting: true), false)
+                                    @ItemWithNote("Odometer in", Km(day.ClosingMileage), RecordedNote(day.MileageCorrection, starting: false), false)
                                     @Item("Distance",
                                           day.KilometresTravelled is { } travelled ? $"{travelled:N0} km" : "no reading",
                                           row.Gaps.HasFlag(Gaps.NoOdometer))
                                     @Item("Truck", string.IsNullOrWhiteSpace(day.TruckRegNo) ? "—" : day.TruckRegNo, false)
+                                    @if (day.MileageCorrection is { } correction)
+                                    {
+                                        <div class="vsc-mileage-trail">@CorrectionTrail(correction)</div>
+                                    }
+                                    @* An Admin's alone: the readings are a control, held against the tracker
+                                       in the fleet audit. The API refuses anyone else whatever this shows. *@
+                                    <AuthorizeView Roles="Admin">
+                                        <Authorized>
+                                            @if (day.VanRouteDayId is not null && mileageDayId != day.VanRouteDayId)
+                                            {
+                                                <button type="button" class="vs-btn vsk-edit vsc-mileage-action" disabled="@isSavingMileage"
+                                                        aria-label="@($"Correct the odometer readings for {day.DisplayName} on {day.TradingDate:d MMM}")"
+                                                        @onclick="() => StartMileageCorrection(day)">
+                                                    Correct mileage
+                                                </button>
+                                            }
+                                        </Authorized>
+                                    </AuthorizeView>
                                 </div>
 
                                 <div>
@@ -479,6 +501,46 @@
                                 }
                             </div>
 
+                            @if (mileageDayId is { } editingDayId && editingDayId == day.VanRouteDayId)
+                            {
+                                <div class="vsk-form vsc-mileage-form" @key="@($"mileage-{editingDayId}")">
+                                    <div class="vsk-form-field">
+                                        <label class="vs-filter-label" for="vsc-mileage-out">Odometer out, km</label>
+                                        <input id="vsc-mileage-out" class="vs-field" type="number" min="0" max="9999999" step="1"
+                                               inputmode="numeric" @bind="mileageStarting" placeholder="Not entered" />
+                                    </div>
+                                    <div class="vsk-form-field">
+                                        <label class="vs-filter-label" for="vsc-mileage-in">Odometer in, km</label>
+                                        <input id="vsc-mileage-in" class="vs-field" type="number" min="0" max="9999999" step="1"
+                                               inputmode="numeric" @bind="mileageClosing" disabled="@(!day.IsClosed)"
+                                               placeholder="@(day.IsClosed ? "Not entered" : "Entered at End Day")" />
+                                    </div>
+                                    <div class="vsk-form-field vsk-form-wide">
+                                        <label class="vs-filter-label" for="vsc-mileage-reason">Reason</label>
+                                        <input id="vsc-mileage-reason" class="vs-field" maxlength="500" @bind="mileageReason"
+                                               placeholder="What was wrong with the reading" />
+                                    </div>
+                                    <div class="vsk-form-actions">
+                                        <button type="button" class="vs-btn" @onclick="CancelMileageCorrection" disabled="@isSavingMileage">Cancel</button>
+                                        <button type="button" class="vs-btn vs-btn-accent" @onclick="() => SaveMileageAsync(day)" disabled="@isSavingMileage">
+                                            @(isSavingMileage ? "Saving…" : "Save readings")
+                                        </button>
+                                    </div>
+                                    @if (mileageError is not null)
+                                    {
+                                        <div class="vs-notice vsk-form-error">@mileageError</div>
+                                    }
+                                    <p class="vsk-form-note">
+                                        Readings are in kilometres. The rep's own readings and your reason are kept with the
+                                        correction. Leave a box empty to clear a reading that is wrong and not known.
+                                        @if (!day.IsClosed)
+                                        {
+                                            <text>The day is still open, so the reading in is the rep's to enter at End Day.</text>
+                                        }
+                                    </p>
+                                </div>
+                            }
+
                             <div class="vsc-detail-links">
                                 <span class="vsc-detail-links-label">Open</span>
                                 <a class="vrb-link" href="@VanReportLinks.Activity(day.TradingDate, day.TradingDate, day.UserId)">this day's calls</a>
@@ -564,6 +626,15 @@
     private bool sortDescending = true;
 
     private string? openRow;
+
+    // The Admin's mileage correction. One day at a time, keyed by its VanRouteDayId; the readings the
+    // page showed when it opened are sent beside the new ones, so a stale page is refused.
+    private int? mileageDayId;
+    private int? mileageStarting;
+    private int? mileageClosing;
+    private string? mileageReason;
+    private string? mileageError;
+    private bool isSavingMileage;
 
     private bool isLoading;
     private string? loadError;
@@ -748,7 +819,108 @@
 
     public void Dispose() => loads.Dispose();
 
-    private void ToggleRow(string key) => openRow = openRow == key ? null : key;
+    private void ToggleRow(string key)
+    {
+        openRow = openRow == key ? null : key;
+        CancelMileageCorrection();
+    }
+
+    private void StartMileageCorrection(DepartureComplianceDay day)
+    {
+        mileageDayId = day.VanRouteDayId;
+        mileageStarting = day.StartingMileage;
+        mileageClosing = day.ClosingMileage;
+        mileageReason = null;
+        mileageError = null;
+    }
+
+    private void CancelMileageCorrection()
+    {
+        mileageDayId = null;
+        mileageError = null;
+    }
+
+    private async Task SaveMileageAsync(DepartureComplianceDay day)
+    {
+        if (day.VanRouteDayId is not { } dayId)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(mileageReason))
+        {
+            mileageError = "Say why the readings are being corrected. The reason is kept with the correction.";
+            return;
+        }
+
+        isSavingMileage = true;
+        mileageError = null;
+
+        try
+        {
+            var refusal = await VanSalesReportService.CorrectRouteDayMileageAsync(dayId, new MileageCorrectionInput
+            {
+                StartingMileage = mileageStarting,
+                // An open day's reading in is End Day's to write, and the box is disabled; send what is there.
+                ClosingMileage = day.IsClosed ? mileageClosing : day.ClosingMileage,
+                ExpectedStartingMileage = day.StartingMileage,
+                ExpectedClosingMileage = day.ClosingMileage,
+                Reason = mileageReason.Trim()
+            });
+
+            if (refusal is not null)
+            {
+                mileageError = refusal;
+                return;
+            }
+
+            // Read the report again so every figure that hangs off the readings (the distance, the
+            // vehicle comparison, the period total) is the server's, then put the reader back on the day.
+            var reopen = RowKey(day);
+            mileageDayId = null;
+            await LoadAsync();
+            openRow = reopen;
+        }
+        finally
+        {
+            isSavingMileage = false;
+        }
+    }
+
+    private static string Km(int? reading) => reading is { } value ? $"{value:N0} km" : "—";
+
+    private static bool MileageWasCorrected(DepartureComplianceDay day) =>
+        day.MileageCorrection is { } correction && (correction.StartingCorrected || correction.ClosingCorrected);
+
+    /// <summary>What the rep typed, beside a reading an Admin has since changed.</summary>
+    private static string? RecordedNote(MileageCorrectionSummary? correction, bool starting)
+    {
+        if (correction is null)
+        {
+            return null;
+        }
+
+        var (corrected, recorded) = starting
+            ? (correction.StartingCorrected, correction.RecordedStartingMileage)
+            : (correction.ClosingCorrected, correction.RecordedClosingMileage);
+
+        if (!corrected)
+        {
+            return null;
+        }
+
+        return recorded is { } value ? $"corrected; rep typed {value:N0}" : "corrected; rep left it blank";
+    }
+
+    private static string CorrectionTrail(MileageCorrectionSummary correction)
+    {
+        var who = string.IsNullOrWhiteSpace(correction.CorrectedBy) ? "an Admin" : correction.CorrectedBy;
+        var made = correction.Corrections > 1
+            ? $"Readings corrected {correction.Corrections} times, last by {who}"
+            : $"Readings corrected by {who}";
+
+        return $"{made} on {correction.CorrectedAt:d MMM HH:mm}: {correction.Reason}";
+    }
 
     private void SetGapFilter(string key)
     {

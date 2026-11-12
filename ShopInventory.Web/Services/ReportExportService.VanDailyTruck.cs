@@ -167,10 +167,6 @@ public partial class ReportExportService
             TruckMoney(cell, day.IsComplete && day.DailySalesTarget is { } target ? day.Sales - target : null)),
         new("Odometer Out", (cell, day) => TruckCount(cell, day.StartingMileage)),
         new("Odometer In", (cell, day) => TruckCount(cell, day.ClosingMileage)),
-        new("Odometer Reads", (cell, day) =>
-            cell.Value = day.StartingMileage.HasValue || day.ClosingMileage.HasValue
-                ? VanOdometer.ReadsMiles(day.OdometerUnit) ? "miles" : "km"
-                : string.Empty),
         new("Km", (cell, day) => TruckCount(cell, day.Kilometres), FormatCount),
         new("Fuel Issued (L)", (cell, day) => TruckNumber(cell, day.FuelLitres, FormatLitres), FormatLitres),
         new("Flags", (cell, day) =>
@@ -357,9 +353,7 @@ public partial class ReportExportService
         }
 
         yield return "PCR is the shops that bought over the shops called on.";
-        yield return report.Days.Any(day => VanOdometer.ReadsMiles(day.OdometerUnit) && day.Kilometres.HasValue)
-            ? "Km is kilometres on every truck. Some odometers count in miles: the readings on the Days sheet are as the odometer shows them, in the unit beside them."
-            : "Km is the distance between the odometer readings taken at Start Day and End Day.";
+        yield return "Km is the distance between the odometer readings taken at Start Day and End Day. Every reading is kilometres.";
         yield return "Fuel is what the office entered as issued. An empty cell is a figure nobody recorded, not a zero.";
     }
 

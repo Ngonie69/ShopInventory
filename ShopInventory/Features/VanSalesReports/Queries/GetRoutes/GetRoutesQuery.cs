@@ -18,9 +18,7 @@ public sealed record GetRoutesQuery(bool IncludeInactive = false)
 /// reported: the fleet API publishes no capability flag for temperature, so which channel is the
 /// box can only be told, never discovered.
 /// <para>
-/// <c>OdometerUnit</c> is <c>Kilometres</c> or <c>Miles</c>: what the route's truck counts in, which
-/// is what turns a rep's two readings into the kilometres every report shows. <c>DailySalesTarget</c>
-/// is what the truck is expected to sell on a working day, VAT included, or null on a route held to
+/// <c>DailySalesTarget</c> is what the truck is expected to sell on a working day, VAT included, or null on a route held to
 /// no target; a month's target is that times its Monday-to-Friday days.
 /// </para>
 /// </remarks>
@@ -35,6 +33,5 @@ public sealed record RouteDto(
     byte? TemperatureProbeChannel,
     bool IsActive,
     int AssignedUserCount,
-    string OdometerUnit,
     decimal? DailySalesTarget
 );
