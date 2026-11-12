@@ -102,6 +102,19 @@ public class WarehouseProductsPagedResponseDto
     /// </summary>
     public string? NextCursor { get; set; }
 
+    /// <summary>
+    /// When SAP was asked for the batch quantities on this page, in UTC. The page's item codes come from the
+    /// same read.
+    /// </summary>
+    public DateTime? BatchesAsOfUtc { get; set; }
+
+    /// <summary>
+    /// True when the batch quantities come from the warehouse's last good read, older than
+    /// <c>SAP:WarehouseBatchSnapshotFreshMinutes</c> or from before a load landed, while SAP is asked again
+    /// in the background. Sales SAP took since are still in <see cref="ProductDto.QuantityAwaitingSap"/>.
+    /// </summary>
+    public bool BatchesStale { get; set; }
+
     public List<ProductDto>? Products { get; set; }
 }
 

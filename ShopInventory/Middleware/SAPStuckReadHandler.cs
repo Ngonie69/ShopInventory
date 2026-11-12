@@ -28,6 +28,11 @@ namespace ShopInventory.Middleware;
 /// that is not stuck (269 of the 379 measured repeats answered). Such a read still starts a hold when
 /// it gets stuck, and SAP answering it ends one.
 /// </para>
+/// <para>
+/// The exception is a read marked <see cref="SapRequestMarks.MarkDisplayOnly"/>: it only feeds a screen
+/// that has an older answer to show, so it is held whoever is waiting. The van catalogue's whole-warehouse
+/// batch read is one.
+/// </para>
 /// </remarks>
 public sealed class SAPStuckReadHandler(
     SapStuckReadState state,
@@ -45,7 +50,8 @@ public sealed class SAPStuckReadHandler(
         var key = SapStuckReadState.KeyOf(request);
         var path = request.RequestUri!.AbsolutePath;
 
-        if (!SapRequestPriority.IsInteractive && state.IsHeld(key, out var heldUntil))
+        if ((!SapRequestPriority.IsInteractive || SapRequestMarks.IsDisplayOnly(request))
+            && state.IsHeld(key, out var heldUntil))
         {
             logger.LogInformation(
                 "Not sending {Path} to SAP: an identical read got no answer and is presumed to be still running there until {HeldUntil:u}",

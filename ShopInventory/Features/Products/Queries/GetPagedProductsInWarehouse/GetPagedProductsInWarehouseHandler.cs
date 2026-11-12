@@ -29,9 +29,15 @@ public sealed class GetPagedProductsInWarehouseHandler(
 
         try
         {
+            // The whole warehouse's batches first, and the page's codes from the same read. The read may be
+            // the last good one standing in while SAP is asked again (see GetWarehouseBatchesForDisplayAsync),
+            // and a code taken from a newer list than its batches would reach the handset with no batches —
+            // which it reads as the company-wide quantity, far above what is on the van.
+            var snapshot = await sapClient.GetWarehouseBatchesForDisplayAsync(request.WarehouseCode, cancellationToken);
+
             var (items, hasMore, nextCursor) = request.IsCursorPaged
-                ? await ReadCursorPageAsync(request, cancellationToken)
-                : await ReadOffsetPageAsync(request, cancellationToken);
+                ? await ReadCursorPageAsync(request, snapshot.StockedItemCodes, cancellationToken)
+                : await ReadOffsetPageAsync(request, snapshot.StockedItemCodes, cancellationToken);
 
             var itemCodes = items
                 .Select(i => i.ItemCode)
@@ -39,18 +45,10 @@ public sealed class GetPagedProductsInWarehouseHandler(
                 .Select(code => code!)
                 .ToList();
 
-            // A snapshot read: this is a catalogue page, and every extra round trip here is spent
-            // with a rep watching a spinner. See the parameter's remarks for why the movement paths
-            // must not do the same.
-            var allBatches = itemCodes.Count == 0
-                ? []
-                : await sapClient.GetBatchNumbersForItemsInWarehouseAsync(
-                    itemCodes, request.WarehouseCode, allowCachedSnapshot: true, cancellationToken);
-
             var priceMap = await BuildPriceMapAsync(request, itemCodes, cancellationToken);
 
             var itemCodeSet = itemCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var relevantBatches = allBatches
+            var relevantBatches = snapshot.Batches
                 .Where(batch => batch.ItemCode is not null && itemCodeSet.Contains(batch.ItemCode))
                 .ToList();
             var batchesByItem = relevantBatches
@@ -61,7 +59,8 @@ public sealed class GetPagedProductsInWarehouseHandler(
 
             if (request.VanSaleOnly)
             {
-                await StampAwaitingSapAsync(products, request.WarehouseCode, itemCodes, cancellationToken);
+                await StampAwaitingSapAsync(
+                    products, request.WarehouseCode, itemCodes, snapshot.ReadAtUtc.UtcDateTime, cancellationToken);
             }
 
             var response = new WarehouseProductsPagedResponseDto
@@ -72,15 +71,18 @@ public sealed class GetPagedProductsInWarehouseHandler(
                 Count = products.Count,
                 HasMore = hasMore,
                 NextCursor = nextCursor,
+                BatchesAsOfUtc = snapshot.ReadAtUtc.UtcDateTime,
+                BatchesStale = snapshot.IsStale,
                 Products = products
             };
 
             logger.LogInformation(
-                "Retrieved {Position} of {Scope} products in warehouse {Warehouse} ({Count} records)",
+                "Retrieved {Position} of {Scope} products in warehouse {Warehouse} ({Count} records{Stale})",
                 request.IsCursorPaged ? $"cursor page after {request.After ?? "(start)"}" : $"page {request.Page}",
                 request.VanSaleOnly ? "van sales approved" : "all",
                 request.WarehouseCode,
-                products.Count);
+                products.Count,
+                snapshot.IsStale ? ", batches stale" : string.Empty);
 
             return response;
         }
@@ -101,10 +103,11 @@ public sealed class GetPagedProductsInWarehouseHandler(
     /// </summary>
     private async Task<(List<Item> Items, bool HasMore, string? NextCursor)> ReadCursorPageAsync(
         GetPagedProductsInWarehouseQuery request,
+        IReadOnlyList<string> stockedItemCodes,
         CancellationToken cancellationToken)
     {
-        var page = await sapClient.GetItemPageInWarehouseAsync(
-            request.WarehouseCode, request.After, request.PageSize, request.VanSaleOnly, cancellationToken);
+        var page = await sapClient.GetItemPageFromCodesAsync(
+            stockedItemCodes, request.WarehouseCode, request.After, request.PageSize, request.VanSaleOnly, cancellationToken);
 
         return (page.Items, page.HasMore, page.NextCursor);
     }
@@ -120,10 +123,11 @@ public sealed class GetPagedProductsInWarehouseHandler(
     /// </remarks>
     private async Task<(List<Item> Items, bool HasMore, string? NextCursor)> ReadOffsetPageAsync(
         GetPagedProductsInWarehouseQuery request,
+        IReadOnlyList<string> stockedItemCodes,
         CancellationToken cancellationToken)
     {
-        var (items, hasMore) = await sapClient.GetPagedItemsInWarehouseAsync(
-            request.WarehouseCode, request.Page, request.PageSize, request.VanSaleOnly, cancellationToken);
+        var (items, hasMore) = await sapClient.GetPagedItemsFromCodesAsync(
+            stockedItemCodes, request.WarehouseCode, request.Page, request.PageSize, request.VanSaleOnly, cancellationToken);
 
         return (items, hasMore, null);
     }
@@ -141,11 +145,16 @@ public sealed class GetPagedProductsInWarehouseHandler(
     /// <para>A failure here leaves the field absent rather than failing the page. The handset then reads
     /// the page the way it did before this existed — low, never high — where a refused page is a van
     /// that cannot load what it sells.</para>
+    ///
+    /// <para>Counted from <paramref name="sapReadAtUtc"/>, when SAP's figure on this page was read, not from
+    /// now: the page may be answered from a read up to an hour old while SAP is asked again, and a sale SAP
+    /// took after that read is not in its figure.</para>
     /// </remarks>
     private async Task StampAwaitingSapAsync(
         List<ProductDto> products,
         string warehouseCode,
         IReadOnlyCollection<string> itemCodes,
+        DateTime sapReadAtUtc,
         CancellationToken cancellationToken)
     {
         Dictionary<string, decimal> awaiting;
@@ -158,7 +167,8 @@ public sealed class GetPagedProductsInWarehouseHandler(
                 itemCodes,
                 DateTime.UtcNow,
                 dailyStockSettings.Value.UnpostedSaleLookbackDays,
-                cancellationToken);
+                cancellationToken,
+                sapReadAtUtc);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
