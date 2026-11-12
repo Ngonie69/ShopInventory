@@ -148,29 +148,47 @@ public class SAPSettings
     public int StuckReadHoldMinutes { get; set; } = 10;
 
     /// <summary>
-    /// How many <c>STK_ITEMS</c> stock reads this process lets the Service Layer work on at once.
-    /// 0 turns the limit off.
+    /// The <c>SQLQueries</c> read families this process limits, by family name: at most
+    /// <see cref="SapReadFamilySettings.MaxConcurrentReads"/> reads of each at the Service Layer at once.
     /// </summary>
     /// <remarks>
-    /// On KFLDB on 2026-11-11, 61 of the 101 <c>STK_ITEMS</c> reads that took over a minute began while
-    /// three or more others were already running on the Service Layer, and a slow read is how a Service
-    /// Layer process gets stuck at full CPU for up to two hours. Each caller reads one warehouse at a
-    /// time, so the overlap comes from several callers at once: invoice and reservation stock checks,
-    /// transfer forms, the Web's stock refresh and the hourly ledger check. Three keeps the busiest
-    /// case below that point. See <see cref="ShopInventory.Middleware.SAPStockItemsReadHandler"/>.
+    /// <para>
+    /// A read belongs to a family when its query code is the family name, or starts with the name and
+    /// an underscore: <c>STK_ITEMS</c> takes <c>STK_ITEMS_9F09D30404FF</c>, <c>WHS_BATCHES</c> takes
+    /// <c>WHS_BATCHES_VAN004</c> and <c>WHS_BATCHES_KEFSHOP_…</c>, and neither takes
+    /// <c>RPT_STK_ITEMS</c>. The longest matching name wins. A family with a limit of 0, or one not
+    /// listed, is not limited. Names carry no trailing underscore so they survive the
+    /// <c>SAP__ReadFamilies__STK_ITEMS__MaxConcurrentReads</c> environment-variable form.
+    /// </para>
+    /// <para>
+    /// A read SAP is presumed to be still working on keeps its slot for the stuck-read hold
+    /// (<see cref="StuckReadHoldMinutes"/>), because the Service Layer carries on with it. Why, and the
+    /// 2026-11-12 measurements: <see cref="ShopInventory.Middleware.SAPReadFamilyHandler"/>.
+    /// </para>
     /// </remarks>
-    public int StockItemsMaxConcurrentReads { get; set; } = 3;
+    public Dictionary<string, SapReadFamilySettings> ReadFamilies { get; set; } = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["STK_ITEMS"] = new() { MaxConcurrentReads = 2, SendInteractiveWhenFull = true },
+        ["WHS_BATCHES"] = new() { MaxConcurrentReads = 2 },
+        ["DSK_INV_COST_RANGE"] = new() { MaxConcurrentReads = 2 },
+        ["STOCK_QTY"] = new() { MaxConcurrentReads = 2 },
+    };
 
     /// <summary>
-    /// How long a <c>STK_ITEMS</c> read a person is waiting on queues for one of
-    /// <see cref="StockItemsMaxConcurrentReads"/> before it is sent anyway.
+    /// How long a read a person is waiting on queues for a slot in its <see cref="ReadFamilies"/> family
+    /// before it is sent anyway or refused (<see cref="SapReadFamilySettings.SendInteractiveWhenFull"/>).
+    /// </summary>
+    public int ReadFamilyInteractiveMaxWaitSeconds { get; set; } = 10;
+
+    /// <summary>
+    /// How long background work queues for a slot in its <see cref="ReadFamilies"/> family before the
+    /// read is refused, as a <see cref="TimeoutException"/> its caller already handles.
     /// </summary>
     /// <remarks>
-    /// The invoice stock guard fails closed (<see cref="StockGuardFailClosed"/>), so a person's read must
-    /// not sit behind stuck ones until its own budget runs out: that would refuse the invoice. Background
-    /// reads wait for as long as their budget allows.
+    /// Short on purpose. The slots are mostly taken by reads SAP is presumed to be still working on, which
+    /// free minutes later, not seconds; the jobs behind these reads all try again on their next run.
     /// </remarks>
-    public int StockItemsInteractiveMaxWaitSeconds { get; set; } = 10;
+    public int ReadFamilyBackgroundMaxWaitSeconds { get; set; } = 5;
 
     /// <summary>
     /// Whether an invoice is refused when the stock read behind it could not be answered, rather
@@ -327,4 +345,22 @@ public class SAPSettings
     /// </para>
     /// </remarks>
     public string? SwipeTransferAccount { get; set; }
+}
+
+/// <summary>One <see cref="SAPSettings.ReadFamilies"/> entry.</summary>
+public sealed class SapReadFamilySettings
+{
+    /// <summary>How many reads of the family may be at the Service Layer at once. 0 turns the limit off.</summary>
+    public int MaxConcurrentReads { get; set; } = 2;
+
+    /// <summary>
+    /// Whether a read a person is waiting on is sent anyway once it has waited
+    /// <see cref="SAPSettings.ReadFamilyInteractiveMaxWaitSeconds"/> with the family still full. When
+    /// false it is refused like background work.
+    /// </summary>
+    /// <remarks>
+    /// True for <c>STK_ITEMS</c> only: the invoice stock guard reads it and fails closed
+    /// (<see cref="SAPSettings.StockGuardFailClosed"/>), so refusing it would refuse the invoice.
+    /// </remarks>
+    public bool SendInteractiveWhenFull { get; set; }
 }

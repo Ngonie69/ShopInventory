@@ -289,6 +289,34 @@ public class SapCircuitBreakerTimeoutTests
     }
 
     [Fact]
+    public async Task A_background_stock_read_whose_family_SAP_is_still_busy_with_is_refused_at_once_and_not_counted()
+    {
+        // Another warehouse, so the stuck-read hold does not apply: the family limit does. SAP is presumed
+        // to be still working on the first read, so its slot is kept, and the second read is refused
+        // before it reaches SAP or the breaker, and without the transient retry's sleeps.
+        var harness = new Harness(stockBudget: TimeSpan.FromSeconds(60), stockQtyLimit: 1);
+
+        var first = harness.Client.GetStockQuantitiesInWarehouseAsync("CORMACH");
+        await harness.Sap.WaitForHangAsync(first);
+        harness.Clock.Advance(TimeSpan.FromSeconds(60));
+        await Assert.ThrowsAsync<TimeoutException>(() => first);
+
+        // Bounded: sent instead of refused, the read would hang at SAP on a clock nothing moves.
+        var ex = await Assert.ThrowsAsync<SapReadFamilyFullException>(
+            () => harness.Client.GetStockQuantitiesInWarehouseAsync("KEFSHOP").WaitAsync(WaitLimit));
+
+        // Counted where the read enters the pipeline rather than timed: a retried read would enter three
+        // times, and a wall-clock bound on "no retry sleeps" fails on a busy machine.
+        Assert.Equal(1, harness.Entered.Count(path => path.Contains("STOCK_QTY_KEFSHOP')/List", StringComparison.Ordinal)));
+        Assert.Equal("STOCK_QTY", ex.Family);
+        Assert.Equal(harness.Clock.GetUtcNow() + TimeSpan.FromMinutes(10), ex.FirstSlotFreesAt);
+        Assert.Equal(1, harness.Sap.HungRequests);
+        // KEFSHOP's query was looked up and created first, and those answers reset the count the first
+        // read's timeout left; the refusal, had the breaker counted it, would show here as one.
+        Assert.Equal(0, harness.Breaker.GetSnapshot().ConsecutiveFailures);
+    }
+
+    [Fact]
     public async Task A_stock_read_a_person_is_waiting_on_is_sent_even_while_held()
     {
         var harness = new Harness(stockBudget: TimeSpan.FromSeconds(60));
@@ -355,20 +383,50 @@ public class SapCircuitBreakerTimeoutTests
     {
         public static readonly TimeSpan StockBudget = TimeSpan.FromSeconds(5);
         public static readonly TimeSpan PriceListBudget = TimeSpan.FromSeconds(10);
-        public Harness(Func<string, bool>? hangs = null, TimeSpan? clientTimeout = null, TimeSpan? stockBudget = null)
+        /// <param name="stockQtyLimit">
+        /// When above zero, <see cref="SAPReadFamilyHandler"/> sits between the stuck-read handler and the
+        /// breaker, as in production, limiting <c>STOCK_QTY</c> reads to this many; otherwise it is left out.
+        /// </param>
+        public Harness(
+            Func<string, bool>? hangs = null,
+            TimeSpan? clientTimeout = null,
+            TimeSpan? stockBudget = null,
+            int stockQtyLimit = 0)
         {
             var timeout = clientTimeout ?? TimeSpan.FromMinutes(5);
             Breaker = NewBreaker();
-            StuckReads = new SapStuckReadState(Options.Create(new SAPSettings { StuckReadHoldMinutes = 10 }), Clock);
+            var pipelineSettings = Options.Create(new SAPSettings
+            {
+                StuckReadHoldMinutes = 10,
+                ReadFamilies = new() { ["STOCK_QTY"] = new() { MaxConcurrentReads = stockQtyLimit } },
+                ReadFamilyBackgroundMaxWaitSeconds = 5,
+            });
+            StuckReads = new SapStuckReadState(pipelineSettings, Clock);
             Sap = new HangingSap(hangs ?? (path => path.Contains("STOCK_QTY_", StringComparison.Ordinal)
                                                    && path.EndsWith("/List", StringComparison.Ordinal)));
 
-            var httpClient = new HttpClient(
-                new SAPStuckReadHandler(StuckReads, NullLogger<SAPStuckReadHandler>.Instance)
+            HttpMessageHandler belowStuckReads = new SAPCircuitBreakerHandler(Breaker, NullLogger<SAPCircuitBreakerHandler>.Instance, timeout)
+            {
+                InnerHandler = new ReachSap(Clock) { InnerHandler = Sap }
+            };
+            if (stockQtyLimit > 0)
+            {
+                belowStuckReads = new SAPReadFamilyHandler(
+                    new SapReadFamilyGate(pipelineSettings, Clock),
+                    StuckReads,
+                    Clock,
+                    NullLogger<SAPReadFamilyHandler>.Instance)
                 {
-                    InnerHandler = new SAPCircuitBreakerHandler(Breaker, NullLogger<SAPCircuitBreakerHandler>.Instance, timeout)
+                    InnerHandler = belowStuckReads
+                };
+            }
+
+            var httpClient = new HttpClient(
+                new EntryRecorder(Entered)
+                {
+                    InnerHandler = new SAPStuckReadHandler(StuckReads, NullLogger<SAPStuckReadHandler>.Instance)
                     {
-                        InnerHandler = new ReachSap(Clock) { InnerHandler = Sap }
+                        InnerHandler = belowStuckReads
                     }
                 })
             {
@@ -400,6 +458,9 @@ public class SapCircuitBreakerTimeoutTests
         public ManualClock Clock { get; } = new();
         public SapCircuitBreakerState Breaker { get; }
         public SapStuckReadState StuckReads { get; }
+
+        /// <summary>The path of every request that entered the SAP pipeline, retries included.</summary>
+        public System.Collections.Concurrent.ConcurrentQueue<string> Entered { get; } = new();
         public HangingSap Sap { get; }
         public SAPServiceLayerClient Client { get; }
     }
@@ -485,6 +546,18 @@ public class SapCircuitBreakerTimeoutTests
             CancellationToken cancellationToken)
         {
             SapRequestMarks.MarkReachedSap(request, clock.GetUtcNow());
+            return base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    /// <summary>Outermost: records each request as it enters the SAP pipeline, so a retry is counted.</summary>
+    private sealed class EntryRecorder(System.Collections.Concurrent.ConcurrentQueue<string> entered) : DelegatingHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            entered.Enqueue(request.RequestUri!.AbsolutePath);
             return base.SendAsync(request, cancellationToken);
         }
     }
