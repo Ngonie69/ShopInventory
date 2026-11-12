@@ -58,6 +58,21 @@ public static partial class Errors
             Error.Failure("CreditNoteApproval.AlreadyCreditedUnchecked",
                 "SAP could not be asked whether this draft has already been credited, so it was not approved or added. Try again.");
 
+        /// <summary>
+        /// The draft credits more than is left on the invoice it reverses, which ZIMRA will not fiscalise;
+        /// the sentence names the figures.
+        /// </summary>
+        public static Error ExceedsInvoice(string description) =>
+            Error.Conflict("CreditNoteApproval.ExceedsInvoice", description);
+
+        /// <summary>
+        /// SAP could not say what is left to credit on the draft's invoice. Refused rather than guessed,
+        /// because a credit note added past its invoice can never be fiscalised.
+        /// </summary>
+        public static readonly Error InvoiceRoomUnchecked =
+            Error.Failure("CreditNoteApproval.InvoiceRoomUnchecked",
+                "SAP could not be asked what is left to credit on this draft's invoice, so it was not added. Try again.");
+
         public static Error ApproverUnknown(string approverUserName) =>
             Error.Validation("CreditNoteApproval.ApproverUnknown",
                 $"SAP has no user '{approverUserName}' to record the decision as. Check SAP:ApprovalApproverUsername.");

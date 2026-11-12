@@ -2595,7 +2595,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         // A handful at most — one per numbering series — so one page of 50 holds them all.
         const int pageSize = 50;
         var response = await ReadSapJsonAsync<SAPResponse<Invoice>>(
-            $"Invoices?$filter=DocNum eq {docNum}&$select=DocEntry,DocNum,CardCode,CardName,Cancelled,CancelStatus,Comments&$top={pageSize}",
+            // DocDate and DocTotal for the credit memo approval guard, which weighs a memo against the invoice it names.
+            $"Invoices?$filter=DocNum eq {docNum}&$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency,Cancelled,CancelStatus,Comments&$top={pageSize}",
             $"read invoices with DocNum {docNum}",
             cancellationToken,
             pageSize);

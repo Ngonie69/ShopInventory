@@ -193,6 +193,32 @@ public sealed class AddApprovedCreditNoteHandler(
                 lineChanges = plan.Value;
             }
 
+            // What is left to credit on the invoice the draft reverses. ZIMRA refuses a credit note past it,
+            // and SAP adds one anyway when lines were typed onto a copied memo, so it would be added and
+            // never fiscalised. Read before any quantity is changed — the lines' base links do not move —
+            // and weighed against the total the draft will be added with.
+            CreditNoteInvoiceRoom.Room? invoiceRoom;
+            try
+            {
+                invoiceRoom = await CreditNoteInvoiceRoom.ReadAsync(sap, draft, cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                logger.LogWarning(exception, "Could not read what is left to credit on the invoice behind draft {DraftEntry}; refusing the add", draftEntry);
+                await TryAuditAsync(command, draft, false, Errors.CreditNoteApproval.InvoiceRoomUnchecked.Description);
+                return Errors.CreditNoteApproval.InvoiceRoomUnchecked;
+            }
+
+            if (lineChanges.Count == 0)
+            {
+                var fits = CreditNoteInvoiceRoom.Check(draft, invoiceRoom, logger);
+                if (fits.IsError)
+                {
+                    await TryAuditAsync(command, draft, false, fits.FirstError.Description);
+                    return fits.Errors;
+                }
+            }
+
             var newestBefore = await newestBeforeTask;
             var checkedAt = clock.Elapsed;
 
@@ -211,14 +237,26 @@ public sealed class AddApprovedCreditNoteHandler(
 
                 // The add is recognised afterwards by the draft's total, which the new quantities changed.
                 draft = changed.Value;
+
+                // The new quantities are on the draft, so its total is the one SAP would add. Past the
+                // invoice it is refused here, with the edit left on the draft for the next attempt.
+                var fits = CreditNoteInvoiceRoom.Check(draft, invoiceRoom, logger);
+                if (fits.IsError)
+                {
+                    await TryAuditAsync(command, draft, false, $"New quantities saved on the draft, not added: {fits.FirstError.Description}");
+                    return Error.Conflict(
+                        fits.FirstError.Code,
+                        $"The new quantities were saved on draft {draftEntry}, but the credit note was not added. {fits.FirstError.Description}");
+                }
             }
 
-            // The invoice the credit note reverses is on the draft's lines already when they were copied
-            // from one. Fiscalising needs it, so it is read while SAP converts the draft rather than after.
-            // A draft with nothing copied names its invoice in Customer Ref. No.; the fiscaliser reads that.
+            // The invoice the credit note reverses was read for the guard above; the fiscaliser files the
+            // memo against that same invoice, so it is handed on rather than read a second time.
             var invoiceRead = approvalSettings.Value.FiscaliseAfterAdd
+                              && invoiceRoom is not null
                               && SapCreditNoteOriginalInvoice.BaseLinkOf(draft).SingleInvoiceDocEntry is int invoiceEntry
-                ? new SapInvoiceRead(invoiceEntry, TryReadInvoiceAsync(invoiceEntry))
+                              && invoiceEntry == invoiceRoom.Invoice.DocEntry
+                ? new SapInvoiceRead(invoiceEntry, Task.FromResult<Invoice?>(invoiceRoom.Invoice))
                 : null;
 
             int? createdDocEntry;
@@ -612,20 +650,6 @@ public sealed class AddApprovedCreditNoteHandler(
         catch (Exception exception)
         {
             logger.LogWarning(exception, "Could not read the newest credit note before the add");
-            return null;
-        }
-    }
-
-    private async Task<Invoice?> TryReadInvoiceAsync(int docEntry)
-    {
-        try
-        {
-            return await sap.GetInvoiceByDocEntryAsync(docEntry, CancellationToken.None);
-        }
-        catch (Exception exception)
-        {
-            // The fiscaliser reads it again itself.
-            logger.LogWarning(exception, "Could not read invoice {DocEntry} ahead of fiscalising", docEntry);
             return null;
         }
     }
