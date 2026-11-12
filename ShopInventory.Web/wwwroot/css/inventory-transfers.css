@@ -618,6 +618,36 @@
     justify-content: flex-end;
 }
 
+/* ── Scope line: the requests were asked of SAP for a warehouse ──────────────
+   Above the summary when an administrator or the wash bay has picked a
+   warehouse, so the count beneath it reads as SAP's answer for that warehouse
+   rather than a slice of the newest page. Tokens only, so it flips with them. */
+.itx-scope {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem .85rem;
+    padding: .7rem 1.25rem;
+    background: var(--itx-rule) no-repeat bottom / 100% 1px, var(--itx-accent-soft);
+    font-size: .84rem;
+    color: var(--itx-ink);
+}
+
+.itx-scope > .bi {
+    flex: none;
+    color: var(--itx-accent);
+}
+
+.itx-scope-text {
+    flex: 1 1 320px;
+    min-width: 0;
+}
+
+.itx-scope-text strong {
+    font-weight: 600;
+    color: var(--itx-accent-strong);
+}
+
 /* ── Summary strip across the top of the results card ───────────────────── */
 .itx-summary {
     display: flex;

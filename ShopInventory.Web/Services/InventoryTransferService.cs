@@ -80,8 +80,14 @@ public interface IInventoryTransferService
     /// One page of transfer requests. <c>Error</c> carries why the call failed, so the caller can
     /// tell a failed read from a warehouse that genuinely has no requests.
     /// </summary>
+    /// <summary>
+    /// A page of transfer requests, newest first. <paramref name="fromWarehouse"/> and
+    /// <paramref name="toWarehouse"/> ask SAP for the requests naming that warehouse at that end,
+    /// rather than sifting the page after it arrives.
+    /// </summary>
     Task<(TransferRequestListResponse? Response, string? Error)> GetTransferRequestsAsync(
-        int page = 1, int pageSize = 20, string? status = null);
+        int page = 1, int pageSize = 20, string? status = null,
+        string? fromWarehouse = null, string? toWarehouse = null);
     Task<TransferRequestListResponse?> GetTransferRequestsByWarehouseAsync(string warehouseCode);
     Task<InventoryTransferRequestDto?> GetTransferRequestByDocEntryAsync(int docEntry);
 
@@ -755,7 +761,8 @@ public class InventoryTransferService : IInventoryTransferService
     }
 
     public async Task<(TransferRequestListResponse? Response, string? Error)> GetTransferRequestsAsync(
-        int page = 1, int pageSize = 20, string? status = null)
+        int page = 1, int pageSize = 20, string? status = null,
+        string? fromWarehouse = null, string? toWarehouse = null)
     {
         const string fallback = "We couldn't load transfer requests from the API.";
         try
@@ -763,6 +770,10 @@ public class InventoryTransferService : IInventoryTransferService
             var url = $"api/inventorytransfer/requests?page={page}&pageSize={pageSize}";
             if (!string.IsNullOrWhiteSpace(status))
                 url += $"&status={Uri.EscapeDataString(status)}";
+            if (!string.IsNullOrWhiteSpace(fromWarehouse))
+                url += $"&fromWarehouse={Uri.EscapeDataString(fromWarehouse)}";
+            if (!string.IsNullOrWhiteSpace(toWarehouse))
+                url += $"&toWarehouse={Uri.EscapeDataString(toWarehouse)}";
 
             var response = await _httpClient.GetAsync(url);
             if (!response.IsSuccessStatusCode)

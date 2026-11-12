@@ -1859,7 +1859,7 @@ provider's webhook configuration at. `/refund` is the one route on this controll
 | POST | `/api/InventoryTransfer/pending/{id}/withdraw` | Withdraw an approved transfer that failed to post |
 | POST | `/api/InventoryTransfer/pending/{id}/record-sap-document` | Record a transfer found in SAP after a timed-out post |
 | POST | `/api/InventoryTransfer/request` | Raise a transfer request — ask a warehouse for stock |
-| GET | `/api/InventoryTransfer/requests` | List transfer requests, newest first (`page`, `pageSize`, `status`) |
+| GET | `/api/InventoryTransfer/requests` | List transfer requests, newest first (`page`, `pageSize`, `status`; `fromWarehouse` and `toWarehouse` keep requests whose header names that warehouse at that end) |
 | PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, WashBay, DepotController, ShopStock, Manager |
 | POST | `/api/InventoryTransfer/request/{docEntry}/convert` | Authorize a request and generate the SAP transfer. Admin, StockController, WashBay, DepotController, ShopStock |
 | GET | `/api/InventoryTransfer/request/{docEntry}/stock` | The source warehouse's live stock of each item on a request, and which lines it cannot fill (`fromWarehouse`, `item`). Admin, StockController, WashBay, DepotController, ShopStock, Manager |

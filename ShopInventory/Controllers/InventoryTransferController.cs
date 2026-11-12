@@ -565,6 +565,8 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// Lists transfer requests newest first. <paramref name="status"/> filters on the SAP document
     /// status — "open", "closed", or "all" (the default). Most of the eleven thousand requests in
     /// SAP are closed, so a screen that actions requests should ask for open ones.
+    /// <paramref name="fromWarehouse"/> and <paramref name="toWarehouse"/> keep only requests whose
+    /// header names that warehouse at that end.
     /// </summary>
     [HttpGet("requests")]
     [ProducesResponseType(typeof(TransferRequestListResponseDto), StatusCodes.Status200OK)]
@@ -573,9 +575,13 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? status = null,
+        [FromQuery] string? fromWarehouse = null,
+        [FromQuery] string? toWarehouse = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetPagedTransferRequestsQuery(page, pageSize, status), cancellationToken);
+        var result = await mediator.Send(
+            new GetPagedTransferRequestsQuery(page, pageSize, status, fromWarehouse, toWarehouse),
+            cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
