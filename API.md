@@ -5012,6 +5012,26 @@ given, because the prefix names the depot. Blank codes are numbered after every 
 A code matching a removed vendor at the same depot restores that vendor; one matching a live vendor is
 a row error, not an update.
 
+#### Vending cash-ups
+
+**Base route:** `/api/vending/cash-ups`  
+**Auth:** Bearer + `ApiAccess`, roles Admin, Manager, Cashier to read; Admin, Cashier to count; Admin to approve or query
+
+One count per vending cashier (a `CartVendor` account), per depot warehouse, per day, held against that
+cashier's `KefalosVending` sales by `DocDate`, warehouse and `CreatedBy`. Money is per currency (`USD`,
+`ZIG`; a till's `ZWG` is read as `ZIG`) and never added across currencies. Cash variance is
+`countedCash - (openingFloat + cash sales)`; a non-cash tender's is `declared - expected`. A sale with no
+tender recorded is cash. Credit notes are not taken off: they are raised in the portal, not paid out of
+the drawer. Who counted and who approves is read from the signed-in user's account, never the API key.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/vending/cash-ups` | `?from=&to=&warehouseCode=` (at most 92 days, both inclusive). Every cashier-day with sales or a count: per currency `invoiced`, `expectedCash`, `openingFloat`, `countedCash`, `accounted` (counted less float plus non-cash slips), `banked`, `variance`; `status` (`NotCashedUp`, `Submitted`, `Queried`, `Approved`), `needsReason`, `salesChangedSinceCount`. A day with no count has null counted figures and no variance. Also per-currency `totals` (counted figures over counted days only, `openShortfall` on unapproved counts) and `counts` |
+| GET | `/api/vending/cash-ups/sheet` | `?cashierUserId=&warehouseCode=&date=`. One cashier's day for the capture form, counted or not: expected cash and tenders now, the figures the count was made against, denominations, reason, note, query, `savedByCaller` and who captured, edited and approved it |
+| PUT | `/api/vending/cash-ups` | Admin, Cashier. Keys or re-keys a count: `{ cashierUserId, warehouseCode, businessDate, expectedRevision, currencies: [{ currency, openingFloat, countedCash, banked, depositReference, denominations: [{ value, quantity }] }], tenders: [{ currency, tender, declared }], varianceReason, note }`. Denominations, when given, are the count (`countedCash` must then agree). Tenders are Swipe, Ecocash, Innbucks. 409 `VendingCashUp.Stale` when `expectedRevision` is not the row's (0 for a new day), `VendingCashUp.AlreadyApproved` once approved. A queried count goes back to `Submitted` |
+| POST | `/api/vending/cash-ups/{id}/approve` | Admin. `{ expectedRevision }`. 403 `VendingCashUp.CannotApproveOwnCount` for anyone who ever saved the count; 409 `VendingCashUp.SalesChangedSinceCount` when the sales moved since it was saved; 400 `VendingCashUp.ReasonRequired` when any currency or tender is off with no `varianceReason` |
+| POST | `/api/vending/cash-ups/{id}/query` | Admin. `{ expectedRevision, note }` (note required). Sends a submitted count back as `Queried` |
+
 ---
 
 ### 37. Crates
