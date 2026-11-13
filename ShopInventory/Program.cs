@@ -33,6 +33,7 @@ using ShopInventory.Health;
 using ShopInventory.Middleware;
 using ShopInventory.Models;
 using ShopInventory.Services;
+using ShopInventory.Services.CallTimings;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Services.Fiscalisation;
 using ShopInventory.Services.SlHealth;
@@ -725,6 +726,11 @@ try
     // queues for a slot or reaches the breaker. One state for both, so either client's stuck read holds.
     builder.Services.AddSingleton<SapStuckReadState>();
     builder.Services.AddTransient<SAPStuckReadHandler>();
+    // Outermost of all, in both clients: times every SAP call, a refused one included, for the Admin
+    // call timings page. Built per client like the breaker, so it knows its client's timeout. The
+    // recorder also holds the inbound requests InboundCallTimingMiddleware times.
+    builder.Services.Configure<CallTimingSettings>(builder.Configuration.GetSection(CallTimingSettings.SectionName));
+    builder.Services.AddSingleton<CallTimingRecorder>();
     // Next in, in both clients: at most SAP:ReadFamilies' limit of each read family at SAP at once,
     // counting stuck reads for the hold. Outside the breaker and the slot limiter, so a read queued here
     // holds no slot and a refusal is not a failure. One gate for both clients.
@@ -748,6 +754,9 @@ try
         client.DefaultRequestHeaders.Add("Accept", "application/json");
         client.Timeout = TimeSpan.FromMinutes(sapSettings.LongRunningRequestTimeoutMinutes);
     })
+    .AddHttpMessageHandler(serviceProvider => ActivatorUtilities.CreateInstance<SAPCallTimingHandler>(
+        serviceProvider,
+        TimeSpan.FromMinutes(serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value.LongRunningRequestTimeoutMinutes)))
     .AddHttpMessageHandler<SAPStuckReadHandler>()
     .AddHttpMessageHandler<SAPReadFamilyHandler>()
     .AddHttpMessageHandler(serviceProvider => ActivatorUtilities.CreateInstance<SAPCircuitBreakerHandler>(
@@ -806,6 +815,9 @@ try
         client.DefaultRequestHeaders.Add("Accept", "application/json");
         client.Timeout = TimeSpan.FromMinutes(sapSettings.RequestTimeoutMinutes);
     })
+    .AddHttpMessageHandler(serviceProvider => ActivatorUtilities.CreateInstance<SAPCallTimingHandler>(
+        serviceProvider,
+        TimeSpan.FromMinutes(serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value.RequestTimeoutMinutes)))
     .AddHttpMessageHandler<SAPStuckReadHandler>()
     .AddHttpMessageHandler<SAPReadFamilyHandler>()
     .AddHttpMessageHandler(serviceProvider => ActivatorUtilities.CreateInstance<SAPCircuitBreakerHandler>(
@@ -1253,6 +1265,10 @@ try
     }
 
     app.UseForwardedHeaders();
+
+    // Before the exception handler and the status-code pages, so it times the whole request and keeps
+    // the status the caller got. Route templates only, never paths: see InboundCallTimingMiddleware.
+    app.UseInboundCallTiming();
 
     app.UseExceptionHandler();
     app.UseStatusCodePages(async statusCodeContext =>

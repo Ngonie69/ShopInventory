@@ -1,5 +1,6 @@
 using System.Net;
 using ShopInventory.Services;
+using ShopInventory.Services.CallTimings;
 
 namespace ShopInventory.Middleware;
 
@@ -74,6 +75,7 @@ public sealed class SAPReadFamilyHandler(
 
         var holdsSlot = await family.EnterAsync(maxWait, cancellationToken);
         var waited = timeProvider.GetElapsedTime(waitStarted);
+        SapCallInFlight.Of(request)?.FamilyWaited(waited);
 
         if (!holdsSlot)
         {

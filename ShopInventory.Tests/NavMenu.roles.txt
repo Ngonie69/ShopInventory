@@ -411,6 +411,7 @@ System
     Exception Center  /exception-center
     Sync Status  /sync-status
     Transfer Listener  /transfer-listener
+    Call Timings  /call-timings
     Activity Log  /user-activity
     Document Templates  /document-templates
     Mobile Push  /mobile-push

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.Services;
+using ShopInventory.Services.CallTimings;
 
 namespace ShopInventory.Middleware;
 
@@ -80,6 +81,7 @@ public sealed class SAPConcurrencyHandler : DelegatingHandler
         // From here a timeout is SAP not answering rather than this queue being full, which is
         // what the circuit breaker needs to know before it counts one.
         SapRequestMarks.MarkReachedSap(request, _timeProvider.GetUtcNow());
+        SapCallInFlight.Of(request)?.ReachedSap(waitDuration, _timeProvider.GetTimestamp());
 
         if (waitDuration >= TimeSpan.FromSeconds(2))
         {
@@ -112,6 +114,27 @@ public sealed class SAPConcurrencyHandler : DelegatingHandler
             {
                 backgroundRequests.Release();
             }
+        }
+    }
+
+    /// <summary>
+    /// How many of the process-wide slots are taken right now, in all and by background work, for the
+    /// call timings page. Zeros before the first SAP call, when the slots do not exist yet.
+    /// </summary>
+    public static (int Limit, int InUse, int BackgroundLimit, int BackgroundInUse) CurrentUsage()
+    {
+        lock (SemaphoreGate)
+        {
+            if (_allRequests is null || _backgroundRequests is null)
+            {
+                return (0, 0, 0, 0);
+            }
+
+            return (
+                _semaphoreLimit,
+                _semaphoreLimit - _allRequests.CurrentCount,
+                _backgroundLimit,
+                _backgroundLimit - _backgroundRequests.CurrentCount);
         }
     }
 

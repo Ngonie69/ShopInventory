@@ -82,6 +82,7 @@ Examples:
   - [Crates](#37-crates)
   - [Merchandiser](#38-merchandiser)
   - [Sync & SAP Connection](#39-sync--sap-connection)
+  - [Call Timings](#39a-call-timings)
   - [WhatsApp](#40-whatsapp)
   - [Customer Documents on WhatsApp](#40a-customer-documents-on-whatsapp)
   - [Daily Sales on WhatsApp](#40b-daily-sales-on-whatsapp)
@@ -5141,6 +5142,39 @@ calls it. It runs at background SAP priority, answers `pairs`, `warmed`, `failed
 `transfer-request-items/clear` drops the hour-long hold on `DesktopIntegration/transfer-requests/items`,
 so an item just flagged `U_SalesItem` and `U_VanSale` in SAP appears the next time a till opens its
 request screen. The last list read is kept for a SAP outage. The Products sync in Settings sends it.
+
+---
+
+### 39a. Call Timings
+
+**Base route:** `/api/call-timings`  
+**Auth:** `AdminOnly`
+
+How long this API's own requests and its SAP Service Layer calls have been taking, from the API's
+memory. Nothing behind it asks SAP or the database, so it answers while SAP is the thing that is stuck.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/call-timings` | `window` = `15m`, `1h` or `today` (default; since midnight CAT). Answers the SAP calls in flight with their age and stage, p50/p95 of time at SAP per read family, the 25 slowest SAP calls with their outcome and the route that sent them, slot waits, the busiest inbound routes and the callers. 400 for any other window |
+
+Every SAP call through either SAP client is timed by `SAPCallTimingHandler`, outermost in the
+pipeline, so a read the stuck-read hold, the family cap or the circuit breaker refused counts as
+`not-sent`. Outcomes are `ok`, `error`, `timeout` (the client's timeout, a breaker deadline, or a 504),
+`gave-up` (the caller or its own budget stopped waiting) and `not-sent`; `presumedStuck` uses the
+stuck-read hold's rule. A read is grouped under its `SAP:ReadFamilies` family, else by its query code
+less the 12-character SQL hash; any other call by method and entity (`POST Invoices`). Keys in
+parentheses and query strings are never kept.
+
+Inbound requests are timed by `InboundCallTimingMiddleware` and kept by route template, never by path.
+The caller is read off the request: `Handset · <app>` (the phone headers), `Web` / `Web · no user`
+(`X-Client-App: web-portal`, with or without a user token), `Key · <name>` (an API key alone), `Till /
+bearer only` (a user token with no key and no client header, which is how the KefShop till calls)
+and `Anonymous`. SignalR hub connections are not timed.
+
+Both are fixed-size rings in memory (`CallTimings:SapCallCapacity` 100 000, `InboundCallCapacity`
+150 000, roughly 5 MB and 7 MB). A full ring drops its oldest call, and `sapCoverageStartUtc` /
+`inboundCoverageStartUtc` say from when the figures run; a recycle starts both empty.
+`CallTimings:Enabled` false stops recording and the endpoint answers `enabled: false`.
 
 ---
 

@@ -356,6 +356,7 @@ try
     builder.Services.AddScoped<ILiveTransactionService, LiveTransactionService>();
     builder.Services.AddScoped<ISystemHealthService, SystemHealthService>();
     builder.Services.AddScoped<ITransferListenerService, TransferListenerService>();
+    builder.Services.AddScoped<ICallTimingsService, CallTimingsService>();
 
     // Add Sales Order, Purchase Order, Credit Note, and Quotation services
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();

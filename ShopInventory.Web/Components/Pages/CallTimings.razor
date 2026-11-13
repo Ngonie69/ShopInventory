@@ -1,0 +1,453 @@
+@page "/call-timings"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Call timings - Shop Inventory</PageTitle>
+
+@* Styles live in wwwroot/css/call-timings.css (bundled by StaffStylesheets.targets), on
+   the Nocturne tokens, shaped after /transfer-listener.
+
+   Every figure is the API's own memory of its requests and its SAP Service Layer calls:
+   nothing on this page asks SAP anything, so it stays readable while SAP is the thing that
+   is stuck. The order is the order of the questions on a bad afternoon — what is at SAP
+   right now and for how long, which read family SAP is spending its time on, which calls
+   took longest, who is waiting for a slot, and which routes are sending the traffic.
+
+   A tone always arrives with a word; a dot is never the only signal. *@
+
+<div class="ctm">
+
+    <header class="ctm-head">
+        <div class="ctm-head-inner">
+            <nav class="ctm-crumbs" aria-label="Breadcrumb">
+                <span>System</span>
+                <span class="ctm-crumb-sep" aria-hidden="true">/</span>
+                <span class="ctm-crumb-now" aria-current="page">Call timings</span>
+            </nav>
+            <div class="ctm-head-actions">
+                @if (loadedAtUtc.HasValue)
+                {
+                    <span class="ctm-asof">
+                        @if (isRefreshing)
+                        {
+                            <span class="ctm-spin" aria-hidden="true"></span>
+                        }
+                        as of @FormatClock(loadedAtUtc)
+                    </span>
+                }
+                <div class="ctm-window">
+                    <NocturneSelect Class="nsel-end" TValue="string" Options="WindowOptions"
+                                    Value="window" ValueChanged="@(value => window = value)"
+                                    OnChanged="RefreshAsync" AriaLabel="Time window" Caption="Show calls from" />
+                </div>
+                <label class="ctm-switch" title="Re-read every @LiveSeconds seconds">
+                    <input type="checkbox" checked="@live" @onchange="ToggleLive" />
+                    <span class="ctm-switch-track" aria-hidden="true"></span>
+                    <span>Live</span>
+                </label>
+                <button type="button" class="ctm-btn" @onclick="RefreshAsync" disabled="@isRefreshing">
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="ctm-body">
+
+        <div class="ctm-hero">
+            <div class="ctm-hero-text">
+                <h1 class="ctm-title">Call timings</h1>
+                <p class="ctm-lede">How long the API's own requests and its SAP Service Layer calls are taking, read from the API's memory.</p>
+            </div>
+            @if (timings is { Enabled: true })
+            {
+                <span class="ctm-since" title="Recording since @FormatClock(timings.RecordingSinceUtc)">
+                    <i class="ph ph-clock" aria-hidden="true"></i>
+                    @CoverageText
+                </span>
+            }
+        </div>
+
+        @if (loadError is not null)
+        {
+            <div class="ctm-alert ctm-alert-bad" role="alert">
+                <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                <div class="ctm-alert-body">
+                    <div class="ctm-alert-head">Could not read the call timings</div>
+                    <div>@loadError</div>
+                </div>
+            </div>
+        }
+
+        @if (isLoading)
+        {
+            <div class="ctm-card">
+                <div class="ctm-skeleton" style="width: 40%; margin-bottom: 12px;"></div>
+                <div class="ctm-skeleton" style="width: 75%;"></div>
+            </div>
+        }
+        else if (timings is { Enabled: false })
+        {
+            <div class="ctm-alert" role="status">
+                <i class="ph ph-info" aria-hidden="true"></i>
+                <div class="ctm-alert-body">
+                    <div class="ctm-alert-head">Timings are off</div>
+                    <div>The API is not recording its calls: <span class="ctm-mono">CallTimings:Enabled</span> is false in its settings.</div>
+                </div>
+            </div>
+        }
+        else if (timings is not null)
+        {
+            <section class="ctm-tiles" aria-label="Now">
+                <article class="ctm-tile ctm-tone-@SlotTone">
+                    <span class="ctm-tile-label">SAP slots in use</span>
+                    <span class="ctm-tile-value ctm-num">@timings.Slots.InUse <span class="ctm-tile-of">of @timings.Slots.Limit</span></span>
+                    <span class="ctm-tile-note">
+                        <span class="ctm-dot" aria-hidden="true"></span>
+                        background @timings.Slots.BackgroundInUse of @timings.Slots.BackgroundLimit
+                    </span>
+                </article>
+                <article class="ctm-tile ctm-tone-@InFlightTone">
+                    <span class="ctm-tile-label">At SAP or queued now</span>
+                    <span class="ctm-tile-value ctm-num">@timings.InFlight.Count</span>
+                    <span class="ctm-tile-note">
+                        <span class="ctm-dot" aria-hidden="true"></span>
+                        @(timings.InFlight.Count == 0 ? "nothing in flight" : $"oldest {FormatDuration(timings.InFlight[0].AgeMs)}")
+                    </span>
+                </article>
+                <article class="ctm-tile ctm-tone-@FailureTone">
+                    <span class="ctm-tile-label">SAP calls</span>
+                    <span class="ctm-tile-value ctm-num">@timings.SapCalls.ToString("N0")</span>
+                    <span class="ctm-tile-note">
+                        <span class="ctm-dot" aria-hidden="true"></span>
+                        @Failures timed out or abandoned · @PresumedStuck presumed stuck
+                    </span>
+                </article>
+                <article class="ctm-tile ctm-tone-@WaitTone">
+                    <span class="ctm-tile-label">Waited 2 s or more for a slot</span>
+                    <span class="ctm-tile-value ctm-num">@timings.SlotWaits.WaitedOverTwoSeconds.ToString("N0")</span>
+                    <span class="ctm-tile-note">
+                        <span class="ctm-dot" aria-hidden="true"></span>
+                        p95 @FormatDuration(timings.SlotWaits.P95Ms) · longest @FormatDuration(timings.SlotWaits.MaxMs)
+                    </span>
+                </article>
+                <article class="ctm-tile ctm-tone-@InboundTone">
+                    <span class="ctm-tile-label">API requests</span>
+                    <span class="ctm-tile-value ctm-num">@timings.InboundCalls.ToString("N0")</span>
+                    <span class="ctm-tile-note">
+                        <span class="ctm-dot" aria-hidden="true"></span>
+                        @ServerErrors answered 5xx
+                    </span>
+                </article>
+            </section>
+
+            @if (timings.Slots.Families.Count > 0)
+            {
+                <section class="ctm-families-now" aria-label="Read family slots now">
+                    @foreach (var family in timings.Slots.Families)
+                    {
+                        <div class="ctm-famslot ctm-tone-@FamilySlotTone(family)">
+                            <span class="ctm-mono ctm-famslot-name">@family.Family</span>
+                            <span class="ctm-pips" aria-hidden="true">
+                                @for (var i = 0; i < family.Limit; i++)
+                                {
+                                    <span class="ctm-pip @(i < family.Kept ? "ctm-pip-kept" : i < family.InUse ? "ctm-pip-used" : "")"></span>
+                                }
+                            </span>
+                            <span class="ctm-famslot-text">
+                                @family.InUse of @family.Limit in use@(family.Kept > 0 ? $", {family.Kept} kept for a stuck read until {FormatTime(family.FirstKeptSlotFreesAtUtc)}" : "")
+                            </span>
+                        </div>
+                    }
+                </section>
+            }
+
+            <section class="ctm-section" aria-labelledby="ctm-inflight-title">
+                <div class="ctm-section-head">
+                    <h2 class="ctm-section-title" id="ctm-inflight-title">In flight now</h2>
+                    <span class="ctm-section-note">SAP calls this API is waiting on, oldest first. A read SAP has had 15 s or more is the kind that gets stuck.</span>
+                </div>
+                @if (timings.InFlight.Count == 0)
+                {
+                    <div class="ctm-table-wrap"><div class="ctm-empty">No SAP call is in flight.</div></div>
+                }
+                else
+                {
+                    <div class="ctm-table-wrap">
+                        <table class="ctm-table">
+                            <thead>
+                                <tr>
+                                    <th class="ctm-th-num">Age</th>
+                                    <th>Stage</th>
+                                    <th class="ctm-th-num">At SAP</th>
+                                    <th>Family</th>
+                                    <th>Call</th>
+                                    <th>For</th>
+                                    <th>Sent by</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var call in timings.InFlight)
+                                {
+                                    <tr class="ctm-row-inflight">
+                                        <td class="ctm-cell-num ctm-num">@FormatDuration(call.AgeMs)</td>
+                                        <td><span class="ctm-state ctm-tone-@StageTone(call)"><span class="ctm-dot" aria-hidden="true"></span>@StageText(call.Stage)</span></td>
+                                        <td class="ctm-cell-num ctm-num">@(call.AtSapMs > 0 ? FormatDuration(call.AtSapMs) : "—")</td>
+                                        <td class="ctm-mono">@call.Family</td>
+                                        <td class="ctm-mono ctm-cell-wrap">@call.Operation</td>
+                                        <td>@(call.Interactive ? "a person" : "background")</td>
+                                        <td class="ctm-mono ctm-cell-muted ctm-cell-wrap">@call.Origin</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+
+            <section class="ctm-section" aria-labelledby="ctm-families-title">
+                <div class="ctm-section-head">
+                    <h2 class="ctm-section-title" id="ctm-families-title">SAP time by family</h2>
+                    <span class="ctm-section-note">Percentiles are of the time SAP had each call, without the queueing. Where SAP spent most time comes first.</span>
+                </div>
+                @if (timings.Families.Count == 0)
+                {
+                    <div class="ctm-table-wrap"><div class="ctm-empty">No SAP calls in this window.</div></div>
+                }
+                else
+                {
+                    <div class="ctm-table-wrap">
+                        <table class="ctm-table">
+                            <thead>
+                                <tr>
+                                    <th>Family</th>
+                                    <th class="ctm-th-num">Calls</th>
+                                    <th class="ctm-th-num">p50</th>
+                                    <th class="ctm-th-num">p95</th>
+                                    <th class="ctm-th-num">Longest</th>
+                                    <th class="ctm-th-num">SAP time</th>
+                                    <th>Not answered</th>
+                                    <th class="ctm-th-num">Queued p95</th>
+                                    <th class="ctm-th-num">Now</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var family in VisibleFamilies)
+                                {
+                                    <tr class="ctm-row-family">
+                                        <td>
+                                            <span class="ctm-mono">@family.Family</span>
+                                            @if (family.Limited)
+                                            {
+                                                <span class="ctm-tag" title="Capped in SAP:ReadFamilies">capped</span>
+                                            }
+                                        </td>
+                                        <td class="ctm-cell-num ctm-num">@family.Calls.ToString("N0")</td>
+                                        <td class="ctm-cell-num ctm-num">@FormatDuration(family.P50Ms)</td>
+                                        <td class="ctm-cell-num ctm-num ctm-tone-@LatencyTone(family.P95Ms)"><span class="ctm-toned">@FormatDuration(family.P95Ms)</span></td>
+                                        <td class="ctm-cell-num ctm-num">@FormatDuration(family.MaxMs)</td>
+                                        <td class="ctm-cell-num ctm-num">@FormatSeconds(family.TotalSeconds)</td>
+                                        <td>
+                                            <span class="ctm-chips">
+                                                @if (family.Timeouts > 0) { <span class="ctm-chip ctm-tone-bad">@family.Timeouts timed out</span> }
+                                                @if (family.GaveUp > 0) { <span class="ctm-chip ctm-tone-warn">@family.GaveUp abandoned</span> }
+                                                @if (family.Errors > 0) { <span class="ctm-chip ctm-tone-bad">@family.Errors errors</span> }
+                                                @if (family.NotSent > 0) { <span class="ctm-chip ctm-tone-idle">@family.NotSent not sent</span> }
+                                                @if (family.PresumedStuck > 0) { <span class="ctm-chip ctm-tone-bad">@family.PresumedStuck stuck at SAP</span> }
+                                                @if (family.Timeouts + family.GaveUp + family.Errors + family.NotSent == 0) { <span class="ctm-cell-muted">—</span> }
+                                            </span>
+                                        </td>
+                                        <td class="ctm-cell-num ctm-num">@(family.WaitP95Ms > 0 ? FormatDuration(family.WaitP95Ms) : "—")</td>
+                                        <td class="ctm-cell-num ctm-num">@(family.InFlightNow > 0 ? family.InFlightNow.ToString() : "—")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        @if (timings.Families.Count > CollapsedRows)
+                        {
+                            <button type="button" class="ctm-more" @onclick="() => showAllFamilies = !showAllFamilies">
+                                @(showAllFamilies ? "Show fewer" : $"Show all {timings.Families.Count} families")
+                            </button>
+                        }
+                    </div>
+                }
+            </section>
+
+            <div class="ctm-columns">
+                <section class="ctm-section" aria-labelledby="ctm-slowest-title">
+                    <div class="ctm-section-head">
+                        <h2 class="ctm-section-title" id="ctm-slowest-title">Slowest SAP calls</h2>
+                        <span class="ctm-section-note">The @timings.Slowest.Count longest, queueing included.</span>
+                    </div>
+                    @if (timings.Slowest.Count == 0)
+                    {
+                        <div class="ctm-table-wrap"><div class="ctm-empty">No SAP calls in this window.</div></div>
+                    }
+                    else
+                    {
+                        <div class="ctm-table-wrap">
+                            <table class="ctm-table">
+                                <thead>
+                                    <tr>
+                                        <th>Started</th>
+                                        <th>Call</th>
+                                        <th class="ctm-th-num">Took</th>
+                                        <th class="ctm-th-num">At SAP</th>
+                                        <th class="ctm-th-num">Queued</th>
+                                        <th>Ended</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var call in timings.Slowest)
+                                    {
+                                        <tr class="ctm-row-slow">
+                                            <td class="ctm-num ctm-nowrap">@FormatTime(call.StartedUtc)</td>
+                                            <td class="ctm-cell-wrap">
+                                                <span class="ctm-mono">@call.Operation</span>
+                                                <span class="ctm-sub">@(call.Interactive ? "a person waited" : "background")@if (call.Origin != BackgroundOrigin)
+                                                    {
+                                                        <text> · </text><span class="ctm-mono">@call.Origin</span>
+                                                    }</span>
+                                            </td>
+                                            <td class="ctm-cell-num ctm-num">@FormatDuration(call.DurationMs)</td>
+                                            <td class="ctm-cell-num ctm-num">@FormatDuration(call.AtSapMs)</td>
+                                            <td class="ctm-cell-num ctm-num">@(call.FamilyWaitMs + call.SlotWaitMs > 0 ? FormatDuration(call.FamilyWaitMs + call.SlotWaitMs) : "—")</td>
+                                            <td>
+                                                <span class="ctm-state ctm-tone-@OutcomeTone(call.Outcome)"><span class="ctm-dot" aria-hidden="true"></span>@OutcomeText(call)</span>
+                                                @if (call.PresumedStuck)
+                                                {
+                                                    <span class="ctm-sub ctm-sub-bad">SAP still working on it</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+
+                <aside class="ctm-aside">
+                    <section class="ctm-section" aria-labelledby="ctm-waits-title">
+                        <div class="ctm-section-head">
+                            <h2 class="ctm-section-title" id="ctm-waits-title">Slot waits</h2>
+                        </div>
+                        <div class="ctm-card ctm-waits">
+                            <div class="ctm-kv"><span>Calls that queued 100 ms or more</span><span class="ctm-num">@timings.SlotWaits.Waited.ToString("N0") of @timings.SlotWaits.Calls.ToString("N0")</span></div>
+                            <div class="ctm-kv"><span>Longest wait for a family slot</span><span class="ctm-num">@FormatDuration(timings.SlotWaits.MaxFamilyWaitMs)</span></div>
+                            <div class="ctm-kv"><span>Longest wait for one of the @timings.Slots.Limit slots</span><span class="ctm-num">@FormatDuration(timings.SlotWaits.MaxSlotWaitMs)</span></div>
+                            <div class="ctm-kv"><span>Time spent queueing</span><span class="ctm-num">@FormatSeconds(timings.SlotWaits.TotalSeconds)</span></div>
+                            @foreach (var priority in timings.SlotWaits.ByPriority)
+                            {
+                                <div class="ctm-kv ctm-kv-sub">
+                                    <span>@(priority.Priority == "interactive" ? "A person waiting" : "Background work")</span>
+                                    <span class="ctm-num">p95 @FormatDuration(priority.P95Ms) · longest @FormatDuration(priority.MaxMs)</span>
+                                </div>
+                            }
+                        </div>
+                    </section>
+
+                    <section class="ctm-section" aria-labelledby="ctm-callers-title">
+                        <div class="ctm-section-head">
+                            <h2 class="ctm-section-title" id="ctm-callers-title">Who is calling the API</h2>
+                        </div>
+                        <div class="ctm-table-wrap">
+                            @if (timings.Callers.Count == 0)
+                            {
+                                <div class="ctm-empty">No API requests in this window.</div>
+                            }
+                            else
+                            {
+                                <table class="ctm-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Caller</th>
+                                            <th class="ctm-th-num">Requests</th>
+                                            <th class="ctm-th-num">p95</th>
+                                            <th class="ctm-th-num">5xx</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var caller in timings.Callers)
+                                        {
+                                            <tr class="ctm-row-caller">
+                                                <td>@caller.Caller</td>
+                                                <td class="ctm-cell-num ctm-num">@caller.Calls.ToString("N0")</td>
+                                                <td class="ctm-cell-num ctm-num">@FormatDuration(caller.P95Ms)</td>
+                                                <td class="ctm-cell-num ctm-num">@(caller.ServerErrors > 0 ? caller.ServerErrors.ToString("N0") : "—")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                        </div>
+                    </section>
+                </aside>
+            </div>
+
+            <section class="ctm-section" aria-labelledby="ctm-routes-title">
+                <div class="ctm-section-head">
+                    <h2 class="ctm-section-title" id="ctm-routes-title">Busiest API routes</h2>
+                    <div class="ctm-section-tools">
+                        <span class="ctm-section-note">Route templates, never paths, so no id or code is kept.</span>
+                        <NocturneSelect Class="nsel-end nsel-sm" TValue="string" Options="RouteSortOptions"
+                                        Value="routeSort" ValueChanged="@(value => routeSort = value)"
+                                        AriaLabel="Sort routes by" Caption="Sort by" />
+                    </div>
+                </div>
+                @if (timings.Routes.Count == 0)
+                {
+                    <div class="ctm-table-wrap"><div class="ctm-empty">No API requests in this window.</div></div>
+                }
+                else
+                {
+                    <div class="ctm-table-wrap">
+                        <table class="ctm-table">
+                            <thead>
+                                <tr>
+                                    <th>Route</th>
+                                    <th class="ctm-th-num">Requests</th>
+                                    <th class="ctm-th-num">p50</th>
+                                    <th class="ctm-th-num">p95</th>
+                                    <th class="ctm-th-num">Longest</th>
+                                    <th class="ctm-th-num">Time</th>
+                                    <th class="ctm-th-num">SAP calls</th>
+                                    <th class="ctm-th-num">SAP time</th>
+                                    <th class="ctm-th-num">4xx / 5xx</th>
+                                    <th>Mostly from</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var route in VisibleRoutes)
+                                {
+                                    <tr class="ctm-row-route">
+                                        <td class="ctm-cell-wrap"><span class="ctm-method">@route.Method</span> <span class="ctm-mono">@route.Route</span></td>
+                                        <td class="ctm-cell-num ctm-num">@route.Calls.ToString("N0")</td>
+                                        <td class="ctm-cell-num ctm-num">@FormatDuration(route.P50Ms)</td>
+                                        <td class="ctm-cell-num ctm-num ctm-tone-@LatencyTone(route.P95Ms)"><span class="ctm-toned">@FormatDuration(route.P95Ms)</span></td>
+                                        <td class="ctm-cell-num ctm-num">@FormatDuration(route.MaxMs)</td>
+                                        <td class="ctm-cell-num ctm-num">@FormatSeconds(route.TotalSeconds)</td>
+                                        <td class="ctm-cell-num ctm-num">@(route.SapCalls > 0 ? route.SapCalls.ToString("N0") : "—")</td>
+                                        <td class="ctm-cell-num ctm-num">@(route.SapCalls > 0 ? FormatSeconds(route.SapSeconds) : "—")</td>
+                                        <td class="ctm-cell-num ctm-num">@route.ClientErrors / <span class="@(route.ServerErrors > 0 ? "ctm-bad-ink" : "")">@route.ServerErrors</span></td>
+                                        <td class="ctm-cell-muted">@string.Join(", ", route.TopCallers.Select(share => $"{share.Caller} {share.Calls:N0}"))</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        @if (timings.Routes.Count > CollapsedRows)
+                        {
+                            <button type="button" class="ctm-more" @onclick="() => showAllRoutes = !showAllRoutes">
+                                @(showAllRoutes ? "Show fewer" : $"Show all {timings.Routes.Count} routes")
+                            </button>
+                        }
+                    </div>
+                }
+            </section>
+        }
+    </div>
+</div>
