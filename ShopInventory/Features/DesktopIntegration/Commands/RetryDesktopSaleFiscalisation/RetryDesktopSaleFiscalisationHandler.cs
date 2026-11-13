@@ -75,7 +75,6 @@ public sealed class RetryDesktopSaleFiscalisationHandler(
         var refusal = DesktopSaleFiscalisationRetry.ManualRefusal(
             sale.SourceSystem,
             sale.FiscalizationStatus,
-            sale.FiscalizationRequiresReconciliation,
             sale.CreatedAt,
             DateTime.UtcNow,
             fiscalisationSettings.Value.UsesPlatform);
@@ -133,9 +132,17 @@ public sealed class RetryDesktopSaleFiscalisationHandler(
 
             default:
             {
-                var detail = sale.FiscalizationRequiresReconciliation
-                    ? $"The device could not say whether it signed this receipt. Check the device before retrying. {sale.FiscalError}"
-                    : sale.FiscalError ?? "The fiscal device did not sign the receipt.";
+                var detail = !sale.FiscalizationRequiresReconciliation
+                    ? sale.FiscalError ?? "The fiscal device did not sign the receipt."
+                    : fiscalisationSettings.Value.UsesPlatform
+                        // Usually the platform's own reservation refusing (409): an earlier submission of
+                        // this invoice number is unresolved there, and it sends nothing until a person
+                        // settles it. Name the number they will look it up by.
+                        ? $"The fiscalisation platform still holds invoice "
+                          + $"{fiscalisationSettings.Value.BuildPreSapInvoiceNo(reference)} as unresolved, so nothing "
+                          + "was signed. Resolve it on the fiscalisation console, then retry here. "
+                          + $"{sale.FiscalError}"
+                        : $"The device could not say whether it signed this receipt. Check the device before retrying. {sale.FiscalError}";
 
                 await AuditAsync(reference, succeeded: false, detail);
                 return Errors.DesktopSales.SaleFiscalisationFailed(reference, detail);

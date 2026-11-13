@@ -208,7 +208,6 @@ public sealed class GetVanSalesInvoiceHandler(
                 DesktopSaleFiscalisationRetry.ManualRefusal(
                     sale.SourceSystem,
                     sale.FiscalizationStatus,
-                    sale.RequiresReconciliation,
                     sale.CreatedAtUtc,
                     nowUtc,
                     usesPlatform));
