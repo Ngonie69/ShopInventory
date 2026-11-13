@@ -145,11 +145,12 @@ public static class QuartzConfiguration
             }
 
             // The sales reports' gross profit is read from a copy of SAP's booked invoice cost, never
-            // from SAP during a page load. This keeps the copy a few minutes behind posting.
+            // from SAP during a page load. The copy is made after hours only (see the job's Schedule): its
+            // reads were among those the Service Layer hangs on in the day. Same trigger key as the old
+            // 5-minute interval trigger, so the stored trigger is replaced rather than left firing.
             if (sap.Enabled)
             {
-                AddIntervalJob<SaleInvoiceCostSyncJob>(
-                    q, "sale-invoice-cost-sync", TimeSpan.FromMinutes(5), startDelay: TimeSpan.FromMinutes(3));
+                AddCronJob<SaleInvoiceCostSyncJob>(q, "sale-invoice-cost-sync", SaleInvoiceCostSyncJob.Schedule);
             }
 
             if (sap.Enabled && creditNoteSync.Enabled)

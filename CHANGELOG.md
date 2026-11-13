@@ -18,6 +18,14 @@ otherwise be surprised.
 
 ### Changed
 
+- **Sales reports show a sale's margin from the evening it posted, not minutes after.** The
+  `sale-invoice-cost-sync` job, which copies SAP's booked gross profit for the reports, now runs every
+  15 minutes from 20:00 to 05:45 CAT instead of every 5 minutes all day. Margin is measured only on
+  sales already costed (`costedSalesCount`, `costedNetAmount`), so during the day a report asked for
+  `includeMargin=true` leaves today's sales out of it until the evening. The job's SAP reads were
+  among those the Service Layer hangs on, and each hang leaves a Service Layer worker eating memory on
+  the SAP host.
+
 - **A credit memo added from an approved draft names who raised it in its Remarks.** `POST
   /api/credit-note-approvals/{code}/add` now appends ` | Raised by <name> (<user code>)` to the new
   credit memo's Remarks (ORIN.Comments) after SAP adds it, because SAP records the app's own account
