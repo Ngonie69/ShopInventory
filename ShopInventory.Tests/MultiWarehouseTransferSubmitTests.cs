@@ -126,6 +126,9 @@ public sealed class MultiWarehouseTransferSubmitTests : IDisposable
             ? Task.FromResult(new StockValidationResult())
             : null),
         approval,
+        // A non-administrator's transfer is held, so nothing posts on submission.
+        StubProxy.For<IPendingInventoryTransferPoster>((method, _) =>
+            throw new InvalidOperationException($"Unexpected post on submission: {method.Name}")),
         StubProxy.For<IAuditService>((method, _) => method.ReturnType == typeof(Task) ? Task.CompletedTask : null),
         // No ClientRequestId, so the idempotency store is never asked.
         StubProxy.Unused<IIdempotencyRequestStore>(),

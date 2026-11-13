@@ -279,6 +279,9 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
                 _context,
                 new NoOpNotificationService(),
                 NullLogger<InventoryTransferApprovalService>.Instance),
+            // A non-administrator's transfer is held, so nothing posts on submission.
+            StubProxy.For<IPendingInventoryTransferPoster>((method, _) =>
+                throw new InvalidOperationException($"Unexpected post on submission: {method.Name}")),
             StubProxy.For<IAuditService>((_, _) => Task.CompletedTask),
             StubProxy.Unused<IIdempotencyRequestStore>(),
             Options.Create(new SAPSettings

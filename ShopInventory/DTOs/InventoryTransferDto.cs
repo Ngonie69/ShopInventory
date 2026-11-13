@@ -261,6 +261,12 @@ public class TransferRequestCreatedResponseDto
 {
     public string Message { get; set; } = "Transfer request created successfully";
     public InventoryTransferRequestDto? TransferRequest { get; set; }
+
+    /// <summary>
+    /// False when the request was approved as it was raised, which is every request an
+    /// administrator raises: it can be converted to a transfer straight away.
+    /// </summary>
+    public bool RequiresApproval { get; set; } = true;
 }
 
 /// <summary>

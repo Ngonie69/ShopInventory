@@ -44,6 +44,8 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     /// <summary>
     /// Submits an inventory transfer. The transfer is held and only posts to SAP once every
     /// stage of the configured approval process has approved it, so this returns 202 Accepted.
+    /// An administrator's transfer is approved as it is raised and posts at once: 201 Created
+    /// with the SAP document, or 202 with the held record when SAP turned the post away.
     /// </summary>
     [HttpPost]
     [RequirePermission(Permission.TransferStock, Permission.TransferInventory)]
@@ -67,7 +69,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         return result.Match(
             value =>
             {
-                if (value.RequiresApproval && value.PendingTransfer is not null)
+                // Held, or approved but not yet in SAP: either way there is no SAP document to point
+                // at, only the held record.
+                if (value.Transfer is null && value.PendingTransfer is not null)
                 {
                     value.StatusUrl = Url.Action(
                         nameof(GetPendingInventoryTransfer), null, new { id = value.PendingTransfer.Id }, Request.Scheme);

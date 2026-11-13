@@ -1100,7 +1100,14 @@ else if (pendingActionTitle is not null)
                             }
                         </span>
                         <span class="itx-status @GetStatusCssClass(stage.Status)">
-                            @GetFriendlyStatus(stage.Status) (@stage.ApprovalCount/@stage.ApprovalsRequired)
+                            @if (stage.ApprovedByAdministrator)
+                            {
+                                <text>Approved · raised by an administrator</text>
+                            }
+                            else
+                            {
+                                <text>@GetFriendlyStatus(stage.Status) (@stage.ApprovalCount/@stage.ApprovalsRequired)</text>
+                            }
                         </span>
                     </li>
                 }
@@ -1544,8 +1551,17 @@ else if (pendingActionTitle is not null)
                                 <span class="itx-status @GetStatusCssClass(stage.Status)">@GetFriendlyStatus(stage.Status)</span>
                             </div>
                             <div class="itx-note" style="margin:.5rem 0 0;">
-                                Approvals: @stage.ApprovalCount/@stage.ApprovalsRequired &nbsp;|&nbsp;
-                                Rejections: @stage.RejectionCount/@stage.RejectionsRequired
+                                @if (stage.ApprovedByAdministrator)
+                                {
+                                    <text>Approved as raised by an administrator &mdash; nobody else needs to approve it.</text>
+                                }
+                                else
+                                {
+                                    <text>
+                                        Approvals: @stage.ApprovalCount/@stage.ApprovalsRequired &nbsp;|&nbsp;
+                                        Rejections: @stage.RejectionCount/@stage.RejectionsRequired
+                                    </text>
+                                }
                             </div>
                             @if (stage.WarehouseProgress.Count > 0)
                             {
@@ -5136,9 +5152,14 @@ else if (pendingActionTitle is not null)
             ? $"{warehouse.WarehouseCode}: approved — whoever raised the request runs this warehouse"
             : $"{warehouse.WarehouseCode}: {GetFriendlyStatus(warehouse.Status)}";
 
-    /// <summary>The server refuses a person's approval of a request they raised; this hides the button.</summary>
+    /// <summary>
+    /// The server refuses a person's approval of a request they raised; this hides the button. An
+    /// administrator is the exception: what they raise is approved as they raise it, and one they
+    /// raised before that rule still waits on them, so they may approve it.
+    /// </summary>
     private bool IsOwnRequest(InventoryTransferRequestDto? request)
-        => request?.OriginatorUserId is { } originator && currentUserId == originator;
+        => request?.OriginatorUserId is { } originator && currentUserId == originator &&
+           !string.Equals(currentUserRole, UserRoles.Admin, StringComparison.OrdinalIgnoreCase);
 
     private string GetApprovalDisplayStatus(InventoryTransferRequestDto request)
     {

@@ -49,6 +49,10 @@ public sealed class ApprovalStageProgressDto
     public int ApprovalCount { get; set; }
     public int RejectionCount { get; set; }
     public string Status { get; set; } = "Pending";
+
+    /// <summary>Met by an administrator raising the document, or changing it, rather than by a decision.</summary>
+    public bool ApprovedByAdministrator { get; set; }
+
     public List<Guid> AuthorizerUserIds { get; set; } = [];
     public List<string> AuthorizerRoles { get; set; } = [];
 
@@ -132,6 +136,13 @@ public sealed class ApprovalRoutePreviewDto
 
     public Guid? TemplateId { get; set; }
     public string? TemplateName { get; set; }
+
+    /// <summary>
+    /// True when the raiser is an administrator: every stage is met as they raise it, so the document
+    /// waits on nobody and a direct transfer posts straight to SAP.
+    /// </summary>
+    public bool ApprovedOnRaising { get; set; }
+
     public List<ApprovalRoutePreviewStageDto> Stages { get; set; } = [];
 }
 

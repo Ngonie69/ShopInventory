@@ -52,7 +52,10 @@
             <div class="tfm-head-main">
                 <div class="tfm-kicker">Warehousing</div>
                 <h1>Create transfer request</h1>
-                <p>Request stock movement between warehouses &middot; goes to approval before any stock moves</p>
+                <p>
+                    Request stock movement between warehouses &middot;
+                    @(isAdministrator ? "approved as you raise it, then converted to post" : "goes to approval before any stock moves")
+                </p>
             </div>
             <div class="tfm-stats">
                 <div class="tfm-stat">
@@ -438,10 +441,20 @@
 
                 <div class="tfm-info-note">
                     <i class="ph ph-info"></i>
-                    <span>
-                        A transfer request is a draft — no stock moves when you submit it. It goes to the
-                        approval process, and once approved it is converted into an inventory transfer.
-                    </span>
+                    @if (isAdministrator)
+                    {
+                        <span>
+                            A transfer request is a draft — no stock moves when you submit it. As an
+                            administrator, yours is approved as you raise it; convert it to post the transfer.
+                        </span>
+                    }
+                    else
+                    {
+                        <span>
+                            A transfer request is a draft — no stock moves when you submit it. It goes to the
+                            approval process, and once approved it is converted into an inventory transfer.
+                        </span>
+                    }
                 </div>
             </aside>
         </div>
@@ -457,6 +470,9 @@
     // ── State ───────────────────────────────────────────
     private bool isLoadingMasterData = true;
     private bool isSubmitting;
+
+    /// <summary>An administrator's request is approved as they raise it; only words the page.</summary>
+    private bool isAdministrator;
     private string? errorMessage;
     private string? successMessage;
 
@@ -604,6 +620,7 @@
             var user = authState.User;
             if (user.Identity?.IsAuthenticated == true)
             {
+                isAdministrator = user.IsInRole(UserRoles.Admin);
                 requesterName = user.Identity.Name;
                 requesterEmail = user.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
             }
@@ -881,7 +898,10 @@
 
             if (success)
             {
-                successMessage = $"Transfer request #{transferRequest?.DocNum} created and sent for approval.";
+                // The API says whether it went for approval: an administrator's is approved as raised.
+                successMessage = string.IsNullOrWhiteSpace(message)
+                    ? $"Transfer request #{transferRequest?.DocNum} created."
+                    : message;
                 Logger.LogInformation("Transfer request created: DocNum={DocNum}", transferRequest?.DocNum);
                 ClearForm();
             }

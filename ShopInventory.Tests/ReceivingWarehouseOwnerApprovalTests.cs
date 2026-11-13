@@ -146,14 +146,18 @@ public sealed class ReceivingWarehouseOwnerApprovalTests : IDisposable
     }
 
     [Fact]
-    public async Task Raising_a_request_as_an_administrator_signs_for_no_warehouse()
+    public async Task Raising_a_request_as_an_administrator_approves_it_without_signing_for_a_warehouse()
     {
+        // Met because an administrator raised it, not because they run the depot: administrators are
+        // not owners by role, so no warehouse is recorded as agreed by its owner.
         var admin = await AddUserAsync(ApplicationRoles.Admin, Depot);
 
         var (_, stages) = await OpenAsync(Request((Warehouse, Depot)), admin);
 
         var receiving = Assert.Single(stages, stage => stage.StageId == ReceivingWarehouseOwnerRule.StageId);
-        Assert.Equal(ApprovalRequestStatuses.Pending, receiving.Status);
+        Assert.Equal(ApprovalRequestStatuses.Approved, receiving.Status);
+        Assert.True(receiving.ApprovedByAdministrator);
+        Assert.DoesNotContain(receiving.WarehouseProgress, warehouse => warehouse.ConsentedByRequester);
     }
 
     // ── Deciding ───────────────────────────────

@@ -56,7 +56,7 @@ public sealed class PendingInventoryTransferEnricher(
                 pending.Status == PendingInventoryTransferStatuses.AwaitingApproval &&
                 viewer is not null &&
                 // Whoever raised the transfer, or changed it after approval, withdraws it instead.
-                InventoryTransferApprovalService.MayApprove(request, viewer.Id) &&
+                InventoryTransferApprovalService.MayApprove(request, viewer) &&
                 // Mirrors DecidePendingTransferHandler: either end, the stage decides which.
                 IsInScope(scope, document) &&
                 stages.Any(stage => stage.Status == ApprovalRequestStatuses.Pending &&

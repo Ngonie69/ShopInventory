@@ -108,8 +108,18 @@ public sealed class EditPendingTransferLinesHandler(
                 pending.Status = PendingInventoryTransferStatuses.AwaitingApproval;
                 pending.DecidedAtUtc = null;
                 await context.SaveChangesAsync(cancellationToken);
-                await approvalService.ReopenAsync(
+                var reopened = await approvalService.ReopenAsync(
                     ApprovalDocumentContext.ForPendingTransfer(pending), command.UserId, cancellationToken);
+
+                // An administrator's change is approved as they make it, so the transfer stays ready
+                // to post rather than waiting on a decision nobody else needs to give.
+                if (reopened.Status == ApprovalRequestStatuses.Approved)
+                {
+                    needsApproval = false;
+                    pending.Status = PendingInventoryTransferStatuses.Approved;
+                    pending.DecidedAtUtc = DateTime.UtcNow;
+                    await context.SaveChangesAsync(cancellationToken);
+                }
             }
             else
             {

@@ -668,11 +668,11 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     // ── Nobody approves their own document ──────────────
 
     [Fact]
-    public async Task An_administrator_cannot_approve_a_transfer_they_raised()
+    public async Task A_stock_officer_cannot_approve_a_transfer_they_raised()
     {
-        // Admin holds every stage and an administrator's transfer routes to Administrator Review, so
-        // this is the case where raising, approving and posting would otherwise be one person.
-        var raiser = await AddUserAsync(ApplicationRoles.Admin);
+        // Administrators are the one exception (AdministratorOwnTransferTests): what they raise is
+        // approved as it is raised. Everyone else needs someone else to sign.
+        var raiser = await AddUserAsync(ApplicationRoles.StockController);
         var other = await AddUserAsync(ApplicationRoles.Admin);
         var context = ApprovalDocumentContext.ForPendingTransfer(await AddPendingTransferAsync(raiser));
 
@@ -750,11 +750,27 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Approvers_are_only_asked_for_decisions_they_may_give()
     {
-        var raiser = await AddUserAsync(ApplicationRoles.Admin);
-        var other = await AddUserAsync(ApplicationRoles.Admin);
+        // A stage the raiser holds themselves, so they are a candidate for it by role and must still
+        // not be asked: they cannot approve what they raised.
+        var raiser = await AddUserAsync(ApplicationRoles.StockController);
+        var other = await AddUserAsync(ApplicationRoles.StockController);
         var notifications = new NoOpNotificationService();
         var service = new InventoryTransferApprovalService(
             _context, notifications, NullLogger<InventoryTransferApprovalService>.Instance);
+        var stage = await service.SaveStageAsync(new ApprovalStageDefinitionDto
+        {
+            Name = "Stock officers review each other",
+            AuthorizerRoles = [ApplicationRoles.StockController]
+        }, default);
+        var template = await service.SaveTemplateAsync(new ApprovalTemplateDefinitionDto
+        {
+            Name = "Stock officer direct transfers",
+            DocumentType = ApprovalDocumentTypes.InventoryTransfer,
+            OriginatorRoles = [ApplicationRoles.StockController],
+            StageIds = [stage.Value.Id],
+            Priority = 200
+        }, default);
+        Assert.False(template.IsError);
 
         await service.EnsureRequestAsync(
             ApprovalDocumentContext.ForPendingTransfer(await AddPendingTransferAsync(raiser)), null, default);

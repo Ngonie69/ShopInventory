@@ -16,14 +16,15 @@ namespace ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTran
 
 /// <summary>
 /// Accepts a direct inventory transfer and holds it locally until the approval process completes.
-/// Nothing is posted to SAP here; the pending-transfer poster runs only after every required stage
-/// has approved it.
+/// The pending-transfer poster runs only once every required stage has approved it, which for a
+/// transfer an administrator raises is as it is raised, so theirs posts to SAP from here.
 /// </summary>
 public sealed class CreateInventoryTransferHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     IStockValidationService stockValidation,
     IInventoryTransferApprovalService approvalService,
+    IPendingInventoryTransferPoster poster,
     IAuditService auditService,
     IIdempotencyRequestStore idempotencyRequestStore,
     IOptions<SAPSettings> settings,
@@ -184,9 +185,10 @@ public sealed class CreateInventoryTransferHandler(
         context.PendingInventoryTransfers.Add(pending);
         await SaveWithDraftNumberAsync(pending, cancellationToken);
 
+        ApprovalRequestEntity approvalRequest;
         try
         {
-            var approvalRequest = await approvalService.EnsureRequestAsync(
+            approvalRequest = await approvalService.EnsureRequestAsync(
                 ApprovalDocumentContext.ForPendingTransfer(pending), submitter.Id, cancellationToken);
             pending.ApprovalRequestId = approvalRequest.Id;
             await context.SaveChangesAsync(cancellationToken);
@@ -199,6 +201,10 @@ public sealed class CreateInventoryTransferHandler(
             await context.SaveChangesAsync(CancellationToken.None);
             return Errors.InventoryTransfer.InvalidOperation(exception.Message);
         }
+
+        // An administrator's transfer has every stage met as it is raised, so nobody is left to ask.
+        if (approvalRequest.Status == ApprovalRequestStatuses.Approved)
+            return await PostApprovedOnRaisingAsync(pending, submitter);
 
         logger.LogInformation(
             "Inventory transfer {PendingId} submitted for approval by {User}. From: {FromWarehouse}, To: {ToWarehouse}, Lines: {LineCount}",
@@ -213,6 +219,36 @@ public sealed class CreateInventoryTransferHandler(
         catch { }
 
         return BuildSubmittedResponse(pending, replayed: false);
+    }
+
+    /// <summary>
+    /// Posts a transfer whose approval was complete the moment it opened. Past this point the record
+    /// is approved and committed, so a failed post is not a failed submission: the transfer stays
+    /// saved as PostFailed with the reason, and is posted again from the transfer list like any
+    /// other approved transfer SAP turned away.
+    /// </summary>
+    private async Task<ErrorOr<InventoryTransferCreatedResponseDto>> PostApprovedOnRaisingAsync(
+        PendingInventoryTransferEntity pending,
+        User submitter)
+    {
+        pending.Status = PendingInventoryTransferStatuses.Approved;
+        pending.DecidedAtUtc = DateTime.UtcNow;
+        await context.SaveChangesAsync(CancellationToken.None);
+
+        logger.LogInformation(
+            "Inventory transfer {PendingId} raised by administrator {User} needs no approval; posting. From: {FromWarehouse}, To: {ToWarehouse}, Lines: {LineCount}",
+            pending.Id, submitter.Username, pending.FromWarehouse, pending.ToWarehouse, pending.LineCount);
+
+        try
+        {
+            await auditService.LogAsync(
+                AuditActions.SubmitTransferForApproval, "PendingInventoryTransfer", pending.Id.ToString(),
+                $"Transfer from {pending.FromWarehouse} to {pending.ToWarehouse} raised by an administrator, approved as raised and posted directly", true);
+        }
+        catch { }
+
+        var posted = await poster.PostAsync(pending, submitter.Id);
+        return BuildSubmittedResponse(pending, replayed: false, posted.IsError ? null : posted.Value);
     }
 
     /// <summary>
@@ -243,16 +279,33 @@ public sealed class CreateInventoryTransferHandler(
         }
     }
 
+    /// <summary>
+    /// The answer for a held transfer, read from where it stands now rather than assumed to be
+    /// awaiting approval: an administrator's transfer is posted, or has failed to post, by the time
+    /// this is built, and a resubmission of one must say so instead of claiming it waits on someone.
+    /// </summary>
     private static InventoryTransferCreatedResponseDto BuildSubmittedResponse(
         PendingInventoryTransferEntity pending,
-        bool replayed) => new()
+        bool replayed,
+        InventoryTransferDto? posted = null) => new()
         {
-            Message = replayed
-                ? "This inventory transfer has already been submitted and is awaiting approval."
-                : "Inventory transfer submitted for approval. It will post to SAP once all approval stages are complete.",
-            RequiresApproval = true,
-            Transfer = null,
-            PendingTransfer = PendingInventoryTransferMapper.ToDto(pending)
+            RequiresApproval = pending.Status == PendingInventoryTransferStatuses.AwaitingApproval,
+            Transfer = posted,
+            PendingTransfer = PendingInventoryTransferMapper.ToDto(pending),
+            Message = pending.Status switch
+            {
+                PendingInventoryTransferStatuses.AwaitingApproval => replayed
+                    ? "This inventory transfer has already been submitted and is awaiting approval."
+                    : "Inventory transfer submitted for approval. It will post to SAP once all approval stages are complete.",
+                PendingInventoryTransferStatuses.Posted => replayed
+                    ? $"This inventory transfer was already posted to SAP as #{pending.SapDocNum}."
+                    : $"Inventory transfer #{pending.SapDocNum} posted to SAP.",
+                PendingInventoryTransferStatuses.Approved or PendingInventoryTransferStatuses.PostFailed =>
+                    "This inventory transfer is approved but SAP did not take it" +
+                    (string.IsNullOrWhiteSpace(pending.LastError) ? "." : $": {pending.LastError}") +
+                    " It is saved; post it again from Inventory transfers.",
+                _ => $"This inventory transfer has already been submitted and is {pending.Status.ToLowerInvariant()}."
+            }
         };
 
     /// <summary>

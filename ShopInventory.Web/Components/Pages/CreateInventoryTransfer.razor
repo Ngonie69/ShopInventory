@@ -62,7 +62,10 @@
             <div class="tfm-head-main">
                 <div class="tfm-kicker">Warehousing</div>
                 <h1>New inventory transfer</h1>
-                <p>Moves stock between warehouses &middot; held for approval, then posts to SAP</p>
+                <p>
+                    Moves stock between warehouses &middot;
+                    @(isAdministrator ? "posts to SAP as you submit it" : "held for approval, then posts to SAP")
+                </p>
             </div>
             <div class="tfm-stats">
                 <div class="tfm-stat">
@@ -534,7 +537,7 @@
                         else
                         {
                             <i class="ph-fill ph-paper-plane-tilt"></i>
-                            <span>Submit for approval</span>
+                            <span>@(isAdministrator ? "Post to SAP" : "Submit for approval")</span>
                         }
                     </button>
                     <button type="button" class="tfm-btn tfm-btn-wide tfm-btn-danger tfm-gap-sm"
@@ -575,6 +578,13 @@
                                 No approval template covers this route, so the transfer can't be submitted.
                                 Ask an administrator to add one under Approval process.
                             </div>
+                        }
+                        else if (routePreview.ApprovedOnRaising)
+                        {
+                            <p class="tfm-approval-note">
+                                You're an administrator, so nobody else needs to approve this transfer. It
+                                posts to SAP as soon as you submit it.
+                            </p>
                         }
                         else
                         {
@@ -623,16 +633,30 @@
 
                 <div class="tfm-info-note">
                     <i class="ph ph-info"></i>
-                    <span>
-                        This transfer is held for approval and cannot post to SAP until every required
-                        stage has approved it. Stock does not move when you submit.
-                    </span>
+                    @if (isAdministrator)
+                    {
+                        <span>
+                            As an administrator, your transfer is approved as you submit it and posts to
+                            SAP straight away. Stock is checked again just before it posts.
+                        </span>
+                    }
+                    else
+                    {
+                        <span>
+                            This transfer is held for approval and cannot post to SAP until every required
+                            stage has approved it. Stock does not move when you submit.
+                        </span>
+                    }
                 </div>
 
-                <div class="tfm-aside-foot">
-                    Need approval before the stock moves?
-                    <a href="/transfer-request/create">Create a transfer request</a>
-                </div>
+                @* An administrator's request is approved as it is raised too, so it is no way to wait. *@
+                @if (!isAdministrator)
+                {
+                    <div class="tfm-aside-foot">
+                        Need approval before the stock moves?
+                        <a href="/transfer-request/create">Create a transfer request</a>
+                    </div>
+                }
             </aside>
         </div>
     </div>
@@ -648,6 +672,13 @@
     // ── State ───────────────────────────────────────────
     private bool isLoadingMasterData = true;
     private bool isSubmitting;
+
+    /// <summary>
+    /// What an administrator raises is approved as they raise it and posts at once, so the page
+    /// says so instead of promising an approval nobody will be asked for. The API decides; this
+    /// only words the page before the first route preview arrives.
+    /// </summary>
+    private bool isAdministrator;
     private bool showDocDetails;
     private string? errorMessage;
     private string? successMessage;
@@ -983,6 +1014,7 @@
         {
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
+            isAdministrator = user.IsInRole(UserRoles.Admin);
 
             assignedWarehouseCodes = user.FindAll("warehouse")
                 .Select(claim => claim.Value)
@@ -1578,7 +1610,23 @@
 
             if (success)
             {
-                if (pendingTransfer is not null)
+                if (transfer is null && pendingTransfer is not null
+                    && pendingTransfer.Status is "Approved" or "PostFailed")
+                {
+                    // Approved as raised, but SAP turned the post away. It is saved and retryable
+                    // from the transfer list, so this is not a failed submission; the page says
+                    // what SAP said and stays put rather than redirecting past it.
+                    errorMessage = message;
+                    Logger.LogWarning("Administrator transfer {PendingId} approved but not posted: {Message}",
+                        pendingTransfer.Id, message);
+                    await AuditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer",
+                        pendingTransfer.Id.ToString(), null, false, message);
+                    StateHasChanged();
+                    await ScrollToTopAsync();
+                    return;
+                }
+
+                if (transfer is null && pendingTransfer is not null)
                 {
                     var pendingStage = pendingTransfer.ApprovalStages.FirstOrDefault(stage => stage.Status == "Pending");
                     successMessage = pendingStage is null
