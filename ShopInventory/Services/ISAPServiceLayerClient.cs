@@ -998,12 +998,20 @@ public interface ISAPServiceLayerClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The credit memo approval requests in these statuses that hold any of these drafts, with only what
-    /// places a request in a queue — status, stage, originator, day raised and draft.
+    /// The credit memo approval requests in these statuses that hold any of these drafts, as the list
+    /// reads them, newest first. Every one of them, however many reads that takes: the draft keys are
+    /// cut into filters under the Service Layer's query-string limit.
     /// </summary>
+    /// <param name="sapStatuses">The SAP status literals to read; an unknown one is refused.</param>
+    /// <param name="draftEntries">The drafts whose requests are wanted.</param>
+    /// <param name="stageCodes">Only these stages, as <see cref="GetCreditNoteApprovalRequestsAsync"/>; null reads every stage.</param>
+    /// <param name="filter">Raised dates and originator, as <see cref="GetCreditNoteApprovalRequestsAsync"/>.</param>
+    /// <param name="cancellationToken">Cancels the reads.</param>
     Task<List<SAPApprovalRequest>> GetCreditNoteApprovalRequestsForDraftsAsync(
         IReadOnlyCollection<string> sapStatuses,
         IReadOnlyCollection<int> draftEntries,
+        IReadOnlyCollection<int>? stageCodes = null,
+        CreditNoteApprovalRequestFilter? filter = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

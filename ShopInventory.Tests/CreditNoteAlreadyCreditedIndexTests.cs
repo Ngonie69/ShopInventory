@@ -64,6 +64,27 @@ public sealed class CreditNoteAlreadyCreditedIndexTests
         Assert.Equal(new[] { 801, 807 }, sap.AskedRequestsFor!.Order().ToArray());
     }
 
+    /// <summary>
+    /// The Approved queue asks which drafts SAP still holds. That is the same read the index starts from,
+    /// so it is answered from the same build, credited or not, and never read twice.
+    /// </summary>
+    [Fact]
+    public async Task The_held_drafts_come_from_the_same_build_as_the_index()
+    {
+        var sap = new FakeQueue(
+            [Request(3110, 801)],
+            [Draft(801, "800123"), Draft(802, "800124"), Draft(803, null)],
+            [Note(1, "800123", "2026-08-15")]);
+        var cache = new MemoryCache(new MemoryCacheOptions());
+
+        var held = await Index(sap, cache).GetHeldDraftEntriesAsync(CancellationToken.None);
+        var index = await Index(sap, cache).GetAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { 801, 802, 803 }, held.Order().ToArray());
+        Assert.Equal(new[] { 3110 }, index.Keys.ToArray());
+        Assert.Equal(1, sap.QueueReads);
+    }
+
     [Fact]
     public async Task The_index_is_built_once_and_again_only_after_it_is_invalidated()
     {

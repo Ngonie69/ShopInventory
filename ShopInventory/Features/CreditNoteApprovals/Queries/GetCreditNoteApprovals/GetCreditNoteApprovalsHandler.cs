@@ -13,7 +13,9 @@ namespace ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprov
 /// Reads the requests from SAP, joins the drafts they hold in one batched read, and names the people,
 /// templates and stages through the cached lookups. A lookup that fails costs the row its label, not
 /// the list its answer. The open queues leave out drafts already credited some other way
-/// (<see cref="ICreditNoteAlreadyCreditedIndex"/>), and the count and the cursor allow for them.
+/// (<see cref="ICreditNoteAlreadyCreditedIndex"/>), and the count and the cursor allow for them. Their
+/// approved half is only the requests whose draft SAP still holds (<see cref="CreditNoteApprovedQueue"/>):
+/// the thousands of approved requests whose drafts were added long ago are history, not work.
 /// </summary>
 public sealed class GetCreditNoteApprovalsHandler(
     ISAPServiceLayerClient sap,
@@ -58,42 +60,35 @@ public sealed class GetCreditNoteApprovalsHandler(
         // added; "All requests" still shows it, flagged. The index covers both open queues and is cached,
         // so on every load but the first of its window this costs nothing.
         var index = await TryReadIndexAsync(cancellationToken);
-        var hidden = string.Equals(filter, CreditNoteApprovalStatusFilters.All, StringComparison.Ordinal)
+        var showsAll = string.Equals(filter, CreditNoteApprovalStatusFilters.All, StringComparison.Ordinal);
+        HashSet<int> Hidden(IReadOnlyCollection<string> sapStatuses) => showsAll
             ? []
             : index.Values
-                .Where(entry => entry.FallsIn(statuses, scope.Value, query.Filter))
+                .Where(entry => entry.FallsIn(sapStatuses, scope.Value, query.Filter))
                 .Select(entry => entry.Code)
                 .ToHashSet();
 
-        // Who this app decides as is configuration, not a property of any row, so it is read
-        // alongside the list rather than after it.
-        var serviceApproverTask = TryLookupAsync(() => lookups.GetServiceApproverAsync(cancellationToken), "the service approver");
+        // "All requests" is the history, so it keeps every approved request; the open queues keep only
+        // those SAP still holds a draft for. Null when SAP cannot say which those are: the queue is then
+        // read as it always was.
+        var held = !showsAll && statuses.Contains(SapApprovalRequestStatuses.Approved)
+            ? await CreditNoteApprovedQueue.TryGetHeldDraftsAsync(alreadyCreditedIndex, logger, cancellationToken)
+            : null;
 
-        // Enough rows that the page still fills once every hidden one below the cursor is dropped, in
-        // one read. An offset read past page 1 cannot know how many hidden rows lie before it, so it
-        // reads a plain page; the Web pages by cursor.
-        var keyed = query.BeforeCode is not null || query.Page <= 1;
-        var hiddenAhead = keyed ? hidden.Count(code => query.BeforeCode is not int cursor || code < cursor) : 0;
-        var readSize = Math.Min(query.PageSize + hiddenAhead, MaxRowsPerRead);
-
-        var (read, sapTotal) = await sap.GetCreditNoteApprovalRequestsAsync(
-            statuses, query.Page, readSize, query.BeforeCode, scope.Value.StageCodes, query.Filter, cancellationToken);
-
-        var visible = read.Where(request => !hidden.Contains(request.Code)).ToList();
-        var requests = visible.Take(query.PageSize).ToList();
-
-        // More lies below when SAP filled the read, or the read held more than this page can show.
-        var more = read.Count >= readSize || visible.Count > requests.Count;
-
-        // SAP counted the hidden rows too. Never fewer than are on this page: the index can be a few
-        // minutes behind SAP.
-        var total = Math.Max(requests.Count, sapTotal - hidden.Count);
+        var (requests, total, more) = held is null
+            ? await ReadQueueAsync(query, statuses, scope.Value, Hidden(statuses), cancellationToken)
+            : await ReadWithApprovedQueueAsync(query, statuses, scope.Value, Hidden, held, cancellationToken);
 
         var draftEntries = requests
             .Where(request => request.DraftEntry is > 0)
             .Select(request => request.DraftEntry!.Value)
             .Distinct()
             .ToList();
+
+        // Who this app decides as is configuration, not a property of any row. Read beside the drafts, not
+        // beside the queue: the queue's wave already holds three connections when the approved half is read
+        // with it, and the drafts' wave holds two for a page of 25.
+        var serviceApproverTask = TryLookupAsync(() => lookups.GetServiceApproverAsync(cancellationToken), "the service approver");
 
         var drafts = (draftEntries.Count == 0
                 ? []
@@ -165,6 +160,102 @@ public sealed class GetCreditNoteApprovalsHandler(
             // hidden rows below it are skipped again then.
             NextCursor = more && requests.Count > 0 ? requests[^1].Code : null
         };
+    }
+
+    /// <summary>
+    /// One page of SAP's queue as SAP pages it, less the hidden rows: enough rows that the page still
+    /// fills once every hidden one below the cursor is dropped, in one read.
+    /// </summary>
+    private async Task<(List<SAPApprovalRequest> Requests, int Total, bool More)> ReadQueueAsync(
+        GetCreditNoteApprovalsQuery query,
+        IReadOnlyCollection<string> statuses,
+        CreditNoteApprovalStageFilter scope,
+        HashSet<int> hidden,
+        CancellationToken cancellationToken)
+    {
+        // An offset read past page 1 cannot know how many hidden rows lie before it, so it reads a plain
+        // page; the Web pages by cursor.
+        var keyed = query.BeforeCode is not null || query.Page <= 1;
+        var hiddenAhead = keyed ? hidden.Count(code => query.BeforeCode is not int cursor || code < cursor) : 0;
+        var readSize = Math.Min(query.PageSize + hiddenAhead, MaxRowsPerRead);
+
+        var (read, sapTotal) = await sap.GetCreditNoteApprovalRequestsAsync(
+            statuses, query.Page, readSize, query.BeforeCode, scope.StageCodes, query.Filter, cancellationToken);
+
+        var visible = read.Where(request => !hidden.Contains(request.Code)).ToList();
+        var requests = visible.Take(query.PageSize).ToList();
+
+        // More lies below when SAP filled the read, or the read held more than this page can show.
+        var more = read.Count >= readSize || visible.Count > requests.Count;
+
+        // SAP counted the hidden rows too. Never fewer than are on this page: the index can be a few
+        // minutes behind SAP.
+        return (requests, Math.Max(requests.Count, sapTotal - hidden.Count), more);
+    }
+
+    /// <summary>
+    /// One page of a queue whose approved half is <see cref="CreditNoteApprovedQueue"/> (read in full, a
+    /// couple of hundred rows at most) and whose pending half, if it has one, is SAP's live queue. The two
+    /// are read together and merged newest first, under the same cursor.
+    /// </summary>
+    private async Task<(List<SAPApprovalRequest> Requests, int Total, bool More)> ReadWithApprovedQueueAsync(
+        GetCreditNoteApprovalsQuery query,
+        IReadOnlyCollection<string> statuses,
+        CreditNoteApprovalStageFilter scope,
+        Func<IReadOnlyCollection<string>, HashSet<int>> hiddenIn,
+        IReadOnlySet<int> heldDrafts,
+        CancellationToken cancellationToken)
+    {
+        var cursor = query.BeforeCode;
+
+        // Offset paging reads from the top and skips, since neither half alone knows where page N starts.
+        var skip = cursor is null && query.Page > 1 ? (query.Page - 1) * query.PageSize : 0;
+        var wanted = skip + query.PageSize;
+
+        var liveStatuses = statuses.Where(status => status != SapApprovalRequestStatuses.Approved).ToList();
+        var hiddenLive = liveStatuses.Count > 0 ? hiddenIn(liveStatuses) : [];
+        var readSize = Math.Min(wanted + hiddenLive.Count(code => cursor is not int below || code < below), MaxRowsPerRead);
+
+        // One connection for the approved half, two for the live page and its count: the wave a plain
+        // queue read costs, plus one, and still within the three a list may hold.
+        var approvedTask = CreditNoteApprovedQueue.ReadAsync(sap, heldDrafts, scope, query.Filter, cancellationToken);
+        var liveTask = liveStatuses.Count > 0
+            ? sap.GetCreditNoteApprovalRequestsAsync(liveStatuses, 1, readSize, cursor, scope.StageCodes, query.Filter, cancellationToken)
+            : null;
+
+        // WhenAll first so a failure on either side is observed rather than left dangling.
+        await Task.WhenAll(liveTask is null ? [approvedTask] : new Task[] { approvedTask, liveTask });
+
+        var approvedQueue = await approvedTask;
+        var hiddenApproved = hiddenIn([SapApprovalRequestStatuses.Approved]);
+        var approved = approvedQueue.Where(request => !hiddenApproved.Contains(request.Code)).ToList();
+
+        var merged = approved.Where(request => cursor is not int below || request.Code < below).ToList();
+        var liveTotal = 0;
+        var liveMore = false;
+
+        if (liveTask is not null)
+        {
+            var (read, sapTotal) = await liveTask;
+
+            liveMore = read.Count >= readSize;
+            liveTotal = Math.Max(0, sapTotal - hiddenLive.Count);
+            merged.AddRange(read.Where(request => !hiddenLive.Contains(request.Code)));
+
+            // Below the lowest live row read, SAP may hold live rows not read yet, so nothing below it is
+            // shown on this page: it would jump ahead of rows the next page will bring.
+            if (liveMore && read.Count > 0)
+            {
+                var floor = read.Min(request => request.Code);
+                merged.RemoveAll(request => request.Code < floor);
+            }
+        }
+
+        merged.Sort((left, right) => right.Code.CompareTo(left.Code));
+        var requests = merged.Skip(skip).Take(query.PageSize).ToList();
+        var more = liveMore || merged.Count > skip + requests.Count;
+
+        return (requests, Math.Max(requests.Count, liveTotal + approved.Count), more);
     }
 
     /// <summary>

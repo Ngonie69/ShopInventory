@@ -20,7 +20,9 @@ namespace ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprov
 /// </remarks>
 /// <remarks>
 /// The two open queues leave out drafts already credited some other way, as the list does, so their
-/// counts do too — from the same cached index, which the list has normally just read.
+/// counts do too — from the same cached index, which the list has normally just read. The Approved count
+/// is of the requests whose draft SAP still holds (<see cref="CreditNoteApprovedQueue"/>), as the list
+/// shows them, rather than a <c>$count</c> of every approved request ever added.
 /// </remarks>
 public sealed class GetCreditNoteApprovalCountsHandler(
     ISAPServiceLayerClient sap,
@@ -64,10 +66,18 @@ public sealed class GetCreditNoteApprovalCountsHandler(
         int Hidden(IReadOnlyCollection<string> statuses) =>
             index.Values.Count(entry => entry.FallsIn(statuses, scope.Value, filter));
 
+        var pendingCount = Math.Max(0, await sap.CountCreditNoteApprovalRequestsAsync(pending, stages, filter, cancellationToken) - Hidden(pending));
+
+        var held = await CreditNoteApprovedQueue.TryGetHeldDraftsAsync(alreadyCreditedIndex, logger, cancellationToken);
+        var approvedCount = held is null
+            ? Math.Max(0, await sap.CountCreditNoteApprovalRequestsAsync(approved, stages, filter, cancellationToken) - Hidden(approved))
+            : (await CreditNoteApprovedQueue.ReadAsync(sap, held, scope.Value, filter, cancellationToken))
+                .Count(request => !index.ContainsKey(request.Code));
+
         return new CreditNoteApprovalCountsDto
         {
-            Pending = Math.Max(0, await sap.CountCreditNoteApprovalRequestsAsync(pending, stages, filter, cancellationToken) - Hidden(pending)),
-            Approved = Math.Max(0, await sap.CountCreditNoteApprovalRequestsAsync(approved, stages, filter, cancellationToken) - Hidden(approved)),
+            Pending = pendingCount,
+            Approved = approvedCount,
             Rejected = await sap.CountCreditNoteApprovalRequestsAsync(
                 CreditNoteApprovalStatusFilters.ToSapStatuses(CreditNoteApprovalStatusFilters.Rejected), stages, filter, cancellationToken)
         };
