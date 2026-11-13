@@ -48,8 +48,6 @@ public partial class SAPServiceLayerClient
     private const string ApprovalRequestSelect = "$select=Code,ApprovalTemplatesID,ObjectType,IsDraft,ObjectEntry,Status,Remarks,CurrentStage,OriginatorID,CreationDate,CreationTime,DraftEntry";
     private const string ApprovalRequestDetailSelect = ApprovalRequestSelect + ",ApprovalRequestLines";
 
-    // What the queue filters on and the draft it holds: enough to place a request in a queue without a page read.
-    private const string ApprovalRequestQueueSelect = "$select=Code,ObjectType,Status,CurrentStage,OriginatorID,CreationDate,DraftEntry";
     private const string ApprovalStageSelect = "$select=Code,Name,NoOfApproversRequired,ApprovalStageApprovers";
     private const string ApprovalTemplateSelect = "$select=Code,Name,IsActive";
     private const string SapUserSelect = "$select=InternalKey,UserCode,UserName";
@@ -171,9 +169,11 @@ public partial class SAPServiceLayerClient
     public async Task<List<SAPApprovalRequest>> GetCreditNoteApprovalRequestsForDraftsAsync(
         IReadOnlyCollection<string> sapStatuses,
         IReadOnlyCollection<int> draftEntries,
+        IReadOnlyCollection<int>? stageCodes = null,
+        CreditNoteApprovalRequestFilter? filter = null,
         CancellationToken cancellationToken = default)
     {
-        var baseFilter = CreditNoteApprovalFilter(sapStatuses, stageCodes: null, narrowing: null);
+        var baseFilter = CreditNoteApprovalFilter(sapStatuses, stageCodes, filter);
         var clauses = draftEntries
             .Where(entry => entry > 0)
             .Distinct()
@@ -193,7 +193,7 @@ public partial class SAPServiceLayerClient
             found.AddRange(await ReadDocumentPagesAsync<SAPApprovalRequest>(
                 "ApprovalRequests",
                 $"{baseFilter} and ({string.Join(" or ", batch)})",
-                ApprovalRequestQueueSelect,
+                ApprovalRequestSelect,
                 $"read the approval requests of {batch.Count} credit note draft(s)",
                 cancellationToken,
                 NoDocumentListCeiling,

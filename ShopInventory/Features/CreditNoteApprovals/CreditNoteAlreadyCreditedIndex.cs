@@ -41,6 +41,13 @@ public interface ICreditNoteAlreadyCreditedIndex
     /// <summary>The index, keyed by request code; built at most once per <see cref="CreditNoteAlreadyCreditedIndex.Lifetime"/>.</summary>
     Task<IReadOnlyDictionary<int, AlreadyCreditedRequest>> GetAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The DocEntry of every credit memo draft SAP still holds for approval (open, Pending or Approved),
+    /// from the same build as <see cref="GetAsync"/>. The Approved queue shows only requests over these:
+    /// the rest were added long ago.
+    /// </summary>
+    Task<IReadOnlySet<int>> GetHeldDraftEntriesAsync(CancellationToken cancellationToken);
+
     /// <summary>Forgets the index, so the next read rebuilds it. Called after a decision or an add.</summary>
     void Invalidate();
 }
@@ -80,8 +87,14 @@ public sealed class CreditNoteAlreadyCreditedIndex(
     private static readonly string[] OpenStatuses = [SapApprovalRequestStatuses.Pending, SapApprovalRequestStatuses.Approved];
 
     public async Task<IReadOnlyDictionary<int, AlreadyCreditedRequest>> GetAsync(CancellationToken cancellationToken)
+        => (await GetSnapshotAsync(cancellationToken)).AlreadyCredited;
+
+    public async Task<IReadOnlySet<int>> GetHeldDraftEntriesAsync(CancellationToken cancellationToken)
+        => (await GetSnapshotAsync(cancellationToken)).HeldDraftEntries;
+
+    private async Task<Snapshot> GetSnapshotAsync(CancellationToken cancellationToken)
     {
-        if (cache.TryGetValue(CacheKey, out IReadOnlyDictionary<int, AlreadyCreditedRequest>? cached) && cached is not null)
+        if (cache.TryGetValue(CacheKey, out Snapshot? cached) && cached is not null)
         {
             return cached;
         }
@@ -111,14 +124,15 @@ public sealed class CreditNoteAlreadyCreditedIndex(
     /// nearly all of them for drafts added long ago; the drafts SAP still holds number a few hundred.
     /// So: the held drafts, then which of them are already credited, then only those drafts' requests.
     /// </remarks>
-    private async Task<IReadOnlyDictionary<int, AlreadyCreditedRequest>> BuildAsync(CancellationToken cancellationToken)
+    private async Task<Snapshot> BuildAsync(CancellationToken cancellationToken)
     {
         var drafts = await sap.GetOpenHeldCreditNoteDraftsAsync(cancellationToken);
+        var held = drafts.Select(draft => draft.DocEntry).Where(entry => entry > 0).ToHashSet();
         var credited = await CreditNoteAlreadyCredited.FindAsync(sap, drafts, cancellationToken);
 
         var requests = credited.Count == 0
             ? []
-            : await sap.GetCreditNoteApprovalRequestsForDraftsAsync(OpenStatuses, credited.Keys.ToList(), cancellationToken);
+            : await sap.GetCreditNoteApprovalRequestsForDraftsAsync(OpenStatuses, credited.Keys.ToList(), cancellationToken: cancellationToken);
 
         var index = new Dictionary<int, AlreadyCreditedRequest>();
         foreach (var request in requests)
@@ -140,6 +154,9 @@ public sealed class CreditNoteAlreadyCreditedIndex(
         logger.LogInformation(
             "Indexed {Requests} open credit note approval request(s) over {Credited} of {Drafts} held draft(s) as already credited",
             index.Count, credited.Count, drafts.Count);
-        return index;
+        return new Snapshot(index, held);
     }
+
+    /// <summary>One build: the already-credited requests and the drafts SAP still holds, cached together.</summary>
+    private sealed record Snapshot(IReadOnlyDictionary<int, AlreadyCreditedRequest> AlreadyCredited, IReadOnlySet<int> HeldDraftEntries);
 }

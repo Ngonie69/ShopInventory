@@ -137,6 +137,17 @@ internal sealed class FakeAlreadyCreditedIndex(params AlreadyCreditedRequest[] e
 
     public int Invalidations { get; private set; }
 
+    /// <summary>
+    /// The drafts SAP still holds. Null stands in for an index that cannot say, so the Approved queue is
+    /// read as it was before it was narrowed to held drafts.
+    /// </summary>
+    public IReadOnlySet<int>? HeldDrafts { get; init; }
+
+    public Task<IReadOnlySet<int>> GetHeldDraftEntriesAsync(CancellationToken cancellationToken)
+        => Fails || HeldDrafts is null
+            ? throw new HttpRequestException("SAP is not answering")
+            : Task.FromResult(HeldDrafts);
+
     public Task<IReadOnlyDictionary<int, AlreadyCreditedRequest>> GetAsync(CancellationToken cancellationToken)
         => Fails
             ? throw new HttpRequestException("SAP is not answering")

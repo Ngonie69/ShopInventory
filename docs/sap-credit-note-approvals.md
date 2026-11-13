@@ -131,6 +131,23 @@ to fill the page once the hidden ones are dropped; the list total and the queue 
 rows that fall in the same statuses, stages and filters. A failed build hides nothing; the write checks
 still hold. A build measured 0.4–10 s on production, depending on how warm SAP was.
 
+### Approved requests whose draft is gone
+
+SAP leaves a request `arsApproved` after its draft has been added from the B1 client. On production on
+2026-11-11, 6,774 credit memo requests were Approved and only 169 still pointed at an open draft, so the
+Approved queue (and the default open queue with it) was almost all history, each row saying "The draft is
+closed or cancelled in SAP".
+
+The open queues now show an approved request only when SAP still holds its draft. No OData filter on
+`ApprovalRequests` can ask about the draft, so the approved half is read the other way round
+(`CreditNoteApprovedQueue`): the held drafts come from the same cached build as the index above, and their
+approved requests are read fresh on every load (`DraftEntry eq …` filters, batched by length, with the
+caller's stages and filters). In the open queue those are merged with SAP's live pending page under the
+same cursor. The Approved tile counts the same rows, not a `$count` of every approved request. A decision
+made in the B1 client shows at once; a draft raised **and** approved within the ten-minute window shows
+once the index is rebuilt. "All requests" still shows every approved request. If SAP cannot say which
+drafts it holds, the queue is read as before, history included.
+
 The `CreditNotes` read is batched by length because **the Service Layer refuses a query string over 2,048
 characters** (error 207, counted before percent-encoding). A page of 24 pairs with a date bound in every
 clause went over on production and the whole check failed. Pairs now share one date bound per read, and the
