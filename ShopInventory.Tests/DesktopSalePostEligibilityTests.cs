@@ -105,7 +105,6 @@ public sealed class DesktopSalePostEligibilityTests
         Assert.Null(DesktopSaleFiscalisationRetry.ManualRefusal(
             SaleSourceSystems.ShopTill,
             DesktopSaleFiscalizationStatus.Skipped,
-            requiresReconciliation: false,
             createdAtUtc: DateTime.UtcNow.AddDays(-1),
             nowUtc: DateTime.UtcNow,
             usesPlatform: false));

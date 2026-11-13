@@ -341,8 +341,9 @@ public sealed class GetFiscalisationWorkQueueHandler(
                 "Unresolved",
                 FiscalWorkQueueFilters.SeverityOf(FiscalWorkQueueFilters.NeedsReconciliation),
                 FiscalWorkQueueDispositions.Reconcile,
-                "The platform could not say whether the receipt was signed. Look it up on the fiscalisation "
-                    + "console before anything else — a second submission cannot be withdrawn.",
+                "The platform could not say whether the receipt was signed, and it refuses this invoice "
+                    + "number until someone resolves it on the fiscalisation console. Resolve it there, then "
+                    + "press Retry on the sale: it adopts a receipt the platform holds and signs only if none exists.",
                 sale.FiscalError,
                 sale.FiscalizationAttempts),
 

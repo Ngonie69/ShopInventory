@@ -175,22 +175,68 @@ public sealed class RetryDesktopSaleFiscalisationTests : IDisposable
     }
 
     [Fact]
-    public async Task An_unresolved_sale_is_retried_under_revmax_but_not_under_the_platform()
+    public async Task An_unresolved_sale_is_retried_under_revmax()
     {
-        // REVMax's look-up reads the device itself, so asking it is the reconciliation. The platform's
-        // reads an archive that can lag, so there a person still has to look.
+        // REVMax's look-up reads the device itself, so asking it is the reconciliation.
         await SeedAsync("KEF-FAC-8", DesktopSaleFiscalizationStatus.Failed, attempts: 1, requiresReconciliation: true);
 
-        var refused = await Retry("KEF-FAC-8", respond: Signed, provider: FiscalisationProvider.Platform);
-        Assert.True(refused.IsError);
-        Assert.Equal(0, _lookups + _submissions);
-
-        _context.ChangeTracker.Clear();
         var retried = await Retry("KEF-FAC-8", respond: Signed);
         Assert.False(retried.IsError);
 
         var sale = await _context.DesktopSales.AsNoTracking().SingleAsync();
         Assert.False(sale.FiscalizationRequiresReconciliation);
+    }
+
+    [Fact]
+    public async Task An_unresolved_sale_under_the_platform_adopts_the_receipt_a_resolution_archived()
+    {
+        // This used to be refused outright, so a sale resolved on the platform's console as signed had no
+        // way to pick its receipt up. The platform is asked first, and its receipt is adopted.
+        await SeedAsync("KEF-FAC-8b", DesktopSaleFiscalizationStatus.Failed, attempts: 2, requiresReconciliation: true);
+
+        var result = await Retry(
+            "KEF-FAC-8b",
+            respond: Signed,
+            existing: () => new FiscalizationResult { Success = true, ReceiptGlobalNo = "216400" },
+            provider: FiscalisationProvider.Platform);
+
+        Assert.False(result.IsError);
+        Assert.Equal(DesktopSaleFiscalisationRetryOutcomes.AlreadyFiscalised, result.Value.Outcome);
+        Assert.Equal(1, _lookups);
+        Assert.Equal(0, _submissions);
+
+        var sale = await _context.DesktopSales.AsNoTracking().SingleAsync();
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
+        Assert.Equal("216400", sale.FiscalReceiptNumber);
+        Assert.False(sale.FiscalizationRequiresReconciliation);
+    }
+
+    [Fact]
+    public async Task An_unresolved_sale_the_platform_still_refuses_stays_marked_and_says_where_to_resolve_it()
+    {
+        // Retried before anyone resolved it on the console: the platform's reservation refuses the
+        // resubmission with a 409, which reaches here as RequiresReconciliation. Nothing is signed, the
+        // mark comes back, and the person is told which invoice number to look up.
+        await SeedAsync("KEF-FAC-8c", DesktopSaleFiscalizationStatus.Failed, attempts: 2, requiresReconciliation: true);
+
+        var result = await Retry(
+            "KEF-FAC-8c",
+            respond: () => new FiscalizationResult
+            {
+                Success = false,
+                RequiresReconciliation = true,
+                Message = "The fiscal outcome is unresolved.",
+            },
+            provider: FiscalisationProvider.Platform);
+
+        Assert.True(result.IsError);
+        Assert.Contains("KEF-FAC-8c", result.FirstError.Description);
+        Assert.Contains("fiscalisation console", result.FirstError.Description);
+        Assert.Equal(1, _lookups);
+
+        var sale = await _context.DesktopSales.AsNoTracking().SingleAsync();
+        Assert.Equal(DesktopSaleFiscalizationStatus.Failed, sale.FiscalizationStatus);
+        Assert.True(sale.FiscalizationRequiresReconciliation);
     }
 
     [Fact]

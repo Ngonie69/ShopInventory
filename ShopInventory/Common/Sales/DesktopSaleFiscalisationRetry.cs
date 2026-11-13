@@ -60,7 +60,7 @@ public static class DesktopSaleFiscalisationRetry
         string.Equals(sale.SourceSystem, SaleSourceSystems.ShopTill, StringComparison.Ordinal);
 
     /// <summary>
-    /// Whether a sale marked for reconciliation may be offered again, by the sweep or on request.
+    /// Whether the sweep may offer a sale marked for reconciliation again on its own.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -76,8 +76,11 @@ public static class DesktopSaleFiscalisationRetry
     /// uninvoiced until someone pressed Retry on each one.
     /// </para>
     /// <para>
-    /// Under the platform, no. Its receipt check reads an archive that can lag a submission it has not
-    /// finished, so a person still has to look.
+    /// Under the platform, no. An unresolved submission there is held by the platform's own reservation
+    /// for the invoice number, which refuses every resubmission (409 <c>IDEMPOTENCY_RECONCILIATION_REQUIRED</c>)
+    /// until someone resolves it on the console. Until then the sweep would only be refused, every pass,
+    /// with a failure notification each time. A person retries it once the console says it is resolved;
+    /// see <see cref="ManualRefusal"/>.
     /// </para>
     /// </remarks>
     public static bool MayRetryReconciliation(bool usesPlatform) => !usesPlatform;
@@ -104,16 +107,19 @@ public static class DesktopSaleFiscalisationRetry
     /// refusing.
     /// </para>
     /// <para>
-    /// A sale marked for reconciliation may be retried under REVMax and not under the platform. REVMax's
-    /// <c>GetInvoice</c> reads the device itself, so asking it first is exactly the look-up reconciliation
-    /// calls for. The platform's receipt check reads an archive that can lag a submission it has not
-    /// finished, so there a person still has to look.
+    /// A sale marked for reconciliation may be retried under either provider. Under REVMax,
+    /// <c>GetInvoice</c> reads the device itself, so asking it first is the reconciliation. Under the
+    /// platform this used to be refused, on the grounds that its receipt check reads an archive that can
+    /// miss a receipt FDMS holds. That much is true, but the platform does not rely on the archive: its
+    /// reservation for the invoice number, taken across every device before FDMS is called, refuses a
+    /// resubmission while an earlier one is unresolved. So the refusal here guarded nothing the platform
+    /// did not, and it left the sale with no way forward once the reservation was resolved on the console.
+    /// A retry before that is refused by the platform with a 409 and the sale stays marked.
     /// </para>
     /// </remarks>
     public static string? ManualRefusal(
         string? sourceSystem,
         DesktopSaleFiscalizationStatus status,
-        bool requiresReconciliation,
         DateTime createdAtUtc,
         DateTime nowUtc,
         bool usesPlatform)
@@ -148,12 +154,6 @@ public static class DesktopSaleFiscalisationRetry
         if (IsInlineRequestInFlight(sourceSystem, status, createdAtUtc, nowUtc))
         {
             return "The till is still fiscalising this sale. Give it a few minutes.";
-        }
-
-        if (requiresReconciliation && !MayRetryReconciliation(usesPlatform))
-        {
-            return "The platform could not say whether this receipt was signed. Look it up on the "
-                + "fiscalisation console before retrying.";
         }
 
         return null;

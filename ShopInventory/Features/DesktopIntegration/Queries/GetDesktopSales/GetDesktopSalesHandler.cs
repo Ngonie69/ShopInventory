@@ -338,7 +338,6 @@ public sealed class GetDesktopSalesHandler(
                 FiscaliseRefusal = DesktopSaleFiscalisationRetry.ManualRefusal(
                     row.Sale.SourceSystem,
                     row.FiscalizationStatus,
-                    row.FiscalizationRequiresReconciliation,
                     row.Sale.CreatedAt,
                     nowUtc,
                     usesPlatform),
