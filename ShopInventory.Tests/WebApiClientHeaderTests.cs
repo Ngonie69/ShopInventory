@@ -36,6 +36,21 @@ public sealed class WebApiClientHeaderTests
     }
 
     [Fact]
+    public void Every_api_client_the_web_registers_says_which_part_of_the_web_called()
+    {
+        // The call timings tell the customer portal from the Web's background work by this handler
+        // alone; a client without it would count every portal page it serves as background work.
+        var unmarked = ReadApiClientRegistrations()
+            .Where(registration => !registration.Statement.Contains("new WebSurfaceHandler()", StringComparison.Ordinal))
+            .Select(registration => registration.Name)
+            .ToList();
+
+        Assert.True(
+            unmarked.Count == 0,
+            $"These API clients do not add WebSurfaceHandler: {string.Join(", ", unmarked)}.");
+    }
+
+    [Fact]
     public void The_sweep_finds_the_registrations_at_all()
     {
         // Without this, moving or reshaping Program.cs would turn the test above into one that
@@ -47,7 +62,9 @@ public sealed class WebApiClientHeaderTests
             $"Only found {registrations.Count} API client registrations in the Web's Program.cs; the sweep is not reading it.");
     }
 
-    private sealed record Registration(string Name, string Body);
+    /// <param name="Body">The configure callback: the arguments of <c>AddHttpClient</c>.</param>
+    /// <param name="Statement">The whole registration, its chained handlers included, to its semicolon.</param>
+    private sealed record Registration(string Name, string Body, string Statement);
 
     /// <summary>
     /// The <c>AddHttpClient</c> blocks that point at the API, with the body of each.
@@ -68,7 +85,8 @@ public sealed class WebApiClientHeaderTests
                      RegexOptions.None,
                      TimeSpan.FromSeconds(5)))
         {
-            var body = ReadBalancedBlock(source, match.Index + match.Length);
+            var bodyStart = match.Index + match.Length;
+            var body = ReadBalancedBlock(source, bodyStart);
             if (!body.Contains("apiBaseUrl", StringComparison.Ordinal))
             {
                 continue;
@@ -78,7 +96,7 @@ public sealed class WebApiClientHeaderTests
                 ? match.Groups["name"].Value.Trim('"')
                 : match.Groups["generic"].Value.Trim('<', '>');
 
-            registrations.Add(new Registration(name, body));
+            registrations.Add(new Registration(name, body, ReadStatement(source, bodyStart + body.Length + 1)));
         }
 
         return registrations;
@@ -100,6 +118,28 @@ public sealed class WebApiClientHeaderTests
             };
 
             if (depth == 0)
+            {
+                return source[start..i];
+            }
+        }
+
+        return source[start..];
+    }
+
+    /// <summary>From <paramref name="start"/> to the first semicolon outside any parenthesis or brace.</summary>
+    private static string ReadStatement(string source, int start)
+    {
+        var depth = 0;
+        for (var i = start; i < source.Length; i++)
+        {
+            depth += source[i] switch
+            {
+                '(' or '{' => 1,
+                ')' or '}' => -1,
+                _ => 0
+            };
+
+            if (depth <= 0 && source[i] == ';')
             {
                 return source[start..i];
             }

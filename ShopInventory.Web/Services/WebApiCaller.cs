@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Components;
+
 namespace ShopInventory.Web.Services;
 
 /// <summary>
@@ -38,6 +40,7 @@ public sealed class WebApiCaller(IServiceProvider circuitServices)
 
     private CustomAuthStateProvider? _staff;
     private ICustomerPortalSessionService? _portal;
+    private NavigationManager? _navigation;
 
     /// <summary>The circuit the current code runs for, or null outside any circuit.</summary>
     public static WebApiCaller? Current => Ambient.Value;
@@ -66,6 +69,44 @@ public sealed class WebApiCaller(IServiceProvider circuitServices)
                 return true;
             }
         }
+    }
+
+    /// <summary>
+    /// Which part of the Web this circuit is on: <see cref="WebApiClientIdentity.CustomerPortalSurface"/>
+    /// while it shows a <c>/customer-portal</c> page, <see cref="WebApiClientIdentity.StaffSurface"/>
+    /// otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Read off the circuit's own address, the same rule App.razor uses to leave the staff stylesheets
+    /// off a portal page, so a portal page that has not signed anybody in yet (sign-in, registration)
+    /// still counts as the portal. A circuit whose address cannot be read — disposed, or not yet given
+    /// one — answers staff.
+    /// </remarks>
+    public string Surface
+    {
+        get
+        {
+            try
+            {
+                _navigation ??= circuitServices.GetRequiredService<NavigationManager>();
+                var path = _navigation.ToBaseRelativePath(_navigation.Uri);
+                return IsCustomerPortalPath(path)
+                    ? WebApiClientIdentity.CustomerPortalSurface
+                    : WebApiClientIdentity.StaffSurface;
+            }
+            catch (Exception ex) when (ex is ObjectDisposedException or InvalidOperationException)
+            {
+                return WebApiClientIdentity.StaffSurface;
+            }
+        }
+    }
+
+    /// <summary>Whether a base-relative path is a portal page: <c>customer-portal</c> or below it.</summary>
+    internal static bool IsCustomerPortalPath(string relativePath)
+    {
+        const string Portal = "customer-portal";
+        return relativePath.StartsWith(Portal, StringComparison.OrdinalIgnoreCase)
+               && (relativePath.Length == Portal.Length || relativePath[Portal.Length] is '/' or '?' or '#');
     }
 
     /// <summary>

@@ -323,10 +323,29 @@ public class CallTimingRecordingTests
         Assert.Equal("Handset · kefalos-vansales", Caller(headers: [(MobileHeaders.Platform, "android"), (MobileHeaders.AppId, "kefalosvansales")]));
         Assert.Equal("Handset · unnamed app", Caller(headers: [(MobileHeaders.Version, "2.1.3")]));
         Assert.Equal(InboundCallerClassifier.Web, Caller(headers: [("X-Client-App", "web-portal")], key: "MainIntegration", user: "Cashier"));
-        Assert.Equal(InboundCallerClassifier.WebWithoutUser, Caller(headers: [("X-Client-App", "web-portal")], key: "MainIntegration"));
+        Assert.Equal(InboundCallerClassifier.WebBackground, Caller(headers: [("X-Client-App", "web-portal")], key: "MainIntegration"));
+        Assert.Equal(InboundCallerClassifier.CustomerPortal, Caller(headers: [("X-Client-App", "web-portal"), ("X-Web-Surface", "customer-portal")], key: "MainIntegration"));
+        Assert.Equal(InboundCallerClassifier.WebWithoutUser, Caller(headers: [("X-Client-App", "web-portal"), ("X-Web-Surface", "staff")], key: "MainIntegration"));
+        Assert.Equal(InboundCallerClassifier.Web, Caller(headers: [("X-Client-App", "web-portal"), ("X-Web-Surface", "staff")], key: "MainIntegration", user: "Cashier"));
         Assert.Equal(InboundCallerClassifier.TillOrBearer, Caller(user: "TillOperator"));
         Assert.Equal("Key · TransferEventListener", Caller(key: "TransferEventListener"));
         Assert.Equal(InboundCallerClassifier.Anonymous, Caller());
+    }
+
+    [Fact]
+    public void A_surface_header_from_outside_the_web_counts_for_nothing()
+    {
+        // Only the Web's own client header makes the surface count: a till or an integration that sent
+        // it is still itself.
+        Assert.Equal(InboundCallerClassifier.TillOrBearer, Caller(headers: [("X-Web-Surface", "customer-portal")], user: "TillOperator"));
+        Assert.Equal("Key · TransferEventListener", Caller(headers: [("X-Web-Surface", "customer-portal")], key: "TransferEventListener"));
+    }
+
+    [Fact]
+    public void The_api_reads_the_surface_header_the_web_sends()
+    {
+        Assert.Equal(ShopInventory.Web.Services.WebApiClientIdentity.SurfaceHeaderName, InboundCallerClassifier.SurfaceHeaderName);
+        Assert.Equal(ShopInventory.Web.Services.WebApiClientIdentity.CustomerPortalSurface, InboundCallerClassifier.CustomerPortalSurface);
     }
 
     // ---- Helpers ----------------------------------------------------------------------------------

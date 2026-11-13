@@ -25,6 +25,25 @@ public static class WebApiClientIdentity
     /// <summary>Must match <c>ShopInventory.Features.Maintenance.MaintenanceCaller.WebPortalClientApp</c>.</summary>
     public const string ClientAppValue = "web-portal";
 
+    /// <summary>
+    /// Which part of the Web a request was made for, sent by <see cref="WebSurfaceHandler"/>: the
+    /// customer portal or a staff page. Absent on the Web's own background work (Quartz jobs, cache
+    /// sweeps), which runs outside any circuit.
+    /// </summary>
+    /// <remarks>
+    /// Read by the API's call timings to tell the customer portal from the Web's background work: both
+    /// call with the key and no user token, so nothing else on the request separates them. Not an
+    /// authorisation signal — anybody holding the key could send any value — and the API must never
+    /// treat it as one. Must match <c>InboundCallerClassifier.SurfaceHeaderName</c> in the API.
+    /// </remarks>
+    public const string SurfaceHeaderName = "X-Web-Surface";
+
+    /// <summary>A request made for a <c>/customer-portal</c> page.</summary>
+    public const string CustomerPortalSurface = "customer-portal";
+
+    /// <summary>A request made for any other page: the staff app.</summary>
+    public const string StaffSurface = "staff";
+
     /// <summary>Put the portal's name on a client the Web uses to reach the API.</summary>
     public static void IdentifyAsWebPortal(HttpClient client) =>
         client.DefaultRequestHeaders.Add(ClientAppHeaderName, ClientAppValue);
