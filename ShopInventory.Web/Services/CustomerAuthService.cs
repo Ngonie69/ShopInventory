@@ -1161,7 +1161,8 @@ public class CustomerAuthService : ICustomerAuthService
         {
             // The Web's own lookup, made while a customer signs in, refreshes, proves a token or
             // registers - before any session exists on the circuit - and only read here, never shown.
-            using var asTheWebApp = WebApiCaller.AsTheWebApp();
+            // Counted as the portal's in the API's call timings: a customer is waiting on it.
+            using var asTheWebApp = WebApiCaller.AsTheWebApp(WebApiClientIdentity.CustomerPortalSurface);
             var partner = await _businessPartnerService.GetBusinessPartnerByCodeAsync(cardCode);
             if (partner == null)
                 return null;

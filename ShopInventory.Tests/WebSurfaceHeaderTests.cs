@@ -51,6 +51,57 @@ public sealed class WebSurfaceHeaderTests
     }
 
     [Fact]
+    public async Task A_lookup_the_web_makes_for_the_portal_names_the_portal_and_the_name_ends_with_it()
+    {
+        var api = new CapturingApi();
+        using var client = new HttpClient(new WebSurfaceHandler { InnerHandler = api }) { BaseAddress = new Uri("http://api.test/") };
+        var surfaces = new List<string?>();
+
+        await Task.Run(async () =>
+        {
+            using (WebApiCaller.AsTheWebApp(WebApiClientIdentity.CustomerPortalSurface))
+            {
+                using var inside = await client.GetAsync("api/businesspartner/x");
+                surfaces.Add(api.Surface);
+            }
+
+            using var after = await client.GetAsync("api/businesspartner/x");
+            surfaces.Add(api.Surface);
+
+            using (WebApiCaller.AsTheWebApp())
+            {
+                using var unnamed = await client.GetAsync("api/businesspartner/x");
+                surfaces.Add(api.Surface);
+            }
+        });
+
+        Assert.Equal([WebApiClientIdentity.CustomerPortalSurface, null, null], surfaces);
+    }
+
+    [Fact]
+    public async Task The_portal_sign_in_lookup_inside_a_staff_circuit_still_counts_as_the_portal()
+    {
+        // The scope leaves the circuit (so the key goes), and the surface it names is the one sent.
+        var api = new CapturingApi();
+        using var client = new HttpClient(new WebSurfaceHandler { InnerHandler = api }) { BaseAddress = new Uri("http://api.test/") };
+        var circuitServices = new ServiceCollection()
+            .AddSingleton<NavigationManager>(new FixedNavigationManager("https://shop.test/invoices"))
+            .BuildServiceProvider();
+        var inbound = new WebApiCallerCircuitHandler(new WebApiCaller(circuitServices))
+            .CreateInboundActivityHandler(async _ =>
+            {
+                using var asTheWebApp = WebApiCaller.AsTheWebApp(WebApiClientIdentity.CustomerPortalSurface);
+                Assert.Null(WebApiCaller.Current);
+                using var response = await client.GetAsync("api/businesspartner/x");
+            });
+
+        await Task.Run(() => inbound(null!));
+
+        Assert.Equal(WebApiClientIdentity.CustomerPortalSurface, api.Surface);
+        Assert.Equal(InboundCallerClassifier.CustomerPortal, ClassifyWebKeyOnly(api.Surface));
+    }
+
+    [Fact]
     public void A_circuit_whose_address_cannot_be_read_counts_as_staff()
     {
         var caller = new WebApiCaller(new ServiceCollection()

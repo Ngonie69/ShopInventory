@@ -5168,7 +5168,8 @@ parentheses and query strings are never kept.
 Inbound requests are timed by `InboundCallTimingMiddleware` and kept by route template, never by path.
 The caller is read off the request: `Handset · <app>` (the phone headers); from the Web
 (`X-Client-App: web-portal`): `Web` (a member of staff's token), `Customer portal` (`X-Web-Surface:
-customer-portal`, sent for a `/customer-portal` page), `Web · background` (no `X-Web-Surface`: the Web's
+customer-portal`, sent for a `/customer-portal` page and for the partner lookup behind a portal
+sign-in), `Web · background` (no `X-Web-Surface`: the Web's
 cache sweeps and jobs) and `Web · no user` (a staff page with nobody signed in). `X-Web-Surface` is a
 label for counting, never a credential. The rest: `Key · <name>` (an API key alone), `Till /
 bearer only` (a user token with no key and no client header, which is how the KefShop till calls)

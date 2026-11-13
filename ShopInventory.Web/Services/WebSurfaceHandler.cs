@@ -2,8 +2,9 @@ namespace ShopInventory.Web.Services;
 
 /// <summary>
 /// Puts <see cref="WebApiClientIdentity.SurfaceHeaderName"/> on a request made for a circuit: the
-/// customer portal or a staff page, by <see cref="WebApiCaller.Surface"/>. A request made outside any
-/// circuit — the Web's background work — goes without it.
+/// customer portal or a staff page, by <see cref="WebApiCaller.Surface"/>, or the surface a
+/// <see cref="WebApiCaller.AsTheWebApp(string?)"/> scope names (the portal sign-in's partner lookup). A
+/// request made outside both — the Web's background work — goes without it.
 /// </summary>
 /// <remarks>
 /// The customer portal and the Web's cache sweeps both reach the API with the key and no user token, so
@@ -17,9 +18,10 @@ public sealed class WebSurfaceHandler : DelegatingHandler
         CancellationToken cancellationToken)
     {
         request.Headers.Remove(WebApiClientIdentity.SurfaceHeaderName);
-        if (WebApiCaller.Current is { } caller)
+        var surface = WebApiCaller.Current?.Surface ?? WebApiCaller.AppSurface;
+        if (surface is not null)
         {
-            request.Headers.TryAddWithoutValidation(WebApiClientIdentity.SurfaceHeaderName, caller.Surface);
+            request.Headers.TryAddWithoutValidation(WebApiClientIdentity.SurfaceHeaderName, surface);
         }
 
         return base.SendAsync(request, cancellationToken);

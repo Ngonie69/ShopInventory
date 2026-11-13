@@ -37,6 +37,7 @@ namespace ShopInventory.Web.Services;
 public sealed class WebApiCaller(IServiceProvider circuitServices)
 {
     private static readonly AsyncLocal<WebApiCaller?> Ambient = new();
+    private static readonly AsyncLocal<string?> AmbientAppSurface = new();
 
     private CustomAuthStateProvider? _staff;
     private ICustomerPortalSessionService? _portal;
@@ -44,6 +45,13 @@ public sealed class WebApiCaller(IServiceProvider circuitServices)
 
     /// <summary>The circuit the current code runs for, or null outside any circuit.</summary>
     public static WebApiCaller? Current => Ambient.Value;
+
+    /// <summary>
+    /// The part of the Web a call inside <see cref="AsTheWebApp(string?)"/> is made for, or null
+    /// outside one, or when the scope named none. Read by <see cref="WebSurfaceHandler"/> when there is
+    /// no <see cref="Current"/> circuit.
+    /// </summary>
+    public static string? AppSurface => AmbientAppSurface.Value;
 
     /// <summary>
     /// Whether this circuit has a member of staff the API confirmed, or a portal customer whose
@@ -117,19 +125,30 @@ public sealed class WebApiCaller(IServiceProvider circuitServices)
     /// For a call the Web makes for its own purposes on a path nobody has signed in on yet, and whose
     /// answer the Web uses rather than shows: the business partner lookup behind a portal sign-in or
     /// registration. Not for sending something a page asked for.
+    /// <para>
+    /// <paramref name="surface"/> names the part of the Web the call is made for (one of the
+    /// <see cref="WebApiClientIdentity"/> surfaces), so the API's call timings count it there rather
+    /// than as background work. It changes nothing else: the key still goes, whoever is signed in.
+    /// </para>
     /// </remarks>
-    public static IDisposable AsTheWebApp()
+    public static IDisposable AsTheWebApp(string? surface = null)
     {
         var previous = Ambient.Value;
+        var previousSurface = AmbientAppSurface.Value;
         Ambient.Value = null;
-        return new Scope(previous);
+        AmbientAppSurface.Value = surface;
+        return new Scope(previous, previousSurface);
     }
 
     /// <summary>Publishes <paramref name="caller"/> for the rest of the current execution context.</summary>
     internal static void Enter(WebApiCaller caller) => Ambient.Value = caller;
 
-    private sealed class Scope(WebApiCaller? previous) : IDisposable
+    private sealed class Scope(WebApiCaller? previous, string? previousSurface) : IDisposable
     {
-        public void Dispose() => Ambient.Value = previous;
+        public void Dispose()
+        {
+            Ambient.Value = previous;
+            AmbientAppSurface.Value = previousSurface;
+        }
     }
 }
