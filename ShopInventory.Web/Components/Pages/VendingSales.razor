@@ -28,8 +28,8 @@
    - The invoices are the sales list under the same source, a page at a time, filtered by range, depot
      and search on the API rather than here, so a filter is never over just the rows already loaded.
 
-   Not built from the design, because nothing records them: litres, sales on account (a vendor pays at
-   the till), and the cash-up reconciliation. Money is never added across currencies; the figures are
+   Not built from the design, because nothing records them: litres and sales on account (a vendor pays at
+   the till). The cash-up reconciliation is its own page, /vending/reconciliation. Money is never added across currencies; the figures are
    in the currency the depots sold in most, with the others named. *@
 
 <div class="shop vend">
@@ -50,6 +50,9 @@
         <div class="shop-header-actions">
             <a class="shop-btn shop-btn-ghost" href="/vending">
                 <i class="bi bi-shop"></i>Depots &amp; vendors
+            </a>
+            <a class="shop-btn shop-btn-ghost" href="/vending/reconciliation">
+                <i class="bi bi-cash-stack"></i>Reconciliation
             </a>
         </div>
     </div>

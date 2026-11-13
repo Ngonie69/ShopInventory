@@ -1621,3 +1621,412 @@
         animation: none;
     }
 }
+
+/* ── Reconciliation ──────────────────────────────────────────────────────────
+   /vending/reconciliation: a cashier's day held against its count. The page is
+   `.shop vend vend-rec`, so every rule above it still applies; the count dialog
+   is a sibling of the page and carries `vend` itself, so the same `.vend …`
+   roots reach it. Tokens only, so both themes follow nocturne-tokens.css.
+
+   Variance has four looks and only four: a dash for nothing counted (never a
+   zero), good for balanced, bad for short, warn for over. A day nobody counted
+   must not look like a day that came out short.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.vend .vend-rec-caption {
+    caption-side: top;
+    padding: var(--shop-s4) var(--shop-s4) var(--shop-s3);
+    text-align: left;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--shop-mute-3);
+}
+
+.vend .vend-rec-line {
+    line-height: 1.45;
+    white-space: nowrap;
+}
+
+.vend .vend-rec-var {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vend .vend-rec-var.is-none {
+    color: var(--shop-mute-3);
+}
+
+.vend .vend-rec-var.is-good {
+    color: var(--shop-fam-good);
+}
+
+.vend .vend-rec-var.is-bad {
+    color: var(--shop-fam-bad);
+    font-weight: 500;
+}
+
+.vend .vend-rec-var.is-over {
+    color: var(--shop-fam-warn);
+}
+
+.vend .vend-rec-flag {
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1.3;
+    white-space: nowrap;
+}
+
+.vend .vend-rec-flag.is-bad {
+    color: var(--shop-fam-bad);
+}
+
+.vend .vend-rec-flag.is-warn {
+    color: var(--shop-fam-warn);
+}
+
+.vend .shop-chip.vend-rec-chip-accent {
+    background: rgba(var(--shop-fam-accent-rgb), .14);
+    color: var(--shop-fam-accent);
+}
+
+.vend .shop-chip.vend-rec-chip-warn {
+    background: rgba(var(--shop-fam-warn-rgb), .14);
+    color: var(--shop-fam-warn);
+}
+
+/* The review list: who, how far off, and why, then the way into the count. */
+.vend .vend-rec-review {
+    display: flex;
+    flex-direction: column;
+}
+
+.vend .vend-rec-review-item {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: var(--shop-s3) 0;
+    border-top: 1px solid var(--shop-divider);
+}
+
+.vend .vend-rec-review-item:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.vend .vend-rec-review-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--shop-s3);
+}
+
+.vend .vend-rec-review-who {
+    min-width: 0;
+    font-size: 13px;
+    color: var(--shop-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vend .vend-rec-review-var {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-size: 13px;
+}
+
+.vend .vend-rec-review-note {
+    font-size: 11.5px;
+    color: var(--shop-mute-3);
+    text-wrap: pretty;
+}
+
+.vend .vend-rec-review-note .is-bad {
+    color: var(--shop-fam-bad);
+}
+
+.vend .vend-rec-review-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--shop-s3);
+}
+
+.vend .vend-mix-fill.vend-rec-fill.is-good {
+    background: var(--shop-fam-good);
+}
+
+.vend .vend-mix-fill.vend-rec-fill.is-bad {
+    background: var(--shop-fam-bad);
+}
+
+.vend .vend-mix-fill.vend-rec-fill.is-over {
+    background: var(--shop-fam-warn);
+}
+
+/* ── The count dialog ── */
+
+.shop-overlay .shop-modal.vend-rec-modal {
+    width: min(760px, 100%);
+}
+
+.vend .vend-rec-sheet-status {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--shop-s3);
+    font-size: 12px;
+}
+
+.vend .vend-rec-sheet-status .vend-cell-mute,
+.vend .vend-rec-currency-head .vend-cell-mute,
+.vend .vend-rec-tenders .vend-cell-mute {
+    color: var(--shop-mute-3);
+    font-size: 12px;
+}
+
+.vend .shop-form-note.vend-rec-query > i,
+.vend .shop-form-note.vend-rec-changed > i {
+    color: var(--shop-fam-warn);
+}
+
+.vend .vend-rec-currency {
+    display: flex;
+    flex-direction: column;
+    gap: var(--shop-s4);
+    padding: var(--shop-s4);
+    border: 1px solid var(--shop-divider);
+    border-radius: var(--shop-r-md);
+    background: var(--shop-surface);
+}
+
+.vend .vend-rec-currency-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px var(--shop-s3);
+}
+
+.vend .vend-rec-currency-head h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--shop-ink);
+}
+
+.vend .vend-rec-mode {
+    align-self: flex-start;
+}
+
+.vend .shop-input.vend-rec-amount {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.vend .vend-rec-notes {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: var(--shop-s3);
+}
+
+.vend .vend-rec-note {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--shop-ink-2);
+}
+
+.vend .vend-rec-note-face {
+    min-width: 34px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-ink);
+}
+
+.vend .vend-rec-note-x {
+    color: var(--shop-mute-3);
+}
+
+.vend .vend-rec-note .shop-input {
+    text-align: right;
+}
+
+.vend .vend-rec-note:last-child {
+    grid-template-columns: auto minmax(0, 1fr);
+}
+
+/* The drawer's sums, read across: what should be there, what is, and the gap. */
+.vend .vend-rec-sum {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--shop-s3);
+    margin: 0;
+    padding-top: var(--shop-s3);
+    border-top: 1px solid var(--shop-divider);
+}
+
+.vend .vend-rec-sum > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.vend .vend-rec-sum dt {
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--shop-mute-3);
+}
+
+.vend .vend-rec-sum dd {
+    margin: 0;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-ink);
+}
+
+/* Two classes and two elements deep: app.css paints `.dark-theme table thead th`
+   navy at (0,1,2), and states the background so it has nothing to show through. */
+.vend .vend-rec-tenders {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    color: var(--shop-ink-2);
+}
+
+.vend table.vend-rec-tenders thead th {
+    padding: 0 6px 6px;
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--shop-mute-3);
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--shop-divider);
+}
+
+.vend table.vend-rec-tenders tbody td {
+    padding: 6px;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--shop-divider);
+}
+
+.vend table.vend-rec-tenders tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.vend table.vend-rec-tenders .vend-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vend table.vend-rec-tenders thead th.vend-num {
+    text-align: right;
+}
+
+.vend .vend-rec-tenders .shop-input {
+    max-width: 130px;
+    margin-left: auto;
+}
+
+.vend .vend-rec-hint {
+    margin: 0;
+    color: var(--shop-fam-warn);
+}
+
+@media (max-width: 720px) {
+    .vend .vend-rec-sum {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* The dialog is a sibling of `.shop`, and shops.css roots its chips and its
+   segmented control on `.shop`, so they arrive here bare. The same rules,
+   rooted on this dialog. */
+.vend-rec-overlay .shop-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.71rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.vend-rec-overlay .shop-chip-good {
+    background: rgba(var(--shop-fam-good-rgb), .13);
+    color: var(--shop-fam-good);
+}
+
+.vend-rec-overlay .shop-seg-btn {
+    height: 28px;
+    padding: 0 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--shop-mute);
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--shop-r-md) - 2px);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.vend-rec-overlay .shop-seg-btn:hover:not(.is-on):not(:disabled) {
+    color: var(--shop-ink-2);
+}
+
+.vend-rec-overlay .shop-seg-btn.is-on {
+    color: var(--shop-accent-text);
+    background: var(--shop-surface);
+    box-shadow: var(--shop-shadow-sm);
+}
+
+.vend-rec-overlay .shop-seg-btn:disabled {
+    cursor: default;
+}
+
+/* The table is the page here, so it takes more of the row than on Vending
+   sales, and the two sub-lines that run long are let wrap: held to one line,
+   they pushed Variance and Status off the right edge at desktop width. */
+.vend.vend-rec .vend-columns {
+    grid-template-columns: minmax(0, 2.1fr) minmax(270px, .8fr);
+}
+
+.vend .vend-rec-table .vend-rec-banked {
+    white-space: normal;
+    max-width: 150px;
+    margin-left: auto;
+}
+
+.vend .vend-rec-table .vend-person-name {
+    white-space: normal;
+}
+
+.vend .vend-rec-table .vend-rec-status {
+    margin-top: 5px;
+}
+
+.vend .vend-rec-table td.vend-num .vend-rec-flag {
+    text-align: right;
+}
+
+/* Below this the table and the side cards cannot share a row without the
+   table scrolling sideways, so the cards go underneath it. */
+@media (max-width: 1360px) {
+    .vend.vend-rec .vend-columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

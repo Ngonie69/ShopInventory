@@ -92,6 +92,9 @@ public interface IReportExportService
 
     /// <summary>The Depots &amp; vendors workbook: depots, vendors and items over a period, against the one before.</summary>
     byte[] ExportVendorPerformanceToExcel(ShopInventory.Web.Features.Vending.VendorPerformanceReport report);
+
+    /// <summary>The vending Reconciliation: every cashier-day's count against its sales, one row per currency.</summary>
+    byte[] ExportVendingReconciliationToExcel(VendingReconciliationModel reconciliation, string scopeLabel);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
     /// <param name="invoiceDocNum">The SAP invoice each order became, as the page resolved it; null when none.</param>
     /// <param name="statusName">The status as the page shows it (Invoiced, Delivered); defaults to the order's own.</param>

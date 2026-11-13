@@ -135,6 +135,12 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Every change an Admin made to a trading day's odometer readings, with the rep's own first
   public DbSet<VanRouteDayMileageCorrectionEntity> VanRouteDayMileageCorrections { get; set; }
 
+  // A vending cashier's count at the end of a day, with what the sales said, and its approval
+  public DbSet<VendingCashUpEntity> VendingCashUps { get; set; }
+  public DbSet<VendingCashUpCurrencyEntity> VendingCashUpCurrencies { get; set; }
+  public DbSet<VendingCashUpTenderEntity> VendingCashUpTenders { get; set; }
+  public DbSet<VendingCashUpDenominationEntity> VendingCashUpDenominations { get; set; }
+
   // What the office enters for a truck's day: fuel issued, account sales, the area worked
   public DbSet<VanTruckDayEntryEntity> VanTruckDayEntries { get; set; }
 
@@ -2180,6 +2186,70 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
             .WithMany()
             .HasForeignKey(e => e.CorrectedByUserId)
             .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    modelBuilder.Entity<VendingCashUpEntity>(entity =>
+    {
+      entity.ToTable("VendingCashUps");
+      entity.HasKey(e => e.Id);
+
+      // One count per cashier, per depot warehouse, per day: a second count replaces the first.
+      entity.HasIndex(e => new { e.CashierUserId, e.WarehouseCode, e.BusinessDate }).IsUnique();
+      entity.HasIndex(e => new { e.BusinessDate, e.Status });
+
+      // A calendar day, matched against the sales' DocDate; never shifted by a time zone.
+      entity.Property(e => e.BusinessDate).HasColumnType("date");
+      entity.Property(e => e.CashierUsername).IsRequired().HasMaxLength(100);
+      entity.Property(e => e.WarehouseCode).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.Status).IsRequired().HasMaxLength(20);
+
+      // No foreign key to the cashier, the capturer or the approver: a cash-up is a money record and
+      // outlives the accounts on it, so their names are snapshotted instead.
+
+      entity.HasMany(e => e.Currencies)
+            .WithOne(e => e.CashUp)
+            .HasForeignKey(e => e.CashUpId)
+            .OnDelete(DeleteBehavior.Cascade);
+      entity.HasMany(e => e.Tenders)
+            .WithOne(e => e.CashUp)
+            .HasForeignKey(e => e.CashUpId)
+            .OnDelete(DeleteBehavior.Cascade);
+      entity.HasMany(e => e.Denominations)
+            .WithOne(e => e.CashUp)
+            .HasForeignKey(e => e.CashUpId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<VendingCashUpCurrencyEntity>(entity =>
+    {
+      entity.ToTable("VendingCashUpCurrencies", table =>
+      {
+        table.HasCheckConstraint("CK_VendingCashUpCurrencies_NonNegative",
+          "\"OpeningFloat\" >= 0 AND \"CountedCash\" >= 0 AND \"Banked\" >= 0");
+      });
+      entity.HasIndex(e => new { e.CashUpId, e.Currency }).IsUnique();
+      entity.Property(e => e.Currency).IsRequired().HasMaxLength(10);
+    });
+
+    modelBuilder.Entity<VendingCashUpTenderEntity>(entity =>
+    {
+      entity.ToTable("VendingCashUpTenders", table =>
+      {
+        table.HasCheckConstraint("CK_VendingCashUpTenders_NonNegative", "\"Declared\" >= 0");
+      });
+      entity.HasIndex(e => new { e.CashUpId, e.Currency, e.Tender }).IsUnique();
+      entity.Property(e => e.Currency).IsRequired().HasMaxLength(10);
+      entity.Property(e => e.Tender).IsRequired().HasMaxLength(30);
+    });
+
+    modelBuilder.Entity<VendingCashUpDenominationEntity>(entity =>
+    {
+      entity.ToTable("VendingCashUpDenominations", table =>
+      {
+        table.HasCheckConstraint("CK_VendingCashUpDenominations_Positive", "\"Value\" > 0 AND \"Quantity\" >= 0");
+      });
+      entity.HasIndex(e => new { e.CashUpId, e.Currency, e.Value }).IsUnique();
+      entity.Property(e => e.Currency).IsRequired().HasMaxLength(10);
     });
 
     modelBuilder.Entity<RouteCustomerVisitDayEntity>(entity =>

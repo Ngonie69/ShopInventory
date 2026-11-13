@@ -118,6 +118,7 @@ Tills & Vending
     Daily Incoming Payments  /reports/desktop-sales/payments
     Depots & Vendors  /vending
     Vending Sales  /vending/sales
+    Reconciliation  /vending/reconciliation
 Van Sales
     Customer Orders  /van-sales-customer-orders
     Van Invoices  /van-sales/invoices
@@ -185,6 +186,7 @@ Tills & Vending
     Daily Incoming Payments  /reports/desktop-sales/payments
     Depots & Vendors  /vending
     Vending Sales  /vending/sales
+    Reconciliation  /vending/reconciliation
 Van Sales
     Route Customers  /route-customers
     Van Orders  /van-sales-orders
@@ -359,6 +361,7 @@ Tills & Vending
     SAP Queue  /desktop-transactions
     Depots & Vendors  /vending
     Vending Sales  /vending/sales
+    Reconciliation  /vending/reconciliation
 Van Sales
     Routes  /van-sales/routes
     Fleet  /van-sales/fleet

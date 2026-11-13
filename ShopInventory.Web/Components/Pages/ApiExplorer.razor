@@ -2040,6 +2040,23 @@ new("GET", "/api/van-sales-orders/route-load", "Get route load"),
 new("POST", "/api/van-sales-orders/{orderId}/convert", "Convert"),
 new("POST", "/api/van-sales-orders/{orderId}/delivery", "Record delivery")
 }
+},
+new ApiModule
+{
+Name = "Vending Cash-ups",
+BasePath = "/api/vending/cash-ups",
+Description = "A vending cashier's end-of-day count held against their sales, and its approval.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Success,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/vending/cash-ups", "Every cashier-day in a range: expected, counted, banked, variance, status"),
+new("GET", "/api/vending/cash-ups/sheet", "One cashier's day for the capture form, counted or not"),
+new("PUT", "/api/vending/cash-ups", "Key or re-key a count (Admin, Cashier)"),
+new("POST", "/api/vending/cash-ups/{id}/approve", "Approve a count (Admin who did not key it)"),
+new("POST", "/api/vending/cash-ups/{id}/query", "Send a count back with a question (Admin)")
+}
 }
 }
 }

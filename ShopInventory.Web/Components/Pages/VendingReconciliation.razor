@@ -1,0 +1,557 @@
+@page "/vending/reconciliation"
+@attribute [Authorize(Roles = UserRoles.VendingRoles)]
+@rendermode InteractiveServer
+@implements IDisposable
+@using System.Globalization
+@using ShopInventory.Web.Features.Vending
+
+<PageTitle>Vending Reconciliation - Shop Inventory</PageTitle>
+
+@* The Reconciliation view of `Kefalos Vending.dc.html`, deferred until a cash-up record existed. Styled
+   by shops.css and vending.css on the same `.shop vend` root as Vending sales, under `vend-rec-`.
+
+   One row per cashier per depot warehouse per day — the user's unit, where the design drew shifts. A
+   day with sales and no count says "Not cashed up" and has no counted figure and no variance: a
+   variance against nothing counted is the number this view was held back to avoid. Money is per
+   currency and never added across currencies.
+
+   From the design and not built: the "Accuracy %" figure (counted over invoiced across currencies is
+   not a percentage of anything), replaced by how many counts balanced first time; and inline Approve /
+   Query on the review list, which open the count instead, because the approval rules (who keyed it,
+   whether the sales moved) are answered on the count. *@
+
+<div class="shop vend vend-rec">
+    <div class="shop-header">
+        <div class="shop-header-left">
+            <div>
+                <div class="shop-crumb">
+                    <span>Vending</span>
+                    <i class="bi bi-chevron-right"></i>
+                    <span class="shop-crumb-here">Reconciliation</span>
+                </div>
+                <h2 class="shop-title">Reconciliation</h2>
+                <p class="shop-subtitle">
+                    Cash-up per cashier day: what the invoices say, what was counted and banked, and what is missing.
+                </p>
+            </div>
+        </div>
+        <div class="shop-header-actions">
+            <a class="shop-btn shop-btn-ghost" href="/vending/sales">
+                <i class="bi bi-receipt"></i>Vending sales
+            </a>
+            <button type="button" class="shop-btn shop-btn-ghost" @onclick="ExportAsync" disabled="@(exporting || reconciliation is null)">
+                <i class="bi bi-file-earmark-spreadsheet"></i>@(exporting ? "Exporting…" : "Variance report")
+            </button>
+            @if (canCount)
+            {
+                <button type="button" class="shop-btn shop-btn-primary" @onclick="OpenNewCashUp">
+                    <i class="bi bi-cash-coin"></i>Open cash-up
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="vend-sales-warning" role="status">
+            <i class="bi bi-exclamation-circle"></i>
+            <span>@loadError</span>
+            <button type="button" class="shop-btn shop-btn-ghost" @onclick="ReloadAsync">Try again</button>
+        </div>
+    }
+
+    @if (exportError is not null)
+    {
+        <div class="vend-sales-warning" role="status">
+            <i class="bi bi-exclamation-circle"></i>
+            <span>@exportError</span>
+        </div>
+    }
+
+    <div class="vend-kpis @(reconciliation is { Counts.CashierDays: 0 } ? "is-quiet" : null)" aria-busy="@loading">
+        <div class="vend-kpi">
+            <span class="vend-kpi-rule"></span>
+            <span class="vend-kpi-label">Banked</span>
+            <span class="vend-kpi-value">@Figure(() => MoneyList(Totals.Select(t => (t.Currency, t.Banked)), primaryOnly: true))</span>
+            <span class="vend-kpi-note">@Figure(() => BankedNote)</span>
+        </div>
+        <div class="vend-kpi">
+            <span class="vend-kpi-rule @(OpenShortfallTotal > 0 ? "is-bad" : null)"></span>
+            <span class="vend-kpi-label">Open shortfall</span>
+            <span class="vend-kpi-value @(OpenShortfallTotal > 0 ? "is-bad" : null)">@Figure(() => OpenShortfallText)</span>
+            <span class="vend-kpi-note @(OpenShortfallOthers is not null ? "is-bad" : null)">@Figure(() => (OpenShortfallOthers is { } others ? $"+ {others} · " : string.Empty) + Plural(Counts.AwaitingApproval + Counts.Queried, "count") + " awaiting review")</span>
+        </div>
+        <div class="vend-kpi">
+            <span class="vend-kpi-rule @(Counts.NotCashedUp > 0 ? "is-bad" : null)"></span>
+            <span class="vend-kpi-label">Not cashed up</span>
+            <span class="vend-kpi-value @(Counts.NotCashedUp > 0 ? "is-bad" : null)">@Figure(() => Counts.NotCashedUp.ToString("N0", CultureInfo.InvariantCulture))</span>
+            <span class="vend-kpi-note">@Figure(() => $"Of {Plural(Counts.CashierDays, "cashier-day")} {RangeWords}")</span>
+        </div>
+        <div class="vend-kpi">
+            <span class="vend-kpi-rule"></span>
+            <span class="vend-kpi-label">Balanced first count</span>
+            <span class="vend-kpi-value">@Figure(() => CountedDays == 0 ? "—" : $"{Counts.BalancedOnFirstCount:N0} of {CountedDays:N0}")</span>
+            <span class="vend-kpi-note">@Figure(() => $"{Plural(Counts.Approved, "count")} approved")</span>
+        </div>
+    </div>
+
+    <div class="shop-filter-bar">
+        <div class="shop-seg" role="group" aria-label="Period">
+            @foreach (var option in Ranges)
+            {
+                <button type="button" class="shop-seg-btn @(range == option.Range ? "is-on" : null)"
+                        aria-pressed="@(range == option.Range)" @onclick="() => SetRangeAsync(option.Range)">
+                    @option.Label
+                </button>
+            }
+        </div>
+
+        <NocturneSelect Class="nsel-auto" TValue="string" Options="DepotFilterOptions"
+                        @bind-Value="warehouseFilter" @bind-Value:after="ReloadAsync"
+                        Caption="Depot" AriaLabel="Filter by depot" Placeholder="All depots" />
+
+        <NocturneSelect Class="nsel-auto" TValue="string" Options="StatusFilterOptions"
+                        @bind-Value="statusFilter"
+                        Caption="Status" AriaLabel="Filter by status" Placeholder="Every status" />
+
+        <span class="shop-result">@ResultLabel</span>
+    </div>
+
+    <div class="vend-columns">
+        <div class="vend-column">
+            <div class="shop-table-wrap">
+                @if (loading && reconciliation is null)
+                {
+                    <div class="shop-loading vend-card-loading">
+                        <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                        <span>Loading cash-ups…</span>
+                    </div>
+                }
+                else if (reconciliation is null)
+                {
+                    <div class="shop-empty">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <h3>The cash-ups could not be loaded</h3>
+                        <p>@loadError</p>
+                    </div>
+                }
+                else if (VisibleRows.Count == 0)
+                {
+                    <div class="shop-empty">
+                        <i class="bi bi-cash-stack"></i>
+                        @if (reconciliation.Rows.Count == 0)
+                        {
+                            <h3>No vending sales @RangeWords</h3>
+                            <p>A cashier's day appears here once their till has uploaded a sale, or once their drawer is counted.</p>
+                        }
+                        else
+                        {
+                            <h3>No cash-ups match</h3>
+                            <p>Nothing @StatusWords(statusFilter) @RangeWords.</p>
+                            <button type="button" class="shop-btn shop-btn-ghost" @onclick="() => statusFilter = string.Empty">Show every status</button>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <table class="shop-table vend-rec-table">
+                        <caption class="vend-rec-caption">Cash-up sessions, newest first</caption>
+                        <thead>
+                            <tr>
+                                <th>Day</th>
+                                <th>Depot · cashier</th>
+                                <th class="vend-num">Invoiced</th>
+                                <th class="vend-num">Counted</th>
+                                <th class="vend-num">Variance · status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in VisibleRows)
+                            {
+                                <tr @key="RowKey(row)" class="vend-row" @onclick="() => OpenSheetAsync(row.CashierUserId, row.WarehouseCode, row.BusinessDate)">
+                                    <td>
+                                        <span class="vend-person-text">
+                                            <span class="vend-person-name vend-nowrap">@row.BusinessDate.ToString("ddd d MMM", CultureInfo.InvariantCulture)</span>
+                                            <span class="vend-person-sub vend-nowrap">
+                                                @(row.IsCounted ? $"Counted by {row.CapturedByName ?? "—"}" : "No count")
+                                            </span>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="vend-person-text">
+                                            <span class="vend-person-name">@row.CashierName</span>
+                                            <span class="vend-person-sub">@(row.DepotName ?? row.BusinessPartnerCode ?? "No depot") · @row.WarehouseCode</span>
+                                        </span>
+                                    </td>
+                                    <td class="vend-num">
+                                        @foreach (var currency in row.Currencies)
+                                        {
+                                            <div class="vend-rec-line">@Money(currency.Currency, currency.Invoiced)</div>
+                                        }
+                                        <div class="vend-person-sub">@Plural(row.Currencies.Sum(c => c.Sales), "sale")</div>
+                                    </td>
+                                    <td class="vend-num">
+                                        @if (!row.IsCounted)
+                                        {
+                                            <span class="vend-cell-mute">Not counted</span>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var currency in row.Currencies)
+                                            {
+                                                <div class="vend-rec-line" title="Counted @Money(currency.Currency, currency.CountedCash ?? 0m) less float @Money(currency.Currency, currency.OpeningFloat ?? 0m), plus non-cash slips">@Money(currency.Currency, currency.Accounted ?? 0m)</div>
+                                            }
+                                            <div class="vend-person-sub vend-rec-banked">banked @string.Join(" · ", row.Currencies.Select(c => Money(c.Currency, c.Banked ?? 0m)))</div>
+                                        }
+                                    </td>
+                                    <td class="vend-num">
+                                        @if (!row.IsCounted)
+                                        {
+                                            <div class="vend-rec-line vend-cell-mute">—</div>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var currency in row.Currencies)
+                                            {
+                                                <div class="vend-rec-line vend-rec-var @VarianceTone(currency.Variance)">@VarianceText(currency.Currency, currency.Variance)</div>
+                                            }
+                                        }
+                                        <span class="shop-chip vend-rec-status @StatusChip(row.Status)">@StatusLabel(row.Status)</span>
+                                        @if (row.NeedsReason)
+                                        {
+                                            <div class="vend-rec-flag is-bad">No reason given</div>
+                                        }
+                                        @if (row.SalesChangedSinceCount)
+                                        {
+                                            <div class="vend-rec-flag is-warn" title="A sale arrived after the drawer was counted. The count has to be saved again before it can be approved.">Sales changed since count</div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+
+        <div class="vend-column">
+            <section class="vend-card">
+                <header class="vend-card-head">
+                    <h3 class="vend-card-title">Needs review</h3>
+                    <span class="vend-card-aside @(ReviewRows.Count == 0 ? "is-mute" : null)">@ReviewRows.Count open</span>
+                </header>
+                @if (reconciliation is null)
+                {
+                    <p class="vend-card-empty">@(loading ? "Loading…" : "Not available.")</p>
+                }
+                else if (ReviewRows.Count == 0)
+                {
+                    <p class="vend-card-empty">No count is waiting for an Admin @RangeWords.</p>
+                }
+                else
+                {
+                    <div class="vend-rec-review">
+                        @foreach (var row in ReviewRows)
+                        {
+                            <div class="vend-rec-review-item" @key="RowKey(row)">
+                                <div class="vend-rec-review-top">
+                                    <span class="vend-rec-review-who">@row.CashierName · @(row.DepotName ?? row.WarehouseCode)</span>
+                                    <span class="vend-rec-review-var">
+                                        @if (row.Currencies.All(c => c.Variance is null or 0m))
+                                        {
+                                            <span class="vend-rec-var @VarianceTone(row.IsCounted ? 0m : null)">@(row.IsCounted ? "Balanced" : "—")</span>
+                                        }
+                                        @foreach (var currency in row.Currencies.Where(c => c.Variance is not null and not 0m))
+                                        {
+                                            <span class="vend-rec-var @VarianceTone(currency.Variance)">@VarianceText(currency.Currency, currency.Variance)</span>
+                                        }
+                                    </span>
+                                </div>
+                                <div class="vend-rec-review-note">
+                                    @row.BusinessDate.ToString("ddd d MMM", CultureInfo.InvariantCulture) ·
+                                    @if (row.Status == VendingCashUpStatus.Queried)
+                                    {
+                                        <text>Queried: @row.QueryNote</text>
+                                    }
+                                    else if (row.NeedsReason)
+                                    {
+                                        <span class="is-bad">no reason given</span>
+                                    }
+                                    else
+                                    {
+                                        @(row.VarianceReason ?? (row.Balanced ? "balanced" : string.Empty))
+                                    }
+                                </div>
+                                <div class="vend-rec-review-actions">
+                                    <span class="shop-chip @StatusChip(row.Status)">@StatusLabel(row.Status)</span>
+                                    <button type="button" class="shop-btn shop-btn-ghost"
+                                            @onclick="() => OpenSheetAsync(row.CashierUserId, row.WarehouseCode, row.BusinessDate)">
+                                        @(isAdmin && row.Status == VendingCashUpStatus.Submitted ? "Review" : "Open")
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+
+            <section class="vend-card">
+                <header class="vend-card-head">
+                    <h3 class="vend-card-title">Variance, last @Plural(RecentCountTotal, "count")</h3>
+                </header>
+                @if (RecentCounts.Count == 0)
+                {
+                    <p class="vend-card-empty">Nothing counted @RangeWords.</p>
+                }
+                else
+                {
+                    <div class="vend-mix">
+                        @foreach (var item in RecentCounts)
+                        {
+                            <div class="vend-mix-row" @key="item.Key">
+                                <div class="vend-mix-line">
+                                    <span class="vend-mix-name">@item.Label</span>
+                                    <span class="vend-mix-value vend-rec-var @VarianceTone(item.Variance)">@VarianceText(item.Currency, item.Variance)</span>
+                                </div>
+                                <span class="vend-mix-track"><span class="vend-mix-fill vend-rec-fill @VarianceTone(item.Variance)" style="width: @item.Width"></span></span>
+                            </div>
+                        }
+                    </div>
+                    <p class="vend-card-foot">@RecentSummary</p>
+                }
+            </section>
+        </div>
+    </div>
+</div>
+
+@if (sheetOpen)
+{
+    <div class="shop-overlay vend vend-rec-overlay" @onclick="CloseSheet">
+        <div class="shop-modal vend-rec-modal" role="dialog" aria-modal="true" aria-labelledby="vend-rec-title" @onclick:stopPropagation="true">
+            <div class="shop-modal-header">
+                <h2 id="vend-rec-title">@SheetTitle</h2>
+                <button type="button" class="shop-modal-close" aria-label="Close" @onclick="CloseSheet"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="shop-modal-body">
+                @if (pickingCashier)
+                {
+                    <div class="shop-form-grid">
+                        <div class="shop-form-field">
+                            <label>Cashier <span class="required">*</span></label>
+                            <NocturneSelect Class="nsel-block" TValue="string" Options="CashierOptions"
+                                            @bind-Value="pickedCashier" @bind-Value:after="LoadPickedSheetAsync"
+                                            AriaLabel="Cashier" Placeholder="Choose a cashier" />
+                        </div>
+                        <div class="shop-form-field">
+                            <label>Day <span class="required">*</span></label>
+                            <NocturneDateField Date="pickedDate" DateChanged="OnPickedDateChanged" AriaLabel="Day counted" />
+                        </div>
+                    </div>
+                }
+
+                @if (sheetLoading)
+                {
+                    <div class="shop-loading"><MudProgressCircular Indeterminate="true" Size="Size.Small" /><span>Loading the day…</span></div>
+                }
+                else if (sheetError is not null && sheet is null)
+                {
+                    <div class="shop-alert"><i class="bi bi-exclamation-triangle"></i><span>@sheetError</span></div>
+                }
+                else if (sheet is not null && form is not null)
+                {
+                    <div class="vend-rec-sheet-status">
+                        <span class="shop-chip @StatusChip(sheet.Status)">@StatusLabel(sheet.Status)</span>
+                        <span class="vend-cell-mute">@SheetTrail</span>
+                    </div>
+
+                    @if (sheet.Status == VendingCashUpStatus.Queried && sheet.QueryNote is not null)
+                    {
+                        <div class="shop-form-note vend-rec-query">
+                            <i class="bi bi-question-circle"></i>
+                            <span><strong>@sheet.QueriedByName asked:</strong> @sheet.QueryNote Save the count again to answer.</span>
+                        </div>
+                    }
+
+                    @if (sheet.SalesChangedSinceCount)
+                    {
+                        <div class="shop-form-note vend-rec-changed">
+                            <i class="bi bi-arrow-repeat"></i>
+                            <span>Sales have changed since this count was saved. The figures below are against the sales now; save the count again before it is approved.</span>
+                        </div>
+                    }
+
+                    @foreach (var currency in form.Currencies)
+                    {
+                        <section class="vend-rec-currency" @key="currency.Currency">
+                            <header class="vend-rec-currency-head">
+                                <h3>@CurrencyLabel(currency.Currency)</h3>
+                                <span class="vend-cell-mute">@Plural(currency.ExpectedSales, "cash sale") · @Money(currency.Currency, currency.ExpectedCash) expected</span>
+                            </header>
+
+                            <div class="shop-form-grid">
+                                <div class="shop-form-field">
+                                    <label>Opening float</label>
+                                    <input class="shop-input vend-rec-amount" type="number" min="0" step="0.01" inputmode="decimal"
+                                           disabled="@ReadOnly" @bind="currency.OpeningFloat" @bind:event="oninput" placeholder="0.00" />
+                                </div>
+                                <div class="shop-form-field">
+                                    <label>Count by</label>
+                                    <div class="shop-seg vend-rec-mode" role="group" aria-label="Count by">
+                                        <button type="button" class="shop-seg-btn @(!currency.ByNotes ? "is-on" : null)" disabled="@ReadOnly"
+                                                aria-pressed="@(!currency.ByNotes)" @onclick="() => currency.ByNotes = false">Total</button>
+                                        <button type="button" class="shop-seg-btn @(currency.ByNotes ? "is-on" : null)" disabled="@ReadOnly"
+                                                aria-pressed="@currency.ByNotes" @onclick="() => currency.ByNotes = true">Notes &amp; coins</button>
+                                    </div>
+                                </div>
+
+                                @if (currency.ByNotes)
+                                {
+                                    <div class="shop-form-full vend-rec-notes">
+                                        @foreach (var value in currency.NoteValues)
+                                        {
+                                            <label class="vend-rec-note" @key="value">
+                                                <span class="vend-rec-note-face">@value.ToString("0", CultureInfo.InvariantCulture)</span>
+                                                <span class="vend-rec-note-x">×</span>
+                                                <input class="shop-input" type="number" min="0" step="1" inputmode="numeric" disabled="@ReadOnly"
+                                                       aria-label="@($"{CurrencyLabel(currency.Currency)} {value} notes")"
+                                                       value="@NoteQuantity(currency, value)"
+                                                       @oninput="e => SetNoteQuantity(currency, value, e.Value)" />
+                                            </label>
+                                        }
+                                        <label class="vend-rec-note">
+                                            <span class="vend-rec-note-face">Coins</span>
+                                            <input class="shop-input" type="number" min="0" step="0.01" inputmode="decimal" disabled="@ReadOnly"
+                                                   aria-label="@($"{CurrencyLabel(currency.Currency)} coins, total")"
+                                                   @bind="currency.Coins" @bind:event="oninput" placeholder="0.00" />
+                                        </label>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="shop-form-field">
+                                        <label>Counted in the drawer <span class="required">*</span></label>
+                                        <input class="shop-input vend-rec-amount" type="number" min="0" step="0.01" inputmode="decimal"
+                                               disabled="@ReadOnly" @bind="currency.Total" @bind:event="oninput" placeholder="Float included" />
+                                    </div>
+                                    <div class="shop-form-field"></div>
+                                }
+
+                                <div class="shop-form-field">
+                                    <label>Banked</label>
+                                    <input class="shop-input vend-rec-amount" type="number" min="0" step="0.01" inputmode="decimal"
+                                           disabled="@ReadOnly" @bind="currency.Banked" @bind:event="oninput" placeholder="0.00" />
+                                </div>
+                                <div class="shop-form-field">
+                                    <label>Deposit reference</label>
+                                    <input class="shop-input" type="text" maxlength="100" disabled="@ReadOnly"
+                                           @bind="currency.DepositReference" placeholder="Slip or reference number" />
+                                </div>
+                            </div>
+
+                            <dl class="vend-rec-sum">
+                                <div><dt>Should be in the drawer</dt><dd>@Money(currency.Currency, currency.ExpectedInDrawer)</dd></div>
+                                <div><dt>Counted</dt><dd>@(currency.Counted is { } counted ? Money(currency.Currency, counted) : "Not counted")</dd></div>
+                                <div><dt>To bank</dt><dd>@(currency.ToBank is { } toBank ? Money(currency.Currency, toBank) : "—")</dd></div>
+                                <div><dt>Variance</dt><dd class="vend-rec-var @VarianceTone(currency.Variance)">@VarianceText(currency.Currency, currency.Variance)</dd></div>
+                            </dl>
+                        </section>
+                    }
+
+                    <section class="vend-rec-currency">
+                        <header class="vend-rec-currency-head">
+                            <h3>Non-cash tenders</h3>
+                            <span class="vend-cell-mute">As the slips or statements show them</span>
+                        </header>
+                        <table class="vend-rec-tenders">
+                            <thead>
+                                <tr><th>Tender</th><th class="vend-num">Expected</th><th class="vend-num">Declared</th><th class="vend-num">Variance</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var tender in form.Tenders)
+                                {
+                                    <tr @key="(tender.Currency, tender.Tender)">
+                                        <td>@tender.Tender <span class="vend-cell-mute">@CurrencyLabel(tender.Currency)</span></td>
+                                        <td class="vend-num">@tender.Expected.ToString("N2", CultureInfo.InvariantCulture)</td>
+                                        <td class="vend-num">
+                                            @if (tender.Declarable)
+                                            {
+                                                <input class="shop-input vend-rec-amount" type="number" min="0" step="0.01" inputmode="decimal" disabled="@ReadOnly"
+                                                       aria-label="@($"{tender.Tender} {CurrencyLabel(tender.Currency)} declared")"
+                                                       @bind="tender.Declared" @bind:event="oninput" placeholder="0.00" />
+                                            }
+                                            else
+                                            {
+                                                <span class="vend-cell-mute" title="Not a tender a till takes today">—</span>
+                                            }
+                                        </td>
+                                        <td class="vend-num vend-rec-var @VarianceTone(tender.Variance)">@VarianceText(tender.Currency, tender.Variance)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <div class="shop-form-field">
+                        <label>Reason for the variance @if (form.HasVariance) { <span class="required">*</span> }</label>
+                        <textarea class="shop-input" maxlength="500" rows="2" disabled="@ReadOnly"
+                                  @bind="form.VarianceReason" @bind:event="oninput"
+                                  placeholder="@(form.HasVariance ? "Required before an Admin can approve it" : "Only needed when the count is off")"></textarea>
+                    </div>
+                    <div class="shop-form-field">
+                        <label>Note</label>
+                        <textarea class="shop-input" maxlength="1000" rows="2" disabled="@ReadOnly"
+                                  @bind="form.Note" placeholder="Anything else to keep with the count"></textarea>
+                    </div>
+
+                    @if (querying)
+                    {
+                        <div class="shop-form-field">
+                            <label>Question for whoever counted it <span class="required">*</span></label>
+                            <textarea class="shop-input" maxlength="500" rows="2" @bind="queryNote" @bind:event="oninput"
+                                      placeholder="What needs answering before this is approved"></textarea>
+                        </div>
+                    }
+
+                    @if (ApprovalHint is { } hint)
+                    {
+                        <p class="shop-form-hint vend-rec-hint">@hint</p>
+                    }
+
+                    @if (sheetError is not null)
+                    {
+                        <div class="shop-alert" role="alert"><i class="bi bi-exclamation-triangle"></i><span>@sheetError</span></div>
+                    }
+                }
+            </div>
+
+            <div class="shop-modal-footer">
+                <button type="button" class="shop-btn shop-btn-ghost" @onclick="CloseSheet">@(ReadOnly ? "Close" : "Cancel")</button>
+                @if (sheet is not null && form is not null)
+                {
+                    @if (CanDecide)
+                    {
+                        @if (querying)
+                        {
+                            <button type="button" class="shop-btn shop-btn-ghost" @onclick="() => querying = false" disabled="@busy">Back</button>
+                            <button type="button" class="shop-btn shop-btn-danger" @onclick="SendQueryAsync"
+                                    disabled="@(busy || string.IsNullOrWhiteSpace(queryNote))">Send back</button>
+                        }
+                        else
+                        {
+                            <button type="button" class="shop-btn shop-btn-ghost" @onclick="() => querying = true" disabled="@(busy || IsDirty)">Query</button>
+                            <button type="button" class="shop-btn shop-btn-primary" @onclick="ApproveAsync" disabled="@(busy || !CanApprove)">Approve</button>
+                        }
+                    }
+                    @if (!ReadOnly && !querying)
+                    {
+                        <button type="button" class="shop-btn @(CanDecide ? "shop-btn-ghost" : "shop-btn-primary")" @onclick="SaveAsync"
+                                disabled="@(busy || !form.IsComplete || (!IsDirty && sheet.CashUpId is not null && !sheet.SalesChangedSinceCount && sheet.Status != VendingCashUpStatus.Queried))">
+                            @(busy ? "Saving…" : sheet.CashUpId is null ? "Save count" : "Save recount")
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}

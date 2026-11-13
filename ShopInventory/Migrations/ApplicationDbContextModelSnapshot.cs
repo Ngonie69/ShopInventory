@@ -8744,6 +8744,229 @@ namespace ShopInventory.Migrations
                     b.ToTable("VehicleTemperatureSamples", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.VendingCashUpCurrencyEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Banked")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("CashUpId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("CountedCash")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("DepositReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("ExpectedCash")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("ExpectedCashSales")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("OpeningFloat")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CashUpId", "Currency")
+                        .IsUnique();
+
+                    b.ToTable("VendingCashUpCurrencies", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_VendingCashUpCurrencies_NonNegative", "\"OpeningFloat\" >= 0 AND \"CountedCash\" >= 0 AND \"Banked\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.VendingCashUpDenominationEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CashUpId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("Value")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CashUpId", "Currency", "Value")
+                        .IsUnique();
+
+                    b.ToTable("VendingCashUpDenominations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_VendingCashUpDenominations_Positive", "\"Value\" > 0 AND \"Quantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.VendingCashUpEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ApprovedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ApprovedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("BalancedOnFirstCount")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("BusinessDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("BusinessPartnerCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CapturedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CapturedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("CapturedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CashierUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CashierUsername")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("QueriedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("QueriedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("QueriedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("QueryNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SavedByUserIds")
+                        .IsRequired()
+                        .HasMaxLength(800)
+                        .HasColumnType("character varying(800)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VarianceReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessDate", "Status");
+
+                    b.HasIndex("CashierUserId", "WarehouseCode", "BusinessDate")
+                        .IsUnique();
+
+                    b.ToTable("VendingCashUps", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.VendingCashUpTenderEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CashUpId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<decimal>("Declared")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("Expected")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Tender")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CashUpId", "Currency", "Tender")
+                        .IsUnique();
+
+                    b.ToTable("VendingCashUpTenders", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_VendingCashUpTenders_NonNegative", "\"Declared\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.WhatsAppWebhookEventEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -10503,6 +10726,39 @@ namespace ShopInventory.Migrations
                     b.Navigation("Route");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.VendingCashUpCurrencyEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.VendingCashUpEntity", "CashUp")
+                        .WithMany("Currencies")
+                        .HasForeignKey("CashUpId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CashUp");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.VendingCashUpDenominationEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.VendingCashUpEntity", "CashUp")
+                        .WithMany("Denominations")
+                        .HasForeignKey("CashUpId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CashUp");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.VendingCashUpTenderEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.VendingCashUpEntity", "CashUp")
+                        .WithMany("Tenders")
+                        .HasForeignKey("CashUpId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CashUp");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Notification", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "User")
@@ -10743,6 +10999,15 @@ namespace ShopInventory.Migrations
             modelBuilder.Entity("ShopInventory.Models.Entities.VanSalesOrderEntity", b =>
                 {
                     b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.VendingCashUpEntity", b =>
+                {
+                    b.Navigation("Currencies");
+
+                    b.Navigation("Denominations");
+
+                    b.Navigation("Tenders");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.User", b =>

@@ -33,6 +33,36 @@ public interface IVendingService
     Task<(ImportVendorsResultModel? Result, string? Error)> ImportVendorsAsync(
         ImportVendorsRequestModel request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every vending cashier-day in a range with its count, or the reason the read failed. A day with no
+    /// count comes back as "not cashed up", with no counted figure and no variance.
+    /// </summary>
+    Task<(VendingReconciliationModel? Reconciliation, string? Error)> GetReconciliationAsync(
+        DateTime from,
+        DateTime to,
+        string? warehouseCode,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>One cashier's day for the capture form, counted or not.</summary>
+    Task<(VendingCashUpSheetModel? Sheet, string? Error)> GetCashUpSheetAsync(
+        Guid cashierUserId,
+        string warehouseCode,
+        DateTime date,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Keys or re-keys a count. Returns the day as saved, or the server's refusal in its words.</summary>
+    Task<(VendingCashUpSheetModel? Sheet, string? Error)> SaveCashUpAsync(
+        SaveVendingCashUpRequestModel request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Approves a count (<paramref name="approve"/> true) or sends it back with <paramref name="note"/>.</summary>
+    Task<(VendingCashUpSheetModel? Sheet, string? Error)> DecideCashUpAsync(
+        int cashUpId,
+        int expectedRevision,
+        bool approve,
+        string? note,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -178,6 +208,83 @@ public class VendingService(
         }
     }
 
+    public Task<(VendingReconciliationModel? Reconciliation, string? Error)> GetReconciliationAsync(
+        DateTime from,
+        DateTime to,
+        string? warehouseCode,
+        CancellationToken cancellationToken = default)
+    {
+        var url = $"api/vending/cash-ups?from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}" +
+            (string.IsNullOrWhiteSpace(warehouseCode) ? string.Empty : $"&warehouseCode={Uri.EscapeDataString(warehouseCode)}");
+        return SendCashUpAsync<VendingReconciliationModel>(
+            () => httpClient.GetAsync(url, cancellationToken),
+            "GET api/vending/cash-ups", "The reconciliation could not be loaded", cancellationToken);
+    }
+
+    public Task<(VendingCashUpSheetModel? Sheet, string? Error)> GetCashUpSheetAsync(
+        Guid cashierUserId,
+        string warehouseCode,
+        DateTime date,
+        CancellationToken cancellationToken = default)
+    {
+        var url = $"api/vending/cash-ups/sheet?cashierUserId={cashierUserId}&warehouseCode={Uri.EscapeDataString(warehouseCode)}&date={date:yyyy-MM-dd}";
+        return SendCashUpAsync<VendingCashUpSheetModel>(
+            () => httpClient.GetAsync(url, cancellationToken),
+            "GET api/vending/cash-ups/sheet", "The cash-up could not be loaded", cancellationToken);
+    }
+
+    public Task<(VendingCashUpSheetModel? Sheet, string? Error)> SaveCashUpAsync(
+        SaveVendingCashUpRequestModel request,
+        CancellationToken cancellationToken = default) =>
+        SendCashUpAsync<VendingCashUpSheetModel>(
+            () => httpClient.PutAsJsonAsync("api/vending/cash-ups", request, cancellationToken),
+            "PUT api/vending/cash-ups", "The cash-up could not be saved", cancellationToken);
+
+    public Task<(VendingCashUpSheetModel? Sheet, string? Error)> DecideCashUpAsync(
+        int cashUpId,
+        int expectedRevision,
+        bool approve,
+        string? note,
+        CancellationToken cancellationToken = default)
+    {
+        var verb = approve ? "approve" : "query";
+        return SendCashUpAsync<VendingCashUpSheetModel>(
+            () => httpClient.PostAsJsonAsync($"api/vending/cash-ups/{cashUpId}/{verb}", new { expectedRevision, note }, cancellationToken),
+            $"POST api/vending/cash-ups/{{id}}/{verb}",
+            approve ? "The cash-up could not be approved" : "The cash-up could not be queried",
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Sends a cash-up call as the signed-in user and reads its answer. A 403 here is read for its detail
+    /// rather than answered generically: "you keyed this count" is a refusal the Admin needs in words.
+    /// </summary>
+    private async Task<(T? Value, string? Error)> SendCashUpAsync<T>(
+        Func<Task<HttpResponseMessage>> send,
+        string operation,
+        string failure,
+        CancellationToken cancellationToken) where T : class
+    {
+        try
+        {
+            using var response = await SendAuthenticatedAsync(send);
+            if (response.IsSuccessStatusCode)
+            {
+                var value = await response.Content.ReadFromJsonAsync<T>(cancellationToken);
+                return value is null ? (null, $"{failure}: the server returned nothing.") : (value, null);
+            }
+
+            var problem = await ReadProblemDetailAsync(response, cancellationToken, readForbidden: true);
+            logger.LogWarning("{Operation} failed with {Status}: {Detail}", operation, (int)response.StatusCode, problem);
+            return (null, problem);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "{Operation} failed", operation);
+            return (null, $"{failure}. Try again shortly.");
+        }
+    }
+
     /// <summary>A detached copy, so an edit in progress never touches the row on screen.</summary>
     public static RouteCustomerModel Copy(RouteCustomerModel vendor) => new()
     {
@@ -206,9 +313,10 @@ public class VendingService(
 
     private static async Task<string> ReadProblemDetailAsync(
         HttpResponseMessage response,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool readForbidden = false)
     {
-        if (response.StatusCode is System.Net.HttpStatusCode.Forbidden)
+        if (response.StatusCode is System.Net.HttpStatusCode.Forbidden && !readForbidden)
         {
             return "Your account is not allowed to make this change.";
         }
@@ -216,6 +324,16 @@ public class VendingService(
         try
         {
             var problem = await response.Content.ReadFromJsonAsync<ProblemShape>(cancellationToken);
+            if (response.StatusCode is System.Net.HttpStatusCode.Forbidden && string.IsNullOrWhiteSpace(problem?.Detail))
+            {
+                return "Your account is not allowed to make this change.";
+            }
+
+            // A validation refusal's own sentences are in `errors`; its detail only says there were some.
+            if (problem?.Errors is { Count: > 0 } messages)
+            {
+                return string.Join(" ", messages.Values.SelectMany(texts => texts).Where(text => !string.IsNullOrWhiteSpace(text)).Distinct());
+            }
 
             if (!string.IsNullOrWhiteSpace(problem?.Detail))
             {
@@ -236,5 +354,6 @@ public class VendingService(
     {
         public string? Title { get; set; }
         public string? Detail { get; set; }
+        public Dictionary<string, string[]>? Errors { get; set; }
     }
 }
