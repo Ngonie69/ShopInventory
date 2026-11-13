@@ -57,6 +57,10 @@ public sealed class ApprovalStageProgressModel
     public int ApprovalCount { get; set; }
     public int RejectionCount { get; set; }
     public string Status { get; set; } = "Pending";
+
+    /// <summary>Met by an administrator raising the document, or changing it, rather than by a decision.</summary>
+    public bool ApprovedByAdministrator { get; set; }
+
     public List<Guid> AuthorizerUserIds { get; set; } = [];
     public List<string> AuthorizerRoles { get; set; } = [];
     public string WarehouseScope { get; set; } = ApprovalWarehouseScopes.Any;
@@ -108,6 +112,10 @@ public sealed class ApprovalRoutePreviewModel
     public bool Matched { get; set; }
     public Guid? TemplateId { get; set; }
     public string? TemplateName { get; set; }
+
+    /// <summary>The raiser is an administrator: every stage is met as they submit, so it posts at once.</summary>
+    public bool ApprovedOnRaising { get; set; }
+
     public List<ApprovalRoutePreviewStageModel> Stages { get; set; } = [];
 }
 

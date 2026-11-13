@@ -363,6 +363,10 @@ public class TransferRequestCreatedResponse
 
     [JsonPropertyName("transferRequest")]
     public InventoryTransferRequestDto? TransferRequest { get; set; }
+
+    /// <summary>False when the request was approved as it was raised: every request an administrator raises.</summary>
+    [JsonPropertyName("requiresApproval")]
+    public bool RequiresApproval { get; set; } = true;
 }
 
 /// <summary>

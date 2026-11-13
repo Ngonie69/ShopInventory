@@ -281,19 +281,18 @@ public sealed class TransferRequestConversionTests : IDisposable
     }
 
     [Fact]
-    public async Task The_person_who_raised_a_request_cannot_approve_it_by_converting()
+    public async Task An_administrator_converts_their_own_request_without_a_second_approver()
     {
-        // Admin holds every stage, so without this an administrator could raise a request and post
-        // it with nobody else looking.
+        // An administrator's request is approved as it is raised, so converting it posts at once
+        // and records no decision: nobody else was asked, and nobody needs to be.
         var admin = await AddUserAsync(ApplicationRoles.Admin);
         await OpenApprovalAsync(admin);
         var sap = new RecordingSapClient();
 
         var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
 
-        Assert.True(result.IsError);
-        Assert.Equal("InventoryTransfer.SelfApprovalNotAllowed", result.FirstError.Code);
-        Assert.Equal(0, sap.Conversions);
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Equal(1, sap.Conversions);
         Assert.Empty(Assert.Single(_context.ApprovalRequests.Include(item => item.Decisions)).Decisions);
     }
 

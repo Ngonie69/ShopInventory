@@ -123,7 +123,8 @@ public sealed class CreateTransferRequestHandler(
             postCommitted = true;
 
             var transferRequest = await sapClient.CreateInventoryTransferRequestAsync(request, CancellationToken.None);
-            await approvalService.EnsureRequestAsync(transferRequest, requestingUser.Id, CancellationToken.None);
+            var approval = await approvalService.EnsureRequestAsync(transferRequest, requestingUser.Id, CancellationToken.None);
+            var requiresApproval = approval.Status != ApprovalRequestStatuses.Approved;
 
             logger.LogInformation("Transfer request created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, From: {FromWarehouse}, To: {ToWarehouse}",
                 transferRequest.DocEntry, transferRequest.DocNum, request.FromWarehouse, request.ToWarehouse);
@@ -165,8 +166,11 @@ public sealed class CreateTransferRequestHandler(
 
             return new TransferRequestCreatedResponseDto
             {
-                Message = "Transfer request created successfully",
-                TransferRequest = transferRequestDto
+                Message = requiresApproval
+                    ? $"Transfer request #{transferRequest.DocNum} created and sent for approval."
+                    : $"Transfer request #{transferRequest.DocNum} created and approved as raised by an administrator. Convert it to post the transfer.",
+                TransferRequest = transferRequestDto,
+                RequiresApproval = requiresApproval
             };
         }
         catch (ArgumentException ex)

@@ -293,6 +293,7 @@ public sealed class InventoryTransferApprovalService(
         if (orderedStages.Count == 0)
             throw new InvalidOperationException($"Approval template '{template.Name}' has no active approval stages.");
         await AddReceivingOwnerStageAsync(orderedStages, document, originator, cancellationToken);
+        MarkApprovedByAdministrator(orderedStages, originator);
 
         var request = new ApprovalRequestEntity
         {
@@ -310,8 +311,9 @@ public sealed class InventoryTransferApprovalService(
             Status = document.AlreadyClosed
                 ? ApprovalRequestStatuses.Generated
                 // Only when every stage is already met by the requester's own consent — a template
-                // whose one stage is the receiving owner, raised by that owner. Any other stage
-                // needs a decision, so this is Pending in every ordinary case.
+                // whose one stage is the receiving owner, raised by that owner, or anything an
+                // administrator raises. Any other stage needs a decision, so this is Pending in
+                // every ordinary case.
                 : BuildProgress(new ApprovalRequestEntity(), orderedStages)
                     .All(stage => stage.Status == ApprovalRequestStatuses.Approved)
                     ? ApprovalRequestStatuses.Approved
@@ -445,7 +447,7 @@ public sealed class InventoryTransferApprovalService(
         // Approval is a second pair of eyes, so the person who raised a document, or who changed it
         // after it was approved, cannot be that pair. Turning their own document down is allowed:
         // that only stops it, which they could do by withdrawing it anyway.
-        if (decision == ApprovalDecisionValues.Approved && OwnDecisionError(request, authorizer.Id) is { } own)
+        if (decision == ApprovalDecisionValues.Approved && OwnDecisionError(request, authorizer) is { } own)
             return own;
 
         var snapshots = Deserialize<ApprovalStageSnapshot>(request.StageSnapshotsJson);
@@ -592,21 +594,36 @@ public sealed class InventoryTransferApprovalService(
     /// Why <paramref name="userId"/> may not approve <paramref name="request"/>, or null when they may.
     /// </summary>
     /// <remarks>
-    /// Admin is an authorizer on every stage, and with the default templates every document an
-    /// administrator raises goes to Administrator Review, so without this one administrator could
-    /// raise, approve and post a transfer with nobody else looking at it.
+    /// Everyone but an administrator: what an administrator raises or changes is approved as they do
+    /// it (<see cref="ApprovalStageSnapshot.ApprovedByAdministrator"/>), so their own approval is no
+    /// different. It is still allowed here for a document that waits on them anyway — one raised
+    /// before that rule, or one someone else changed after they raised it.
     /// </remarks>
-    public static Error? OwnDecisionError(ApprovalRequestEntity request, Guid userId)
+    public static Error? OwnDecisionError(ApprovalRequestEntity request, User user)
     {
-        if (request.OriginatorUserId == userId)
+        if (IsAdministrator(user))
+            return null;
+        if (request.OriginatorUserId == user.Id)
             return Errors.InventoryTransfer.OwnDocumentApprovalNotAllowed(DocumentLabel(request.DocumentType).ToLowerInvariant());
-        if (request.ReopenedByUserId == userId)
+        if (request.ReopenedByUserId == user.Id)
             return Errors.InventoryTransfer.OwnChangeApprovalNotAllowed(DocumentLabel(request.DocumentType).ToLowerInvariant());
         return null;
     }
 
-    /// <summary>Whether <paramref name="userId"/> may approve <paramref name="request"/> at all.</summary>
-    public static bool MayApprove(ApprovalRequestEntity request, Guid userId) => OwnDecisionError(request, userId) is null;
+    /// <summary>Whether <paramref name="user"/> may approve <paramref name="request"/> at all.</summary>
+    public static bool MayApprove(ApprovalRequestEntity request, User user) => OwnDecisionError(request, user) is null;
+
+    /// <summary>
+    /// Marks every stage met when <paramref name="actor"/> is an administrator. Administrators decide
+    /// every stage of every template, so a second administrator's sign-off on their transfers was the
+    /// only thing the approval asked for; they post their own transfers directly instead.
+    /// </summary>
+    private static void MarkApprovedByAdministrator(List<ApprovalStageSnapshot> stages, User? actor)
+    {
+        var approved = actor is not null && IsAdministrator(actor);
+        foreach (var stage in stages)
+            stage.ApprovedByAdministrator = approved;
+    }
 
     public async Task<bool> CanAuthorizePendingStageAsync(
         ApprovalDocumentContext document,
@@ -657,9 +674,19 @@ public sealed class InventoryTransferApprovalService(
         // Re-aimed by the same rule it was opened under — and added if the request predates it, or
         // first delivered only to vans and now delivers somewhere that has an owner.
         await AddReceivingOwnerStageAsync(snapshots, document, originator, cancellationToken);
+        // Judged by who made this change, not who first raised it: an administrator's change stands
+        // approved, and anyone else's change to an administrator's transfer waits like any other.
+        var reopenedBy = await context.Users.AsNoTracking()
+            .FirstOrDefaultAsync(user => user.Id == reopenedByUserId, cancellationToken);
+        MarkApprovedByAdministrator(snapshots, reopenedBy);
         request.StageSnapshotsJson = Serialize(snapshots);
         request.FromWarehouse = RouteLabel(document.SourceWarehouses, document.FromWarehouse);
         request.ToWarehouse = RouteLabel(document.DestinationWarehouses, document.ToWarehouse);
+        if (BuildProgress(request, snapshots).All(stage => stage.Status == ApprovalRequestStatuses.Approved))
+        {
+            request.Status = ApprovalRequestStatuses.Approved;
+            request.CompletedAtUtc = DateTime.UtcNow;
+        }
         await context.SaveChangesAsync(cancellationToken);
 
         // The approvers' earlier alerts were cleared when the approval completed, and one alert per
@@ -846,7 +873,13 @@ public sealed class InventoryTransferApprovalService(
                            (userIds.Contains(user.Id) || roles.Contains(user.Role)))
             .ToListAsync(cancellationToken);
 
-        var preview = new ApprovalRoutePreviewDto { Matched = true, TemplateId = template.Id, TemplateName = template.Name };
+        var preview = new ApprovalRoutePreviewDto
+        {
+            Matched = true,
+            TemplateId = template.Id,
+            TemplateName = template.Name,
+            ApprovedOnRaising = originator is not null && IsAdministrator(originator)
+        };
         foreach (var snapshot in snapshots)
         {
             var stage = BuildProgress(new ApprovalRequestEntity(), [snapshot])[0];
@@ -1170,10 +1203,10 @@ public sealed class InventoryTransferApprovalService(
                 }).ToList()
                 : [];
 
-            var approved = warehouseProgress.Count > 0
+            var approved = stage.ApprovedByAdministrator || (warehouseProgress.Count > 0
                 ? warehouseProgress.All(item => item.Status == ApprovalRequestStatuses.Approved)
                 : approvals >= stage.ApprovalsRequired ||
-                  (scopeWarehouses.Count > 0 && scopeWarehouses.All(Consented));
+                  (scopeWarehouses.Count > 0 && scopeWarehouses.All(Consented)));
             var status = rejections >= stage.RejectionsRequired ? ApprovalRequestStatuses.NotApproved
                 : approved ? ApprovalRequestStatuses.Approved
                 : ApprovalRequestStatuses.Pending;
@@ -1185,6 +1218,7 @@ public sealed class InventoryTransferApprovalService(
                 RejectionsRequired = stage.RejectionsRequired,
                 ApprovalCount = warehouseProgress.Count > 0 ? warehouseProgress.Sum(item => Math.Min(item.ApprovalCount, item.ApprovalsRequired)) : approvals,
                 RejectionCount = rejections, Status = status,
+                ApprovedByAdministrator = stage.ApprovedByAdministrator,
                 AuthorizerUserIds = stage.AuthorizerUserIds, AuthorizerRoles = stage.AuthorizerRoles,
                 WarehouseScope = scope,
                 ApprovalPerWarehouse = stage.ApprovalPerWarehouse,
@@ -1300,7 +1334,7 @@ public sealed class InventoryTransferApprovalService(
                 // warehouse-scoped stage, includes every stock officer not assigned to the warehouse.
                 foreach (var recipient in recipients
                              .Where(user => !decidedUserIds.Contains(user.Id) &&
-                                            MayApprove(request, user.Id) &&
+                                            MayApprove(request, user) &&
                                             CanAdvance(user, stage))
                              .DistinctBy(user => user.Id))
                 {
@@ -1623,5 +1657,11 @@ public sealed class InventoryTransferApprovalService(
 
         /// <summary>Scope warehouses the requester runs, approved by their raising the request.</summary>
         public List<string> ConsentedWarehouses { get; set; } = [];
+
+        /// <summary>
+        /// Met by an administrator raising the document, or changing it after approval: their own
+        /// transfers post without a second approver. False on every snapshot written before it.
+        /// </summary>
+        public bool ApprovedByAdministrator { get; set; }
     }
 }
