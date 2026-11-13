@@ -79,7 +79,7 @@
             <span class="vend-kpi-rule @(OpenShortfallTotal > 0 ? "is-bad" : null)"></span>
             <span class="vend-kpi-label">Open shortfall</span>
             <span class="vend-kpi-value @(OpenShortfallTotal > 0 ? "is-bad" : null)">@Figure(() => OpenShortfallText)</span>
-            <span class="vend-kpi-note">@Figure(() => Plural(Counts.AwaitingApproval + Counts.Queried, "count") + " awaiting review")</span>
+            <span class="vend-kpi-note @(OpenShortfallOthers is not null ? "is-bad" : null)">@Figure(() => (OpenShortfallOthers is { } others ? $"+ {others} · " : string.Empty) + Plural(Counts.AwaitingApproval + Counts.Queried, "count") + " awaiting review")</span>
         </div>
         <div class="vend-kpi">
             <span class="vend-kpi-rule @(Counts.NotCashedUp > 0 ? "is-bad" : null)"></span>
@@ -162,9 +162,7 @@
                                 <th>Depot · cashier</th>
                                 <th class="vend-num">Invoiced</th>
                                 <th class="vend-num">Counted</th>
-                                <th class="vend-num">Banked</th>
-                                <th class="vend-num">Variance</th>
-                                <th>Status</th>
+                                <th class="vend-num">Variance · status</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -203,25 +201,13 @@
                                             {
                                                 <div class="vend-rec-line" title="Counted @Money(currency.Currency, currency.CountedCash ?? 0m) less float @Money(currency.Currency, currency.OpeningFloat ?? 0m), plus non-cash slips">@Money(currency.Currency, currency.Accounted ?? 0m)</div>
                                             }
+                                            <div class="vend-person-sub vend-rec-banked">banked @string.Join(" · ", row.Currencies.Select(c => Money(c.Currency, c.Banked ?? 0m)))</div>
                                         }
                                     </td>
                                     <td class="vend-num">
                                         @if (!row.IsCounted)
                                         {
-                                            <span class="vend-cell-mute">—</span>
-                                        }
-                                        else
-                                        {
-                                            @foreach (var currency in row.Currencies)
-                                            {
-                                                <div class="vend-rec-line">@Money(currency.Currency, currency.Banked ?? 0m)</div>
-                                            }
-                                        }
-                                    </td>
-                                    <td class="vend-num">
-                                        @if (!row.IsCounted)
-                                        {
-                                            <span class="vend-cell-mute">—</span>
+                                            <div class="vend-rec-line vend-cell-mute">—</div>
                                         }
                                         else
                                         {
@@ -230,9 +216,7 @@
                                                 <div class="vend-rec-line vend-rec-var @VarianceTone(currency.Variance)">@VarianceText(currency.Currency, currency.Variance)</div>
                                             }
                                         }
-                                    </td>
-                                    <td>
-                                        <span class="shop-chip @StatusChip(row.Status)">@StatusLabel(row.Status)</span>
+                                        <span class="shop-chip vend-rec-status @StatusChip(row.Status)">@StatusLabel(row.Status)</span>
                                         @if (row.NeedsReason)
                                         {
                                             <div class="vend-rec-flag is-bad">No reason given</div>
@@ -273,7 +257,11 @@
                                 <div class="vend-rec-review-top">
                                     <span class="vend-rec-review-who">@row.CashierName · @(row.DepotName ?? row.WarehouseCode)</span>
                                     <span class="vend-rec-review-var">
-                                        @foreach (var currency in row.Currencies)
+                                        @if (row.Currencies.All(c => c.Variance is null or 0m))
+                                        {
+                                            <span class="vend-rec-var @VarianceTone(row.IsCounted ? 0m : null)">@(row.IsCounted ? "Balanced" : "—")</span>
+                                        }
+                                        @foreach (var currency in row.Currencies.Where(c => c.Variance is not null and not 0m))
                                         {
                                             <span class="vend-rec-var @VarianceTone(currency.Variance)">@VarianceText(currency.Currency, currency.Variance)</span>
                                         }
@@ -309,7 +297,7 @@
 
             <section class="vend-card">
                 <header class="vend-card-head">
-                    <h3 class="vend-card-title">Variance, last @RecentCounts.Count counts</h3>
+                    <h3 class="vend-card-title">Variance, last @Plural(RecentCountTotal, "count")</h3>
                 </header>
                 @if (RecentCounts.Count == 0)
                 {

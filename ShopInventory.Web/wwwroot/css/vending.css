@@ -1949,3 +1949,84 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+/* The dialog is a sibling of `.shop`, and shops.css roots its chips and its
+   segmented control on `.shop`, so they arrive here bare. The same rules,
+   rooted on this dialog. */
+.vend-rec-overlay .shop-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.71rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.vend-rec-overlay .shop-chip-good {
+    background: rgba(var(--shop-fam-good-rgb), .13);
+    color: var(--shop-fam-good);
+}
+
+.vend-rec-overlay .shop-seg-btn {
+    height: 28px;
+    padding: 0 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--shop-mute);
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--shop-r-md) - 2px);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.vend-rec-overlay .shop-seg-btn:hover:not(.is-on):not(:disabled) {
+    color: var(--shop-ink-2);
+}
+
+.vend-rec-overlay .shop-seg-btn.is-on {
+    color: var(--shop-accent-text);
+    background: var(--shop-surface);
+    box-shadow: var(--shop-shadow-sm);
+}
+
+.vend-rec-overlay .shop-seg-btn:disabled {
+    cursor: default;
+}
+
+/* The table is the page here, so it takes more of the row than on Vending
+   sales, and the two sub-lines that run long are let wrap: held to one line,
+   they pushed Variance and Status off the right edge at desktop width. */
+.vend.vend-rec .vend-columns {
+    grid-template-columns: minmax(0, 2.1fr) minmax(270px, .8fr);
+}
+
+.vend .vend-rec-table .vend-rec-banked {
+    white-space: normal;
+    max-width: 150px;
+    margin-left: auto;
+}
+
+.vend .vend-rec-table .vend-person-name {
+    white-space: normal;
+}
+
+.vend .vend-rec-table .vend-rec-status {
+    margin-top: 5px;
+}
+
+.vend .vend-rec-table td.vend-num .vend-rec-flag {
+    text-align: right;
+}
+
+/* Below this the table and the side cards cannot share a row without the
+   table scrolling sideways, so the cards go underneath it. */
+@media (max-width: 1360px) {
+    .vend.vend-rec .vend-columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

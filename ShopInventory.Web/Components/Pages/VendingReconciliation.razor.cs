@@ -226,6 +226,8 @@ public partial class VendingReconciliation
         }
     }
 
+    private int RecentCountTotal => RecentCounts.Select(item => item.Key.Split('|')[0..3]).Select(parts => string.Join('|', parts)).Distinct().Count();
+
     private string RecentSummary
     {
         get
@@ -246,10 +248,18 @@ public partial class VendingReconciliation
 
     private decimal OpenShortfallTotal => Totals.Sum(total => total.OpenShortfall);
 
+    /// <summary>The first currency short as the figure; any other currency short goes in the note.</summary>
     private string OpenShortfallText =>
-        Totals.Any(total => total.OpenShortfall > 0m)
-            ? string.Join(" · ", Totals.Where(total => total.OpenShortfall > 0m).Select(total => Money(total.Currency, total.OpenShortfall)))
-            : "None";
+        Totals.FirstOrDefault(total => total.OpenShortfall > 0m) is { } first ? Money(first.Currency, first.OpenShortfall) : "None";
+
+    private string? OpenShortfallOthers
+    {
+        get
+        {
+            var others = Totals.Where(total => total.OpenShortfall > 0m).Skip(1).Select(total => Money(total.Currency, total.OpenShortfall)).ToList();
+            return others.Count == 0 ? null : string.Join(", ", others);
+        }
+    }
 
     private string BankedNote
     {
