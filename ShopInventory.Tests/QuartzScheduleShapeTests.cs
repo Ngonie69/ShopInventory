@@ -98,6 +98,37 @@ public class QuartzScheduleShapeTests
         Assert.True(Attribute.IsDefined(typeof(ShopInventory.Services.EmailQueueJob), typeof(DisallowConcurrentExecutionAttribute)));
     }
 
+    [Fact]
+    public void The_invoice_cost_copy_runs_only_after_hours_every_quarter_hour()
+    {
+        // Its SAP reads were among those the Service Layer hangs on during the day, each hang leaving a
+        // worker spinning at full CPU on the SAP host (13 Nov 2026: 23 of the morning's 117 hung reads).
+        var options = Build(new Dictionary<string, string?> { ["SAP:Enabled"] = "true" });
+
+        var trigger = Assert.IsAssignableFrom<ICronTrigger>(
+            Assert.Single(options.Triggers, t => t.Key.Name == "sale-invoice-cost-sync-trigger"));
+        Assert.Equal("sale-invoice-cost-sync", trigger.JobKey.Name);
+        Assert.Equal(QuartzConfiguration.CatTimeZone.Id, trigger.TimeZone.Id);
+
+        // The trigger keeps the old interval trigger's key, so on deploy the stored 5-minute trigger is
+        // overwritten rather than left firing beside the new one.
+        Assert.True(options.Scheduling.OverWriteExistingData);
+
+        // One whole CAT day, noon to noon, well after the trigger's start time.
+        var noon = new DateTimeOffset(2030, 3, 4, 12, 0, 0, QuartzConfiguration.CatTimeZone.GetUtcOffset(new DateTime(2030, 3, 4, 12, 0, 0)));
+        var fires = new List<DateTimeOffset>();
+        for (var next = trigger.GetFireTimeAfter(noon); next < noon.AddDays(1); next = trigger.GetFireTimeAfter(next))
+        {
+            fires.Add(TimeZoneInfo.ConvertTime(next!.Value, QuartzConfiguration.CatTimeZone));
+        }
+
+        Assert.Equal(40, fires.Count);
+        Assert.Equal(new TimeSpan(20, 0, 0), fires[0].TimeOfDay);
+        Assert.Equal(new TimeSpan(5, 45, 0), fires[^1].TimeOfDay);
+        Assert.All(fires, fire => Assert.True(fire.Hour >= 20 || fire.Hour < 6, $"fires at {fire:HH:mm} CAT"));
+        Assert.All(fires.Zip(fires.Skip(1)), pair => Assert.Equal(TimeSpan.FromMinutes(15), pair.Second - pair.First));
+    }
+
     private static QuartzOptions Build(Dictionary<string, string?> settings)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();

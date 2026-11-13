@@ -12,8 +12,10 @@ namespace ShopInventory.Services;
 /// <remarks>
 /// <para>
 /// Every invoice a sale was posted as: a desktop sale's own (shops, vending and offline van sales), a
-/// day's consolidated invoice, and an online van sale's confirmed reservation. Newest first, so a
-/// sale posted a minute ago is costed on the next run and history fills in behind it.
+/// day's consolidated invoice, and an online van sale's confirmed reservation. Newest first, so the
+/// day's sales are costed on the evening's first run and history fills in behind them. Runs happen
+/// after hours only (<see cref="SaleInvoiceCostSyncJob.Schedule"/>), so a sale's margin appears from
+/// the evening it posted.
 /// </para>
 /// <para>
 /// One warehouse at a time over short runs of invoice numbers: SAP is read by range, not by a list,
