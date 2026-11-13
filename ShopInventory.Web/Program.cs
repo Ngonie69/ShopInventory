@@ -214,7 +214,9 @@ try
     // so they cannot take the SAP slots it keeps for people. Other requests pass untouched.
     .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler())
     // A page that binds its reads to its own life (PageReads) has them cancelled when it is left.
-    .AddHttpMessageHandler(() => new PageReadCancellationHandler());
+    .AddHttpMessageHandler(() => new PageReadCancellationHandler())
+    // Says whether a circuit request came from the customer portal or a staff page (call timings).
+    .AddHttpMessageHandler(() => new WebSurfaceHandler());
 
     builder.Services.AddHttpClient("ShopInventoryApiLongRunning", client =>
     {
@@ -230,7 +232,9 @@ try
     .AddHttpMessageHandler(() => new CircuitApiKeyHandler())
     .AddHttpMessageHandler(() => new SapBackgroundPriorityHandler())
     // A page that binds its reads to its own life (PageReads) has them cancelled when it is left.
-    .AddHttpMessageHandler(() => new PageReadCancellationHandler());
+    .AddHttpMessageHandler(() => new PageReadCancellationHandler())
+    // Says whether a circuit request came from the customer portal or a staff page (call timings).
+    .AddHttpMessageHandler(() => new WebSurfaceHandler());
 
     builder.Services.AddHttpClient("ShopInventoryApiUser", client =>
     {
@@ -238,7 +242,9 @@ try
         client.Timeout = TimeSpan.FromMinutes(5);
         WebApiClientIdentity.IdentifyAsWebPortal(client);
     })
-    .AddHttpMessageHandler(() => new PageReadCancellationHandler());
+    .AddHttpMessageHandler(() => new PageReadCancellationHandler())
+    // Says whether a circuit request came from the customer portal or a staff page (call timings).
+    .AddHttpMessageHandler(() => new WebSurfaceHandler());
 
     builder.Services.AddSingleton(_ => new SalesOrderPodStatusCache(TimeProvider.System));
     builder.Services.AddHttpClient<IPodService, PodService>(client =>
@@ -253,7 +259,9 @@ try
     })
     // Off a request with no bearer token from a circuit nobody is signed in on (WebApiCaller).
     .AddHttpMessageHandler(() => new CircuitApiKeyHandler())
-    .AddHttpMessageHandler(() => new PageReadCancellationHandler());
+    .AddHttpMessageHandler(() => new PageReadCancellationHandler())
+    // Says whether a circuit request came from the customer portal or a staff page (call timings).
+    .AddHttpMessageHandler(() => new WebSurfaceHandler());
 
     // Register a scoped HttpClient that uses the factory
     builder.Services.AddScoped(sp =>
@@ -356,6 +364,7 @@ try
     builder.Services.AddScoped<ILiveTransactionService, LiveTransactionService>();
     builder.Services.AddScoped<ISystemHealthService, SystemHealthService>();
     builder.Services.AddScoped<ITransferListenerService, TransferListenerService>();
+    builder.Services.AddScoped<ICallTimingsService, CallTimingsService>();
 
     // Add Sales Order, Purchase Order, Credit Note, and Quotation services
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();

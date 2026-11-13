@@ -75,6 +75,9 @@
          sync-status.css, its sibling monitoring page, but aliasing nocturne-tokens.css rather than
          restating the palette, so it needs no .dark-theme block of its own. -->
     <StaffStylesheetLate Include="wwwroot/css/transfer-listener.css" />
+    <!-- /call-timings, under `ctm-`: how long the API's requests and its SAP calls are taking. Shaped
+         after transfer-listener.css above, its sibling monitoring page, and aliasing nocturne-tokens.css. -->
+    <StaffStylesheetLate Include="wwwroot/css/call-timings.css" />
     <!-- /live-transactions, under `ltx-`. Shaped after transfer-listener.css above, its sibling
          monitoring page, and aliasing nocturne-tokens.css. -->
     <StaffStylesheetLate Include="wwwroot/css/live-transactions.css" />

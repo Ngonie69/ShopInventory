@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Components;
+
 namespace ShopInventory.Web.Services;
 
 /// <summary>
@@ -35,12 +37,21 @@ namespace ShopInventory.Web.Services;
 public sealed class WebApiCaller(IServiceProvider circuitServices)
 {
     private static readonly AsyncLocal<WebApiCaller?> Ambient = new();
+    private static readonly AsyncLocal<string?> AmbientAppSurface = new();
 
     private CustomAuthStateProvider? _staff;
     private ICustomerPortalSessionService? _portal;
+    private NavigationManager? _navigation;
 
     /// <summary>The circuit the current code runs for, or null outside any circuit.</summary>
     public static WebApiCaller? Current => Ambient.Value;
+
+    /// <summary>
+    /// The part of the Web a call inside <see cref="AsTheWebApp(string?)"/> is made for, or null
+    /// outside one, or when the scope named none. Read by <see cref="WebSurfaceHandler"/> when there is
+    /// no <see cref="Current"/> circuit.
+    /// </summary>
+    public static string? AppSurface => AmbientAppSurface.Value;
 
     /// <summary>
     /// Whether this circuit has a member of staff the API confirmed, or a portal customer whose
@@ -69,6 +80,44 @@ public sealed class WebApiCaller(IServiceProvider circuitServices)
     }
 
     /// <summary>
+    /// Which part of the Web this circuit is on: <see cref="WebApiClientIdentity.CustomerPortalSurface"/>
+    /// while it shows a <c>/customer-portal</c> page, <see cref="WebApiClientIdentity.StaffSurface"/>
+    /// otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Read off the circuit's own address, the same rule App.razor uses to leave the staff stylesheets
+    /// off a portal page, so a portal page that has not signed anybody in yet (sign-in, registration)
+    /// still counts as the portal. A circuit whose address cannot be read — disposed, or not yet given
+    /// one — answers staff.
+    /// </remarks>
+    public string Surface
+    {
+        get
+        {
+            try
+            {
+                _navigation ??= circuitServices.GetRequiredService<NavigationManager>();
+                var path = _navigation.ToBaseRelativePath(_navigation.Uri);
+                return IsCustomerPortalPath(path)
+                    ? WebApiClientIdentity.CustomerPortalSurface
+                    : WebApiClientIdentity.StaffSurface;
+            }
+            catch (Exception ex) when (ex is ObjectDisposedException or InvalidOperationException)
+            {
+                return WebApiClientIdentity.StaffSurface;
+            }
+        }
+    }
+
+    /// <summary>Whether a base-relative path is a portal page: <c>customer-portal</c> or below it.</summary>
+    internal static bool IsCustomerPortalPath(string relativePath)
+    {
+        const string Portal = "customer-portal";
+        return relativePath.StartsWith(Portal, StringComparison.OrdinalIgnoreCase)
+               && (relativePath.Length == Portal.Length || relativePath[Portal.Length] is '/' or '?' or '#');
+    }
+
+    /// <summary>
     /// Runs the API requests made until the returned scope is disposed as the Web app itself, with
     /// the key, whoever the circuit is signed in as.
     /// </summary>
@@ -76,19 +125,30 @@ public sealed class WebApiCaller(IServiceProvider circuitServices)
     /// For a call the Web makes for its own purposes on a path nobody has signed in on yet, and whose
     /// answer the Web uses rather than shows: the business partner lookup behind a portal sign-in or
     /// registration. Not for sending something a page asked for.
+    /// <para>
+    /// <paramref name="surface"/> names the part of the Web the call is made for (one of the
+    /// <see cref="WebApiClientIdentity"/> surfaces), so the API's call timings count it there rather
+    /// than as background work. It changes nothing else: the key still goes, whoever is signed in.
+    /// </para>
     /// </remarks>
-    public static IDisposable AsTheWebApp()
+    public static IDisposable AsTheWebApp(string? surface = null)
     {
         var previous = Ambient.Value;
+        var previousSurface = AmbientAppSurface.Value;
         Ambient.Value = null;
-        return new Scope(previous);
+        AmbientAppSurface.Value = surface;
+        return new Scope(previous, previousSurface);
     }
 
     /// <summary>Publishes <paramref name="caller"/> for the rest of the current execution context.</summary>
     internal static void Enter(WebApiCaller caller) => Ambient.Value = caller;
 
-    private sealed class Scope(WebApiCaller? previous) : IDisposable
+    private sealed class Scope(WebApiCaller? previous, string? previousSurface) : IDisposable
     {
-        public void Dispose() => Ambient.Value = previous;
+        public void Dispose()
+        {
+            Ambient.Value = previous;
+            AmbientAppSurface.Value = previousSurface;
+        }
     }
 }

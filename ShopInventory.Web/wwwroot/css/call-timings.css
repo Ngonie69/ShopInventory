@@ -1,0 +1,835 @@
+/* ==========================================================================
+   Call Timings — Nocturne
+
+   /call-timings: how long the API's own requests and its SAP Service Layer
+   calls are taking, which reads are at SAP right now, and who is waiting for a
+   slot. Shaped after transfer-listener.css, its sibling monitoring page.
+
+   Palette and spacing come from nocturne-tokens.css. The block below aliases
+   them rather than restating them, so there is no `.dark-theme .ctm` block at
+   all: those tokens flip at the root and every alias resolves against whichever
+   scheme is in force.
+
+   Tone is one class, `.ctm-tone-{good|warn|bad|idle|plain}`, which sets
+   `--tone` and `--tone-rgb`; dots, chips, tiles and toned figures read those.
+   A tone always arrives with a word or a figure — a dot is never the only
+   signal.
+
+   Element selectors are two classes deep because app.css carries global
+   `.dark-theme` element rules (tables among them) that have to be
+   out-specified. Headings are pinned to Nocturne's 500 because Bootstrap's
+   global `h1-h6 { font-weight: 600 }` would otherwise bolden them.
+   ========================================================================== */
+
+.ctm {
+    --ctm-bg: var(--noct-bg);
+    --ctm-surface: var(--noct-surface);
+    --ctm-ink: var(--noct-ink);
+    --ctm-ink-2: var(--noct-ink-2);
+    --ctm-mute: var(--noct-mute);
+    --ctm-mute-2: var(--noct-mute-2);
+    --ctm-mute-3: var(--noct-mute-3);
+    --ctm-faint: var(--noct-faint);
+    --ctm-divider: var(--noct-divider);
+    --ctm-rule: var(--noct-rule);
+    --ctm-hover: var(--noct-hover);
+    --ctm-press: var(--noct-press);
+    --ctm-field-bg: var(--noct-field-bg);
+    --ctm-field-edge: var(--noct-field-edge);
+    --ctm-accent: var(--noct-accent);
+    --ctm-accent-rgb: var(--noct-accent-rgb);
+    --ctm-accent-text: var(--noct-accent-text);
+
+    --ctm-good: var(--noct-fam-good);
+    --ctm-good-rgb: var(--noct-fam-good-rgb);
+    --ctm-warn: var(--noct-fam-warn);
+    --ctm-warn-rgb: var(--noct-fam-warn-rgb);
+    --ctm-danger: var(--noct-fam-bad);
+    --ctm-danger-rgb: var(--noct-fam-bad-rgb);
+
+    --ctm-s3: var(--noct-s3);
+    --ctm-s4: var(--noct-s4);
+    --ctm-s6: var(--noct-s6);
+    --ctm-s8: var(--noct-s8);
+    --ctm-r-sm: var(--noct-r-sm);
+    --ctm-r-md: var(--noct-r-md);
+    --ctm-r-lg: var(--noct-r-lg);
+
+    /* The window and sort pickers sit in a 30px-high header row. */
+    --nsel-h: 30px;
+    --nsel-fs: 12.5px;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.ctm {
+    min-height: 100vh;
+    background: var(--ctm-bg);
+    color: var(--ctm-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+
+    /* `clip`, never `hidden`: `hidden` would make this a scrollport and the
+       sticky header would stop sticking. */
+    overflow-x: clip;
+}
+
+.ctm * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; hand the fill back to `color` so the tones survive on WebKit. */
+.dark-theme .ctm,
+.dark-theme .ctm * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.ctm :focus-visible {
+    outline: 2px solid var(--ctm-accent);
+    outline-offset: 2px;
+}
+
+.ctm h1,
+.ctm h2 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+.ctm p {
+    margin: 0;
+}
+
+.ctm-num {
+    font-variant-numeric: tabular-nums;
+}
+
+.ctm-mono {
+    font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.ctm-nowrap {
+    white-space: nowrap;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.ctm-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--ctm-bg);
+    border-bottom: 1px solid var(--ctm-divider);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .ctm-head {
+        background: color-mix(in srgb, var(--ctm-bg) 88%, transparent);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+}
+
+.ctm-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 12px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--ctm-s6);
+}
+
+.ctm-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--ctm-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--ctm-mute-3);
+}
+
+.ctm-crumb-sep {
+    color: var(--ctm-faint);
+}
+
+.ctm-crumb-now {
+    color: var(--ctm-ink-2);
+    white-space: nowrap;
+}
+
+.ctm-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--ctm-s3);
+}
+
+.ctm-window {
+    width: 170px;
+}
+
+.ctm-asof {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--ctm-mute-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Buttons and the Live switch ───────────────────────────────────────── */
+
+.ctm-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--ctm-r-sm);
+    border: 1px solid var(--ctm-field-edge);
+    background: var(--ctm-surface);
+    color: var(--ctm-ink-2);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background .15s ease;
+}
+
+.ctm-btn:hover:not(:disabled) {
+    background: var(--ctm-hover);
+}
+
+.ctm-btn:active:not(:disabled) {
+    background: var(--ctm-press);
+}
+
+.ctm-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* A native checkbox in a label, so it keeps focus, the space key and the
+   "checked" a screen reader announces. */
+.ctm-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ctm-s3);
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--ctm-mute-2);
+    user-select: none;
+    white-space: nowrap;
+}
+
+.ctm-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.ctm-switch-track {
+    position: relative;
+    width: 34px;
+    height: 18px;
+    flex: none;
+    border-radius: 9px;
+    border: 1px solid var(--ctm-field-edge);
+    background: var(--ctm-field-bg);
+    transition: background .18s, border-color .18s;
+}
+
+.ctm-switch-track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--ctm-mute-3);
+    transition: transform .18s, background .18s;
+}
+
+.ctm-switch input:checked + .ctm-switch-track {
+    background: rgba(var(--ctm-accent-rgb), .24);
+    border-color: var(--ctm-accent);
+}
+
+.ctm-switch input:checked + .ctm-switch-track::after {
+    transform: translateX(16px);
+    background: var(--ctm-accent);
+}
+
+.ctm-switch input:focus-visible + .ctm-switch-track {
+    outline: 2px solid var(--ctm-accent);
+    outline-offset: 2px;
+}
+
+.ctm-spin {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    animation: ctm-spin .7s linear infinite;
+}
+
+@keyframes ctm-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Tone ──────────────────────────────────────────────────────────────── */
+
+.ctm .ctm-tone-good { --tone: var(--ctm-good); --tone-rgb: var(--ctm-good-rgb); }
+.ctm .ctm-tone-warn { --tone: var(--ctm-warn); --tone-rgb: var(--ctm-warn-rgb); }
+.ctm .ctm-tone-bad { --tone: var(--ctm-danger); --tone-rgb: var(--ctm-danger-rgb); }
+.ctm .ctm-tone-idle { --tone: var(--ctm-mute-3); --tone-rgb: var(--noct-fam-neutral-rgb); }
+.ctm .ctm-tone-plain { --tone: var(--ctm-ink-2); --tone-rgb: var(--noct-fam-neutral-rgb); }
+
+.ctm-dot {
+    flex: none;
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--tone, var(--ctm-mute-3));
+}
+
+.ctm-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--tone, var(--ctm-ink-2));
+    white-space: nowrap;
+}
+
+.ctm-toned {
+    color: var(--tone, var(--ctm-ink-2));
+}
+
+.ctm-bad-ink {
+    color: var(--ctm-danger);
+    font-weight: 500;
+}
+
+.ctm-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.ctm-chip {
+    font-size: 11.5px;
+    line-height: 1.4;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--ctm-rule);
+    color: var(--tone);
+    background: rgba(var(--tone-rgb), .1);
+    white-space: nowrap;
+}
+
+.ctm .ctm-chip.ctm-tone-idle {
+    color: var(--ctm-mute-2);
+    background: var(--ctm-hover);
+}
+
+.ctm-tag {
+    margin-left: 6px;
+    font-size: 10.5px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--ctm-accent-text);
+    background: rgba(var(--ctm-accent-rgb), .12);
+    white-space: nowrap;
+}
+
+.ctm-method {
+    display: inline-block;
+    min-width: 44px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    color: var(--ctm-mute-2);
+}
+
+.ctm-sub {
+    display: block;
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--ctm-mute-3);
+}
+
+.ctm .ctm-sub-bad {
+    color: var(--ctm-danger);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.ctm-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--ctm-s8) 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+
+.ctm-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--ctm-s8);
+}
+
+.ctm-hero-text {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.ctm .ctm-title {
+    font-size: 26px;
+    line-height: 1.2;
+    letter-spacing: -.01em;
+    color: var(--ctm-ink);
+}
+
+.ctm-lede {
+    font-size: 14px;
+    color: var(--ctm-mute-2);
+}
+
+.ctm-since {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--ctm-mute-2);
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--ctm-rule);
+    background: var(--ctm-hover);
+    font-variant-numeric: tabular-nums;
+}
+
+.ctm-card {
+    background: var(--ctm-surface);
+    border: 1px solid var(--ctm-rule);
+    border-radius: var(--ctm-r-lg);
+    padding: var(--ctm-s6);
+}
+
+/* ── Tiles ─────────────────────────────────────────────────────────────── */
+
+.ctm-tiles {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.ctm-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding: 14px 16px;
+    background: var(--ctm-surface);
+    border: 1px solid var(--ctm-rule);
+    border-top: 2px solid var(--tone, var(--ctm-rule));
+    border-radius: var(--ctm-r-lg);
+}
+
+.ctm-tile-label {
+    font-size: 11px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--ctm-mute-3);
+}
+
+.ctm-tile-value {
+    font-size: 26px;
+    line-height: 1.2;
+    font-weight: 500;
+    color: var(--ctm-ink);
+}
+
+.ctm-tile-of {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--ctm-mute-3);
+}
+
+.ctm-tile-note {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--ctm-mute-2);
+    min-width: 0;
+}
+
+/* ── Read-family slots ─────────────────────────────────────────────────── */
+
+.ctm-families-now {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+}
+
+.ctm-famslot {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    border-radius: var(--ctm-r-md);
+    border: 1px solid var(--ctm-rule);
+    background: var(--ctm-surface);
+    font-size: 12.5px;
+    color: var(--ctm-mute-2);
+}
+
+.ctm-famslot-name {
+    color: var(--ctm-ink-2);
+}
+
+.ctm-pips {
+    display: inline-flex;
+    gap: 3px;
+}
+
+.ctm-pip {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    border: 1px solid var(--ctm-field-edge);
+    background: transparent;
+}
+
+.ctm .ctm-pip-used {
+    border-color: var(--ctm-accent);
+    background: var(--ctm-accent);
+}
+
+.ctm .ctm-pip-kept {
+    border-color: var(--ctm-danger);
+    background: var(--ctm-danger);
+}
+
+/* ── Sections and columns ──────────────────────────────────────────────── */
+
+.ctm-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 18px;
+    align-items: start;
+}
+
+.ctm-aside {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 0;
+}
+
+.ctm-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.ctm-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+}
+
+.ctm-section-tools {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+}
+
+.ctm .ctm-section-title {
+    font-size: 15px;
+    color: var(--ctm-ink);
+}
+
+.ctm-section-note {
+    font-size: 12px;
+    color: var(--ctm-mute-3);
+}
+
+.ctm-waits {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+}
+
+.ctm-kv {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--ctm-mute);
+}
+
+.ctm-kv > :last-child {
+    color: var(--ctm-ink-2);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.ctm-kv-sub {
+    padding-top: 8px;
+    border-top: 1px solid var(--ctm-rule);
+    font-size: 12.5px;
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+
+.ctm-table-wrap {
+    /* Wider than a phone, so it scrolls in its own box; the page never scrolls
+       sideways. */
+    overflow-x: auto;
+    border: 1px solid var(--ctm-rule);
+    border-radius: var(--ctm-r-lg);
+    background: var(--ctm-surface);
+}
+
+.ctm .ctm-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: transparent;
+    color: var(--ctm-ink-2);
+}
+
+.ctm .ctm-table thead th {
+    background: var(--ctm-hover);
+    text-align: left;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--ctm-mute-3);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--ctm-rule);
+    white-space: nowrap;
+}
+
+.ctm .ctm-table thead th:first-child,
+.ctm .ctm-table tbody td:first-child {
+    padding-left: 16px;
+}
+
+.ctm .ctm-table thead th:last-child,
+.ctm .ctm-table tbody td:last-child {
+    padding-right: 16px;
+}
+
+.ctm .ctm-table .ctm-th-num,
+.ctm .ctm-table .ctm-cell-num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.ctm .ctm-table tbody td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--ctm-rule);
+    color: var(--ctm-ink-2);
+    background: transparent;
+    vertical-align: top;
+}
+
+.ctm .ctm-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.ctm .ctm-table tbody tr:hover td {
+    background: var(--ctm-hover);
+}
+
+.ctm .ctm-table .ctm-cell-muted {
+    color: var(--ctm-mute-2);
+}
+
+.ctm .ctm-table .ctm-cell-wrap {
+    overflow-wrap: anywhere;
+    min-width: 160px;
+}
+
+.ctm .ctm-more {
+    display: block;
+    width: 100%;
+    padding: 9px 12px;
+    border: 0;
+    border-top: 1px solid var(--ctm-rule);
+    background: transparent;
+    color: var(--ctm-accent-text);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.ctm .ctm-more:hover {
+    background: var(--ctm-hover);
+}
+
+/* ── Empty, loading, alerts ────────────────────────────────────────────── */
+
+.ctm-empty {
+    padding: var(--ctm-s8);
+    text-align: center;
+    color: var(--ctm-mute-3);
+    font-size: 13px;
+}
+
+.ctm-skeleton {
+    height: 12px;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        var(--ctm-field-bg) 25%,
+        var(--ctm-hover) 37%,
+        var(--ctm-field-bg) 63%);
+    background-size: 400% 100%;
+    animation: ctm-shimmer 1.4s ease infinite;
+}
+
+@keyframes ctm-shimmer {
+    0% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0 50%;
+    }
+}
+
+.ctm-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ctm-s4);
+    padding: 12px 16px;
+    border-radius: var(--ctm-r-md);
+    border: 1px solid var(--ctm-divider);
+    background: var(--ctm-surface);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ctm-ink-2);
+}
+
+.ctm-alert > .ph {
+    flex: none;
+    font-size: 18px;
+    line-height: 1.2;
+}
+
+.ctm-alert-bad {
+    border-color: rgba(var(--ctm-danger-rgb), .4);
+    background: color-mix(in srgb, var(--ctm-danger) 7%, var(--ctm-surface));
+}
+
+.ctm-alert-bad > .ph {
+    color: var(--ctm-danger);
+}
+
+.ctm-alert-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.ctm-alert-head {
+    font-weight: 500;
+    color: var(--ctm-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ctm-spin {
+        animation-duration: 2.4s;
+    }
+
+    .ctm-skeleton {
+        animation: none;
+    }
+
+    .ctm-switch-track,
+    .ctm-switch-track::after {
+        transition: none;
+    }
+}
+
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1200px) {
+    .ctm-tiles {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .ctm-columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .ctm-head-inner,
+    .ctm-body {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    .ctm-head-inner {
+        flex-wrap: wrap;
+        gap: var(--ctm-s3);
+    }
+
+    .ctm-head-actions {
+        margin-left: 0;
+        justify-content: flex-start;
+    }
+
+    .ctm-hero {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--ctm-s4);
+    }
+
+    .ctm-tiles {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* The route that sent a slow call, under the call itself: a column of its own
+   was squeezed to a few characters beside the aside. */
+.ctm-sub .ctm-mono {
+    font-size: 11px;
+    color: var(--ctm-mute-2);
+}
