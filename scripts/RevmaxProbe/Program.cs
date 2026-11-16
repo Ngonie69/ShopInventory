@@ -87,7 +87,7 @@ var isFiscalised = await service.IsInvoiceFiscalizedAsync(unknown);
 Check("IsInvoiceFiscalizedAsync is false for an invoice the device has never seen",
     !isFiscalised, $"reference={unknown} -> {isFiscalised}");
 
-var found = await service.FindPreSapReceiptAsync(unknown);
+var found = await service.FindPreSapReceiptAsync(unknown, DateTime.UtcNow);
 Check("FindPreSapReceiptAsync returns null on a positive 'Invoice not Found'",
     found is null, "null means the device answered and holds nothing, so signing is safe");
 
@@ -111,7 +111,7 @@ var unreachable = new RevmaxFiscalizationService(
 
 try
 {
-    await unreachable.FindPreSapReceiptAsync(unknown);
+    await unreachable.FindPreSapReceiptAsync(unknown, DateTime.UtcNow);
     Check("FindPreSapReceiptAsync throws when the device cannot be asked", false,
         "it returned instead of throwing — a duplicate receipt is reachable from here");
 }

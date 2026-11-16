@@ -19,6 +19,7 @@ public sealed class RevmaxHistoryFiscalizationTests
 {
     private const int OurRevmaxDevice = 22862;
     private static readonly DateTime LastFilingDate = new(2026, 9, 30);
+    private static readonly DateTime BeforeTheSwitch = new(2026, 9, 20, 8, 0, 0, DateTimeKind.Utc);
 
     /// <summary>
     /// Production overrides nothing under Revmax__, so the shipped file is what runs, and every test below
@@ -165,7 +166,7 @@ public sealed class RevmaxHistoryFiscalizationTests
         var revmax = new FakeRevmax { ["SI-123456"] = Held("FiscalInvoice", 216500) };
         var platform = new FakePlatform();
 
-        var found = await Service(platform, revmax).FindPreSapReceiptAsync("123456");
+        var found = await Service(platform, revmax).FindPreSapReceiptAsync("123456", BeforeTheSwitch);
 
         Assert.NotNull(found);
         Assert.Equal("216500", found.ReceiptGlobalNo);
@@ -176,7 +177,58 @@ public sealed class RevmaxHistoryFiscalizationTests
     {
         var service = Service(new FakePlatform(), new FakeRevmax { Unreachable = true });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.FindPreSapReceiptAsync("123457"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.FindPreSapReceiptAsync("123457", BeforeTheSwitch));
+    }
+
+    /// <summary>
+    /// A sale made weeks after REVMax stopped filing was only ever offered to the platform. With REVMax
+    /// down, its retry used to fail with "REVMax could not be asked whether it already holds this receipt".
+    /// </summary>
+    [Fact]
+    public async Task A_till_sale_created_after_REVMax_stopped_filing_never_waits_on_REVMax()
+    {
+        var revmax = new FakeRevmax { Unreachable = true };
+
+        var found = await Service(new FakePlatform(), revmax)
+            .FindPreSapReceiptAsync("KEF-FAC-20261116-3F4D03D1AD71", new DateTime(2026, 11, 16, 11, 14, 0, DateTimeKind.Utc));
+
+        Assert.Null(found);
+        Assert.Empty(revmax.Asked);
+    }
+
+    [Fact]
+    public async Task A_till_sale_created_on_REVMaxs_last_filing_day_is_still_checked_there()
+    {
+        var revmax = new FakeRevmax { Unreachable = true };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(new FakePlatform(), revmax)
+            .FindPreSapReceiptAsync("123458", new DateTime(2026, 9, 30, 23, 59, 0, DateTimeKind.Utc)));
+
+        Assert.Equal(["SI-123458"], revmax.Asked);
+    }
+
+    [Fact]
+    public async Task A_till_sale_the_platform_signed_is_adopted_without_asking_REVMax()
+    {
+        var revmax = new FakeRevmax { Unreachable = true };
+        var platform = new FakePlatform { Holds = { "SI-123459" } };
+
+        var found = await Service(platform, revmax).FindPreSapReceiptAsync("123459", BeforeTheSwitch);
+
+        Assert.NotNull(found);
+        Assert.Empty(revmax.Asked);
+    }
+
+    [Fact]
+    public async Task With_no_last_filing_date_a_new_till_sale_is_checked_against_REVMax()
+    {
+        var revmax = new FakeRevmax();
+
+        var found = await Service(new FakePlatform(), revmax, noLastFilingDate: true)
+            .FindPreSapReceiptAsync("123460", new DateTime(2026, 11, 16, 11, 14, 0, DateTimeKind.Utc));
+
+        Assert.Null(found);
+        Assert.Equal(["SI-123460"], revmax.Asked);
     }
 
     [Fact]

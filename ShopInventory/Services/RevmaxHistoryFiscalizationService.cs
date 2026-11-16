@@ -168,16 +168,29 @@ public sealed class RevmaxHistoryFiscalizationService(
     }
 
     /// <remarks>
-    /// Null only when both devices say plainly they hold nothing. If either cannot be asked, this throws,
-    /// as each does alone: the sale is left as it is for the next pass, not signed a second time. The
-    /// REVMax half uses the same prefixed number REVMax filed pre-SAP sales under, so a till sale left
-    /// pending across the switch-over is found where it was actually signed.
+    /// Null only when every device that could hold the sale says plainly it holds nothing. If one cannot
+    /// be asked, this throws, as each does alone: the sale is left as it is for the next pass, not signed
+    /// a second time. The REVMax half uses the same prefixed number REVMax filed pre-SAP sales under, so
+    /// a till sale left pending across the switch-over is found where it was actually signed.
+    ///
+    /// REVMax is asked only about a sale created on or before its last filing day. Every attempt to sign
+    /// a sale comes after the sale reached us, so a sale created later was only ever offered to the
+    /// platform. Asking REVMax about it anyway turned a REVMax outage into "the fiscal device could not
+    /// be asked" on today's sales.
     /// </remarks>
     public async Task<FiscalizationResult?> FindPreSapReceiptAsync(
         string externalReference,
+        DateTime createdAtUtc,
         CancellationToken cancellationToken = default)
-        => await platform.FindPreSapReceiptAsync(externalReference, cancellationToken)
-           ?? await revmax.FindPreSapReceiptAsync(externalReference, cancellationToken);
+    {
+        var onPlatform = await platform.FindPreSapReceiptAsync(externalReference, createdAtUtc, cancellationToken);
+        if (onPlatform is not null || !MayBeOnRevmax(createdAtUtc))
+        {
+            return onPlatform;
+        }
+
+        return await revmax.FindPreSapReceiptAsync(externalReference, createdAtUtc, cancellationToken);
+    }
 
     /// <remarks>The platform's archive only: REVMax keeps none to compare against.</remarks>
     public Task<FiscalisedReceiptRecordDto?> GetArchivedPreSapReceiptAsync(
@@ -194,16 +207,27 @@ public sealed class RevmaxHistoryFiscalizationService(
     /// </remarks>
     private bool MayBeOnRevmax(string? documentDate)
     {
-        var lastFilingDate = revmaxOptions.Value.LastFilingDate;
-
-        if (lastFilingDate is null)
+        if (revmaxOptions.Value.LastFilingDate is null)
         {
             return true;
         }
 
         return !DateTime.TryParse(
                    documentDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
-               || parsed.Date <= lastFilingDate.Value.Date;
+               || MayBeOnRevmax(parsed);
+    }
+
+    /// <summary>Whether a document of this date or creation time could have been filed on REVMax.</summary>
+    /// <remarks>
+    /// A creation time is compared by its UTC date. Our local day runs ahead of UTC, so a sale created on
+    /// or before the last filing day in local time is always on or before it in UTC too: the UTC
+    /// comparison can only ask REVMax more often, never skip a sale it may hold.
+    /// </remarks>
+    private bool MayBeOnRevmax(DateTime date)
+    {
+        var lastFilingDate = revmaxOptions.Value.LastFilingDate;
+
+        return lastFilingDate is null || date.Date <= lastFilingDate.Value.Date;
     }
 
     /// <summary>

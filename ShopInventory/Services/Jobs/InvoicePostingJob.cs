@@ -166,7 +166,7 @@ public sealed class InvoicePostingJob : IJob
                 // failure: not knowing is not a licence to sign.
                 var alreadyFiled = mayAlreadyBeFiscalised
                     ? await fiscalizationService.FindPreSapReceiptAsync(
-                        queueEntry.ExternalReference, stoppingToken)
+                        queueEntry.ExternalReference, queueEntry.CreatedAt, stoppingToken)
                     : null;
 
                 if (alreadyFiled is not null)
