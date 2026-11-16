@@ -52,7 +52,7 @@ public sealed class DesktopSaleFiscaliser(
         if (isRetry)
         {
             var existing = await fiscalizationService.FindPreSapReceiptAsync(
-                sale.ExternalReferenceId!, cancellationToken);
+                sale.ExternalReferenceId!, sale.CreatedAt, cancellationToken);
 
             if (existing is not null)
             {

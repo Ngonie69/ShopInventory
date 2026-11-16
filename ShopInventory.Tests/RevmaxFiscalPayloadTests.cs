@@ -425,7 +425,7 @@ public class RevmaxFiscalPayloadTests
         var client = new RecordingRevmaxClient { ThrowOnGet = new HttpRequestException("unreachable") };
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => Service(client).FindPreSapReceiptAsync("VAN-0001"));
+            () => Service(client).FindPreSapReceiptAsync("VAN-0001", new DateTime(2026, 9, 20, 8, 0, 0, DateTimeKind.Utc)));
     }
 
     /// <summary>
@@ -441,7 +441,7 @@ public class RevmaxFiscalPayloadTests
         };
 
         var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => Service(client).FindPreSapReceiptAsync("TILL-0001"));
+            () => Service(client).FindPreSapReceiptAsync("TILL-0001", new DateTime(2026, 9, 20, 8, 0, 0, DateTimeKind.Utc)));
 
         Assert.Contains("Init error -1", refusal.Message);
     }
@@ -450,7 +450,7 @@ public class RevmaxFiscalPayloadTests
     public async Task Invoice_not_found_is_read_as_holding_nothing()
     {
         // The fake's default answer is the device's own "Invoice not Found".
-        Assert.Null(await Service(new RecordingRevmaxClient()).FindPreSapReceiptAsync("TILL-0001"));
+        Assert.Null(await Service(new RecordingRevmaxClient()).FindPreSapReceiptAsync("TILL-0001", new DateTime(2026, 9, 20, 8, 0, 0, DateTimeKind.Utc)));
     }
 
     /// <summary>The device's own refusal, wording and all, for a number it already holds.</summary>

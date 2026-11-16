@@ -34,7 +34,7 @@ public sealed class AdoptedReceiptQrTests
                     DeviceSignatureValue = Signature
                 }
             ]
-        }).FindPreSapReceiptAsync("VAN005-INV-1");
+        }).FindPreSapReceiptAsync("VAN005-INV-1", new DateTime(2026, 9, 20, 8, 0, 0, DateTimeKind.Utc));
 
         var code = FiscalReceiptQrComposer.TryCreateVerificationCode(Signature);
 
@@ -51,7 +51,7 @@ public sealed class AdoptedReceiptQrTests
     public async Task A_receipt_the_platform_does_not_hold_is_not_adopted()
     {
         var found = await Service(new CheckFiscalisedReceiptApiResponse { IsFiscalised = false })
-            .FindPreSapReceiptAsync("VAN005-INV-2");
+            .FindPreSapReceiptAsync("VAN005-INV-2", new DateTime(2026, 9, 20, 8, 0, 0, DateTimeKind.Utc));
 
         Assert.Null(found);
     }

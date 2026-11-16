@@ -104,9 +104,14 @@ public interface IFiscalizationService
     /// asked, this THROWS: treating "I could not check" as "there is nothing there" is exactly how the
     /// duplicate gets signed. <see cref="IsInvoiceFiscalizedAsync"/> answers false in that case, which
     /// is why it is not used here.
+    ///
+    /// <paramref name="createdAtUtc"/> is when the sale reached us, so before any attempt to sign it.
+    /// While REVMax is kept for its history, it is asked only about sales created on or before its last
+    /// filing day: a later sale was never offered to it, and asking anyway lets a REVMax outage block it.
     /// </remarks>
     Task<FiscalizationResult?> FindPreSapReceiptAsync(
         string externalReference,
+        DateTime createdAtUtc,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -521,8 +526,10 @@ public class FiscalizationService : IFiscalizationService
         }
     }
 
+    /// <remarks>The platform is asked whatever the date: it files everything new.</remarks>
     public async Task<FiscalizationResult?> FindPreSapReceiptAsync(
         string externalReference,
+        DateTime createdAtUtc,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(externalReference) || !_settings.Enabled)

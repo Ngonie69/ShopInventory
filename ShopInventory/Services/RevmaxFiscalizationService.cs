@@ -355,8 +355,13 @@ public class RevmaxFiscalizationService : IFiscalizationService
         CancellationToken cancellationToken = default)
         => Task.FromResult<FiscalisedReceiptRecordDto?>(null);
 
+    /// <remarks>
+    /// Asked whatever the date. Under <c>Fiscalisation:Provider=Revmax</c> REVMax files everything, so
+    /// any sale may be here; the date gate belongs to <see cref="RevmaxHistoryFiscalizationService"/>.
+    /// </remarks>
     public async Task<FiscalizationResult?> FindPreSapReceiptAsync(
         string externalReference,
+        DateTime createdAtUtc,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(externalReference) || !_settings.Enabled)
