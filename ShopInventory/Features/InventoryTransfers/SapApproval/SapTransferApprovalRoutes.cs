@@ -52,6 +52,17 @@ public interface ISapTransferApprovalRoutes
     Task<SapTransferRoute> ForRequestAsync(InventoryTransferRequest request, CancellationToken cancellationToken);
 
     /// <summary>
+    /// The verdict for a direct transfer between these header warehouses with these line warehouses.
+    /// Throws, as <see cref="ForRequestAsync"/> does, when SAP's templates cannot be read and none were
+    /// read recently.
+    /// </summary>
+    Task<SapTransferRoute> ForRouteAsync(
+        string? fromWarehouse,
+        string? toWarehouse,
+        IEnumerable<string?> lineWarehouses,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// The verdict for a route, for showing on a page. Null when SAP's templates cannot be read; a list
     /// must not fail for that.
     /// </summary>
@@ -80,8 +91,9 @@ public interface ISapTransferApprovalRoutes
 /// counts for every route its condition holds for.</para>
 ///
 /// <para>Depots and vans are left out by decision (2026-11-12): van loads and depot stock move through
-/// the app's own approval only, as they do now. A depot is a centre or its shop
-/// (<see cref="FactoryDepartments.Depots"/>); a van is <c>VAN</c> and a number.</para>
+/// the app's own approval only. A depot is a centre or its shop (<see cref="FactoryDepartments.Depots"/>);
+/// a van is <c>VAN</c> and a number. The factory shop (KEFSHOP) is not a depot: its transfers follow SAP's
+/// approvals (user's call, 2026-11-16).</para>
 ///
 /// <para>The templates are kept for <see cref="CacheFor"/>. When a refresh fails, the last good read is
 /// used for up to <see cref="LastGoodFor"/>, so a SAP blip does not stop conversions that SAP itself
@@ -103,11 +115,20 @@ public sealed class SapTransferApprovalRoutes(
     {
         var lineWarehouses = (request.StockTransferLines ?? [])
             .SelectMany(line => new[] { line.FromWarehouseCode, line.WarehouseCode });
-        if (ExcludedWarehouse(request.FromWarehouse, request.ToWarehouse, lineWarehouses) is { } excluded)
+        return await ForRouteAsync(request.FromWarehouse, request.ToWarehouse, lineWarehouses, cancellationToken);
+    }
+
+    public async Task<SapTransferRoute> ForRouteAsync(
+        string? fromWarehouse,
+        string? toWarehouse,
+        IEnumerable<string?> lineWarehouses,
+        CancellationToken cancellationToken)
+    {
+        if (ExcludedWarehouse(fromWarehouse, toWarehouse, lineWarehouses) is { } excluded)
             return new(SapTransferRouteKind.Excluded, [], excluded);
 
         var templates = await TemplatesAsync(cancellationToken);
-        return Verdict(templates, request.FromWarehouse, request.ToWarehouse);
+        return Verdict(templates, fromWarehouse, toWarehouse);
     }
 
     public async Task<SapTransferRoute?> TryForRouteAsync(
@@ -130,7 +151,10 @@ public sealed class SapTransferApprovalRoutes(
         }
     }
 
-    /// <summary>The first depot or van among the route's warehouses, or null when it touches neither.</summary>
+    /// <summary>
+    /// The first depot or van among the route's warehouses, or null when it touches neither: what makes a
+    /// transfer a depot transfer (<see cref="TransferTypes"/>).
+    /// </summary>
     public static string? ExcludedWarehouse(string? fromWarehouse, string? toWarehouse, IEnumerable<string?> lineWarehouses)
         => new[] { fromWarehouse, toWarehouse }
             .Concat(lineWarehouses)

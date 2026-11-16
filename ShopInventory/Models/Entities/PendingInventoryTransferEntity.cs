@@ -129,6 +129,50 @@ public sealed class PendingInventoryTransferEntity
     /// in fact created the transfer.
     /// </summary>
     public bool PostRecordedManually { get; set; }
+
+    /// <summary>
+    /// "Depot" or "Factory" (<c>Features.InventoryTransfers.TransferTypes</c>), fixed when the transfer is
+    /// raised. Null on transfers raised before the two types existed, which all went through the app's
+    /// own approval, as a depot transfer does.
+    /// </summary>
+    [MaxLength(20)]
+    public string? TransferType { get; set; }
+
+    /// <summary>The SAP draft a factory transfer was saved as, for SAP's own approval.</summary>
+    public int? SapDraftDocEntry { get; set; }
+
+    public int? SapDraftDocNum { get; set; }
+
+    /// <summary>
+    /// Where the SAP draft stood when it was last read: <c>AwaitingSapClient</c> (nobody has added it in
+    /// the B1 client yet, so no approval has started), <c>Pending</c> (with SAP's approver),
+    /// <c>Approved</c> (ready to add) or <c>Rejected</c>. See <see cref="FactoryTransferSapStates"/>.
+    /// </summary>
+    [MaxLength(30)]
+    public string? SapApprovalState { get; set; }
+
+    /// <summary>The SAP approval templates that cover the route, joined, as they read when it was sent.</summary>
+    [MaxLength(500)]
+    public string? SapApprovalTemplates { get; set; }
+
+    /// <summary>When the SAP draft was last read.</summary>
+    public DateTime? SapCheckedAtUtc { get; set; }
+}
+
+/// <summary>Where a factory transfer's SAP draft stands with SAP's own approval.</summary>
+public static class FactoryTransferSapStates
+{
+    /// <summary>In SAP as a draft nobody has added in the B1 client yet, so SAP's approval has not started.</summary>
+    public const string AwaitingSapClient = "AwaitingSapClient";
+
+    /// <summary>Added in the B1 client and waiting on SAP's approver.</summary>
+    public const string Pending = "Pending";
+
+    /// <summary>Approved in SAP; the app adds it.</summary>
+    public const string Approved = "Approved";
+
+    /// <summary>Rejected in SAP; it will never post.</summary>
+    public const string Rejected = "Rejected";
 }
 
 /// <summary>A line left out of a partial post, with what the depot had when it was left out.</summary>
@@ -154,6 +198,13 @@ public static class PendingInventoryTransferStatuses
 
     /// <summary>Approved, but the SAP post failed. Retryable.</summary>
     public const string PostFailed = "PostFailed";
+
+    /// <summary>
+    /// A factory transfer saved to SAP as a draft and held by SAP's own approval
+    /// (<see cref="PendingInventoryTransferEntity.SapApprovalState"/> says where). Nothing has moved; it
+    /// posts when it is added once SAP has approved it.
+    /// </summary>
+    public const string HeldInSap = "HeldInSap";
 
     /// <summary>
     /// Withdrawn: by the originator before a decision was made, or — with

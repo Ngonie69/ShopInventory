@@ -359,6 +359,7 @@ public sealed class PendingTransferPostIdempotencyTests : IDisposable
             context,
             new TransferWarehouseAuthorizer(context),
             BuildPoster(context, sap, store),
+            StubProxy.Unused<IFactoryTransferSapApproval>(),
             Options.Create(new SAPSettings { Enabled = true }));
 
     /// <summary>Holds the SAP create open so a second post can arrive mid-flight.</summary>

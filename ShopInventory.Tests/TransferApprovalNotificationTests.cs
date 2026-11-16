@@ -52,7 +52,7 @@ public sealed class TransferApprovalNotificationTests : IDisposable
     public async Task A_new_transfer_request_notifies_its_authorizer()
     {
         var requester = await AddUserAsync(ApplicationRoles.StockController);
-        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "WH02");
+        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
 
         await ApprovalService().EnsureRequestAsync(TransferRequest(5001), requester.Id, default);
 
@@ -65,7 +65,7 @@ public sealed class TransferApprovalNotificationTests : IDisposable
     public async Task The_authorizers_bell_shows_the_approval()
     {
         var requester = await AddUserAsync(ApplicationRoles.StockController);
-        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "WH02");
+        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
 
         await ApprovalService().EnsureRequestAsync(TransferRequest(5002), requester.Id, default);
 
@@ -99,7 +99,7 @@ public sealed class TransferApprovalNotificationTests : IDisposable
         // The link used to be truncated at the '?', which left the authorizer on an unfiltered list
         // of every transfer request with no indication which one wanted them.
         var requester = await AddUserAsync(ApplicationRoles.StockController);
-        await AddUserAsync(ApplicationRoles.DepotController, "WH02");
+        await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
 
         await ApprovalService().EnsureRequestAsync(TransferRequest(5004), requester.Id, default);
 
@@ -113,7 +113,7 @@ public sealed class TransferApprovalNotificationTests : IDisposable
     public async Task Approving_a_request_tells_the_person_who_raised_it()
     {
         var requester = await AddUserAsync(ApplicationRoles.StockController);
-        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "WH02");
+        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
         var document = TransferRequest(5005);
         await ApprovalService().EnsureRequestAsync(document, requester.Id, default);
 
@@ -132,18 +132,18 @@ public sealed class TransferApprovalNotificationTests : IDisposable
     public async Task Rejecting_a_request_tells_the_person_who_raised_it_why()
     {
         var requester = await AddUserAsync(ApplicationRoles.StockController);
-        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "WH02");
+        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
         var document = TransferRequest(5006);
         await ApprovalService().EnsureRequestAsync(document, requester.Id, default);
 
         await ApprovalService().SubmitDecisionAsync(
-            document, authorizer.Id, ApprovalDecisionValues.NotApproved, null, "No stock at WH01", default);
+            document, authorizer.Id, ApprovalDecisionValues.NotApproved, null, "No stock at KEFGRC", default);
 
         var feed = await _notifications.GetNotificationsAsync(
             requester.Username, [requester.Role], 1, 10, false, null, default);
         var outcome = Assert.Single(feed.Notifications, item => item.EntityType == "TransferApprovalOutcome");
         Assert.Equal("Transfer request #5006 was not approved", outcome.Title);
-        Assert.Contains("No stock at WH01", outcome.Message);
+        Assert.Contains("No stock at KEFGRC", outcome.Message);
         Assert.Equal("Warning", outcome.Type);
     }
 
@@ -151,7 +151,7 @@ public sealed class TransferApprovalNotificationTests : IDisposable
     public async Task Posting_the_transfer_tells_the_person_who_raised_the_request()
     {
         var requester = await AddUserAsync(ApplicationRoles.StockController);
-        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "WH02");
+        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
         await ApprovalService().EnsureRequestAsync(TransferRequest(5007), requester.Id, default);
 
         await ApprovalService().MarkGeneratedAsync(5007, 9001, 9002, authorizer.Id, true, default);
@@ -168,7 +168,7 @@ public sealed class TransferApprovalNotificationTests : IDisposable
         // The document exists; there is no decision left to take. These alerts used to sit unread
         // on the authorizer's bell forever.
         var requester = await AddUserAsync(ApplicationRoles.StockController);
-        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "WH02");
+        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
         await ApprovalService().EnsureRequestAsync(TransferRequest(5008), requester.Id, default);
 
         await ApprovalService().MarkGeneratedAsync(5008, 9003, 9004, requester.Id, false, default);
@@ -201,7 +201,7 @@ public sealed class TransferApprovalNotificationTests : IDisposable
         // Converting a request runs both steps back to back, so "approved" and "posted" arrive
         // together. Both are recorded; only the fuller one is still asking to be read.
         var requester = await AddUserAsync(ApplicationRoles.StockController);
-        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "WH02");
+        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
         var document = TransferRequest(5011);
         await ApprovalService().EnsureRequestAsync(document, requester.Id, default);
 
@@ -220,7 +220,7 @@ public sealed class TransferApprovalNotificationTests : IDisposable
     public async Task An_outcome_is_only_reported_once()
     {
         var requester = await AddUserAsync(ApplicationRoles.StockController);
-        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "WH02");
+        var authorizer = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
         await ApprovalService().EnsureRequestAsync(TransferRequest(5010), requester.Id, default);
 
         await ApprovalService().MarkGeneratedAsync(5010, 9005, 9006, authorizer.Id, true, default);
@@ -243,8 +243,8 @@ public sealed class TransferApprovalNotificationTests : IDisposable
         DocEntry = docEntry,
         DocNum = docEntry,
         DocumentStatus = "bost_Open",
-        FromWarehouse = "WH01",
-        ToWarehouse = "WH02"
+        FromWarehouse = "KEFGRC",
+        ToWarehouse = "KEFBYC"
     };
 
     private async Task<User> AddUserAsync(string role, params string[] warehouseCodes)

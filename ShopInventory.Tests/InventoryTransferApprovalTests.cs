@@ -52,9 +52,9 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Depot_controller_may_action_a_transfer_out_of_an_assigned_warehouse()
     {
-        var user = await AddUserAsync(ApplicationRoles.DepotController, "WH01", "WH02");
+        var user = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC", "KEFBYC");
 
-        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, "WH01", default);
+        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, "KEFGRC", default);
 
         Assert.False(result.IsError);
     }
@@ -62,9 +62,9 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Depot_controller_may_not_action_a_transfer_out_of_another_warehouse()
     {
-        var user = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var user = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
 
-        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, "WH99", default);
+        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, "CORMACH", default);
 
         Assert.True(result.IsError);
         Assert.Equal("InventoryTransfer.WarehouseNotAssigned", result.FirstError.Code);
@@ -73,9 +73,9 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Warehouse_match_ignores_case_and_surrounding_space()
     {
-        var user = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var user = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
 
-        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, " wh01 ", default);
+        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, " kefgrc ", default);
 
         Assert.False(result.IsError);
     }
@@ -85,7 +85,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     {
         var user = await AddUserAsync(ApplicationRoles.DepotController);
 
-        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, "WH01", default);
+        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, "KEFGRC", default);
 
         Assert.True(result.IsError);
         Assert.Equal("InventoryTransfer.NoAssignedWarehouses", result.FirstError.Code);
@@ -94,9 +94,9 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Administrators_are_not_warehouse_scoped()
     {
-        var user = await AddUserAsync(ApplicationRoles.Admin, "WH01");
+        var user = await AddUserAsync(ApplicationRoles.Admin, "KEFGRC");
 
-        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, "WH99", default);
+        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, "CORMACH", default);
 
         Assert.False(result.IsError);
         Assert.Null(await Authorizer().GetSourceScopeAsync(user.Id, default));
@@ -107,9 +107,9 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     {
         // Only depot controllers are scoped today; widening this is a deliberate decision,
         // so pin the current boundary rather than leaving it implied.
-        var user = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var user = await AddUserAsync(ApplicationRoles.StockController, "KEFGRC");
 
-        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, "WH99", default);
+        var result = await Authorizer().EnsureCanActOnSourceAsync(user.Id, "CORMACH", default);
 
         Assert.False(result.IsError);
     }
@@ -117,7 +117,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task An_unknown_user_can_action_nothing()
     {
-        var result = await Authorizer().EnsureCanActOnSourceAsync(Guid.NewGuid(), "WH01", default);
+        var result = await Authorizer().EnsureCanActOnSourceAsync(Guid.NewGuid(), "KEFGRC", default);
 
         Assert.True(result.IsError);
     }
@@ -127,7 +127,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task A_direct_transfer_opens_an_approval_request_against_the_transfer_document_type()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
 
         var request = await ApprovalService().EnsureRequestAsync(
@@ -137,14 +137,14 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         Assert.Equal(pending.Id.ToString(), request.DocumentKey);
         Assert.Equal(ApprovalRequestStatuses.Pending, request.Status);
         Assert.Equal(submitter.Id, request.OriginatorUserId);
-        Assert.Equal("WH01", request.FromWarehouse);
+        Assert.Equal("KEFGRC", request.FromWarehouse);
     }
 
     [Fact]
     public async Task Templates_are_seeded_per_document_type_on_an_install_that_already_has_others()
     {
         // Reproduces the upgrade path: transfer-request templates exist, direct-transfer ones do not.
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         await ApprovalService().GetTemplatesAsync(default);
         _context.ApprovalTemplateDefinitions.RemoveRange(
             await _context.ApprovalTemplateDefinitions
@@ -163,7 +163,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Asking_twice_for_the_same_transfer_returns_the_same_approval_request()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
         var context = ApprovalDocumentContext.ForPendingTransfer(pending);
 
@@ -180,13 +180,13 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     {
         // DocumentKey is unique per document type, not globally. A transfer request keyed "1"
         // and a direct transfer keyed "1" must not collide.
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
 
         var transferRequest = await ApprovalService().EnsureRequestAsync(
-            new ApprovalDocumentContext(ApprovalDocumentTypes.InventoryTransferRequest, "1", "1", "WH01", "WH02"),
+            new ApprovalDocumentContext(ApprovalDocumentTypes.InventoryTransferRequest, "1", "1", "KEFGRC", "KEFBYC"),
             submitter.Id, default);
         var directTransfer = await ApprovalService().EnsureRequestAsync(
-            new ApprovalDocumentContext(ApprovalDocumentTypes.InventoryTransfer, "1", null, "WH01", "WH02"),
+            new ApprovalDocumentContext(ApprovalDocumentTypes.InventoryTransfer, "1", null, "KEFGRC", "KEFBYC"),
             submitter.Id, default);
 
         Assert.NotEqual(transferRequest.Id, directTransfer.Id);
@@ -195,7 +195,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Only_a_stage_authorizer_may_record_a_decision()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var outsider = await AddUserAsync(ApplicationRoles.Cashier);
         var pending = await AddPendingTransferAsync(submitter);
         var context = ApprovalDocumentContext.ForPendingTransfer(pending);
@@ -212,7 +212,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     {
         // The pending record knows who raised it, so the template must be chosen from that
         // rather than falling through to the catch-all administrator review.
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
 
         var request = await ApprovalService().EnsureRequestAsync(
@@ -227,8 +227,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     public async Task Approving_the_only_stage_completes_the_approval()
     {
         // A depot controller's transfer routes to the stock officer stage by default.
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
-        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
+        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
         var context = ApprovalDocumentContext.ForPendingTransfer(pending);
 
@@ -246,8 +246,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         // Reported from the field: DT-2026-00001 was approved and posted to SAP, yet the screen
         // kept showing it awaiting a stock officer. The decision was only ever applied in memory,
         // so the approval completed, SAP took the transfer, and nothing was written down.
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
-        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
+        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
         var context = ApprovalDocumentContext.ForPendingTransfer(pending);
         await ApprovalService().EnsureRequestAsync(context, submitter.Id, default);
@@ -273,8 +273,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task A_posted_transfer_is_marked_generated_in_storage()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
-        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
+        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
         var context = ApprovalDocumentContext.ForPendingTransfer(pending);
         await ApprovalService().SubmitDecisionAsync(
@@ -297,8 +297,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Rejecting_a_stage_marks_the_approval_rejected()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
-        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
+        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
         var context = ApprovalDocumentContext.ForPendingTransfer(pending);
 
@@ -340,7 +340,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Every_default_direct_transfer_template_has_an_eligible_authorizer()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.StockController, "WH00");
+        var submitter = await AddUserAsync(ApplicationRoles.StockController, "KEFGRS");
         var pending = await AddPendingTransferAsync(submitter);
 
         var (_, progress) = await ApprovalService().GetProgressAsync(
@@ -389,8 +389,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         {
             DocEntry = 4021,
             DocNum = 4021,
-            FromWarehouse = "WH01",
-            ToWarehouse = "WH02",
+            FromWarehouse = "KEFGRC",
+            ToWarehouse = "KEFBYC",
             Comments = "Requester: Tendai | Email: tendai@example.test"
         };
 
@@ -404,18 +404,18 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Listing_reports_approval_progress_for_requests_that_already_have_it()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var service = ApprovalService();
         var opened = await service.EnsureRequestAsync(
             new ApprovalDocumentContext(
-                ApprovalDocumentTypes.InventoryTransferRequest, "4022", "4022", "WH01", "WH02"),
+                ApprovalDocumentTypes.InventoryTransferRequest, "4022", "4022", "KEFGRC", "KEFBYC"),
             submitter.Id, default);
         var dto = new InventoryTransferRequestDto
         {
             DocEntry = 4022,
             DocNum = 4022,
-            FromWarehouse = "WH01",
-            ToWarehouse = "WH02"
+            FromWarehouse = "KEFGRC",
+            ToWarehouse = "KEFBYC"
         };
 
         await service.EnrichAsync([dto], default);
@@ -439,8 +439,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         {
             DocEntry = 4023,
             DocNum = 4023,
-            FromWarehouse = "WH01",
-            ToWarehouse = "WH02",
+            FromWarehouse = "KEFGRC",
+            ToWarehouse = "KEFBYC",
             DocumentStatus = "bost_Open"
         };
 
@@ -462,7 +462,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         // reported complete so the caller generates the SAP transfer. Losing this would leave a
         // SAP-raised request with no way through the app at all.
         //
-        // WH02 is not a van, so the request also waits for WH02's owner. Nobody runs WH02 here, and
+        // KEFBYC is not a van, so the request also waits for KEFBYC's owner. Nobody runs KEFBYC here, and
         // an administrator's approval of their own stage never signs for a warehouse, so it takes a
         // second, deliberate approval of the receiving stage — still entirely within the app.
         var admin = await AddUserAsync(ApplicationRoles.Admin);
@@ -471,8 +471,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
             DocEntry = 4024,
             DocNum = 4024,
             DocumentStatus = "bost_Open",
-            FromWarehouse = "WH01",
-            ToWarehouse = "WH02"
+            FromWarehouse = "KEFGRC",
+            ToWarehouse = "KEFBYC"
         };
 
         var first = await ApprovalService().SubmitDecisionAsync(
@@ -497,8 +497,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Remarks_carry_the_reason_the_requester_and_the_approver()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
-        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
+        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
         pending.Comments = "Restocking the front counter";
         var context = ApprovalDocumentContext.ForPendingTransfer(pending);
@@ -522,7 +522,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     {
         // The Web stores comments as "Reason: X | notes"; transfers already waiting for approval
         // hold that shape, and SAP used to receive "Reason: Reason: X".
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
         pending.Comments = stored;
 
@@ -536,9 +536,9 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Remarks_name_every_approver_in_the_order_they_signed()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
-        var first = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var first = await AddUserAsync(ApplicationRoles.StockController, "KEFGRC");
         var second = await AddUserAsync(ApplicationRoles.Admin);
         var stages = new List<ApprovalStageProgressDto>
         {
@@ -559,8 +559,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task A_rejection_is_never_reported_as_an_approval()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
-        var refuser = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
+        var refuser = await AddUserAsync(ApplicationRoles.StockController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
         var decision = Decision(refuser, DateTime.UtcNow);
         decision.Decision = ApprovalDecisionValues.NotApproved;
@@ -576,8 +576,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     {
         // SAP takes 254 characters. Losing the tail of someone's note is recoverable; losing who
         // authorised the stock movement is the whole point of writing it there.
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
-        var approver = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
+        var approver = await AddUserAsync(ApplicationRoles.StockController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
         pending.Comments = new string('x', 400);
 
@@ -591,7 +591,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Remarks_still_name_the_requester_when_nothing_has_been_approved_yet()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
 
         var remarks = InventoryTransferRemarks.Build(pending, []);
@@ -705,7 +705,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Reopening_an_approved_transfer_clears_its_approvals_and_bars_whoever_changed_it()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var firstOfficer = await AddUserAsync(ApplicationRoles.StockController);
         var editor = await AddUserAsync(ApplicationRoles.StockController);
         var context = ApprovalDocumentContext.ForPendingTransfer(await AddPendingTransferAsync(submitter));
@@ -736,7 +736,7 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task A_transfer_already_posted_cannot_be_reopened()
     {
-        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var pending = await AddPendingTransferAsync(submitter);
         var context = ApprovalDocumentContext.ForPendingTransfer(pending);
         await ApprovalService().EnsureRequestAsync(context, null, default);
@@ -833,8 +833,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     {
         var pending = new PendingInventoryTransferEntity
         {
-            FromWarehouse = "WH01",
-            ToWarehouse = "WH02",
+            FromWarehouse = "KEFGRC",
+            ToWarehouse = "KEFBYC",
             PayloadJson = "{}",
             CreatedByUserId = submitter.Id,
             CreatedByName = submitter.Username,

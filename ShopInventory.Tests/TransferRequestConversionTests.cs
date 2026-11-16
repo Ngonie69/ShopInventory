@@ -607,6 +607,51 @@ public sealed class TransferRequestConversionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_stock_officer_sends_a_factory_request_to_SAP_without_the_apps_approval()
+    {
+        // CMB to CMFS touches no depot and no van: a factory request, decided by SAP's approval alone
+        // (2026-11-16). A stock officer could not convert it past the app's approval before.
+        var officer = await AddUserAsync(ApplicationRoles.StockController);
+        var sap = SapCovered();
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Equal("Saved", result.Value.SapApproval);
+        Assert.Single(sap.SavedDrafts);
+        Assert.Equal(0, sap.Conversions);
+        Assert.Empty(_context.ApprovalRequests);
+    }
+
+    [Fact]
+    public async Task A_factory_request_still_pending_in_the_app_goes_to_SAP_all_the_same()
+    {
+        // Raised before the two types existed, with a stage of the app's still open.
+        var officer = await AddUserAsync(ApplicationRoles.StockController);
+        _context.ApprovalRequests.Add(new ApprovalRequestEntity
+        {
+            ApprovalTemplateId = Guid.NewGuid(),
+            TemplateName = "General Transfer Review",
+            DocumentType = ApprovalDocumentTypes.InventoryTransferRequest,
+            DocumentKey = RequestDocEntry.ToString(),
+            OriginatorName = "someone",
+            OriginatorRole = ApplicationRoles.StockController,
+            Status = ApprovalRequestStatuses.Pending
+        });
+        await _context.SaveChangesAsync();
+        var covered = SapCovered();
+        var sap = new RecordingSapClient { From = "CMB", To = "CMH", Templates = covered.Templates, Queries = covered.Queries };
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
+
+        // No SAP template covers CMB to CMH, so it posts, as B1 would, and the old approval is closed off.
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.NotNull(result.Value.Transfer);
+        Assert.Equal(1, sap.Conversions);
+        Assert.Equal(ApprovalRequestStatuses.Generated, Assert.Single(_context.ApprovalRequests).Status);
+    }
+
+    [Fact]
     public async Task A_van_request_never_reads_SAP_templates()
     {
         // KEFBYC to VAN010, the default route here: depots and vans convert as they always have.

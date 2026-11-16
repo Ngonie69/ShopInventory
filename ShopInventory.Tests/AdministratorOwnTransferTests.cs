@@ -12,6 +12,7 @@ using ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTransfer
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Features.InventoryTransfers;
 
 namespace ShopInventory.Tests;
 
@@ -27,7 +28,7 @@ namespace ShopInventory.Tests;
 /// </remarks>
 public sealed class AdministratorOwnTransferTests : IDisposable
 {
-    private static readonly string[] SapWarehouses = ["WH01", "WH02"];
+    private static readonly string[] SapWarehouses = ["KEFGRC", "KEFBYC"];
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
@@ -89,9 +90,9 @@ public sealed class AdministratorOwnTransferTests : IDisposable
         var officer = await AddUserAsync(ApplicationRoles.StockController);
 
         var forAdmin = await ApprovalService().PreviewRouteAsync(ApprovalDocumentContext.ForPreview(
-            ApprovalDocumentTypes.InventoryTransfer, ["WH01"], ["WH02"], admin.Id), default);
+            ApprovalDocumentTypes.InventoryTransfer, ["KEFGRC"], ["KEFBYC"], admin.Id), default);
         var forOfficer = await ApprovalService().PreviewRouteAsync(ApprovalDocumentContext.ForPreview(
-            ApprovalDocumentTypes.InventoryTransfer, ["WH01"], ["WH02"], officer.Id), default);
+            ApprovalDocumentTypes.InventoryTransfer, ["KEFGRC"], ["KEFBYC"], officer.Id), default);
 
         Assert.True(forAdmin.ApprovedOnRaising);
         Assert.False(forOfficer.ApprovedOnRaising);
@@ -191,7 +192,7 @@ public sealed class AdministratorOwnTransferTests : IDisposable
         Assert.False(result.Value.RequiresApproval);
         Assert.Null(result.Value.Transfer);
         Assert.Equal(PendingInventoryTransferStatuses.PostFailed, result.Value.PendingTransfer?.Status);
-        Assert.Contains("Insufficient stock in WH01", result.Value.Message);
+        Assert.Contains("Insufficient stock in KEFGRC", result.Value.Message);
         Assert.Contains("post it again", result.Value.Message);
     }
 
@@ -235,10 +236,14 @@ public sealed class AdministratorOwnTransferTests : IDisposable
             }
 
             pending.Status = PendingInventoryTransferStatuses.PostFailed;
-            pending.LastError = "Insufficient stock in WH01";
+            pending.LastError = "Insufficient stock in KEFGRC";
             await context.SaveChangesAsync();
-            return Errors.InventoryTransfer.CreationFailed("Insufficient stock in WH01");
+            return Errors.InventoryTransfer.CreationFailed("Insufficient stock in KEFGRC");
         }
+
+        public Task<InventoryTransferDto> RecordAddedInSapAsync(
+            PendingInventoryTransferEntity pending, InventoryTransfer transfer, Guid postedByUserId, string auditDetail)
+            => throw new NotSupportedException("A depot transfer never has a SAP draft to add.");
     }
 
     private CreateInventoryTransferHandler Handler(IPendingInventoryTransferPoster poster) => new(
@@ -251,6 +256,7 @@ public sealed class AdministratorOwnTransferTests : IDisposable
             : null),
         ApprovalService(),
         poster,
+        StubProxy.Unused<IFactoryTransferSapApproval>(),
         StubProxy.For<IAuditService>((method, _) => method.ReturnType == typeof(Task) ? Task.CompletedTask : null),
         // No ClientRequestId, so the idempotency store is never asked.
         StubProxy.Unused<IIdempotencyRequestStore>(),
@@ -259,8 +265,8 @@ public sealed class AdministratorOwnTransferTests : IDisposable
 
     private static CreateInventoryTransferRequest Request() => new()
     {
-        FromWarehouse = "WH01",
-        ToWarehouse = "WH02",
+        FromWarehouse = "KEFGRC",
+        ToWarehouse = "KEFBYC",
         DocDate = "2026-11-13",
         Lines =
         [
@@ -296,8 +302,8 @@ public sealed class AdministratorOwnTransferTests : IDisposable
     {
         var pending = new PendingInventoryTransferEntity
         {
-            FromWarehouse = "WH01",
-            ToWarehouse = "WH02",
+            FromWarehouse = "KEFGRC",
+            ToWarehouse = "KEFBYC",
             PayloadJson = "{}",
             CreatedByUserId = submitter.Id,
             CreatedByName = submitter.Username,

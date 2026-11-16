@@ -26,7 +26,9 @@ namespace ShopInventory.Tests;
 public sealed class DispatchFactoryShopApprovalTests : IDisposable
 {
     private static readonly string[] Dispatch = ["DISPCH", "DISPYOG", "DISPMILK", "DISPICE"];
-    private const string FactoryShop = "KEFSHOP";
+    // A depot shop, not the factory shop itself: since 2026-11-16 KEFSHOP follows SAP's approvals (a factory
+    // transfer), so the app's warehouse-list templates and scoped stages are exercised on a depot route.
+    private const string FactoryShop = "KEFBYS";
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;

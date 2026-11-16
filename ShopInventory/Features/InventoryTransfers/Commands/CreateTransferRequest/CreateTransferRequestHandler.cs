@@ -168,7 +168,10 @@ public sealed class CreateTransferRequestHandler(
             {
                 Message = requiresApproval
                     ? $"Transfer request #{transferRequest.DocNum} created and sent for approval."
-                    : $"Transfer request #{transferRequest.DocNum} created and approved as raised by an administrator. Convert it to post the transfer.",
+                    : InventoryTransferApprovalService.IsSapApproval(approval)
+                        ? $"Transfer request #{transferRequest.DocNum} created. It is a factory request, so SAP's own approval applies: " +
+                          "converting it sends the transfer to SAP as a draft where a SAP approval template covers the route, and posts it where none does."
+                        : $"Transfer request #{transferRequest.DocNum} created and approved as raised by an administrator. Convert it to post the transfer.",
                 TransferRequest = transferRequestDto,
                 RequiresApproval = requiresApproval
             };

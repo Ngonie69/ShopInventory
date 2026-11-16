@@ -12,5 +12,15 @@ namespace ShopInventory.Features.SapTransferApprovals.Commands.AddApprovedSapTra
 /// The caller's idempotency key. Recorded only: the add is claimed per draft, whoever clicks and
 /// whatever key they send, because a draft is added exactly once.
 /// </param>
-public sealed record AddApprovedSapTransferCommand(int DraftEntry, Guid UserId, string Username, string? ClientRequestId)
+/// <param name="CallerAuthorized">
+/// True only when the caller has already decided this user may act: a factory transfer's own add, where
+/// the person who may post the transfer (<c>EnsureCanActOnSourceAsync</c>) adds the draft it was saved
+/// as. Never set from the SAP-held transfers page, which asks the conversion rule.
+/// </param>
+public sealed record AddApprovedSapTransferCommand(
+    int DraftEntry,
+    Guid UserId,
+    string Username,
+    string? ClientRequestId,
+    bool CallerAuthorized = false)
     : IRequest<ErrorOr<AddApprovedSapTransferResultDto>>;

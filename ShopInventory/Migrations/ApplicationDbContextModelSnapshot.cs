@@ -5119,10 +5119,27 @@ namespace ShopInventory.Migrations
                     b.Property<Guid?>("PostedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("SapApprovalState")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("SapApprovalTemplates")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("SapCheckedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int?>("SapDocEntry")
                         .HasColumnType("integer");
 
                     b.Property<int?>("SapDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SapDraftDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SapDraftDocNum")
                         .HasColumnType("integer");
 
                     b.Property<string>("Status")
@@ -5137,6 +5154,10 @@ namespace ShopInventory.Migrations
 
                     b.Property<decimal>("TotalQuantity")
                         .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("TransferType")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("WithdrawalReason")
                         .HasMaxLength(500)

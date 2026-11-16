@@ -167,7 +167,7 @@ public sealed class ReceivingWarehouseOwnerApprovalTests : IDisposable
     {
         var officer = await AddUserAsync(ApplicationRoles.StockController);
         var dispatchOfficer = await AddUserAsync(ApplicationRoles.DispatchOfficer, Dispatch);
-        var document = Request((Warehouse, Dispatch));
+        var document = Request((Depot, Dispatch));
         await OpenAsync(document, officer);
 
         var result = await ApprovalService().SubmitDecisionAsync(
@@ -272,7 +272,7 @@ public sealed class ReceivingWarehouseOwnerApprovalTests : IDisposable
         var dispatchOfficer = await AddUserAsync(ApplicationRoles.DispatchOfficer, Dispatch);
         await AddUserAsync(ApplicationRoles.DispatchOfficer, "DISPYOG");
 
-        await OpenAsync(Request((Warehouse, Dispatch)), officer);
+        await OpenAsync(Request((Depot, Dispatch)), officer);
 
         Assert.Contains(dispatchOfficer.Username, await Alerted());
         Assert.Single(await Alerted(), name => name.StartsWith("dispatchofficer", StringComparison.Ordinal));
@@ -395,7 +395,7 @@ public sealed class ReceivingWarehouseOwnerApprovalTests : IDisposable
     {
         var officer = await AddUserAsync(ApplicationRoles.StockController);
         var dispatchOfficer = await AddUserAsync(ApplicationRoles.DispatchOfficer, Dispatch);
-        var document = Request((Warehouse, Dispatch));
+        var document = Request((Depot, Dispatch));
         await OpenAsync(document, officer);
         var sap = new SapRequests(document);
 

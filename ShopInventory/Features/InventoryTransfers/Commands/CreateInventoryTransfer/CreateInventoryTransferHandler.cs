@@ -8,6 +8,7 @@ using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.InventoryTransfers;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -25,6 +26,7 @@ public sealed class CreateInventoryTransferHandler(
     IStockValidationService stockValidation,
     IInventoryTransferApprovalService approvalService,
     IPendingInventoryTransferPoster poster,
+    IFactoryTransferSapApproval factoryTransfers,
     IAuditService auditService,
     IIdempotencyRequestStore idempotencyRequestStore,
     IOptions<SAPSettings> settings,
@@ -179,7 +181,11 @@ public sealed class CreateInventoryTransferHandler(
             TotalQuantity = request.Lines?.Sum(line => line.Quantity) ?? 0m,
             Comments = Truncate(request.Comments, 500),
             DocDate = ParseDate(request.DocDate),
-            DueDate = ParseDate(request.DueDate)
+            DueDate = ParseDate(request.DueDate),
+            TransferType = TransferTypes.Of(
+                request.FromWarehouse,
+                request.ToWarehouse,
+                lines.SelectMany(line => new[] { line.FromWarehouseCode, line.ToWarehouseCode }))
         };
 
         context.PendingInventoryTransfers.Add(pending);
@@ -201,6 +207,10 @@ public sealed class CreateInventoryTransferHandler(
             await context.SaveChangesAsync(CancellationToken.None);
             return Errors.InventoryTransfer.InvalidOperation(exception.Message);
         }
+
+        // A factory transfer answers to SAP's own approval, not this app's.
+        if (TransferTypes.IsFactory(pending.TransferType))
+            return await SendFactoryTransferAsync(pending, submitter);
 
         // An administrator's transfer has every stage met as it is raised, so nobody is left to ask.
         if (approvalRequest.Status == ApprovalRequestStatuses.Approved)
@@ -252,6 +262,33 @@ public sealed class CreateInventoryTransferHandler(
     }
 
     /// <summary>
+    /// Sends a factory transfer on to SAP: saved as a draft for SAP's own approval when one of SAP's
+    /// templates covers its route, posted when none does. The app's approval was settled as it opened
+    /// (<see cref="TransferTypes"/>). Past this point the record is committed, so a SAP failure is not a
+    /// failed submission: the transfer stays saved with the reason, and is sent again from the list.
+    /// </summary>
+    private async Task<ErrorOr<InventoryTransferCreatedResponseDto>> SendFactoryTransferAsync(
+        PendingInventoryTransferEntity pending,
+        User submitter)
+    {
+        pending.Status = PendingInventoryTransferStatuses.Approved;
+        pending.DecidedAtUtc = DateTime.UtcNow;
+        await context.SaveChangesAsync(CancellationToken.None);
+
+        logger.LogInformation(
+            "Factory transfer {PendingId} raised by {User}; sending it to SAP's own approval. From: {FromWarehouse}, To: {ToWarehouse}, Lines: {LineCount}",
+            pending.Id, submitter.Username, pending.FromWarehouse, pending.ToWarehouse, pending.LineCount);
+
+        var step = await factoryTransfers.AdvanceAsync(pending, submitter.Id, submitter.Username);
+        var response = BuildSubmittedResponse(pending, replayed: false, step.IsError ? null : step.Value.Transfer);
+        response.Message = step.IsError
+            ? $"This factory transfer is saved, but it could not be sent to SAP: {step.FirstError.Description} " +
+              "Send it again from Inventory transfers."
+            : step.Value.Message;
+        return response;
+    }
+
+    /// <summary>
     /// Persists the held transfer, allocating its draft number. Two submissions arriving together
     /// can read the same highest number, so a unique-index violation is retried with a freshly
     /// read number rather than failing a submission that is otherwise valid.
@@ -297,6 +334,9 @@ public sealed class CreateInventoryTransferHandler(
                 PendingInventoryTransferStatuses.AwaitingApproval => replayed
                     ? "This inventory transfer has already been submitted and is awaiting approval."
                     : "Inventory transfer submitted for approval. It will post to SAP once all approval stages are complete.",
+                PendingInventoryTransferStatuses.HeldInSap =>
+                    $"This inventory transfer is in SAP as draft {pending.SapDraftDocNum}, waiting for SAP's own approval. " +
+                    "Nothing has moved yet.",
                 PendingInventoryTransferStatuses.Posted => replayed
                     ? $"This inventory transfer was already posted to SAP as #{pending.SapDocNum}."
                     : $"Inventory transfer #{pending.SapDocNum} posted to SAP.",

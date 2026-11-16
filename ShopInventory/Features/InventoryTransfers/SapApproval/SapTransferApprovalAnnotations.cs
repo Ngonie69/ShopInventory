@@ -20,13 +20,18 @@ public static class SapTransferApprovalAnnotations
     {
         foreach (var request in requests)
         {
+            var lineWarehouses = (request.Lines ?? [])
+                .SelectMany(line => new[] { line.FromWarehouseCode, line.ToWarehouseCode })
+                .ToList();
+            request.TransferType = TransferTypes.Of(request.FromWarehouse, request.ToWarehouse, lineWarehouses);
+
             if (string.Equals(request.DocumentStatus, "bost_Close", StringComparison.OrdinalIgnoreCase))
                 continue;
 
             var route = await routes.TryForRouteAsync(
                 request.FromWarehouse,
                 request.ToWarehouse,
-                (request.Lines ?? []).SelectMany(line => new[] { line.FromWarehouseCode, line.ToWarehouseCode }),
+                lineWarehouses,
                 cancellationToken);
 
             request.SapApprovalKnown = route is not null;

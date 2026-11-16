@@ -579,6 +579,38 @@
                                 Ask an administrator to add one under Approval process.
                             </div>
                         }
+                        else if (routePreview.IsFactory)
+                        {
+                            <div>
+                                <div class="tfm-approval-k">Factory transfer</div>
+                                <div class="tfm-approval-v">SAP's own approval</div>
+                            </div>
+                            @if (!routePreview.SapApprovalKnown)
+                            {
+                                <p class="tfm-approval-note">
+                                    Couldn't read SAP's approval templates just now. Submitting checks them again.
+                                </p>
+                            }
+                            else if (routePreview.SapApprovalTemplates.Count == 0)
+                            {
+                                <p class="tfm-approval-note">
+                                    No SAP approval template covers this route, so the transfer posts to SAP as soon as
+                                    you submit it, as it would from the B1 client.
+                                </p>
+                            }
+                            else
+                            {
+                                <div class="tfm-approval-stage">
+                                    <div class="tfm-approval-name">@string.Join(", ", routePreview.SapApprovalTemplates)</div>
+                                    <div class="tfm-approval-sub">SAP approval template</div>
+                                </div>
+                                <p class="tfm-approval-note">
+                                    Submitting saves the transfer to SAP as a draft. Add the draft in the B1 client to send
+                                    it to SAP's approver; once SAP approves it, add it from Inventory transfers and the
+                                    stock moves.
+                                </p>
+                            }
+                        }
                         else if (routePreview.ApprovedOnRaising)
                         {
                             <p class="tfm-approval-note">
@@ -1626,7 +1658,15 @@
                     return;
                 }
 
-                if (transfer is null && pendingTransfer is not null)
+                if (transfer is null && pendingTransfer is not null && pendingTransfer.IsFactory)
+                {
+                    // Saved to SAP as a draft for SAP's approval (or rejected there already): the API
+                    // says which, and what to do in the B1 client.
+                    successMessage = $"{message} Redirecting…";
+                    Logger.LogInformation("Factory transfer {PendingId} sent to SAP's approval: {Status}",
+                        pendingTransfer.Id, pendingTransfer.Status);
+                }
+                else if (transfer is null && pendingTransfer is not null)
                 {
                     var pendingStage = pendingTransfer.ApprovalStages.FirstOrDefault(stage => stage.Status == "Pending");
                     successMessage = pendingStage is null

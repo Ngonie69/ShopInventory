@@ -23,8 +23,27 @@ public class PendingInventoryTransferDto
     /// <summary>Every warehouse the transfer delivers to, always populated.</summary>
     public List<string> ToWarehouses { get; set; } = [];
 
-    /// <summary>AwaitingApproval, Approved, Rejected, Posted, PostFailed or Cancelled.</summary>
+    /// <summary>AwaitingApproval, Approved, HeldInSap, Rejected, Posted, PostFailed or Cancelled.</summary>
     public string Status { get; set; } = string.Empty;
+
+    /// <summary>
+    /// "Depot" (this app's approval) or "Factory" (SAP's own approval). Transfers raised before the two
+    /// types existed read "Depot": they all went through this app's approval.
+    /// </summary>
+    public string TransferType { get; set; } = "Depot";
+
+    /// <summary>A factory transfer's SAP draft, once it has been saved to SAP for SAP's approval.</summary>
+    public int? SapDraftDocEntry { get; set; }
+    public int? SapDraftDocNum { get; set; }
+
+    /// <summary>AwaitingSapClient, Pending, Approved or Rejected, as the SAP draft read when last checked.</summary>
+    public string? SapApprovalState { get; set; }
+
+    /// <summary>The SAP approval templates that cover the route, joined.</summary>
+    public string? SapApprovalTemplates { get; set; }
+
+    /// <summary>When the SAP draft was last read.</summary>
+    public DateTime? SapCheckedAtUtc { get; set; }
 
     public string CreatedByName { get; set; } = string.Empty;
     public string? CreatedByRole { get; set; }

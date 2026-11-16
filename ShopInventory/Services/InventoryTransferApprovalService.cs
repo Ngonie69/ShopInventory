@@ -287,6 +287,10 @@ public sealed class InventoryTransferApprovalService(
         var originator = resolvedOriginatorId.HasValue
             ? await context.Users.AsNoTracking().FirstOrDefaultAsync(user => user.Id == resolvedOriginatorId.Value, cancellationToken)
             : null;
+
+        if (IsFactoryTransfer(document))
+            return await OpenSapApprovalAsync(document, originator, cancellationToken);
+
         var template = await SelectTemplateAsync(originator, document, cancellationToken)
             ?? throw new InvalidOperationException($"No active approval template is available for {document.DocumentType}.");
         var orderedStages = await TemplateSnapshotsAsync(template, document, cancellationToken);
@@ -337,6 +341,66 @@ public sealed class InventoryTransferApprovalService(
                 .SingleAsync(item =>
                     item.DocumentType == documentType &&
                     item.DocumentKey == documentKey,
+                    cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="document"/> is a factory transfer or transfer request: one that touches no
+    /// depot and no van, and so answers to SAP's own approval rather than this app's
+    /// (<see cref="TransferTypes"/>). Request edits keep this app's approval: who may change someone
+    /// else's request is a different control.
+    /// </summary>
+    public static bool IsFactoryTransfer(ApprovalDocumentContext document)
+        => document.DocumentType is ApprovalDocumentTypes.InventoryTransfer or ApprovalDocumentTypes.InventoryTransferRequest &&
+           TransferTypes.IsFactory(TransferTypes.Of(document.SourceWarehouses.Concat(document.DestinationWarehouses)));
+
+    /// <summary>Whether <paramref name="request"/> is the settled stand-in a factory transfer opens.</summary>
+    public static bool IsSapApproval(ApprovalRequestEntity request)
+        => request.ApprovalTemplateId == TransferTypes.SapApprovalTemplateId;
+
+    /// <summary>
+    /// The approval a factory transfer opens: settled as it opens, with no stages and nobody notified,
+    /// because SAP's own approval templates are the ones that apply (decision 2026-11-16). It is kept,
+    /// rather than opening nothing, so the originator is on file for the "on its way" message, the lists
+    /// show the document as cleared by the app, and the conversion marks it generated.
+    /// </summary>
+    private async Task<ApprovalRequestEntity> OpenSapApprovalAsync(
+        ApprovalDocumentContext document,
+        User? originator,
+        CancellationToken cancellationToken)
+    {
+        var request = new ApprovalRequestEntity
+        {
+            ApprovalTemplateId = TransferTypes.SapApprovalTemplateId,
+            TemplateName = TransferTypes.SapApprovalTemplateName,
+            DocumentType = document.DocumentType,
+            DocumentKey = document.DocumentKey,
+            DocumentNumber = document.DocumentNumber,
+            OriginatorUserId = originator?.Id,
+            OriginatorName = originator?.Username ?? UnknownOriginator,
+            OriginatorRole = originator?.Role ?? UnknownOriginator,
+            FromWarehouse = RouteLabel(document.SourceWarehouses, document.FromWarehouse),
+            ToWarehouse = RouteLabel(document.DestinationWarehouses, document.ToWarehouse),
+            StageSnapshotsJson = "[]",
+            Status = document.AlreadyClosed ? ApprovalRequestStatuses.Generated : ApprovalRequestStatuses.Approved,
+            CompletedAtUtc = DateTime.UtcNow
+        };
+        context.ApprovalRequests.Add(request);
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+            return request;
+        }
+        catch (DbUpdateException)
+        {
+            context.Entry(request).State = EntityState.Detached;
+            return await context.ApprovalRequests
+                .AsTracking()
+                .Include(item => item.Decisions)
+                .SingleAsync(item =>
+                    item.DocumentType == document.DocumentType &&
+                    item.DocumentKey == document.DocumentKey,
                     cancellationToken);
         }
     }
@@ -653,6 +717,33 @@ public sealed class InventoryTransferApprovalService(
             throw new InvalidOperationException(
                 $"The approval for {DocumentLabel(request.DocumentType).ToLowerInvariant()} {request.DocumentNumber ?? request.DocumentKey} is already {request.Status} and cannot be reopened.");
 
+        if (IsSapApproval(request))
+        {
+            // A factory transfer changed and still a factory transfer: SAP's approval still decides,
+            // so there is nothing here to reopen.
+            if (IsFactoryTransfer(document))
+            {
+                request.FromWarehouse = RouteLabel(document.SourceWarehouses, document.FromWarehouse);
+                request.ToWarehouse = RouteLabel(document.DestinationWarehouses, document.ToWarehouse);
+                await context.SaveChangesAsync(cancellationToken);
+                return request;
+            }
+
+            // The change put a depot or a van on it, which makes it a depot transfer: it now needs this
+            // app's approval, routed as if it had been raised this way.
+            var raisedBy = request.OriginatorUserId is { } raisedById
+                ? await context.Users.AsNoTracking().FirstOrDefaultAsync(user => user.Id == raisedById, cancellationToken)
+                : null;
+            var template = await SelectTemplateAsync(raisedBy, document, cancellationToken)
+                ?? throw new InvalidOperationException($"No active approval template is available for {document.DocumentType}.");
+            var stages = await TemplateSnapshotsAsync(template, document, cancellationToken);
+            if (stages.Count == 0)
+                throw new InvalidOperationException($"Approval template '{template.Name}' has no active approval stages.");
+            request.ApprovalTemplateId = template.Id;
+            request.TemplateName = template.Name;
+            request.StageSnapshotsJson = Serialize(stages);
+        }
+
         // The approvals were given to the document as it was. Kept, they would count towards the
         // changed one and it would read as approved again before anyone had looked. The audit log
         // still holds each of them.
@@ -852,6 +943,18 @@ public sealed class InventoryTransferApprovalService(
         ApprovalDocumentContext document,
         CancellationToken cancellationToken)
     {
+        // SAP's own approval decides a factory transfer; which of SAP's templates applies is the
+        // caller's to add, since this engine does not read SAP.
+        if (IsFactoryTransfer(document))
+        {
+            return new ApprovalRoutePreviewDto
+            {
+                Matched = true,
+                TemplateName = TransferTypes.SapApprovalTemplateName,
+                TransferType = TransferTypes.Factory
+            };
+        }
+
         await EnsureDefaultsAsync(document.DocumentType, cancellationToken);
         var originator = document.OriginatorUserId is { } originatorId
             ? await context.Users.AsNoTracking().FirstOrDefaultAsync(user => user.Id == originatorId, cancellationToken)

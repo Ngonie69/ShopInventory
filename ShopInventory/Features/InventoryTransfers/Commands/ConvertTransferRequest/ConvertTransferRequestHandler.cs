@@ -17,15 +17,19 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.InventoryTransfers.Commands.ConvertTransferRequest;
 
 /// <summary>
-/// Converts a transfer request into an inventory transfer, once its approval in the app is complete.
+/// Converts a transfer request into an inventory transfer: a depot request once its approval in the app
+/// is complete, a factory request through SAP's own approval alone.
 /// </summary>
 /// <remarks>
-/// <para>On a route one of SAP's own transfer approval templates covers — and that touches neither a
-/// depot nor a van — the transfer is not posted. It is saved to SAP as a draft carrying the request's
+/// <para>A request that touches a depot or a van is a depot request (<see cref="TransferTypes"/>) and
+/// converts once this app's approval is complete, as it always has.</para>
+///
+/// <para>Any other request is a factory request, and this app's approval does not apply to it (decision
+/// 2026-11-16, replacing 2026-11-12's "both approvals"). On a route one of SAP's own transfer approval
+/// templates covers, the transfer is not posted: it is saved to SAP as a draft carrying the request's
 /// marker, to be added in the B1 client, where SAP's template holds it for SAP's approver; converting
-/// again reports where it stands, and once SAP has approved it, adds it. Both approvals apply, by
-/// decision (2026-11-12): the app's decides whether the request goes to SAP, SAP's whether it posts.
-/// See <see cref="SapTransferApprovalRoutes"/> and docs/sap-transfer-approvals.md.</para>
+/// again reports where it stands, and once SAP has approved it, adds it. On a route no template covers
+/// it posts, as B1 would. See <see cref="SapTransferApprovalRoutes"/> and docs/sap-transfer-approvals.md.</para>
 /// </remarks>
 public sealed class ConvertTransferRequestHandler(
     ISAPServiceLayerClient sapClient,
@@ -58,6 +62,12 @@ public sealed class ConvertTransferRequestHandler(
                     command.UserId, document.FromWarehouse, cancellationToken);
                 if (conversionCheck.IsError)
                     return conversionCheck.Errors;
+
+                // A factory request answers to SAP's own approval only: no stage of this app's is
+                // asked, including one a request raised before the two types existed still has open.
+                // Its conversion goes straight to SAP's — draft, wait, add — or posts where SAP has none.
+                if (IsFactoryRequest(document))
+                    return await GenerateApprovedAsync(command, document, cancellationToken);
 
                 // Every conversion passes through the request's approval, whoever presses Convert.
                 // Administrators, stock officers and the wash bay used to convert straight past it,
@@ -180,6 +190,13 @@ public sealed class ConvertTransferRequestHandler(
             }
         }
     }
+
+    /// <summary>Whether the request touches no depot and no van (<see cref="TransferTypes"/>).</summary>
+    internal static bool IsFactoryRequest(InventoryTransferRequest document)
+        => TransferTypes.IsFactory(TransferTypes.Of(
+            document.FromWarehouse,
+            document.ToWarehouse,
+            (document.StockTransferLines ?? []).SelectMany(line => new[] { line.FromWarehouseCode, line.WarehouseCode })));
 
     /// <summary>
     /// The lock that lets one conversion of a request run at a time. Keyed on the request alone:

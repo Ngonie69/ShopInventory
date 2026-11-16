@@ -143,6 +143,21 @@ public sealed class ApprovalRoutePreviewDto
     /// </summary>
     public bool ApprovedOnRaising { get; set; }
 
+    /// <summary>
+    /// "Depot" or "Factory" (<c>TransferTypes</c>). A factory transfer has no stages here: SAP's own
+    /// approval templates decide it.
+    /// </summary>
+    public string TransferType { get; set; } = "Depot";
+
+    /// <summary>For a factory transfer, false when SAP's templates could not be read just now.</summary>
+    public bool SapApprovalKnown { get; set; }
+
+    /// <summary>
+    /// For a factory transfer, the SAP approval templates that would hold it. Empty means none does, and
+    /// the transfer posts to SAP as it is submitted.
+    /// </summary>
+    public List<string> SapApprovalTemplates { get; set; } = [];
+
     public List<ApprovalRoutePreviewStageDto> Stages { get; set; } = [];
 }
 

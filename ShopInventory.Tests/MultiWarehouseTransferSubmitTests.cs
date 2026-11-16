@@ -10,11 +10,12 @@ using ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTransfer
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Features.InventoryTransfers;
 
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// Submitting a direct transfer whose lines draw from several warehouses — the form's Dispatch → KEFSHOP
+/// Submitting a direct transfer whose lines draw from several warehouses — the form's Dispatch → depot shop (KEFBYS; KEFSHOP is a factory transfer since 2026-11-16)
 /// case — through the real handler and approval engine, with SAP stubbed to its warehouse list.
 /// </summary>
 /// <remarks>
@@ -24,7 +25,7 @@ namespace ShopInventory.Tests;
 /// </remarks>
 public sealed class MultiWarehouseTransferSubmitTests : IDisposable
 {
-    private static readonly string[] SapWarehouses = ["DISPCH", "DISPYOG", "DISPMILK", "DISPICE", "KEFSHOP"];
+    private static readonly string[] SapWarehouses = ["DISPCH", "DISPYOG", "DISPMILK", "DISPICE", "KEFBYS"];
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
@@ -52,12 +53,12 @@ public sealed class MultiWarehouseTransferSubmitTests : IDisposable
         var submitter = await AddUserAsync(ApplicationRoles.StockController, "DISPCH");
 
         var result = await Handler(approval).Handle(new CreateInventoryTransferCommand(Request(
-            ("DISPCH", "KEFSHOP"), ("DISPYOG", "KEFSHOP")), submitter.Id), default);
+            ("DISPCH", "KEFBYS"), ("DISPYOG", "KEFBYS")), submitter.Id), default);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
         var held = Assert.IsType<PendingInventoryTransferDto>(result.Value.PendingTransfer);
         Assert.Equal(["DISPCH", "DISPYOG"], held.FromWarehouses);
-        Assert.Equal(["KEFSHOP"], held.ToWarehouses);
+        Assert.Equal(["KEFBYS"], held.ToWarehouses);
 
         var request = await _context.ApprovalRequests.AsNoTracking().SingleAsync();
         Assert.Equal("Dispatch to Factory Shop", request.TemplateName);
@@ -71,9 +72,9 @@ public sealed class MultiWarehouseTransferSubmitTests : IDisposable
         await SetUpFactoryShopRouteAsync(approval);
         var submitter = await AddUserAsync(ApplicationRoles.StockController, "DISPYOG");
 
-        // The header reads DISPYOG to KEFSHOP and differs; the second line does not.
+        // The header reads DISPYOG to KEFBYS and differs; the second line does not.
         var result = await Handler(approval).Handle(new CreateInventoryTransferCommand(Request(
-            ("DISPYOG", "KEFSHOP"), ("KEFSHOP", "KEFSHOP")), submitter.Id), default);
+            ("DISPYOG", "KEFBYS"), ("KEFBYS", "KEFBYS")), submitter.Id), default);
 
         Assert.True(result.IsError);
         Assert.Contains("Line 2", result.FirstError.Description);
@@ -95,7 +96,7 @@ public sealed class MultiWarehouseTransferSubmitTests : IDisposable
             DocumentType = ApprovalDocumentTypes.InventoryTransfer,
             StageIds = [stage.Value.Id],
             FromWarehouses = ["DISPCH", "DISPYOG", "DISPMILK", "DISPICE"],
-            ToWarehouses = ["KEFSHOP"],
+            ToWarehouses = ["KEFBYS"],
             Priority = 200
         }, default);
         Assert.False(template.IsError);
@@ -129,6 +130,7 @@ public sealed class MultiWarehouseTransferSubmitTests : IDisposable
         // A non-administrator's transfer is held, so nothing posts on submission.
         StubProxy.For<IPendingInventoryTransferPoster>((method, _) =>
             throw new InvalidOperationException($"Unexpected post on submission: {method.Name}")),
+        StubProxy.Unused<IFactoryTransferSapApproval>(),
         StubProxy.For<IAuditService>((method, _) => method.ReturnType == typeof(Task) ? Task.CompletedTask : null),
         // No ClientRequestId, so the idempotency store is never asked.
         StubProxy.Unused<IIdempotencyRequestStore>(),
