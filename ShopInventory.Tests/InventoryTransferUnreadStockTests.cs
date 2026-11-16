@@ -11,6 +11,7 @@ using ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTransfer
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Features.InventoryTransfers;
 
 namespace ShopInventory.Tests;
 
@@ -58,7 +59,7 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
         Assert.True(result.IsValid);
         Assert.Empty(result.Errors);
         Assert.False(result.StockWasFullyRead);
-        Assert.Equal(["WH-1"], result.UnreadableWarehouses);
+        Assert.Equal(["KEFGRC"], result.UnreadableWarehouses);
 
         // The point of the fix: one failed warehouse read, not one more failed read per line.
         Assert.Equal(1, sap.StockReads);
@@ -74,25 +75,25 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
         Assert.True(result.IsValid);
         Assert.Empty(result.Errors);
         Assert.False(result.StockWasFullyRead);
-        Assert.Equal(["WH-1"], result.UnreadableWarehouses);
+        Assert.Equal(["KEFGRC"], result.UnreadableWarehouses);
         Assert.Equal(1, sap.BatchReads);
     }
 
     [Fact]
     public async Task An_unread_warehouse_does_not_hide_a_shortage_in_one_that_answered()
     {
-        var sap = new StockReadStub { StockReadThrowsForWarehouse = "WH-2" };
+        var sap = new StockReadStub { StockReadThrowsForWarehouse = "KEFBYC" };
 
         var readable = ItemLine("ITEM-A", 500);
         var unread = ItemLine("ITEM-B", 1);
-        unread.FromWarehouseCode = "WH-2";
+        unread.FromWarehouseCode = "KEFBYC";
 
         var result = await Validate(sap, readable, unread);
 
-        // WH-1 answered and is genuinely short; WH-2 never answered and is reported as unread.
+        // KEFGRC answered and is genuinely short; KEFBYC never answered and is reported as unread.
         Assert.False(result.IsValid);
         Assert.Equal("ITEM-A", Assert.Single(result.Errors).ItemCode);
-        Assert.Equal(["WH-2"], result.UnreadableWarehouses);
+        Assert.Equal(["KEFBYC"], result.UnreadableWarehouses);
     }
 
     [Fact]
@@ -140,7 +141,7 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
     {
         var user = await AddSubmitterAsync();
         var unread = new StockValidationResult();
-        unread.UnreadableWarehouses.Add("WH-1");
+        unread.UnreadableWarehouses.Add("KEFGRC");
 
         var result = await Handler(BudgetedValidation(_ => Task.FromResult(unread))).Handle(
             new CreateInventoryTransferCommand(Request(), user.Id), default);
@@ -159,7 +160,7 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
             {
                 LineNumber = 1,
                 ItemCode = "ITEM-A",
-                WarehouseCode = "WH-1",
+                WarehouseCode = "KEFGRC",
                 RequestedQuantity = 5,
                 AvailableQuantity = 0
             }
@@ -201,10 +202,10 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
         // the way a shortage is worded: SapFailureClassifier retires an entry that reads that way,
         // and this is the failure that should be retried once SAP answers again.
         const string posterMessage =
-            "Could not read stock from SAP for warehouse(s) WH-1. " +
+            "Could not read stock from SAP for warehouse(s) KEFGRC. " +
             "The transfer has not been posted; retry it once SAP is answering.";
         const string queueMessage =
-            "Could not read stock from SAP for warehouse(s) WH-1; the transfer was not posted.";
+            "Could not read stock from SAP for warehouse(s) KEFGRC; the transfer was not posted.";
 
         Assert.False(SapFailureClassifier.IsPermanentStockRejection(posterMessage));
         Assert.False(SapFailureClassifier.IsPermanentStockRejection(queueMessage));
@@ -222,8 +223,8 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
         new StockValidationService(_context, sap.AsClient(), new UnpostedTillClaims(_context, Options.Create(new DailyStockSettings()), NullLogger<UnpostedTillClaims>.Instance), NullLogger<StockValidationService>.Instance)
             .ValidateInventoryTransferStockAsync(new CreateInventoryTransferRequest
             {
-                FromWarehouse = "WH-1",
-                ToWarehouse = "WH-9",
+                FromWarehouse = "KEFGRC",
+                ToWarehouse = "CORMACH",
                 Lines = [.. lines]
             });
 
@@ -232,8 +233,8 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
         ItemCode = itemCode,
         Quantity = quantity,
         UoMCode = "EA",
-        FromWarehouseCode = "WH-1",
-        ToWarehouseCode = "WH-9"
+        FromWarehouseCode = "KEFGRC",
+        ToWarehouseCode = "CORMACH"
     };
 
     private static CreateInventoryTransferLineRequest BatchLine(
@@ -269,8 +270,8 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
                 nameof(ISAPServiceLayerClient.GetWarehousesAsync) =>
                     (object)Task.FromResult(new List<WarehouseDto>
                     {
-                        new() { WarehouseCode = "WH-1", WarehouseName = "WH-1", IsActive = true },
-                        new() { WarehouseCode = "WH-9", WarehouseName = "WH-9", IsActive = true }
+                        new() { WarehouseCode = "KEFGRC", WarehouseName = "KEFGRC", IsActive = true },
+                        new() { WarehouseCode = "CORMACH", WarehouseName = "CORMACH", IsActive = true }
                     }),
                 _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
             }),
@@ -282,6 +283,7 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
             // A non-administrator's transfer is held, so nothing posts on submission.
             StubProxy.For<IPendingInventoryTransferPoster>((method, _) =>
                 throw new InvalidOperationException($"Unexpected post on submission: {method.Name}")),
+            StubProxy.Unused<IFactoryTransferSapApproval>(),
             StubProxy.For<IAuditService>((_, _) => Task.CompletedTask),
             StubProxy.Unused<IIdempotencyRequestStore>(),
             Options.Create(new SAPSettings
@@ -294,8 +296,8 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
 
     private static CreateInventoryTransferRequest Request() => new()
     {
-        FromWarehouse = "WH-1",
-        ToWarehouse = "WH-9",
+        FromWarehouse = "KEFGRC",
+        ToWarehouse = "CORMACH",
         Lines = [ItemLine("ITEM-A", 1)]
     };
 
@@ -310,7 +312,7 @@ public sealed class InventoryTransferUnreadStockTests : IDisposable
             Role = ApplicationRoles.DepotController,
             IsActive = true
         };
-        user.SetWarehouseCodes(["WH-1", "WH-9"]);
+        user.SetWarehouseCodes(["KEFGRC", "CORMACH"]);
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
         return user;

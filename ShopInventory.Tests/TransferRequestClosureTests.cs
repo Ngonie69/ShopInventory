@@ -129,7 +129,7 @@ public sealed class TransferRequestClosureTests : IDisposable
     [Fact]
     public async Task A_depot_controller_may_not_close_a_request_out_of_another_warehouse()
     {
-        var depotController = await AddUserAsync(ApplicationRoles.DepotController, "WH99");
+        var depotController = await AddUserAsync(ApplicationRoles.DepotController, "CORMACH");
         var sap = new RecordingSapClient(Document());
 
         var result = await Handler(sap).Handle(new CloseTransferRequestCommand(DocEntry, depotController.Id), default);
@@ -142,7 +142,7 @@ public sealed class TransferRequestClosureTests : IDisposable
     [Fact]
     public async Task A_depot_controller_may_close_a_request_out_of_a_warehouse_they_run()
     {
-        var depotController = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var depotController = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var sap = new RecordingSapClient(Document());
 
         var result = await Handler(sap).Handle(new CloseTransferRequestCommand(DocEntry, depotController.Id), default);
@@ -158,7 +158,7 @@ public sealed class TransferRequestClosureTests : IDisposable
     {
         // The rejection is only worth anything if the document stops being open: the Transfer
         // Requests tab lists what SAP still holds open, so a request left open comes right back.
-        var requester = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var requester = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var stockController = await AddUserAsync(ApplicationRoles.StockController);
         await OpenApprovalAsync(requester);
         var sap = new RecordingSapClient(Document());
@@ -172,7 +172,7 @@ public sealed class TransferRequestClosureTests : IDisposable
     [Fact]
     public async Task The_rejection_this_app_raised_is_still_recorded_against_the_approval()
     {
-        var requester = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var requester = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var stockController = await AddUserAsync(ApplicationRoles.StockController);
         await OpenApprovalAsync(requester);
         var sap = new RecordingSapClient(Document());
@@ -199,7 +199,7 @@ public sealed class TransferRequestClosureTests : IDisposable
     {
         // A stage that wants two refusals has not rejected anything after one. Closing the document
         // there would end a request the approval process is still running.
-        var requester = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var requester = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var first = await AddUserAsync(ApplicationRoles.StockController);
         await UseTwoRefusalStageAsync();
         await OpenApprovalAsync(requester);
@@ -217,7 +217,7 @@ public sealed class TransferRequestClosureTests : IDisposable
     [Fact]
     public async Task A_recorded_rejection_SAP_would_not_close_is_reported_as_still_open()
     {
-        var requester = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var requester = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         var stockController = await AddUserAsync(ApplicationRoles.StockController);
         await OpenApprovalAsync(requester);
         var sap = new RecordingSapClient(Document(), closeFailure: "503 - Service Layer unavailable");
@@ -252,7 +252,7 @@ public sealed class TransferRequestClosureTests : IDisposable
     [Fact]
     public async Task A_request_this_app_raised_is_recognised_as_having_an_approval()
     {
-        var requester = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var requester = await AddUserAsync(ApplicationRoles.DepotController, "KEFGRC");
         await OpenApprovalAsync(requester);
 
         var has = await ApprovalService().HasApprovalAsync(
@@ -267,8 +267,8 @@ public sealed class TransferRequestClosureTests : IDisposable
     {
         DocEntry = DocEntry,
         DocNum = DocNum,
-        FromWarehouse = "WH01",
-        ToWarehouse = "WH02",
+        FromWarehouse = "KEFGRC",
+        ToWarehouse = "KEFBYC",
         DocumentStatus = documentStatus
     };
 

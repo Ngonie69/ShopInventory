@@ -260,6 +260,13 @@ public class InventoryTransferRequestDto
     /// <summary>False when the API could not read SAP's templates.</summary>
     [JsonPropertyName("sapApprovalKnown")]
     public bool SapApprovalKnown { get; set; }
+
+    /// <summary>"Depot" (this app's approval) or "Factory" (SAP's own approval only).</summary>
+    [JsonPropertyName("transferType")]
+    public string TransferType { get; set; } = TransferTypeNames.Depot;
+
+    [JsonIgnore]
+    public bool IsFactory => string.Equals(TransferType, TransferTypeNames.Factory, StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>

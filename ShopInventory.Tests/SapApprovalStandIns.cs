@@ -18,6 +18,13 @@ internal static class SapApprovalStandIns
         public Task<SapTransferRoute> ForRequestAsync(InventoryTransferRequest request, CancellationToken cancellationToken)
             => Task.FromResult(NotCovered);
 
+        public Task<SapTransferRoute> ForRouteAsync(
+            string? fromWarehouse,
+            string? toWarehouse,
+            IEnumerable<string?> lineWarehouses,
+            CancellationToken cancellationToken)
+            => Task.FromResult(NotCovered);
+
         public Task<SapTransferRoute?> TryForRouteAsync(
             string? fromWarehouse,
             string? toWarehouse,

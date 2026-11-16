@@ -10,6 +10,7 @@ using ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTransfer
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Features.InventoryTransfers;
 
 namespace ShopInventory.Tests;
 
@@ -41,11 +42,11 @@ public sealed class ActualTransferDepotApprovalTests : IDisposable
     [Fact]
     public async Task Depot_transfer_between_assigned_warehouses_requires_approval()
     {
-        var controller = await AddDepotControllerAsync("WH01", "WH02");
+        var controller = await AddDepotControllerAsync("KEFGRC", "KEFBYC");
         var sap = new RecordingSapClient();
 
         var result = await Handler(sap).Handle(
-            new CreateInventoryTransferCommand(Request("WH01", "WH02"), controller.Id), default);
+            new CreateInventoryTransferCommand(Request("KEFGRC", "KEFBYC"), controller.Id), default);
 
         Assert.False(result.IsError);
         Assert.True(result.Value.RequiresApproval);
@@ -59,11 +60,11 @@ public sealed class ActualTransferDepotApprovalTests : IDisposable
     [Fact]
     public async Task Depot_transfer_to_an_unassigned_warehouse_requires_approval()
     {
-        var controller = await AddDepotControllerAsync("WH01");
+        var controller = await AddDepotControllerAsync("KEFGRC");
         var sap = new RecordingSapClient();
 
         var result = await Handler(sap).Handle(
-            new CreateInventoryTransferCommand(Request("WH01", "WH99"), controller.Id), default);
+            new CreateInventoryTransferCommand(Request("KEFGRC", "CORMACH"), controller.Id), default);
 
         Assert.False(result.IsError);
         Assert.True(result.Value.RequiresApproval);
@@ -78,10 +79,10 @@ public sealed class ActualTransferDepotApprovalTests : IDisposable
     [Fact]
     public async Task An_unassigned_line_destination_cannot_bypass_approval()
     {
-        var controller = await AddDepotControllerAsync("WH01", "WH02");
+        var controller = await AddDepotControllerAsync("KEFGRC", "KEFBYC");
         var sap = new RecordingSapClient();
-        var request = Request("WH01", "WH02");
-        request.Lines![0].ToWarehouseCode = "WH99";
+        var request = Request("KEFGRC", "KEFBYC");
+        request.Lines![0].ToWarehouseCode = "CORMACH";
 
         var result = await Handler(sap).Handle(
             new CreateInventoryTransferCommand(request, controller.Id), default);
@@ -108,6 +109,7 @@ public sealed class ActualTransferDepotApprovalTests : IDisposable
             // A non-administrator's transfer is held, so nothing posts on submission.
             StubProxy.For<IPendingInventoryTransferPoster>((method, _) =>
                 throw new InvalidOperationException($"Unexpected post on submission: {method.Name}")),
+            StubProxy.Unused<IFactoryTransferSapApproval>(),
             StubProxy.For<IAuditService>((_, _) => Task.CompletedTask),
             StubProxy.Unused<IIdempotencyRequestStore>(),
             Options.Create(new SAPSettings { Enabled = true }),
@@ -157,9 +159,9 @@ public sealed class ActualTransferDepotApprovalTests : IDisposable
                 nameof(ISAPServiceLayerClient.GetWarehousesAsync) =>
                     (object)Task.FromResult(new List<WarehouseDto>
                     {
-                        Warehouse("WH01"),
-                        Warehouse("WH02"),
-                        Warehouse("WH99")
+                        Warehouse("KEFGRC"),
+                        Warehouse("KEFBYC"),
+                        Warehouse("CORMACH")
                     }),
                 nameof(ISAPServiceLayerClient.CreateInventoryTransferAsync) =>
                     Create((CreateInventoryTransferRequest)args![0]!),

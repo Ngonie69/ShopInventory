@@ -127,6 +127,71 @@ counts add up — and record here how many approved request drafts there are, an
 
 Laid out from the "SAP-Held Transfer Requests" design canvas (November 2026).
 
+## Depot and factory transfers (2026-11-16)
+
+Asked for 2026-11-16: transfers split into two types. **Depot transfers** keep the app's own approval
+templates and stages and post to SAP once approved, as before. **Factory transfers** use SAP's approval
+templates only, as a transfer keyed in the B1 client would: the app's approval does not apply to them,
+the approval is triggered in the B1 client, and once SAP has approved it the person in the app sees it
+approved and adds it. This replaces the 2026-11-12 decision below to keep both approvals on conversions.
+
+**Which type** (`Features/InventoryTransfers/TransferTypes`, the same rule as
+`SapTransferApprovalRoutes.ExcludedWarehouse`): any warehouse on the transfer, header or line, that is a
+depot centre or shop (`FactoryDepartments.Depots`) or a van makes it a depot transfer. Everything else
+is a factory transfer — the factory shop `KEFSHOP` included (user's call): Dispatch ↔ Factory Shop
+follows SAP's approvals, and the app's "Dispatch to Factory Shop" / "Factory Shop returns to Dispatch"
+templates of 5 Nov no longer hold anything. Request edits (`InventoryTransferRequestEdit`) keep the app's
+approval whatever the route: who may change someone else's request is a different control.
+
+**The app's approval of a factory transfer** opens settled: `ApprovalRequests` row with template
+`SAP approval (factory transfer)` (template id `22000000-…-00fa`, which no definition carries), no
+stages, status `Approved`, nobody alerted. It is kept rather than skipped so the originator stays on file
+(the "on its way" message on conversion) and the conversion marks it generated. A change that keeps it
+a factory transfer leaves it settled; a change that puts a depot or van on it routes it through the
+app's templates like a new depot transfer.
+
+**Direct transfers** (`FactoryTransferSapApproval`). On submission, and on each later press of the
+row's SAP button (`POST .../pending/{id}/post`, labelled Send to SAP / Check SAP / Add in SAP):
+
+1. A transfer in SAP carrying the draft number in `U_OrderNumber` — added in the B1 client, on SAP-Held
+   Transfers, or by a step whose answer was lost — is recorded as the post.
+2. An open transfer draft carrying it says where SAP's approval stands: `sasWithout` → the B1 user has
+   not added it yet (`AwaitingSapClient`); `sasPending` → with SAP's approver; `sasRejected` → the
+   transfer is `Rejected`; `sasApproved` → added through the SAP-held add (batch picks, till sales,
+   recognition), with the warehouse check already made by the caller (`CallerAuthorized`).
+3. Otherwise SAP's templates are read for the header route: covered → saved as a draft
+   (`CreateStockTransferDraftAsync`, remarks "Reason | Requested by"), status `HeldInSap`; not covered →
+   posted at once by the ordinary poster.
+
+One step runs per transfer at a time (`factory-transfer-sap-step`). A draft closed without a transfer
+was removed in B1; the next step saves a new one. Nothing refreshes the state on its own: the list shows
+what the last step read (`sapCheckedAtUtc`), and adding the draft from SAP-Held Transfers or in B1 is
+picked up by the next press.
+
+**Transfer requests.** Converting a factory request skips the app's approval entirely, including a
+stage still open on a request raised before the split, and goes straight to the conversion below
+(marker lookup, SAP template, draft / wait / add, or post).
+
+**The draft write, run once on `KEFALOS_TEST_3` (2026-11-16, user-approved)** — the real
+`FactoryTransferSapApproval` and Service Layer client, the held transfer in memory only (temporary test
+`SapFactoryTransferOnce`, removed after the run; copy in `artifacts/verify/20261116-factory-transfers/`):
+
+- WAREH → PROYG 2, 1 × PCH007 and 1 × PYG093, dated 2026-10-20 (the test company has no rate after
+  24 Oct), under "Trans From Warehouse": press 1 saved draft **DocEntry 80191 / DocNum 112390**,
+  `bost_Open`, `sasWithout`, `DocObjectCode 67`, `U_OrderNumber DT-2026-V0001`, remarks "Reason: … |
+  Requested by …", both lines as sent with their units. Press 2 found it and answered "waiting to be
+  added in the SAP client"; exactly one draft carries the marker. Nothing moved.
+- **SAP's draft numbers repeat:** 80191 and PR #907's 80189 both read DocNum 112390. The app's messages
+  therefore name the order number (the draft number, `DT-…`) beside the DocNum, and the Web tells a B1
+  user to go by it.
+- Draft 80191 is left in the test company for the next proof: add it in the B1 client as a user on the
+  "Trans From Warehouse" originator list, approve it, then press Check SAP — which adds it (moving 1
+  PCH007 and 1 PYG093 WAREH → PROYG 2 in the test company).
+
+**Still unproven:** the same as below — that the B1 client's add of an app-made draft starts SAP's
+approval, and the app's add of the approved draft. Until that is seen on the test company, a factory
+transfer on a covered route can only be moved on by adding its draft in B1.
+
 ## Conversions on routes SAP approves
 
 Asked for 2026-11-12: converting a transfer request must respect SAP's own approval where SAP has one,

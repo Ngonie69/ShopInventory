@@ -45,6 +45,16 @@ public interface IPendingInventoryTransferPoster
         PendingInventoryTransferEntity pending,
         Guid postedByUserId,
         bool postOnlyLinesInStock = false);
+
+    /// <summary>
+    /// Marks the held transfer posted against a transfer that is already in SAP — a factory transfer's
+    /// SAP draft, added once SAP approved it — and tells the people a post tells. Saves the entity.
+    /// </summary>
+    Task<InventoryTransferDto> RecordAddedInSapAsync(
+        PendingInventoryTransferEntity pending,
+        InventoryTransfer transfer,
+        Guid postedByUserId,
+        string auditDetail);
 }
 
 public sealed class PendingInventoryTransferPoster(
@@ -132,6 +142,13 @@ public sealed class PendingInventoryTransferPoster(
             }
         }
     }
+
+    public Task<InventoryTransferDto> RecordAddedInSapAsync(
+        PendingInventoryTransferEntity pending,
+        InventoryTransfer transfer,
+        Guid postedByUserId,
+        string auditDetail)
+        => RecordPostedAsync(pending, transfer, postedByUserId, auditDetail, CancellationToken.None);
 
     private async Task<ErrorOr<InventoryTransferDto>> PostCoreAsync(
         PendingInventoryTransferEntity pending,

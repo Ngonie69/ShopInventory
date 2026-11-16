@@ -116,6 +116,17 @@ public sealed class ApprovalRoutePreviewModel
     /// <summary>The raiser is an administrator: every stage is met as they submit, so it posts at once.</summary>
     public bool ApprovedOnRaising { get; set; }
 
+    /// <summary>"Depot" or "Factory". A factory transfer has no stages: SAP's own approval decides it.</summary>
+    public string TransferType { get; set; } = TransferTypeNames.Depot;
+
+    /// <summary>For a factory transfer, false when SAP's templates could not be read just now.</summary>
+    public bool SapApprovalKnown { get; set; }
+
+    /// <summary>For a factory transfer, the SAP templates that would hold it; empty means it posts at once.</summary>
+    public List<string> SapApprovalTemplates { get; set; } = [];
+
+    public bool IsFactory => string.Equals(TransferType, TransferTypeNames.Factory, StringComparison.OrdinalIgnoreCase);
+
     public List<ApprovalRoutePreviewStageModel> Stages { get; set; } = [];
 }
 

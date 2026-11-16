@@ -877,20 +877,20 @@ else if (pendingActionTitle is not null)
                                             }
                                             @* Approved belongs here too: the post runs inside the approval request, so a
                                                record still sitting at Approved is one whose post never finished. *@
-                                            else if (canWriteTransfers && pending.Status is PendingTransferStatuses.PostFailed or PendingTransferStatuses.Approved)
+                                            else if (canWriteTransfers && CanRunSapAction(pending))
                                             {
-                                                <button type="button" class="itx-btn itx-btn-sm" disabled="@isDecidingPending"
-                                                        title="Post this approved transfer to SAP"
+                                                <button type="button" class="itx-btn itx-btn-sm @(IsReadyToAdd(pending) ? "itx-btn-primary" : "")" disabled="@isDecidingPending"
+                                                        title="@SapActionTitle(pending)"
                                                         @onclick="() => RetryPendingTransferAsync(pending)">
                                                     @if (pendingActionId == pending.Id)
                                                     {
                                                         <span class="itx-spin itx-spin-sm itx-spin-inline"></span>
-                                                        <span>Posting…</span>
+                                                        <span>@SapActionBusyLabel(pending)</span>
                                                     }
                                                     else
                                                     {
-                                                        <i class="bi bi-arrow-clockwise"></i>
-                                                        <span>Post to SAP</span>
+                                                        <i class="bi @SapActionIcon(pending)"></i>
+                                                        <span>@SapActionLabel(pending)</span>
                                                     }
                                                 </button>
                                             }
@@ -968,7 +968,7 @@ else if (pendingActionTitle is not null)
     <div class="itx-drawer">
         <div class="itx-drawer-head">
             <div style="flex:1;min-width:0;">
-                <div class="itx-kicker">@(IsPostedToSap(selectedPendingTransfer) ? "Posted transfer" : "Draft transfer")</div>
+                <div class="itx-kicker">@DrawerKicker(selectedPendingTransfer)</div>
                 <h5>@DraftReference(selectedPendingTransfer)</h5>
                 <div class="itx-drawer-route">
                     @foreach (var source in SourcesOf(selectedPendingTransfer))
@@ -1018,8 +1018,22 @@ else if (pendingActionTitle is not null)
                 </div>
                 <div>
                     <div class="k">Approval process</div>
-                    <div class="v">@(selectedPendingTransfer.ApprovalTemplateName ?? "—")</div>
+                    <div class="v">@ApprovalProcessLabel(selectedPendingTransfer)</div>
                 </div>
+                @if (selectedPendingTransfer.SapDraftDocNum.HasValue && !IsPostedToSap(selectedPendingTransfer))
+                {
+                    <div>
+                        <div class="k">SAP draft</div>
+                        <div class="v">#@selectedPendingTransfer.SapDraftDocNum</div>
+                    </div>
+                }
+                @if (selectedPendingTransfer.SapCheckedAtUtc.HasValue && selectedPendingTransfer.Status == PendingTransferStatuses.HeldInSap)
+                {
+                    <div>
+                        <div class="k">SAP last checked</div>
+                        <div class="v">@selectedPendingTransfer.SapCheckedAtUtc.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")</div>
+                    </div>
+                }
                 @if (selectedPendingTransfer.SapDocNum.HasValue)
                 {
                     <div>
@@ -1061,6 +1075,23 @@ else if (pendingActionTitle is not null)
                     <div class="itx-alert-body">@selectedPendingTransfer.LastError</div>
                 </div>
             }
+            else if (selectedPendingTransfer.IsFactory && selectedPendingTransfer.Status == PendingTransferStatuses.HeldInSap)
+            {
+                <div class="itx-alert @(IsReadyToAdd(selectedPendingTransfer) ? "ok" : "warn")">
+                    <i class="bi @(IsReadyToAdd(selectedPendingTransfer) ? "bi-check-circle-fill" : "bi-hourglass-split")"></i>
+                    <div class="itx-alert-body">@SapStateExplanation(selectedPendingTransfer)</div>
+                </div>
+            }
+            else if (selectedPendingTransfer.IsFactory && selectedPendingTransfer.Status == PendingTransferStatuses.Approved)
+            {
+                <div class="itx-alert warn">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <div class="itx-alert-body">
+                        This factory transfer has not reached SAP yet, so no stock has moved.
+                        Use <strong>Send to SAP</strong> below: it goes to SAP's approval, or posts where SAP has no approval template.
+                    </div>
+                </div>
+            }
             else if (selectedPendingTransfer.Status == PendingTransferStatuses.Approved)
             {
                 @* Approval is complete but SAP never took the document, so no stock has moved.
@@ -1075,6 +1106,17 @@ else if (pendingActionTitle is not null)
             }
 
             <div class="itx-section"><i class="bi bi-diagram-3"></i> Approval stages</div>
+            @if (selectedPendingTransfer.IsFactory)
+            {
+                <p class="itx-note">
+                    A factory transfer is approved in SAP, not here: SAP's own approval templates decide it, as they
+                    would a transfer keyed in the B1 client.
+                    @if (!string.IsNullOrWhiteSpace(selectedPendingTransfer.SapApprovalTemplates))
+                    {
+                        <text> SAP template: <strong>@selectedPendingTransfer.SapApprovalTemplates</strong>.</text>
+                    }
+                </p>
+            }
             <ul class="itx-stagelist">
                 @foreach (var stage in selectedPendingTransfer.ApprovalStages)
                 {
@@ -1339,20 +1381,20 @@ else if (pendingActionTitle is not null)
                     <span>Edit lines</span>
                 </button>
             }
-            @if (canWriteTransfers && selectedPendingTransfer.Status is PendingTransferStatuses.Approved or PendingTransferStatuses.PostFailed)
+            @if (canWriteTransfers && CanRunSapAction(selectedPendingTransfer))
             {
                 <button type="button" class="itx-btn itx-btn-primary" disabled="@isDecidingPending"
-                        title="Post this approved transfer to SAP"
+                        title="@SapActionTitle(selectedPendingTransfer)"
                         @onclick="() => RetryPendingTransferAsync(selectedPendingTransfer)">
                     @if (pendingActionId == selectedPendingTransfer.Id)
                     {
                         <span class="itx-spin itx-spin-sm itx-spin-inline"></span>
-                        <span>Posting to SAP…</span>
+                        <span>@SapActionBusyLabel(selectedPendingTransfer)</span>
                     }
                     else
                     {
-                        <i class="bi bi-arrow-clockwise"></i>
-                        <span>Post to SAP</span>
+                        <i class="bi @SapActionIcon(selectedPendingTransfer)"></i>
+                        <span>@SapActionLabel(selectedPendingTransfer)</span>
                     }
                 </button>
             }
@@ -2072,7 +2114,8 @@ else if (pendingActionTitle is not null)
             else if (ShowsRequestConversionAction(selectedTransferRequest))
             {
                 var canConvert = CanCurrentUserConvertRequest(selectedTransferRequest);
-                var requiresApproval = IsWarehouseScopedRole(currentUserRole);
+                // A factory request asks nobody here: SAP's approval is the one that applies.
+                var requiresApproval = IsWarehouseScopedRole(currentUserRole) && !selectedTransferRequest.IsFactory;
                 <span class="itx-note">
                     <i class="bi bi-info-circle"></i>
                     @RequestConversionActionNote(selectedTransferRequest)
@@ -2468,6 +2511,7 @@ else if (pendingActionTitle is not null)
     {
         PendingTransferStatuses.AwaitingApproval => "Awaiting approval",
         PendingTransferStatuses.Approved => "Approved — not posted",
+        PendingTransferStatuses.HeldInSap => "Held in SAP (factory)",
         PendingTransferStatuses.Posted => "Posted to SAP",
         PendingTransferStatuses.PostFailed => "Failed to post",
         PendingTransferStatuses.Rejected => "Rejected",
@@ -2655,6 +2699,7 @@ else if (pendingActionTitle is not null)
     [
         new(PendingTransferStatuses.AwaitingApproval, "Awaiting approval", "warn"),
         new(PendingTransferStatuses.Approved, "Approved — not posted", "info"),
+        new(PendingTransferStatuses.HeldInSap, "Held in SAP (factory)", "info"),
         new(PendingTransferStatuses.Posted, "Posted to SAP", "good"),
         new(PendingTransferStatuses.PostFailed, "Failed to post", "bad"),
         new(PendingTransferStatuses.Rejected, "Rejected", "bad"),
@@ -3533,11 +3578,17 @@ else if (pendingActionTitle is not null)
         isDecidingPending = true;
         errorMessage = null;
         successMessage = null;
-        BeginPendingAction(
-            pending,
-            $"Posting {DraftReference(pending)} to SAP…",
-            $"Re-checking stock in {pending.FromWarehouse} and creating the document. " +
-            "A transfer with many lines can take a minute or more.");
+        if (pending.IsFactory)
+            BeginPendingAction(
+                pending,
+                $"{SapActionBusyLabel(pending).TrimEnd('…')} {DraftReference(pending)}…",
+                "Reading the transfer's SAP draft and SAP's approval: it is sent, checked or added, whichever SAP is ready for.");
+        else
+            BeginPendingAction(
+                pending,
+                $"Posting {DraftReference(pending)} to SAP…",
+                $"Re-checking stock in {pending.FromWarehouse} and creating the document. " +
+                "A transfer with many lines can take a minute or more.");
         StateHasChanged();
         try
         {
@@ -3603,11 +3654,84 @@ else if (pendingActionTitle is not null)
         PendingTransferStatuses.PostFailed => "Failed to post",
         PendingTransferStatuses.Posted => $"Posted (#{pending.SapDocNum})",
         PendingTransferStatuses.Cancelled => "Withdrawn",
+        PendingTransferStatuses.HeldInSap => pending.SapApprovalState switch
+        {
+            FactoryTransferSapStates.Approved => "SAP approved — ready to add",
+            FactoryTransferSapStates.Pending => "Awaiting SAP approval",
+            _ => "In SAP — add it in B1"
+        },
+        PendingTransferStatuses.Rejected => pending.SapApprovalState == FactoryTransferSapStates.Rejected ? "Rejected in SAP" : "Rejected",
         _ => pending.Status
     };
 
+    private string DrawerKicker(PendingInventoryTransferDto pending)
+        => $"{(IsPostedToSap(pending) ? "Posted transfer" : "Draft transfer")} · {(pending.IsFactory ? "Factory transfer" : "Depot transfer")}";
+
+    /// <summary>A factory transfer SAP has approved: the next press adds it.</summary>
+    private static bool IsReadyToAdd(PendingInventoryTransferDto pending)
+        => pending.IsFactory && pending.Status == PendingTransferStatuses.HeldInSap &&
+           pending.SapApprovalState == FactoryTransferSapStates.Approved;
+
+    /// <summary>
+    /// Whether the one SAP action applies: post a depot transfer that is approved and unposted, or move a
+    /// factory transfer on through SAP — send it, check its draft, add it once SAP approves.
+    /// </summary>
+    private static bool CanRunSapAction(PendingInventoryTransferDto pending)
+        => pending.Status is PendingTransferStatuses.PostFailed or PendingTransferStatuses.Approved ||
+           (pending.IsFactory && pending.Status == PendingTransferStatuses.HeldInSap);
+
+    private static string SapActionLabel(PendingInventoryTransferDto pending) =>
+        !pending.IsFactory ? "Post to SAP"
+        : pending.Status != PendingTransferStatuses.HeldInSap ? "Send to SAP"
+        : IsReadyToAdd(pending) ? "Add in SAP"
+        : "Check SAP";
+
+    private static string SapActionBusyLabel(PendingInventoryTransferDto pending) =>
+        !pending.IsFactory ? "Posting…"
+        : pending.Status != PendingTransferStatuses.HeldInSap ? "Sending…"
+        : IsReadyToAdd(pending) ? "Adding…"
+        : "Checking SAP…";
+
+    private static string SapActionIcon(PendingInventoryTransferDto pending) =>
+        pending.IsFactory && pending.Status == PendingTransferStatuses.HeldInSap ? "bi-cloud-check" : "bi-arrow-clockwise";
+
+    private static string SapActionTitle(PendingInventoryTransferDto pending) =>
+        !pending.IsFactory ? "Post this approved transfer to SAP"
+        : pending.Status != PendingTransferStatuses.HeldInSap
+            ? "Send this factory transfer to SAP's approval, or post it where SAP has no approval template"
+            : "Read the SAP draft again, and add it if SAP has approved it";
+
+    private static string ApprovalProcessLabel(PendingInventoryTransferDto pending) =>
+        !pending.IsFactory ? pending.ApprovalTemplateName ?? "—"
+        : string.IsNullOrWhiteSpace(pending.SapApprovalTemplates) ? "SAP approval (factory transfer)"
+        : $"SAP approval · {pending.SapApprovalTemplates}";
+
+    private static string SapStateExplanation(PendingInventoryTransferDto pending)
+    {
+        var draft = pending.SapDraftDocNum is int number ? $"SAP draft {number}" : "the SAP draft";
+        var approver = string.IsNullOrWhiteSpace(pending.SapApprovalTemplates)
+            ? "SAP's approver"
+            : $"SAP's approver ({pending.SapApprovalTemplates})";
+        return pending.SapApprovalState switch
+        {
+            FactoryTransferSapStates.Approved =>
+                $"SAP has approved {draft}. Use Add in SAP to post it; nothing has moved until then.",
+            FactoryTransferSapStates.Pending =>
+                $"This transfer is with {approver} as {draft}. Nothing has moved yet. Use Check SAP once it is approved.",
+            _ =>
+                $"This transfer is in SAP as {draft}, order number {pending.DraftNumber} (SAP's draft numbers repeat, so " +
+                $"go by the order number). Open it in the B1 client (Drafts) and add it: that sends it to {approver}, " +
+                "as a transfer keyed in B1 would be. Nothing has moved yet."
+        };
+    }
+
     private static string PendingStageNames(PendingInventoryTransferDto pending)
     {
+        if (pending.IsFactory)
+            return pending.Status == PendingTransferStatuses.HeldInSap
+                ? $"SAP: {(string.IsNullOrWhiteSpace(pending.SapApprovalTemplates) ? "approval" : pending.SapApprovalTemplates)}"
+                : "—";
+
         var names = pending.ApprovalStages
             .Where(stage => stage.Status == PendingStageStatus)
             .Select(stage => stage.StageName)
@@ -5010,7 +5134,7 @@ else if (pendingActionTitle is not null)
         "closed" or "bost_close" => "closed",
         "approved" or "generated" or "generatedbyauthorizer" or "posted" => "approved",
         "rejected" or "notapproved" or "cancelled" or "postfailed" => "rejected",
-        "pending" or "awaitingapproval" => "pending",
+        "pending" or "awaitingapproval" or "heldinsap" => "pending",
         _ => "open"
     };
 
@@ -5062,10 +5186,11 @@ else if (pendingActionTitle is not null)
     private bool CanCurrentUserConvertRequest(InventoryTransferRequestDto? request)
         => ShowsRequestConversionAction(request) && CanActOnRequestSource(request);
 
-    // Every conversion passes through the request's approval, whatever the role: the server records
-    // the converter's own stage decision first, and posts only once every stage is approved. On a route
-    // one of SAP's own approval templates covers (never a depot or a van), "posts" becomes "goes to SAP
-    // as a draft": SAP's approver decides it there, and converting again once SAP approves posts it.
+    // A depot request passes through the request's approval here, whatever the role: the server records
+    // the converter's own stage decision first, and posts only once every stage is approved. A factory
+    // request (no depot and no van; the factory shop is factory) answers to SAP's approval alone: on a route one of SAP's
+    // templates covers it goes to SAP as a draft, SAP's approver decides it there, and converting again
+    // once SAP approves adds it; on any other route it posts.
     private string RequestConversionActionNote(InventoryTransferRequestDto request)
     {
         if (!CanActOnRequestSource(request))
@@ -5073,6 +5198,20 @@ else if (pendingActionTitle is not null)
             return $"{request.FromWarehouse} is not one of your assigned warehouses. " +
                    $"Converting issues stock out of {request.FromWarehouse}, so it is for whoever runs " +
                    "that warehouse, a stock officer, or an administrator.";
+        }
+
+        if (request.IsFactory)
+        {
+            var templates = SapApprovalNames(request);
+            return templates is not null
+                ? $"Factory request: SAP's own approval ({templates}) applies, not this app's. Converting saves the " +
+                  "transfer to SAP as a draft; add that draft in the B1 client to send it to SAP's approver, then " +
+                  "convert again once SAP approves it."
+                : request.SapApprovalKnown
+                    ? "Factory request: no SAP approval template covers this route, so converting posts the transfer " +
+                      "to SAP, as the B1 client would."
+                    : "Factory request: SAP's own approval applies, not this app's. Converting checks SAP's templates " +
+                      "and saves a draft for SAP's approval, or posts where SAP has none.";
         }
 
         var sap = SapApprovalNames(request);

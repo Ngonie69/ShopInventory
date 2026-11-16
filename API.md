@@ -2029,7 +2029,7 @@ repeat returns the existing held transfer rather than opening a second approval.
 | GET | `/api/InventoryTransfer/pending` | List held transfers. `status` (default `AwaitingApproval`, or `all`), `warehouseCode`, `mineOnly`, `page`, `pageSize` |
 | GET | `/api/InventoryTransfer/pending/{id}` | Held transfer with lines and per-stage approval progress |
 | POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject. Admin, StockController, WashBay, DepotController, ShopStock, Manager. The person who raised the transfer, or who sent it back by raising its lines, cannot approve it (403 `InventoryTransfer.SelfApprovalNotAllowed`); they may reject it |
-| POST | `/api/InventoryTransfer/pending/{id}/post` | Retry the SAP post after a `PostFailed`. Any attempt after the first looks the transfer up in SAP by its draft number (`U_OrderNumber`) and records the document it finds instead of posting again. A failed lookup posts nothing. A timeout recorded before posts carried the draft number is refused with 409 `InventoryTransfer.PostOutcomeUnsearchable`: record its number or withdraw it |
+| POST | `/api/InventoryTransfer/pending/{id}/post` | Retry the SAP post after a `PostFailed`. Any attempt after the first looks the transfer up in SAP by its draft number (`U_OrderNumber`) and records the document it finds instead of posting again. A failed lookup posts nothing. A timeout recorded before posts carried the draft number is refused with 409 `InventoryTransfer.PostOutcomeUnsearchable`: record its number or withdraw it. For a **factory** transfer (`transferType: "Factory"`) it is the next step through SAP's approval, also allowed at `HeldInSap`: it sends the transfer to SAP as a draft (or posts it where no SAP template covers the route), reports where the draft stands, and adds it once SAP has approved it. `status` in the answer says where it now is; `transfer` is set once it is in SAP |
 | POST | `/api/InventoryTransfer/pending/{id}/cancel` | Withdraw. Submitter or Admin only, while `AwaitingApproval` |
 | GET | `/api/InventoryTransfer/pending/{id}/stock-check` | Each line against the source warehouse now: `InStock`, `Short` (with the available figure) or `Unread` |
 | POST | `/api/InventoryTransfer/pending/{id}/post-in-stock` | Post the lines the depot can fill from an `Approved`/`PostFailed` transfer; short lines are left out and kept in `DroppedLinesJson`. Refused after a timed-out post until SAP is checked |
@@ -2049,6 +2049,19 @@ stage. `POST /api/approval-process/transfers/{id}/decision` is an equivalent rou
 **Statuses:** `AwaitingApproval` → `Approved` → `Posted`, or `Rejected` / `Cancelled`.
 `PostFailed` means the approval stands but SAP rejected the post; `lastError` explains why and the
 `/post` endpoint retries.
+
+**Depot and factory transfers (2026-11-16).** `transferType` is `Depot` when any warehouse on the
+transfer — header or line — is a depot centre or shop or a van, and `Factory` otherwise. The factory
+shop (`KEFSHOP`) is not a depot: its transfers are factory transfers. A depot transfer goes through the app's approval as above. A factory transfer does
+not: its approval opens settled (template `SAP approval (factory transfer)`, no stages, nobody alerted)
+and SAP's own transfer approval templates decide it instead. On submission, a factory transfer on a
+route one of SAP's active templates covers is saved to SAP as a draft carrying its draft number in
+`U_OrderNumber` and waits at `HeldInSap`; on any other route it posts at once. A B1 user adds the draft
+in the B1 client, which is what starts SAP's approval (SAP never starts one for a Service Layer
+document); `POST .../post` then reads where it stands — `sapApprovalState` `AwaitingSapClient`,
+`Pending`, `Approved` or `Rejected` — and adds it once SAP has approved it. A draft SAP rejects makes the
+transfer `Rejected`. The held transfer carries `sapDraftDocEntry`, `sapDraftDocNum`,
+`sapApprovalTemplates` and `sapCheckedAtUtc`. Transfers raised before this read `Depot`.
 
 #### Changing a transfer request
 
@@ -5533,7 +5546,7 @@ steps; a template is the sequence of stages a document type goes through.
 | DELETE | `/api/approval-process/templates/{id}` | **Admin** | Delete one |
 | POST | `/api/approval-process/transfer-requests/{docEntry}/decision` | `ApiAccess` | Decide a transfer request |
 | POST | `/api/approval-process/transfers/{pendingTransferId}/decision` | `ApiAccess` | Decide a held direct transfer |
-| GET | `/api/approval-process/transfers/route-preview` | `ApiAccess` | Who a direct transfer with these warehouses would wait on |
+| GET | `/api/approval-process/transfers/route-preview` | `ApiAccess` | Who a direct transfer with these warehouses would wait on. `transferType` is `Depot` or `Factory`; a factory transfer has no stages, and `sapApprovalTemplates` names the SAP templates that would hold it (empty: it posts at once; `sapApprovalKnown` false: SAP's templates could not be read) |
 
 **A template names lists of warehouses, and every line must fit them.** `fromWarehouses` and
 `toWarehouses` replaced the single `fromWarehouse`/`toWarehouse` codes (migration
@@ -5554,6 +5567,8 @@ Migration `SeedDispatchFactoryShopApprovals` added the **Receiving stock officer
 Officer, `Destination`, per warehouse) and two direct-transfer templates at priority 200: **Dispatch
 to Factory Shop** (DISPCH, DISPYOG, DISPMILK, DISPICE → KEFSHOP) and **Factory Shop returns to
 Dispatch** (the reverse). They are ordinary rows: rename, retarget or delete them like any other.
+**Since 2026-11-16 neither template holds anything:** Dispatch ↔ KEFSHOP touches no depot and no van, so
+it is a factory transfer, approved by SAP's own templates instead (see Depot and factory transfers above).
 
 The factory shop's stock user is not a stock officer, so migration `SeparateFactoryShopStockApproval`
 added a **Factory shop stock** stage (`ShopStock`, `Destination`, per warehouse) and moved **Dispatch
@@ -5565,8 +5580,8 @@ check, when one of its `assignedWarehouseCodes` is at **either end**; which end 
 the stage's `warehouseScope`. Its other held-transfer actions (editing lines, retrying or recording
 the post, withdrawing) still need the source warehouse.
 
-`GET /transfers/route-preview?from=DISPCH&from=DISPYOG&to=KEFSHOP` answers which template and stages a
-transfer would get, without opening anything. `matched: false` means no active template fits and the
+`GET /transfers/route-preview?from=WAREH&to=KEFGRC` answers which template and stages a
+transfer would get (for a factory route, `transferType: "Factory"` and the SAP templates instead), without opening anything. `matched: false` means no active template fits and the
 transfer cannot be submitted. For each stage, `warehousesWithoutAuthorizer` lists the scope warehouses
 nobody but an administrator could approve for, and `authorizerCount` counts the people who could,
 leaving out the caller (they cannot approve their own transfer).

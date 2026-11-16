@@ -782,7 +782,7 @@ public sealed class PendingTransferRecoveryTests : IDisposable
         var poster = new PendingInventoryTransferPoster(
             context, sap.AsClient(), stock.AsService(), Approvals(), new NoOpNotificationService(), Audit(),
             BuildStore(), NullLogger<PendingInventoryTransferPoster>.Instance);
-        return new RetryPendingTransferPostHandler(context, Authorizer(), poster, SapOn);
+        return new RetryPendingTransferPostHandler(context, Authorizer(), poster, StubProxy.Unused<IFactoryTransferSapApproval>(), SapOn);
     }
 
     private EditPendingTransferLinesHandler EditLines(IIdempotencyRequestStore store)

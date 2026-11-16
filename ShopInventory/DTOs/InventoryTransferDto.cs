@@ -128,6 +128,12 @@ public class InventoryTransferRequestDto
 
     /// <summary>False when SAP's templates could not be read, so <see cref="SapApprovalTemplates"/> says nothing.</summary>
     public bool SapApprovalKnown { get; set; }
+
+    /// <summary>
+    /// "Depot" (touches a depot, the factory shop or a van: this app's approval) or "Factory" (SAP's own
+    /// approval only). Decided by the warehouses, so it is known without reading SAP.
+    /// </summary>
+    public string TransferType { get; set; } = "Depot";
 }
 
 /// <summary>

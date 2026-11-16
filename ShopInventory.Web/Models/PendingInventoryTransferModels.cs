@@ -34,6 +34,31 @@ public class PendingInventoryTransferDto
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 
+    /// <summary>"Depot" (the app's approval) or "Factory" (SAP's own approval). See <see cref="TransferTypeNames"/>.</summary>
+    [JsonPropertyName("transferType")]
+    public string TransferType { get; set; } = TransferTypeNames.Depot;
+
+    /// <summary>A factory transfer's SAP draft, once it has been saved to SAP for SAP's approval.</summary>
+    [JsonPropertyName("sapDraftDocEntry")]
+    public int? SapDraftDocEntry { get; set; }
+
+    [JsonPropertyName("sapDraftDocNum")]
+    public int? SapDraftDocNum { get; set; }
+
+    /// <summary>AwaitingSapClient, Pending, Approved or Rejected, as the SAP draft read when last checked.</summary>
+    [JsonPropertyName("sapApprovalState")]
+    public string? SapApprovalState { get; set; }
+
+    /// <summary>The SAP approval templates that cover the route, joined.</summary>
+    [JsonPropertyName("sapApprovalTemplates")]
+    public string? SapApprovalTemplates { get; set; }
+
+    [JsonPropertyName("sapCheckedAtUtc")]
+    public DateTime? SapCheckedAtUtc { get; set; }
+
+    [JsonIgnore]
+    public bool IsFactory => string.Equals(TransferType, TransferTypeNames.Factory, StringComparison.OrdinalIgnoreCase);
+
     [JsonPropertyName("createdByName")]
     public string CreatedByName { get; set; } = string.Empty;
 
@@ -224,4 +249,26 @@ public static class PendingTransferStatuses
     public const string Posted = "Posted";
     public const string PostFailed = "PostFailed";
     public const string Cancelled = "Cancelled";
+
+    /// <summary>A factory transfer in SAP as a draft, held by SAP's own approval.</summary>
+    public const string HeldInSap = "HeldInSap";
+}
+
+/// <summary>
+/// The two kinds of transfer. A depot transfer touches a depot or a van and goes through
+/// this app's approval; a factory transfer is everything else and goes through SAP's own approval.
+/// </summary>
+public static class TransferTypeNames
+{
+    public const string Depot = "Depot";
+    public const string Factory = "Factory";
+}
+
+/// <summary>Where a factory transfer's SAP draft stands with SAP's approval.</summary>
+public static class FactoryTransferSapStates
+{
+    public const string AwaitingSapClient = "AwaitingSapClient";
+    public const string Pending = "Pending";
+    public const string Approved = "Approved";
+    public const string Rejected = "Rejected";
 }

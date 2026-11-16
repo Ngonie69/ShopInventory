@@ -77,6 +77,12 @@ public static class PendingInventoryTransferMapper
             LastAttemptedAtUtc = pending.LastAttemptedAtUtc,
             LastError = pending.LastError,
             ApprovalRequestId = pending.ApprovalRequestId,
+            TransferType = TransferTypes.IsFactory(pending.TransferType) ? TransferTypes.Factory : TransferTypes.Depot,
+            SapDraftDocEntry = pending.SapDraftDocEntry,
+            SapDraftDocNum = pending.SapDraftDocNum,
+            SapApprovalState = pending.SapApprovalState,
+            SapApprovalTemplates = pending.SapApprovalTemplates,
+            SapCheckedAtUtc = pending.SapCheckedAtUtc,
             FromWarehouses = [pending.FromWarehouse],
             ToWarehouses = [pending.ToWarehouse]
         };

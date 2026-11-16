@@ -76,7 +76,9 @@ public sealed class AddApprovedSapTransferHandler(
             {
                 // The draft is closed by now, so the warehouses the first answer recorded decide.
                 case IdempotencyAcquireOutcome.ReplayAvailable when acquired.Response is not null:
-                    var replayCheck = await EnsureMayAddAsync(command.UserId, [acquired.Response.FromWarehouse], cancellationToken);
+                    var replayCheck = command.CallerAuthorized
+                        ? Result.Success
+                        : await EnsureMayAddAsync(command.UserId, [acquired.Response.FromWarehouse], cancellationToken);
                     return replayCheck.IsError ? replayCheck.Errors : acquired.Response;
                 case IdempotencyAcquireOutcome.InProgress:
                     return Errors.SapTransferApproval.AddInProgress;
@@ -99,7 +101,9 @@ public sealed class AddApprovedSapTransferHandler(
 
             // Before any state is described: a transfer out of someone else's warehouse is not theirs
             // to learn anything about.
-            var allowed = await EnsureMayAddAsync(
+            var allowed = command.CallerAuthorized
+                ? Result.Success
+                : await EnsureMayAddAsync(
                 command.UserId, SapTransferApprovalProjection.SourceWarehouses(draft), cancellationToken);
             if (allowed.IsError)
             {

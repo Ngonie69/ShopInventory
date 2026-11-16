@@ -18,6 +18,20 @@ otherwise be surprised.
 
 ### Changed
 
+- **Transfers are now depot or factory transfers, and factory transfers are approved in SAP.** A
+  transfer that touches no depot and no van — a direct transfer or a transfer request, the factory shop
+  (`KEFSHOP`) included — no longer goes through the app's approval templates and stages. Its approval opens
+  settled, and SAP's own transfer approval templates decide it: on a route one of them covers it is saved
+  to SAP as a draft (status `HeldInSap`) for a B1 user to add, which starts SAP's approval, and the app
+  adds it once SAP approves it (`POST /api/InventoryTransfer/pending/{id}/post`, or Convert on a
+  request); on any other route it posts at once. Depot transfers are unchanged. Held transfers and
+  requests carry `transferType`; held transfers carry `sapDraftDocEntry`, `sapDraftDocNum`,
+  `sapApprovalState`, `sapApprovalTemplates` and `sapCheckedAtUtc`; the route preview carries
+  `transferType`, `sapApprovalKnown` and `sapApprovalTemplates`. A factory request with an app approval
+  still pending from before this change converts through SAP all the same. The "Dispatch to Factory
+  Shop" and "Factory Shop returns to Dispatch" templates no longer hold anything. Replaces 2026-11-12's "both
+  approvals" for conversions on SAP-approved routes.
+
 - **Sales reports show a sale's margin from the evening it posted, not minutes after.** The
   `sale-invoice-cost-sync` job, which copies SAP's booked gross profit for the reports, now runs every
   15 minutes from 20:00 to 05:45 CAT instead of every 5 minutes all day. Margin is measured only on
