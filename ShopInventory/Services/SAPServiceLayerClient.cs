@@ -9007,45 +9007,27 @@ ORDER BY T1."WhsCode", T1."ItemCode"
 
         await EnsureAuthenticatedAsync(cancellationToken);
 
-        var safeWarehouse = SanitizeSqlValue(warehouseCode);
-
-        var customFieldsSql = _settings.UseCustomFields
-            ? @",
-            T0.""U_PackagingCode"" as ""PackagingCode"",
-            T0.""U_PackagingCodeLabels"" as ""PackagingCodeLabels"",
-            T0.""U_PackagingCodeLids"" as ""PackagingCodeLids"""
-            : "";
-
-        // Scoped by warehouse and item-code family rather than by the requested set. The codes used
-        // to go into the SQL text, and a SAP query object is keyed on a hash of that text and
-        // cannot be deleted, so every distinct set left a permanent OUQR row behind — and the sets
-        // shift with stock, so it never converged. One object per warehouse × family instead, which
-        // recurs; see SqlItemCodePrefixCover. Each bucket returns a superset, filtered below.
+        // Read with a $crossjoin of Items and their warehouse rows, not a SQLQueries('STK_ITEMS_…') object.
+        // The SQL read was the same rows, but a SQLQueries read can leave a Service Layer worker spinning
+        // at 100% CPU for hours, formatting the result as JSON, long after the caller gave up; on
+        // 17 Nov 2026 one held 1.8 GB on "YOG in VAN010", which this answers in ~150 ms. On 10–11 Nov
+        // every one of the 85 requests that ran past ten minutes was a SQLQueries read; no entity or
+        // $crossjoin read did. Those workers' memory is what gets HANA's index server killed.
+        //
+        // Still scoped by item-code family (SqlItemCodePrefixCover) rather than by the exact codes:
+        // SAP compares codes case-sensitively, and the upper-cased prefix plus the case-insensitive
+        // filter below is how a request for "yog001" has always found YOG001. Every family of the
+        // batch goes in one filter, so overlapping families (AB and ABC) return each row once.
         var stocks = new List<StockQuantityDto>();
-        foreach (var prefix in SqlItemCodePrefixCover.Cover(codes))
+        foreach (var prefixes in SqlItemCodePrefixCover.Cover(codes).Chunk(ItemStockPrefixesPerRead))
         {
-            var sqlText = $@"SELECT
-            T0.""ItemCode"",
-            T0.""ItemName"",
-            T0.""CodeBars"" as ""BarCode"",
-            T1.""WhsCode"" as ""WarehouseCode"",
-            T1.""OnHand"" as ""InStock"",
-            T1.""IsCommited"" as ""Committed"",
-            T1.""OnOrder"" as ""Ordered"",
-            T0.""InvntryUom"" as ""UoM""{customFieldsSql}
-        FROM OITM T0
-        INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
-        WHERE T1.""WhsCode"" = '{safeWarehouse}'
-          AND T0.""ItemCode"" LIKE '{SanitizeSqlValue(prefix)}%'
-        ORDER BY T0.""ItemCode""";
-
-            var queryCode = BuildContentAddressedQueryCode("STK_ITEMS", sqlText);
-
-            await EnsureSqlQueryAsync(queryCode, $"Stock validation items {prefix} in {warehouseCode}", sqlText, cancellationToken);
-            stocks.AddRange(await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken));
+            stocks.AddRange(await ReadItemStockCrossJoinAsync(
+                BuildItemStockCrossJoin(warehouseCode, prefixes, _settings.UseCustomFields),
+                warehouseCode,
+                cancellationToken));
         }
 
-        // Drop the codes the buckets returned that nobody asked for. Case-insensitive, matching the
+        // Drop the codes the families returned that nobody asked for. Case-insensitive, matching the
         // Distinct above.
         var requested = new HashSet<string>(codes, StringComparer.OrdinalIgnoreCase);
         stocks = stocks
@@ -9054,6 +9036,153 @@ ORDER BY T1."WhsCode", T1."ItemCode"
 
         _logger.LogInformation("Retrieved stock quantities for {ItemCount} requested items in warehouse {Warehouse}, matched {MatchedCount}",
             codes.Count, warehouseCode, stocks.Count);
+        return stocks;
+    }
+
+    private const string ItemStockLine = "Items/ItemWarehouseInfoCollection";
+
+    // Keeps the filter well inside the Service Layer's URL length: a 100-code batch rarely spans more
+    // than a dozen families.
+    private const int ItemStockPrefixesPerRead = 20;
+
+    /// <summary>
+    /// One row per item in <paramref name="prefixes"/>' families and its row in
+    /// <paramref name="warehouseCode"/>, stock or none, as the STK_ITEMS SQL returned.
+    /// </summary>
+    /// <remarks>
+    /// Measured on v1 against production on 2026-11-17: YOG in VAN010, 162 rows, in 146 ms. Only item
+    /// and warehouse-row fields are selected and only those are filtered on, the shape that answers in
+    /// property names (see <see cref="GetStockTransferEntriesWithLineInWarehouseAsync"/>).
+    /// </remarks>
+    internal static string BuildItemStockCrossJoin(string warehouseCode, IReadOnlyCollection<string> prefixes, bool useCustomFields)
+    {
+        if (prefixes.Count == 0)
+            throw new ArgumentException("At least one item-code prefix is required.", nameof(prefixes));
+
+        var itemFields = "ItemCode,ItemName,BarCode,InventoryUOM" +
+            (useCustomFields ? ",U_PackagingCode,U_PackagingCodeLabels,U_PackagingCodeLids" : "");
+        var families = string.Join(" or ", prefixes.Select(prefix =>
+            $"startswith(Items/ItemCode,'{EscapeODataStringLiteral(prefix)}')"));
+        var filter =
+            $"Items/ItemCode eq {ItemStockLine}/ItemCode" +
+            $" and {ItemStockLine}/WarehouseCode eq '{EscapeODataStringLiteral(warehouseCode)}'" +
+            $" and ({families})";
+
+        return $"$crossjoin(Items,{ItemStockLine})" +
+               $"?$expand={Uri.EscapeDataString($"Items($select={itemFields}),{ItemStockLine}($select=WarehouseCode,InStock,Committed,Ordered)")}" +
+               $"&$filter={Uri.EscapeDataString(filter)}" +
+               $"&$orderby={Uri.EscapeDataString("Items/ItemCode")}";
+    }
+
+    /// <summary>
+    /// Reads every page of a <see cref="BuildItemStockCrossJoin"/> query under the stock read's own
+    /// budget, failing as the SQL read did: <see cref="SapReadFailedException"/> for an answer that is
+    /// not a success, <see cref="TimeoutException"/> for the budget.
+    /// </summary>
+    private async Task<List<StockQuantityDto>> ReadItemStockCrossJoinAsync(
+        string query,
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var stocks = new List<StockQuantityDto>();
+        var skip = 0;
+
+        while (true)
+        {
+            var url = skip == 0 ? query : $"{query}&$skip={skip}";
+
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                return request;
+            }
+
+            var currentSession = _sessionId;
+            var response = await SendStockRequestWithBudgetAsync(
+                CreateRequest,
+                $"read item stock for warehouse {warehouseCode} from row {skip}",
+                cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
+
+                response = await SendStockRequestWithBudgetAsync(
+                    CreateRequest,
+                    $"read item stock for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
+                    cancellationToken);
+            }
+
+            using var responseOwner = response;
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("Failed to read item stock in warehouse {Warehouse}: {StatusCode} - {Error}",
+                    warehouseCode, response.StatusCode, content);
+                throw new SapReadFailedException(response.StatusCode, $"Failed to get stock quantities: {response.StatusCode} - {content}");
+            }
+
+            using var doc = JsonDocument.Parse(content);
+            var page = ParseItemStockCrossJoinPage(doc.RootElement);
+            stocks.AddRange(page);
+
+            // Resume at the rows actually received: SAP can cut a page short and still link the next.
+            skip += page.Count;
+            var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                              doc.RootElement.TryGetProperty("@odata.nextLink", out _);
+            if (page.Count == 0 || !hasNextLink)
+            {
+                return stocks;
+            }
+        }
+    }
+
+    /// <summary>The rows of one <see cref="BuildItemStockCrossJoin"/> page, as the SQL read named them.</summary>
+    internal static List<StockQuantityDto> ParseItemStockCrossJoinPage(JsonElement root)
+    {
+        var stocks = new List<StockQuantityDto>();
+        if (!root.TryGetProperty("value", out var rows) || rows.ValueKind != JsonValueKind.Array)
+        {
+            return stocks;
+        }
+
+        static string? Text(JsonElement element, string name) =>
+            element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        static decimal Number(JsonElement element, string name) =>
+            element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDecimal() : 0;
+
+        foreach (var row in rows.EnumerateArray())
+        {
+            if (!row.TryGetProperty("Items", out var item) || !row.TryGetProperty(ItemStockLine, out var line))
+            {
+                continue;
+            }
+
+            var inStock = Number(line, "InStock");
+            var committed = Number(line, "Committed");
+            var ordered = Number(line, "Ordered");
+            stocks.Add(new StockQuantityDto
+            {
+                ItemCode = Text(item, "ItemCode"),
+                ItemName = Text(item, "ItemName"),
+                BarCode = Text(item, "BarCode"),
+                WarehouseCode = Text(line, "WarehouseCode"),
+                InStock = inStock,
+                Committed = committed,
+                Ordered = ordered,
+                Available = inStock - committed + ordered,
+                UoM = Text(item, "InventoryUOM"),
+                PackagingCode = Text(item, "U_PackagingCode"),
+                PackagingCodeLabels = Text(item, "U_PackagingCodeLabels"),
+                PackagingCodeLids = Text(item, "U_PackagingCodeLids")
+            });
+        }
+
         return stocks;
     }
 
