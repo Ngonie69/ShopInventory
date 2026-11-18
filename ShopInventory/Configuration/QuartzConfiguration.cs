@@ -32,6 +32,8 @@ public static class QuartzConfiguration
             .Get<CreditNoteFiscalisationSettings>() ?? new CreditNoteFiscalisationSettings();
         var invoiceFiscalisationRetry = configuration.GetSection(InvoiceFiscalisationRetrySettings.SectionName)
             .Get<InvoiceFiscalisationRetrySettings>() ?? new InvoiceFiscalisationRetrySettings();
+        var fiscalReceiptPickup = configuration.GetSection(FiscalReceiptPickupSettings.SectionName)
+            .Get<FiscalReceiptPickupSettings>() ?? new FiscalReceiptPickupSettings();
         var dailyStock = configuration.GetSection("DailyStock").Get<DailyStockSettings>() ?? new DailyStockSettings();
         var creditLimit = configuration.GetSection(CreditLimitSettings.SectionName)
             .Get<CreditLimitSettings>() ?? new CreditLimitSettings();
@@ -182,6 +184,17 @@ public static class QuartzConfiguration
                     "invoice-fiscalisation-retry",
                     TimeSpan.FromMinutes(Math.Max(1, invoiceFiscalisationRetry.IntervalMinutes)),
                     startDelay: TimeSpan.FromMinutes(4));
+            }
+
+            // Reads back the receipts of SAP invoices and credit notes whose fiscalisation failed, whoever's attempt it
+            // was, and records the ones the device holds. It never files, so it takes what the passes above must not.
+            if (fiscalReceiptPickup.Enabled)
+            {
+                AddIntervalJob<FiscalReceiptPickupJob>(
+                    q,
+                    FiscalReceiptPickupJob.JobName,
+                    TimeSpan.FromMinutes(Math.Max(1, fiscalReceiptPickup.IntervalMinutes)),
+                    startDelay: TimeSpan.FromMinutes(5));
             }
 
             // No master-data sync is scheduled. The price catalogue, special prices, item VAT groups and

@@ -310,6 +310,8 @@ try
         builder.Configuration.GetSection(CreditNoteApprovalSettings.SectionName));
     builder.Services.Configure<InvoiceFiscalisationRetrySettings>(
         builder.Configuration.GetSection(InvoiceFiscalisationRetrySettings.SectionName));
+    builder.Services.Configure<FiscalReceiptPickupSettings>(
+        builder.Configuration.GetSection(FiscalReceiptPickupSettings.SectionName));
     builder.Services.Configure<CreditLimitSettings>(
         builder.Configuration.GetSection(CreditLimitSettings.SectionName));
     builder.Services.Configure<MarketBreakageSettings>(
@@ -706,6 +708,10 @@ try
 
     // Files again, on a schedule, the SAP invoices whose fiscalisation failed; the holds outlive a pass.
     builder.Services.AddSingleton<ShopInventory.Features.Invoices.Commands.RetryFailedInvoiceFiscalisations.InvoiceFiscalisationRetryHolds>();
+
+    // Reads back, on a schedule, the receipts of SAP invoices and credit notes whose fiscalisation failed; the back-off
+    // outlives a pass.
+    builder.Services.AddSingleton<ShopInventory.Features.FiscalReceipts.Commands.PickUpFailedFiscalReceipts.FiscalReceiptPickupSchedule>();
 
     // Hands the fiscalisation platform the receipts vans signed for themselves offline, which is the only
     // route by which those receipts ever reach ZIMRA.

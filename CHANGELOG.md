@@ -16,6 +16,20 @@ otherwise be surprised.
 
 ## Unreleased
 
+### Added
+
+- **Failed invoices and credit notes pick up their fiscal receipt on their own.** A new
+  `fiscal-receipt-pickup` job (every 5 minutes, `FiscalReceiptPickup` in appsettings) asks the
+  fiscalisation platform whether it holds a receipt for each SAP invoice and credit note whose
+  fiscalisation failed in the last 14 days, and records the receipt it finds as a `Fiscalised` row with
+  source `FiscalReceiptPickup`. The document then reads Fiscalised on every list, PDF and the console
+  without anyone pressing Fiscalise. It only reads and never files, so it also covers what the filing
+  passes leave to a person: a failed Fiscalise press, an unresolved outcome, and a credit note the sweep
+  has stopped sending. Each document is asked 5, 10, 20 … up to 60 minutes after its latest failure. A
+  receipt dated more than a day before the document was first recorded is taken to belong to an earlier
+  document SAP gave the same number, and is logged and left alone. `IncludeCreditNotes: false` limits it
+  to invoices.
+
 ### Changed
 
 - **Transfers are now depot or factory transfers, and factory transfers are approved in SAP.** A
