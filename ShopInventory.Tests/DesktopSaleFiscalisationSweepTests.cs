@@ -149,6 +149,9 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
         // The handoff: the posting service only takes Success or Skipped, so this is what makes a
         // vending sale reach SAP at all.
         Assert.Equal(1, sale.FiscalizationAttempts);
+        // And the time it became postable, which keeps a late-signed sale inside the posting window.
+        Assert.NotNull(sale.FiscalisedAtUtc);
+        Assert.InRange(sale.FiscalisedAtUtc!.Value, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow);
     }
 
     [Fact]
@@ -239,6 +242,7 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
         Assert.Equal("216901", stored.FiscalReceiptNumber);
         Assert.False(stored.FiscalizationRequiresReconciliation);
         Assert.Equal(1, stored.FiscalizationAttempts); // adopting is not an attempt
+        Assert.NotNull(stored.FiscalisedAtUtc);
     }
 
     /// <summary>

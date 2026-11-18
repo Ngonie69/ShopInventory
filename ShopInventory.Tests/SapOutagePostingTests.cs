@@ -136,7 +136,44 @@ public sealed class SapOutagePostingTests : IDisposable
         Assert.Equal(1, result.Posted);
     }
 
-    private async Task<DesktopSaleEntity> GivenSaleAsync(int daysAgo)
+    // ---- A fiscal outage, which nothing records ---------------------------------------------------------
+
+    [Fact]
+    public async Task A_sale_signed_late_posts_though_it_is_older_than_the_window()
+    {
+        // Failed to sign on the first day of a five-day REVMax outage and retried an hour ago. No SAP outage
+        // explains its age, and before, it stayed signed and unposted until someone pressed Post to SAP.
+        var sale = await GivenSaleAsync(daysAgo: 5, signedAgo: TimeSpan.FromHours(1));
+
+        var result = await Service().PostPendingSalesAsync();
+
+        Assert.Equal(1, result.Posted);
+        var posted = await _context.DesktopSales.AsNoTracking().FirstAsync(s => s.Id == sale.Id);
+        Assert.Equal(DesktopSaleConsolidationStatus.Consolidated, posted.ConsolidationStatus);
+    }
+
+    [Fact]
+    public async Task A_sale_signed_longer_ago_than_the_window_is_still_left_alone()
+    {
+        await GivenSaleAsync(daysAgo: 5, signedAgo: TimeSpan.FromDays(4));
+
+        await Service().PostPendingSalesAsync();
+
+        Assert.Empty(_created);
+    }
+
+    [Fact]
+    public async Task A_sale_signed_late_but_older_than_the_outage_limit_is_left_for_a_person()
+    {
+        // The same thirty days a SAP outage may reach. Past it the stock hold has ended too.
+        await GivenSaleAsync(daysAgo: 31, signedAgo: TimeSpan.FromHours(1));
+
+        await Service().PostPendingSalesAsync();
+
+        Assert.Empty(_created);
+    }
+
+    private async Task<DesktopSaleEntity> GivenSaleAsync(int daysAgo, TimeSpan? signedAgo = null)
     {
         var sale = new DesktopSaleEntity
         {
@@ -148,6 +185,7 @@ public sealed class SapOutagePostingTests : IDisposable
             VatAmount = 3.26m,
             Currency = "USD",
             FiscalizationStatus = DesktopSaleFiscalizationStatus.Success,
+            FiscalisedAtUtc = signedAgo is { } ago ? DateTime.UtcNow - ago : null,
             ConsolidationStatus = DesktopSaleConsolidationStatus.Pending,
             WarehouseCode = "KEFSHOP",
             PaymentMethod = TenderTypes.Cash,

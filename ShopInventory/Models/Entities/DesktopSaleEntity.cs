@@ -236,6 +236,17 @@ public class DesktopSaleEntity
 
     public DesktopSaleFiscalizationStatus FiscalizationStatus { get; set; } = DesktopSaleFiscalizationStatus.Pending;
 
+    /// <summary>
+    /// When this sale became <see cref="DesktopSaleFiscalizationStatus.Success"/> here: signed, or an
+    /// earlier receipt adopted from the device. Null for sales signed before the column existed.
+    /// </summary>
+    /// <remarks>
+    /// Not the receipt's own time. What it answers is how recently the sale became postable, which is what
+    /// lets a sale stuck behind a fiscal outage post when it is finally signed although its
+    /// <see cref="DocDate"/> is older than the posting window. See <c>LateSaleReach</c>.
+    /// </remarks>
+    public DateTime? FiscalisedAtUtc { get; set; }
+
     [MaxLength(100)]
     public string? FiscalReceiptNumber { get; set; }
 

@@ -60,12 +60,20 @@ public sealed class DesktopSalePostingService(
         // A window rather than a single trading date. A till sale should reach SAP within minutes, and
         // one that failed at 23:55 must not be stranded when the date rolls over. Widened past its own
         // days to cover a SAP outage, so a sale made on the first day of a long one is still posted.
+        var maxExtensionDays = (availabilitySettings?.Value ?? new SapAvailabilitySettings()).MaxLookbackExtensionDays;
         var cutoff = await SapOutageReach.ExtendAsync(
             context,
             DateTime.UtcNow.Date.AddDays(-options.LookbackDays),
-            (availabilitySettings?.Value ?? new SapAvailabilitySettings()).MaxLookbackExtensionDays,
+            maxExtensionDays,
             DateTime.UtcNow,
             cancellationToken);
+
+        // Widened for a fiscal outage too, which has no record: a sale signed within the window is taken
+        // however old it is, up to the outage limit. See LateSaleReach.
+        var inReach = LateSaleReach.InPostingReach(
+            cutoff,
+            DateTime.UtcNow.AddDays(-options.LookbackDays),
+            LateSaleReach.OldestSaleDate(maxExtensionDays, DateTime.UtcNow));
 
         // A sale whose post went out and got no clear answer stays out of the pass until its hold
         // ends, rather than being loaded so SAP can be asked and the sale then not sent. Asking is
@@ -80,12 +88,12 @@ public sealed class DesktopSalePostingService(
         var heldIfIssuedAfter = UnresolvedPostHold.HeldIfIssuedAfterUtc(
             options.UnresolvedPostGraceMinutes, DateTime.UtcNow);
 
-        await RecordHeldWithoutReplyAsync(cutoff, heldIfIssuedAfter, cancellationToken);
+        await RecordHeldWithoutReplyAsync(inReach, heldIfIssuedAfter, cancellationToken);
 
         var pending = await context.DesktopSales
             .Include(s => s.Lines)
-            .Where(s => s.DocDate >= cutoff &&
-                        s.SourceSystem != null &&
+            .Where(inReach)
+            .Where(s => s.SourceSystem != null &&
                         SaleSourceSystems.PostedByDesktopSaleJob.Contains(s.SourceSystem) &&
                         s.PostingAttempts < options.MaxPostingAttempts &&
                         (s.PostIssuedAtUtc == null || s.PostIssuedAtUtc <= heldIfIssuedAfter) &&
@@ -176,13 +184,13 @@ public sealed class DesktopSalePostingService(
     /// Nearly always no rows, and never a SAP call.
     /// </remarks>
     private async Task RecordHeldWithoutReplyAsync(
-        DateTime cutoff,
+        System.Linq.Expressions.Expression<Func<DesktopSaleEntity, bool>> inReach,
         DateTime heldIfIssuedAfter,
         CancellationToken cancellationToken)
     {
         var unexplained = await context.DesktopSales
-            .Where(s => s.DocDate >= cutoff &&
-                        s.SourceSystem != null &&
+            .Where(inReach)
+            .Where(s => s.SourceSystem != null &&
                         SaleSourceSystems.PostedByDesktopSaleJob.Contains(s.SourceSystem) &&
                         s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
                         s.PostIssuedAtUtc != null &&
