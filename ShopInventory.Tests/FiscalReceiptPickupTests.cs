@@ -112,6 +112,55 @@ public sealed class FiscalReceiptPickupTests : IDisposable
     }
 
     [Fact]
+    public async Task An_invoice_raised_in_SAP_and_backfilled_not_fiscalised_is_picked_up_once_printed_from_B1()
+    {
+        // The status backfill's one read, when the invoice list first showed it: nothing had filed it yet.
+        await AddRow(Invoice, 790071, "Not Fiscalised", minutesAgo: 30, source: "InvoiceFiscalisationBackfill",
+            message: "Invoice 790071 is not fiscalised.");
+        // Printed from B1 since, and the print add-on filed it with the platform directly.
+        _device.Holds(ReceiptType.FiscalInvoice, 790071, receiptGlobalNo: 6271);
+
+        var result = await Pass();
+
+        Assert.Equal(1, result.PickedUp);
+        var invoice = new InvoiceDto { DocNum = 790071 };
+        await FiscalDocumentStatusProjector.EnrichInvoiceAsync(_context, invoice, CancellationToken.None);
+        Assert.True(invoice.IsFiscalized);
+        Assert.Equal(6271, invoice.FiscalReceiptGlobalNo);
+        Assert.Contains("recorded as Not Fiscalised", (await Latest(Invoice, 790071)).Message);
+    }
+
+    [Fact]
+    public async Task Invoices_first_seen_before_InvoicesFrom_are_never_asked_about_but_credit_notes_are()
+    {
+        // Yesterday in CAT, so the test holds whatever the hour.
+        var from = _start.UtcDateTime.AddHours(2).Date.AddDays(-1);
+        var threeDays = 3 * 24 * 60;
+
+        // First seen three days ago, failed again half an hour ago: before the date, however recent the failure.
+        await AddRow(Invoice, 790081, "Not Fiscalised", minutesAgo: threeDays, source: "InvoiceFiscalisationBackfill");
+        await AddRow(Invoice, 790081, "Failed", minutesAgo: 30, source: Manual);
+        // First seen half an hour ago.
+        await AddRow(Invoice, 790082, "Failed", minutesAgo: 30);
+        // A credit note as old as the first invoice: the date is for invoices.
+        await AddRow(CreditNote, 880081, "Failed", minutesAgo: threeDays);
+        await AddRow(CreditNote, 880081, "Failed", minutesAgo: 30);
+        _device.Holds(ReceiptType.FiscalInvoice, 790081, receiptGlobalNo: 6281, signedAt: _start.UtcDateTime.AddMinutes(-20));
+        _device.Holds(ReceiptType.FiscalInvoice, 790082, receiptGlobalNo: 6282);
+        _device.Holds(ReceiptType.CreditNote, 880081, receiptGlobalNo: 9181, signedAt: _start.UtcDateTime.AddDays(-2));
+
+        _clock.Now = _start;
+        var result = await Handler(new FiscalReceiptPickupSettings { InvoicesFrom = from })
+            .Handle(new PickUpFailedFiscalReceiptsCommand(), CancellationToken.None);
+
+        Assert.Equal(2, result.Value.PickedUp);
+        Assert.DoesNotContain((ReceiptType.FiscalInvoice, 790081), _device.Asked);
+        Assert.Contains((ReceiptType.FiscalInvoice, 790082), _device.Asked);
+        Assert.Contains((ReceiptType.CreditNote, 880081), _device.Asked);
+        Assert.Equal(2, (await Rows(Invoice, 790081)).Count);
+    }
+
+    [Fact]
     public async Task A_failed_credit_note_is_looked_up_as_a_credit_note_and_reads_fiscalised()
     {
         // The create route records the read-back after its attempt, so a failure there reads "Not Fiscalised";
@@ -246,9 +295,9 @@ public sealed class FiscalReceiptPickupTests : IDisposable
         // Posted before its till sale's receipt: signed under the sale's reference.
         await AddRow(Invoice, 790053, "Failed", minutesAgo: 30);
         await AddReceiptPendingSale(790053);
-        // Latest row is not a failure.
+        // Latest row says neither "Failed" nor "Not Fiscalised".
         await AddRow(Invoice, 790054, "Failed", minutesAgo: 90);
-        await AddRow(Invoice, 790054, "Not Fiscalised", minutesAgo: 60, source: "InvoiceFiscalisationBackfill");
+        await AddRow(Invoice, 790054, "Pending", minutesAgo: 60);
         // Outside the look-back window.
         await AddRow(Invoice, 790055, "Failed", minutesAgo: 15 * 24 * 60);
         // A credit note already fiscalised.
