@@ -27,6 +27,22 @@ public static class SapRequestMarks
     private static readonly HttpRequestOptionsKey<DateTimeOffset> ReachedSapAtKey = new("ShopInventory.Sap.ReachedSapAt");
     private static readonly HttpRequestOptionsKey<CancellationToken> BreakerDeadlineKey =
         new("ShopInventory.Sap.BreakerDeadline");
+    private static readonly HttpRequestOptionsKey<bool> DisplayOnlyKey = new("ShopInventory.Sap.DisplayOnly");
+
+    /// <summary>
+    /// Records that the read only feeds a screen and authorises nothing, so <c>SAPStuckReadHandler</c>
+    /// may refuse it while an identical read is held even when a person is waiting on it.
+    /// </summary>
+    /// <remarks>
+    /// People's reads are otherwise never held, because the invoice stock guard fails closed. A catalogue
+    /// page has its last good read to fall back on, and a refused repeat is one Service Layer process
+    /// fewer stuck: on 2026-11-12, 23 of the 65 stuck van catalogue reads were sent while an identical
+    /// read was still held.
+    /// </remarks>
+    public static void MarkDisplayOnly(HttpRequestMessage request) => request.Options.Set(DisplayOnlyKey, true);
+
+    public static bool IsDisplayOnly(HttpRequestMessage request) =>
+        request.Options.TryGetValue(DisplayOnlyKey, out var displayOnly) && displayOnly;
 
     /// <summary>
     /// Records that the request holds a concurrency slot and is on its way to SAP.

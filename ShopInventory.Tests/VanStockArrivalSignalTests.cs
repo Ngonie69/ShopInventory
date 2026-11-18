@@ -271,6 +271,50 @@ public sealed class VanStockArrivalSignalTests : IDisposable
         Assert.Empty(_notices.Sent);
     }
 
+    /// <summary>
+    /// The handset re-reads its catalogue the moment it is woken. The server's batch read for that van is
+    /// marked due before the signal goes, so that read is refreshed rather than answered from before the
+    /// load (see <c>SAPServiceLayerClient.WarehouseBatchSnapshot.cs</c>).
+    /// </summary>
+    [Fact]
+    public async Task A_load_landing_marks_the_vans_batch_read_due_before_the_handset_is_woken()
+    {
+        await AddUserAsync(ApplicationRoles.Sales, Van);
+        DateTimeOffset? markedWhenWoken = null;
+        _push.OnSilentPush = () => markedWhenWoken = SAPServiceLayerClient.WarehouseLoadLandedAt(_cache, Van);
+        var before = DateTimeOffset.UtcNow;
+
+        await Handler().Handle(Arrival(Van, docEntry: 7001, docNum: 9001), default);
+
+        Assert.NotNull(markedWhenWoken);
+        Assert.InRange(markedWhenWoken.Value, before, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>A shop has no handset to wake, but the web's catalogue of it reads the same batch snapshot.</summary>
+    [Fact]
+    public async Task A_load_landing_where_no_van_is_driven_still_marks_the_batch_read_due()
+    {
+        await Handler().Handle(Arrival("KEFSHOP", docEntry: 7001, docNum: 9001), default);
+
+        Assert.NotNull(SAPServiceLayerClient.WarehouseLoadLandedAt(_cache, "KEFSHOP"));
+        Assert.Null(SAPServiceLayerClient.WarehouseLoadLandedAt(_cache, Van));
+    }
+
+    /// <summary>Once per document, like the signal: SAP holds every line of the transfer by the first.</summary>
+    [Fact]
+    public async Task The_later_lines_of_one_transfer_do_not_mark_it_due_again()
+    {
+        await AddUserAsync(ApplicationRoles.Adr, Van);
+        var handler = Handler();
+
+        await handler.Handle(Arrival(Van, docEntry: 7001, docNum: 9001, itemCode: "GOU015"), default);
+        var first = SAPServiceLayerClient.WarehouseLoadLandedAt(_cache, Van);
+        await Task.Delay(20);
+        await handler.Handle(Arrival(Van, docEntry: 7001, docNum: 9001, itemCode: "FET020"), default);
+
+        Assert.Equal(first, SAPServiceLayerClient.WarehouseLoadLandedAt(_cache, Van));
+    }
+
     private StockTransferReceivedHandler Handler() => new(
         _context,
         _push,
@@ -307,8 +351,13 @@ public sealed class VanStockArrivalSignalTests : IDisposable
 
         public bool FailNext { get; set; }
 
+        /// <summary>Runs as each signal goes out, so a test can see what was already true by then.</summary>
+        public Action? OnSilentPush { get; set; }
+
         public Task<int> SendSilentDataToUsersAsync(IReadOnlyCollection<Guid> userIds, Dictionary<string, string> data, CancellationToken ct = default)
         {
+            OnSilentPush?.Invoke();
+
             if (FailNext)
             {
                 FailNext = false;

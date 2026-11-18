@@ -19,6 +19,19 @@ public partial class SAPServiceLayerClient
         // Never mutated: without vanSaleOnly this is the cached list instance itself.
         var itemCodes = await GetAllItemCodesInWarehouseAsync(warehouseCode, cancellationToken);
 
+        return await GetItemPageFromCodesAsync(itemCodes, warehouseCode, after, pageSize, vanSaleOnly, cancellationToken);
+    }
+
+    public async Task<WarehouseItemPage> GetItemPageFromCodesAsync(
+        IReadOnlyList<string> stockedItemCodes,
+        string warehouseCode,
+        string? after,
+        int pageSize,
+        bool vanSaleOnly = false,
+        CancellationToken cancellationToken = default)
+    {
+        var itemCodes = stockedItemCodes;
+
         if (vanSaleOnly)
         {
             // Narrowed before paging, so the page stays dense and the cursor walks approved items only.

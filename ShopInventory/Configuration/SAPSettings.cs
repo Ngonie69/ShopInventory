@@ -191,6 +191,44 @@ public class SAPSettings
     public int ReadFamilyBackgroundMaxWaitSeconds { get; set; } = 5;
 
     /// <summary>
+    /// How long a warehouse's whole batch read answers a catalogue page as current. Past it the page is
+    /// answered from that read at once, marked stale, and one refresh is sent in the background.
+    /// </summary>
+    /// <remarks>
+    /// The van catalogue's batch read (<c>WHS_BATCHES_VAN*</c>) was the read SAP got stuck on most on
+    /// 2026-11-12: 65 of 124 stuck reads between 06:54 and 12:56, 17 % of the whole-warehouse van reads.
+    /// Handsets ask for the catalogue every 33 s at the median, so the old two-minute snapshot sent about
+    /// one read per van every two minutes while it was in use. Replayed over that morning, ten minutes sends
+    /// 143 reads where two sent 352, and leaves about 24 stuck reads where there were 60. Sales are still
+    /// taken off on the handset, because <c>quantityAwaitingSap</c> counts from when SAP was read, not
+    /// from now; a load landing on a van makes its next page refresh
+    /// (<see cref="WarehouseBatchSnapshotLoadWaitSeconds"/>). Applies to
+    /// <c>GET /api/product/warehouse/{warehouse}/paged</c> only.
+    /// </remarks>
+    public int WarehouseBatchSnapshotFreshMinutes { get; set; } = 10;
+
+    /// <summary>
+    /// How old a warehouse's last good batch read may be and still answer a catalogue page while SAP is
+    /// asked again. Past it the page waits for SAP, as it did before.
+    /// </summary>
+    /// <remarks>
+    /// On 2026-11-12, 89 of the 90 van catalogue pages that failed after 60 s had a good read of the same
+    /// van under an hour old; the median was five minutes.
+    /// </remarks>
+    public int WarehouseBatchSnapshotMaxStaleMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// How long a catalogue page waits for the refresh it starts because a load landed on the warehouse,
+    /// before answering from the read it already has.
+    /// </summary>
+    /// <remarks>
+    /// The handset re-reads its catalogue the moment it is told of a load, so without a wait it would be
+    /// handed the figure from before the load. A healthy read answers in well under a second; one that
+    /// does not is the kind that sticks, and the older figure is low, never high.
+    /// </remarks>
+    public int WarehouseBatchSnapshotLoadWaitSeconds { get; set; } = 10;
+
+    /// <summary>
     /// Whether an invoice is refused when the stock read behind it could not be answered, rather
     /// than posted on the assumption that SAP will refuse it instead.
     /// </summary>
