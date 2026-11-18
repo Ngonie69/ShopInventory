@@ -29,6 +29,11 @@ otherwise be surprised.
   receipt dated more than a day before the document was first recorded is taken to belong to an earlier
   document SAP gave the same number, and is logged and left alone. `IncludeCreditNotes: false` limits it
   to invoices.
+- **The receipt pick-up also re-checks invoices raised in SAP.** The status backfill reads such an invoice
+  once, when the invoice list first shows it, and records `Not Fiscalised`; nothing asked again, though it is
+  usually fiscalised later when printed from B1, so it kept a Fiscalise button until someone pressed it. The
+  pick-up now takes a `Not Fiscalised` invoice as it takes a failed one. `FiscalReceiptPickup:InvoicesFrom`
+  (a CAT date, `2026-11-16`) limits it to invoices first seen in the fiscal log on or after that day.
 
 ### Changed
 

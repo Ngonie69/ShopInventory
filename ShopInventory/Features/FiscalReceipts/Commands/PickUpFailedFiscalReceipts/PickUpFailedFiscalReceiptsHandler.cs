@@ -207,10 +207,11 @@ public sealed class PickUpFailedFiscalReceiptsHandler(
         result.PickedUp++;
         schedule.Forget(document.DocumentType, candidate.DocNum);
         logger.LogInformation(
-            "Picked up fiscal receipt {ReceiptGlobalNo} for {Document} {DocNum}, whose last attempt ({Source}) had failed.",
+            "Picked up fiscal receipt {ReceiptGlobalNo} for {Document} {DocNum}, which the log last recorded as {Status} ({Source}).",
             snapshot.ReceiptGlobalNo,
             document.Label,
             candidate.DocNum,
+            candidate.LatestFailure.Status,
             candidate.LatestFailure.SourceSystem);
         return true;
     }
@@ -228,6 +229,7 @@ public sealed class PickUpFailedFiscalReceiptsHandler(
         var cutoff = nowUtc.AddDays(-Math.Max(1, options.LookbackDays));
         var documentType = document.DocumentType;
         var owing = document.OwingStatuses.ToArray();
+        var notBeforeUtc = NotBeforeUtc(document);
 
         schedule.Prune(cutoff);
 
@@ -278,6 +280,14 @@ public sealed class PickUpFailedFiscalReceiptsHandler(
                 .Where(row => owing.Contains(row.Status))
                 .Max(row => row.TimestampUtc);
 
+            var firstRecordedAtUtc = rows.Min(row => row.TimestampUtc < row.CreatedAtUtc ? row.TimestampUtc : row.CreatedAtUtc);
+
+            if (firstRecordedAtUtc < notBeforeUtc)
+            {
+                schedule.Forget(documentType, docNum);
+                continue;
+            }
+
             if (lastFailedAtUtc < cutoff || !schedule.IsDue(documentType, docNum, lastFailedAtUtc, nowUtc, options))
             {
                 continue;
@@ -286,7 +296,7 @@ public sealed class PickUpFailedFiscalReceiptsHandler(
             candidates.Add(new FiscalReceiptPickupCandidate(
                 document,
                 docNum,
-                rows.Min(row => row.TimestampUtc < row.CreatedAtUtc ? row.TimestampUtc : row.CreatedAtUtc),
+                firstRecordedAtUtc,
                 lastFailedAtUtc,
                 new FiscalReceiptPickupRow(
                     latest.CardCode,
@@ -295,6 +305,7 @@ public sealed class PickUpFailedFiscalReceiptsHandler(
                     latest.VatSum,
                     latest.Currency,
                     latest.OriginalInvoiceNumber,
+                    latest.Status,
                     latest.SourceSystem)));
         }
 
@@ -325,6 +336,16 @@ public sealed class PickUpFailedFiscalReceiptsHandler(
         return filed;
     }
 
+    /// <summary>
+    /// The start, in UTC, of the CAT day <see cref="FiscalReceiptPickupSettings.InvoicesFrom"/> names, for invoices;
+    /// <see cref="DateTime.MinValue"/> otherwise. CAT is UTC+2 all year.
+    /// </summary>
+    private DateTime NotBeforeUtc(FiscalReceiptPickupDocument document)
+        => document.DocumentType == FiscalReceiptPickupDocument.Invoice.DocumentType
+           && settings.Value.InvoicesFrom is { } from
+            ? DateTime.SpecifyKind(from.Date - TimeSpan.FromHours(2), DateTimeKind.Utc)
+            : DateTime.MinValue;
+
     private void RecordMiss(FiscalReceiptPickupCandidate candidate)
         => schedule.RecordMiss(
             candidate.Document.DocumentType, candidate.DocNum, candidate.LastFailedAtUtc, Now(), settings.Value);
@@ -347,8 +368,8 @@ public sealed class PickUpFailedFiscalReceiptsHandler(
             DocNum = candidate.DocNum,
             DocumentType = document.DocumentType,
             Status = FiscalTransactionStatus.Fiscalised,
-            Message = $"The fiscal device holds {receipt} for {document.Label} {candidate.DocNum}, whose attempt had "
-                      + "failed; picked up automatically.",
+            Message = $"The fiscal device holds {receipt} for {document.Label} {candidate.DocNum}, which the log had recorded "
+                      + $"as {failure.Status}; picked up automatically.",
             VerificationCode = snapshot.VerificationCode,
             QRCode = snapshot.QrCode,
             DeviceSerialNumber = snapshot.DeviceSerialNumber,
@@ -367,7 +388,8 @@ public sealed class PickUpFailedFiscalReceiptsHandler(
                 candidate.DocNum,
                 candidate.FirstRecordedAtUtc,
                 candidate.LastFailedAtUtc,
-                FailedSourceSystem = failure.SourceSystem
+                LatestStatus = failure.Status,
+                LatestSourceSystem = failure.SourceSystem
             }),
             RawResponse = snapshot.RawResponseJson,
             SourceSystem = SourceSystem

@@ -16,7 +16,7 @@ public sealed record PickUpFailedFiscalReceiptsCommand : IRequest<ErrorOr<PickUp
 /// an earlier document SAP gave the same number.
 /// </param>
 /// <param name="LastFailedAtUtc">When its latest attempt failed; the back-off counts from here.</param>
-/// <param name="LatestFailure">Its latest failed row: what the receipt row is recorded against.</param>
+/// <param name="LatestFailure">Its latest row, a failed attempt or a "Not Fiscalised" read-back: what the receipt row is recorded against.</param>
 public sealed record FiscalReceiptPickupCandidate(
     FiscalReceiptPickupDocument Document,
     int DocNum,
@@ -32,6 +32,7 @@ public sealed record FiscalReceiptPickupRow(
     decimal VatSum,
     string? Currency,
     string? OriginalInvoiceNumber,
+    string Status,
     string SourceSystem);
 
 public sealed class PickUpFailedFiscalReceiptsResult

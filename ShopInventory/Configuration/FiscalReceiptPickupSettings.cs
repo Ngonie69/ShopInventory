@@ -19,6 +19,19 @@ public sealed class FiscalReceiptPickupSettings
     /// <summary>Whether it asks about credit notes as well as invoices.</summary>
     public bool IncludeCreditNotes { get; set; } = true;
 
+    /// <summary>
+    /// A CAT date. An invoice whose first row in the fiscal log is earlier is never asked about; null asks about
+    /// every invoice inside <see cref="LookbackDays"/>.
+    /// </summary>
+    /// <remarks>
+    /// The first row stands in for the invoice's date because the log holds no SAP date, and reading one would
+    /// cost a SAP read per invoice. For an invoice this app posted, that row is the posting's own attempt; for one
+    /// raised in SAP, it is the status backfill's read, made when the invoice list first showed it, normally the
+    /// same day. So every invoice from this date on is taken, and an older one first opened on or after it is
+    /// taken too. That costs only a look-up: the pass never files.
+    /// </remarks>
+    public DateTime? InvoicesFrom { get; set; }
+
     public int IntervalMinutes { get; set; } = 5;
 
     /// <summary>How many days after a document's latest failed attempt the pass keeps asking about it.</summary>
