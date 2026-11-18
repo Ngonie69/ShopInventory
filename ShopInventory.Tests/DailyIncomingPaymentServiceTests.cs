@@ -106,6 +106,48 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task An_invoice_posted_late_is_paid_though_its_sale_is_older_than_the_lookback()
+    {
+        // Sold on the 4th, signed and posted on the 14th once the fiscal device was back. The 4th is
+        // outside the seven-day lookback, and before, the invoice was never put on a payment.
+        var late = await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m,
+            postedAt: Cat(Day, 9, 0), docDate: Day.AddDays(-10));
+
+        await Run(Cat(Day, 17, 0));
+
+        var held = Assert.Single(_sap.Held);
+        Assert.Equal("2026-09-14", held.Request.DocDate);
+        Assert.Equal(101, Assert.Single(held.Request.PaymentInvoices!).DocEntry);
+        Assert.Equal(DesktopSalePaymentStatuses.Posted, (await Reload(late)).PaymentStatus);
+    }
+
+    [Fact]
+    public async Task An_invoice_posted_late_is_left_for_finance_past_the_outage_limit()
+    {
+        var late = await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m,
+            postedAt: Cat(Day, 9, 0), docDate: Day.AddDays(-31));
+
+        await Run(Cat(Day, 17, 0));
+
+        Assert.Equal(0, _sap.CreateCalls);
+        Assert.Null((await Reload(late)).PaymentStatus);
+    }
+
+    [Fact]
+    public async Task An_old_invoice_posted_long_ago_is_still_left_for_finance()
+    {
+        // Posted on the 5th and dated the 4th: outside the lookback on both counts. Whatever kept it off
+        // that week's payments, a person has dealt with it since.
+        var old = await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m,
+            postedAt: Cat(Day.AddDays(-9), 9, 0), docDate: Day.AddDays(-10));
+
+        await Run(Cat(Day, 17, 0));
+
+        Assert.Equal(0, _sap.CreateCalls);
+        Assert.Null((await Reload(old)).PaymentStatus);
+    }
+
+    [Fact]
     public async Task A_pass_before_17_00_does_not_pay_todays_invoices()
     {
         await GivenSaleAsync("BP-1", docEntry: 101, TenderTypes.Cash, 25m, postedAt: Cat(Day, 9, 0));
@@ -733,14 +775,15 @@ public sealed class DailyIncomingPaymentServiceTests : IDisposable
         decimal amount,
         DateTime postedAt,
         string source = SaleSourceSystems.ShopTill,
-        int? consolidationId = null)
+        int? consolidationId = null,
+        DateTime? docDate = null)
     {
         var sale = new DesktopSaleEntity
         {
             ExternalReferenceId = $"KEFSHOP-01-20260914-{_nextReference++:000000}",
             SourceSystem = source,
             CardCode = cardCode,
-            DocDate = postedAt.Date,
+            DocDate = docDate ?? postedAt.Date,
             TotalAmount = amount,
             Currency = "USD",
             FiscalizationStatus = DesktopSaleFiscalizationStatus.Success,

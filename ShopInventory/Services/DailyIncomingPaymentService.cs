@@ -128,7 +128,7 @@ public sealed class DailyIncomingPaymentService(
             }
 
             await ReleaseEarlierDaysAsync(paymentDate, scope, result);
-            await CreatePaymentsAsync(paymentDate, cutoffUtc, scope, result, cancellationToken);
+            await CreatePaymentsAsync(paymentDate, cutoffUtc, scope, utcNow, result, cancellationToken);
             await PostDuePaymentsAsync(paymentDate, scope, mappings, utcNow, result, cancellationToken);
         }
 
@@ -304,17 +304,26 @@ public sealed class DailyIncomingPaymentService(
         DateTime paymentDate,
         DateTime cutoffUtc,
         RunScope scope,
+        DateTime utcNow,
         DailyIncomingPaymentRunResult result,
         CancellationToken cancellationToken)
     {
         var options = settings.Value;
+        var maxExtensionDays = (availabilitySettings?.Value ?? new SapAvailabilitySettings()).MaxLookbackExtensionDays;
+        var ownLookbackStart = paymentDate.AddDays(-Math.Max(1, options.DailyPaymentLookbackDays));
         // Widened by a SAP outage: its invoices post late with their own dates, and must still be paid.
         var lookbackStart = await SapOutageReach.ExtendAsync(
             context,
-            paymentDate.AddDays(-Math.Max(1, options.DailyPaymentLookbackDays)),
-            (availabilitySettings?.Value ?? new SapAvailabilitySettings()).MaxLookbackExtensionDays,
+            ownLookbackStart,
+            maxExtensionDays,
             DateTime.UtcNow,
             cancellationToken);
+
+        // Widened for a sale that posted late for any other reason, a fiscal outage most often: an invoice
+        // posted inside the window is paid whatever its date, up to the outage limit. See LateSaleReach.
+        var postedSinceUtc = TimeZoneInfo.ConvertTimeToUtc(
+            DateTime.SpecifyKind(ownLookbackStart.Date, DateTimeKind.Unspecified), QuartzConfiguration.CatTimeZone);
+        var oldestLateSale = LateSaleReach.OldestSaleDate(maxExtensionDays, utcNow);
 
         // A customer with any payment for the day is left alone, so a second pass never starts a second
         // payment. Invoices posted since the first wait for tomorrow's.
@@ -333,7 +342,8 @@ public sealed class DailyIncomingPaymentService(
                            && sale.SapDocEntry != null
                            && sale.PostedAt != null
                            && sale.PostedAt < cutoffUtc
-                           && sale.DocDate >= lookbackStart
+                           && (sale.DocDate >= lookbackStart
+                               || (sale.PostedAt >= postedSinceUtc && sale.DocDate >= oldestLateSale))
                            // Failed is a payment the old per-sale route never managed to send. Unmapped
                            // is looked at again because a card code may have been configured since.
                            && (sale.PaymentStatus == null

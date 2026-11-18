@@ -2115,6 +2115,9 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<DateTime?>("FiscalisedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("FiscalizationAttempts")
                         .HasColumnType("integer");
 
