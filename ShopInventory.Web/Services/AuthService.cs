@@ -86,10 +86,13 @@ public class AuthService : IAuthService
             _logger.LogWarning("Login failed. Status: {StatusCode}, Error: {Error}",
                 response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
+            var refusal = SignInRefusal(errorContent);
             return (false, ApiErrorResponse.GetFriendlyMessage(
                 response.StatusCode,
                 errorContent,
-                "Login failed"), null);
+                "Login failed",
+                unauthorizedMessage: refusal,
+                forbiddenMessage: refusal), null);
         }
         catch (Exception ex)
         {
@@ -99,6 +102,20 @@ public class AuthService : IAuthService
                 "We couldn't sign you in right now. Please try again."), null);
         }
     }
+
+    /// <summary>
+    /// What to show when the API refuses a password sign-in with a 401 or 403.
+    /// </summary>
+    /// <remarks>
+    /// The API answers a wrong username or password with an Unauthorized error, which it sends as
+    /// 403. <see cref="ApiErrorResponse.GetFriendlyMessage(System.Net.HttpStatusCode?, string?, string, string?, string?)"/>
+    /// reads any 403 as "you do not have permission to perform this action", and at the sign-in page
+    /// that sent staff who had mistyped their username to ask for their account to be fixed. Nobody
+    /// is signed in yet, so a refusal here is about the credentials, never a permission.
+    /// </remarks>
+    private static string SignInRefusal(string? errorContent)
+        => ApiErrorResponse.TryGetUserMessage(errorContent)
+            ?? "We couldn't sign you in. Check your username and password and try again.";
 
     public async Task<(bool Success, string Message, LoginResponse? Response)> CompleteTwoFactorAsync(
         string twoFactorToken, string code, bool isBackupCode)
@@ -226,10 +243,14 @@ public class AuthService : IAuthService
             _logger.LogWarning("Passkey login failed. Status: {StatusCode}, Error: {Error}",
                 response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
+            var refusal = ApiErrorResponse.TryGetUserMessage(errorContent)
+                ?? "That passkey was not accepted. Try again or sign in with your username and password.";
             return (false, ApiErrorResponse.GetFriendlyMessage(
                 response.StatusCode,
                 errorContent,
-                "Passkey login failed"), null);
+                "Passkey login failed",
+                unauthorizedMessage: refusal,
+                forbiddenMessage: refusal), null);
         }
         catch (Exception ex)
         {
