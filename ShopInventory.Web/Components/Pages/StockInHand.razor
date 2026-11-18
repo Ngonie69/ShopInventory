@@ -1,0 +1,302 @@
+@page "/stock-in-hand"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = UserRoles.StockInHandRoles)]
+@rendermode InteractiveServer
+@inject PageLifetime PageLifetime
+
+<PageTitle>Stock in hand - Kefalos Cheese</PageTitle>
+
+@* What a warehouse holds now, or held at any moment since its stock ledger began.
+
+   Now is SAP's own figure through the Web's stock cache, with committed and free to sell beside it.
+   A past moment is rebuilt by the API from the stock ledger — the 07:00 snapshot plus every
+   journalled movement after it — because SAP's warehouse journal (OINM) is not readable through
+   the Service Layer. So a past moment is only available for warehouses the morning fetch covers
+   (the shops and vans), from the day their ledger began, and committed is not kept historically.
+
+   Built on the dashboard kit plus stock-in-hand.css. Drawn in the "Dispatch & Shop Stock
+   Dashboards" design canvas (2026-11-18). *@
+
+<div class="dsh sih">
+
+    <header class="dsh-head">
+        <div class="dsh-head-inner">
+            <nav class="dsh-crumbs" aria-label="Breadcrumb">
+                <span>Inventory</span>
+                <span class="dsh-crumb-sep" aria-hidden="true">/</span>
+                <span class="dsh-crumb-now" aria-current="page">Stock in hand</span>
+            </nav>
+
+            <div class="dsh-head-meta">
+                @if (warehouseOptions.Count > 1)
+                {
+                    <NocturneSelect TValue="string" Class="nsel-auto" Options="warehouseOptions"
+                                    @bind-Value="warehouse" OnChanged="OnWarehouseChangedAsync"
+                                    Caption="Warehouse" AriaLabel="Warehouse"
+                                    Placeholder="Pick a warehouse" Searchable="true" />
+                }
+                else if (warehouse is not null)
+                {
+                    <span class="dsh-tag">@warehouse</span>
+                }
+
+                <span class="dsh-synced">
+                    <span class="dsh-synced-dot" aria-hidden="true"></span>
+                    @(loadedAt is { } stamp ? $"Read at {stamp:HH:mm}" : "Reading…")
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <div class="dsh-body">
+
+        <section class="dsh-hero">
+            <div>
+                <div class="dsh-kicker">@WarehouseLabel</div>
+                <h1>Stock in hand</h1>
+                <p>
+                    What the warehouse held at any moment: right now, at this morning's opening, at last
+                    night's close, or any time you pick.
+                </p>
+            </div>
+        </section>
+
+        @if (warehouse is null)
+        {
+            <div class="dsh-state">This account has no warehouse assigned, so there is no stock to show.</div>
+        }
+        else
+        {
+            <section class="sih-moment" aria-label="Moment">
+                <div class="sih-presets" role="group" aria-label="As at">
+                    @foreach (var preset in Presets)
+                    {
+                        var isOn = mode == preset.Mode;
+                        <button type="button" class="sih-preset @(isOn ? "is-on" : null)" aria-pressed="@(isOn ? "true" : "false")"
+                                @onclick="() => PickPresetAsync(preset.Mode)" disabled="@isLoading">
+                            <span class="sih-preset-label">
+                                @if (preset.Mode == Moment.Now)
+                                {
+                                    <span class="sih-live-dot" aria-hidden="true"></span>
+                                }
+                                @preset.Label
+                            </span>
+                            <span class="sih-preset-sub">@PresetSub(preset.Mode)</span>
+                        </button>
+                    }
+                </div>
+
+                <div class="sih-pick">
+                    <span class="sih-pick-label" id="sih-pick-label">Or pick a moment</span>
+                    <div class="sih-pick-row" role="group" aria-labelledby="sih-pick-label">
+                        <NocturneDateField @bind-Date="customDate" AriaLabel="Day" />
+                        <NocturneSelect TValue="string" Class="nsel-auto" Options="TimeOptions"
+                                        @bind-Value="customTime" AriaLabel="Time" Caption="Time" />
+                        <button type="button" class="dsh-btn dsh-btn-primary" @onclick="ShowCustomAsync"
+                                disabled="@(isLoading || customDate is null)">
+                            Show
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <div class="sih-banner @BannerClass" role="status">
+                <DashIcon Name="@(mode == Moment.Now ? "heartbeat" : "clock")" Size="16" />
+                <div>
+                    <strong>@BannerTitle</strong>
+                    <span>@BannerBody</span>
+                </div>
+            </div>
+
+            <section class="dsh-stats rdb-stats-4" aria-label="Summary">
+                @foreach (var figure in Summary)
+                {
+                    <StatCard Label="@figure.Label"
+                              Value="@Figure(figure.Value)"
+                              ValueLabel="@figure.Note"
+                              Tone="@figure.Tone"
+                              Icon="@figure.Icon"
+                              IsLead="@figure.Lead" />
+                }
+            </section>
+
+            <div class="sih-grid">
+
+                <section class="dsh-panel sih-items" aria-labelledby="sih-items-heading">
+                    <header class="dsh-panel-head">
+                        <span class="dsh-panel-icon"><DashIcon Name="box" Size="15" /></span>
+                        <h2 id="sih-items-heading">Items</h2>
+                        <span class="sih-count">@VisibleRows.Count of @rows.Count</span>
+                    </header>
+
+                    <div class="sih-tools">
+                        <label class="sih-search">
+                            <DashIcon Name="search" Size="15" />
+                            <span class="sih-sr">Search items</span>
+                            <input type="text" placeholder="Item name or code" value="@search"
+                                   @oninput="e => search = e.Value?.ToString() ?? string.Empty" />
+                        </label>
+                        <div class="sih-chips" role="group" aria-label="Show">
+                            @foreach (var filter in Filters)
+                            {
+                                var isOn = view == filter.Key;
+                                <button type="button" class="sih-chip @(isOn ? "is-on" : null)" aria-pressed="@(isOn ? "true" : "false")"
+                                        @onclick="() => view = filter.Key">
+                                    @filter.Label <span class="sih-chip-n">@CountFor(filter.Key)</span>
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    @if (isLoading)
+                    {
+                        <div class="dsh-state" role="status">
+                            <span class="dsh-spin" aria-hidden="true"></span>
+                            <span>@(mode == Moment.Now ? "Reading stock…" : "Rebuilding the stock at that moment…")</span>
+                        </div>
+                    }
+                    else if (loadError is not null)
+                    {
+                        <div class="dsh-state">@loadError</div>
+                    }
+                    else if (!recorded)
+                    {
+                        <div class="dsh-state">@NotRecordedText</div>
+                    }
+                    else if (VisibleRows.Count == 0)
+                    {
+                        <div class="dsh-state">No item matches.</div>
+                    }
+                    else
+                    {
+                        <div class="dsh-scroll">
+                            <table class="dsh-table sih-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Item</th>
+                                        @if (mode == Moment.Now)
+                                        {
+                                            <th scope="col" class="dsh-th-money">On hand</th>
+                                            <th scope="col" class="dsh-th-money">Committed</th>
+                                            <th scope="col" class="dsh-th-money">Free to sell</th>
+                                        }
+                                        else
+                                        {
+                                            <th scope="col" class="dsh-th-money">At @MomentShort</th>
+                                            <th scope="col" class="dsh-th-money">Now</th>
+                                            <th scope="col" class="dsh-th-money">Change</th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in VisibleRows)
+                                    {
+                                        var isSelected = string.Equals(row.Code, selectedCode, StringComparison.OrdinalIgnoreCase);
+                                        <tr class="@(isSelected ? "is-on" : null)" @key="row.Code">
+                                            <td>
+                                                <button type="button" class="sih-item" aria-pressed="@(isSelected ? "true" : "false")"
+                                                        @onclick="() => SelectAsync(row.Code)">
+                                                    <span class="sih-item-name">@row.Name</span>
+                                                    <span class="sih-item-code">@row.Code@(string.IsNullOrWhiteSpace(row.UoM) ? null : $" · {row.UoM}")</span>
+                                                </button>
+                                            </td>
+                                            @if (mode == Moment.Now)
+                                            {
+                                                <td class="dsh-money @(row.Now <= 0 ? "sih-neg" : null)">@Qty(row.Now)</td>
+                                                <td class="dsh-money sih-mute">@(row.Committed == 0 ? "—" : Qty(row.Committed))</td>
+                                                <td class="dsh-money @(row.Free < 0 ? "sih-neg sih-strong" : null)">@Qty(row.Free)</td>
+                                            }
+                                            else
+                                            {
+                                                <td class="dsh-money @(row.Then <= 0 ? "sih-neg" : "sih-strong")">@Qty(row.Then)</td>
+                                                <td class="dsh-money @(row.Now <= 0 ? "sih-neg" : null)">@Qty(row.Now)</td>
+                                                <td class="dsh-money @ChangeClass(row.Change)">@Signed(row.Change)</td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    <p class="rdb-note">Each quantity is in the item's own unit, so there is no total across items.</p>
+                </section>
+
+                <aside class="dsh-panel sih-detail" aria-labelledby="sih-detail-heading">
+                    @if (selected is null)
+                    {
+                        <header class="dsh-panel-head">
+                            <span class="dsh-panel-icon"><DashIcon Name="list-check" Size="15" /></span>
+                            <h2 id="sih-detail-heading">Movements</h2>
+                        </header>
+                        <div class="dsh-state">Pick an item to see what moved it.</div>
+                    }
+                    else
+                    {
+                        <div class="sih-detail-head">
+                            <span class="rdb-node-kicker">@selected.Code@(string.IsNullOrWhiteSpace(selected.UoM) ? null : $" · {selected.UoM}")</span>
+                            <h2 id="sih-detail-heading">@selected.Name</h2>
+                        </div>
+
+                        <div class="sih-span">
+                            <div class="sih-span-box">
+                                <span>@DetailFromLabel</span>
+                                <strong>@Qty(detailStart)</strong>
+                            </div>
+                            <svg class="sih-span-arrow" viewBox="0 0 20 12" aria-hidden="true" focusable="false"><path d="M1 6h17M13 1l5 5-5 5" /></svg>
+                            <div class="sih-span-box is-now">
+                                <span>Now · @DateTime.Now.ToString("HH:mm")</span>
+                                <strong>@Qty(selected.Now)</strong>
+                            </div>
+                        </div>
+
+                        @if (isLoadingDetail)
+                        {
+                            <div class="dsh-state" role="status">
+                                <span class="dsh-spin" aria-hidden="true"></span>
+                                <span>Reading the ledger&#8230;</span>
+                            </div>
+                        }
+                        else if (detailError is not null)
+                        {
+                            <div class="dsh-state">@detailError</div>
+                        }
+                        else
+                        {
+                            <ol class="sih-ledger" aria-label="Movements, oldest first">
+                                <li class="sih-ledger-row is-start">
+                                    <span class="sih-when">@DetailStartWhen</span>
+                                    <span class="sih-what">@DetailStartLabel</span>
+                                    <span class="sih-qty"></span>
+                                    <span class="sih-bal">@Qty(detailStart)</span>
+                                </li>
+                                @foreach (var entry in detail)
+                                {
+                                    <li class="sih-ledger-row @(entry.IsOpening ? "is-opening" : null)">
+                                        <span class="sih-when">@entry.When</span>
+                                        <span class="sih-what">
+                                            <span>@entry.Label</span>
+                                            @if (!string.IsNullOrWhiteSpace(entry.Reference))
+                                            {
+                                                <small title="@entry.Reference">@entry.Reference</small>
+                                            }
+                                        </span>
+                                        <span class="sih-qty @entry.QtyClass">@entry.QtyText</span>
+                                        <span class="sih-bal">@Qty(entry.Balance)</span>
+                                    </li>
+                                }
+                            </ol>
+                            @if (detail.Count == 0)
+                            {
+                                <div class="dsh-state">Nothing moved this item in that window.</div>
+                            }
+                            @if (detailNote is not null)
+                            {
+                                <p class="rdb-note">@detailNote</p>
+                            }
+                        }
+                    }
+                </aside>
+            </div>
+        }
+    </div>
+</div>

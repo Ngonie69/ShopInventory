@@ -41,8 +41,14 @@ public static class RoleLandingRoutes
     /// <summary>The manager's workspace: purchasing, approvals and the day's trading.</summary>
     public const string ManagerDashboard = "/manager-dashboard";
 
-    /// <summary>Where a shop's stock user lands: the transfers list.</summary>
+    /// <summary>The transfers list, where a shop's stock user used to land.</summary>
     public const string InventoryTransfers = "/inventory-transfers";
+
+    /// <summary>The factory shop's stock dashboard: what it holds, what is coming in, what is low.</summary>
+    public const string ShopStockDashboard = "/shop-stock-dashboard";
+
+    /// <summary>The dispatch officer's dashboard: releases to count and what is out with receivers.</summary>
+    public const string DispatchDashboard = "/dispatch-dashboard";
 
     /// <summary>The wash bay's workspace: its credit memo approvals and its warehouse's transfers.</summary>
     public const string WashBayDashboard = "/washbay-dashboard";
@@ -98,14 +104,20 @@ public static class RoleLandingRoutes
             return WashBayDashboard;
         }
 
-        // A shop's stock user has the transfers page and nothing else.
+        // A shop's stock user lands on the shop's stock dashboard.
         if (isInRole(UserRoles.ShopStock) && !isInRole(UserRoles.Admin))
         {
-            return InventoryTransfers;
+            return ShopStockDashboard;
         }
 
-        // The factory floor has one page: the transfers between production and dispatch.
-        if ((isInRole(UserRoles.ProductionOfficer) || isInRole(UserRoles.DispatchOfficer) || isInRole(UserRoles.DistributionOfficer))
+        // Dispatch has a dashboard of its own; the rest of the factory floor has one page, the
+        // transfers between production and dispatch.
+        if (isInRole(UserRoles.DispatchOfficer) && !isInRole(UserRoles.Admin))
+        {
+            return DispatchDashboard;
+        }
+
+        if ((isInRole(UserRoles.ProductionOfficer) || isInRole(UserRoles.DistributionOfficer))
             && !isInRole(UserRoles.Admin))
         {
             return FactoryTransfers;

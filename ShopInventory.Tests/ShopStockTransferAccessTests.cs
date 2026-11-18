@@ -94,7 +94,7 @@ public sealed class ShopStockTransferAccessTests
         Assert.Contains(UserRoles.ShopStock, UserRoles.InventoryTransferRoles.Split(','));
         Assert.Contains(UserRoles.ShopStock, UserRoles.InventoryTransferViewRoles.Split(','));
         Assert.True(UserRoles.CanViewInventoryTransfers(UserRoles.ShopStock));
-        Assert.Equal(RoleLandingRoutes.InventoryTransfers, RoleLandingRoutes.For(UserRoles.ShopStock));
+        Assert.Equal(RoleLandingRoutes.ShopStockDashboard, RoleLandingRoutes.For(UserRoles.ShopStock));
     }
 
     private static IEnumerable<(MethodInfo Action, HashSet<string> Roles, string Route)> Actions(Type controller)

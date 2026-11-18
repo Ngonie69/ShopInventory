@@ -9,6 +9,9 @@ using ShopInventory.Features.Stock.Queries.GetStockInWarehouse;
 using ShopInventory.Features.Stock.Queries.GetStockInWarehousePaged;
 using ShopInventory.Features.Stock.Queries.GetSalesInWarehouse;
 using ShopInventory.Features.Stock.Queries.GetSalesInWarehousePost;
+using ShopInventory.Features.Stock.Queries.GetStockAsAt;
+using ShopInventory.Features.Stock.Queries.GetStockMovements;
+using ShopInventory.Features.Stock.Queries.GetStockMovementTotals;
 
 namespace ShopInventory.Controllers;
 
@@ -48,6 +51,63 @@ public class StockController(IMediator mediator) : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(new GetStockInWarehouseQuery(warehouseCode, includePackagingStock), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// What a warehouse held at a past moment, per item, rebuilt from the stock ledger
+    /// (the morning snapshot plus every journalled movement after it). <paramref name="at"/> is UTC.
+    /// </summary>
+    [HttpGet("warehouse/{warehouseCode}/as-at")]
+    public async Task<IActionResult> GetStockAsAt(
+        string warehouseCode,
+        [FromQuery] DateTime at,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetStockAsAtQuery(warehouseCode, DateTime.SpecifyKind(at.ToUniversalTime(), DateTimeKind.Utc)),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The stock ledger's movements in a warehouse between two UTC moments, optionally for one item.
+    /// </summary>
+    [HttpGet("warehouse/{warehouseCode}/movements")]
+    public async Task<IActionResult> GetStockMovements(
+        string warehouseCode,
+        [FromQuery] DateTime fromUtc,
+        [FromQuery] DateTime toUtc,
+        [FromQuery] string? itemCode = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetStockMovementsQuery(
+                warehouseCode,
+                DateTime.SpecifyKind(fromUtc.ToUniversalTime(), DateTimeKind.Utc),
+                DateTime.SpecifyKind(toUtc.ToUniversalTime(), DateTimeKind.Utc),
+                itemCode),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The stock ledger's movements between two UTC moments, totalled per item: sold, transferred in
+    /// and out, and corrected.
+    /// </summary>
+    [HttpGet("warehouse/{warehouseCode}/movement-totals")]
+    public async Task<IActionResult> GetStockMovementTotals(
+        string warehouseCode,
+        [FromQuery] DateTime fromUtc,
+        [FromQuery] DateTime toUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetStockMovementTotalsQuery(
+                warehouseCode,
+                DateTime.SpecifyKind(fromUtc.ToUniversalTime(), DateTimeKind.Utc),
+                DateTime.SpecifyKind(toUtc.ToUniversalTime(), DateTimeKind.Utc)),
+            cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

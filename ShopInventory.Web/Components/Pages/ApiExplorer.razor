@@ -591,7 +591,10 @@ Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/Stock/warehouse-codes", "Get warehouse codes"),
 new("GET", "/api/Stock/warehouse/{warehouseCode}", "Get stock by warehouse"),
+new("GET", "/api/Stock/warehouse/{warehouseCode}/as-at", "Get stock as at"),
 new("GET", "/api/Stock/warehouse/{warehouseCode}/items", "Get stock for specific items"),
+new("GET", "/api/Stock/warehouse/{warehouseCode}/movement-totals", "Get stock movement totals"),
+new("GET", "/api/Stock/warehouse/{warehouseCode}/movements", "Get stock movements"),
 new("GET", "/api/Stock/warehouse/{warehouseCode}/paged", "Get warehouse stock with pagination"),
 new("GET", "/api/Stock/warehouse/{warehouseCode}/sales", "Get warehouse sales for a date range"),
 new("GET", "/api/Stock/warehouses", "Get all warehouses"),

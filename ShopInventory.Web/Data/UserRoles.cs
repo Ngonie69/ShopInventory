@@ -151,7 +151,7 @@ public static class UserRoles
     /// link's href is resolved per role through <c>RoleLandingRoutes.For</c>,
     /// so this list and that chain have to agree.
     /// </summary>
-    public const string DashboardNavRoles = "Admin,SalesRep,DepotController,Cashier,StockController,Manager,WashBay";
+    public const string DashboardNavRoles = "Admin,SalesRep,DepotController,Cashier,StockController,Manager,WashBay,ShopStock,DispatchOfficer";
     public const string CatalogueRoles = "Admin,Cashier,StockController,Manager";
     public const string InsightsRoles = "Admin,Cashier,StockController,Manager";
     public const string SystemRoles = "Admin,Cashier,StockController,Manager";
@@ -404,6 +404,23 @@ public static class UserRoles
     /// to the account's own SAP stage and warehouse either way.
     /// </summary>
     public const string WashBayDashboardRoles = "Admin,WashBay";
+
+    /// <summary>
+    /// The dispatch officer's dashboard at /dispatch-dashboard, their landing page. The manager reads it.
+    /// </summary>
+    public const string DispatchDashboardRoles = "Admin,DispatchOfficer,Manager";
+
+    /// <summary>
+    /// The factory shop's stock dashboard at /shop-stock-dashboard, the ShopStock user's landing page.
+    /// The manager reads it.
+    /// </summary>
+    public const string ShopStockDashboardRoles = "Admin,ShopStock,Manager";
+
+    /// <summary>
+    /// Who can open /stock-in-hand: every role that looks after a warehouse's stock, each scoped to the
+    /// warehouses on their own account, plus the manager, who reads it.
+    /// </summary>
+    public const string StockInHandRoles = "Admin,ShopStock,StockController,DepotController,DispatchOfficer,WashBay,Manager";
     public const string UserManagementRoles = "Admin,PodOperator,SalesRep";
     public const string MerchandiserAccountManagementRoles = "Admin,SalesRep";
 

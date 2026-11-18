@@ -100,6 +100,7 @@ Customers & Products
 Inventory
     Stock Monitoring  /stock
     Stock Overview  /stock-dashboard
+    Stock in Hand  /stock-in-hand
     Transfers  /inventory-transfers
     Stock Write-offs  /stock-write-offs
     Count Variance  /count-variance
@@ -224,6 +225,7 @@ Customers & Products
     Price List  /prices
 Inventory
     Stock Monitoring  /stock
+    Stock in Hand  /stock-in-hand
     Transfers  /inventory-transfers
     SAP-Held Transfers  /inventory-transfers/sap-approvals
     Local Stock  /local-stock
@@ -249,6 +251,7 @@ Account
 Overview
     Dashboard  /dashboard
 Inventory
+    Stock in Hand  /stock-in-hand
     Transfers  /inventory-transfers
     SAP-Held Transfers  /inventory-transfers/sap-approvals
     Factory Transfers  /factory-transfers
@@ -265,6 +268,7 @@ Overview
 Sales
     Credit Note Approvals  /credit-notes/approvals
 Inventory
+    Stock in Hand  /stock-in-hand
     Transfers  /inventory-transfers
     SAP-Held Transfers  /inventory-transfers/sap-approvals
 Account
@@ -278,7 +282,10 @@ Account
     Security  /security
 
 ## DispatchOfficer
+Overview
+    Dashboard  /dispatch-dashboard
 Inventory
+    Stock in Hand  /stock-in-hand
     Transfers  /inventory-transfers
     Factory Transfers  /factory-transfers
 Account
@@ -292,7 +299,10 @@ Account
     Security  /security
 
 ## ShopStock
+Overview
+    Dashboard  /shop-stock-dashboard
 Inventory
+    Stock in Hand  /stock-in-hand
     Transfers  /inventory-transfers
     SAP-Held Transfers  /inventory-transfers/sap-approvals
 Account
@@ -333,6 +343,7 @@ Customers & Products
     Price List  /prices
 Inventory
     Stock Monitoring  /stock
+    Stock in Hand  /stock-in-hand
     Transfers  /inventory-transfers
     SAP-Held Transfers  /inventory-transfers/sap-approvals
     Factory Transfers  /factory-transfers
