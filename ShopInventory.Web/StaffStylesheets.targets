@@ -59,6 +59,11 @@
          this one's, for what "one system" costs. -->
     <StaffStylesheetLate Include="wwwroot/css/products.css" />
     <StaffStylesheetLate Include="wwwroot/css/dashboard.css" />
+    <!-- /dispatch-dashboard and /shop-stock-dashboard: pieces on top of the kit above, reading its
+         tokens, so it has to load after it. -->
+    <StaffStylesheetLate Include="wwwroot/css/role-dashboards.css" />
+    <!-- /stock-in-hand, on the same kit and the role dashboards' pieces. -->
+    <StaffStylesheetLate Include="wwwroot/css/stock-in-hand.css" />
     <StaffStylesheetLate Include="wwwroot/css/operations-dashboard.css" />
     <StaffStylesheetLate Include="wwwroot/css/sales-rep-dashboard.css" />
     <!-- The depot controller's half of /dashboard. Derived from the sheet above, which it shares its

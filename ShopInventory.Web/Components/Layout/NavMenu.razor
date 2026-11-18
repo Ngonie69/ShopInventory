@@ -237,6 +237,17 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
+                        @* A warehouse's stock now, or at any moment since its ledger began. *@
+                        <AuthorizeView Roles="@UserRoles.StockInHandRoles" Context="stockInHandCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/stock-in-hand" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-package" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Stock in Hand</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
                         <AuthorizeView Roles="@UserRoles.InventoryTransferViewRoles" Context="transferCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/inventory-transfers" Match="NavLinkMatch.Prefix">

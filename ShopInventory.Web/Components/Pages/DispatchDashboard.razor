@@ -1,0 +1,390 @@
+@page "/dispatch-dashboard"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = UserRoles.DispatchDashboardRoles)]
+@rendermode InteractiveServer
+@inject PageLifetime PageLifetime
+
+<PageTitle>Dispatch - Kefalos Cheese</PageTitle>
+
+@* The dispatch officer's dashboard, and the page they land on when they sign in (see
+   RoleLandingRoutes). They used to land on the factory transfers list.
+
+   Two sources, and the page says which is which: the factory transfer module (what production has
+   released to dispatch for counting, and what dispatch has sent that a receiver has not accepted),
+   and SAP's own stock transfers dated today, which is where trucks to Cheeseman, the depots and
+   the factory shop are still mostly keyed.
+
+   Built on the dashboard kit (dashboard.css) plus role-dashboards.css for the flow strip and the
+   holding meters. Drawn in the "Dispatch & Shop Stock Dashboards" design canvas. *@
+
+<div class="dsh">
+
+    <header class="dsh-head">
+        <div class="dsh-head-inner">
+            <nav class="dsh-crumbs" aria-label="Breadcrumb">
+                <span>Factory</span>
+                <span class="dsh-crumb-sep" aria-hidden="true">/</span>
+                <span class="dsh-crumb-now" aria-current="page">Dispatch</span>
+            </nav>
+
+            <div class="dsh-head-meta">
+                <span class="dsh-synced">
+                    <span class="dsh-synced-dot" aria-hidden="true"></span>
+                    @(loadedAt is { } stamp ? $"Read at {stamp:HH:mm}" : "Reading…")
+                </span>
+
+                <button type="button" class="dsh-btn dsh-btn-ghost" @onclick="RefreshAsync" disabled="@isRefreshing">
+                    <DashIcon Name="refresh" Size="15" />
+                    Refresh
+                </button>
+
+                <AuthorizeView Roles="@UserRoles.FactoryTransferRoles" Context="factoryCtx">
+                    <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="/factory-transfers">
+                        <DashIcon Name="swap" Size="15" />
+                        Factory transfers
+                    </a>
+                </AuthorizeView>
+            </div>
+        </div>
+    </header>
+
+    <div class="dsh-body">
+
+        <section class="dsh-hero">
+            <div>
+                <div class="dsh-kicker">@WarehouseKicker</div>
+                <h1>@GreetingText, @GreetingName</h1>
+                <p>
+                    What production has released to you, what you have sent on today, and who has
+                    still to accept it.
+                </p>
+            </div>
+            <div class="dsh-date">
+                <DashIcon Name="calendar" Size="14" />
+                <span>@DateTime.Now.ToString("dddd d MMMM")</span>
+            </div>
+        </section>
+
+        @if (warehouses.Count == 0 && !isLoadingOptions)
+        {
+            <div class="dsh-state">
+                This account has no dispatch warehouses assigned, so there is nothing to report on.
+                Ask an administrator to assign yours.
+            </div>
+        }
+        else
+        {
+            <section class="rdb-flow" aria-label="How stock flows through dispatch today">
+                <a class="rdb-node" href="/factory-transfers">
+                    <div class="rdb-node-head">
+                        <span class="rdb-node-kicker">From production</span>
+                        <span class="rdb-code">@HoldingLabel</span>
+                    </div>
+                    <div class="rdb-node-num">@Figure(awaitingReleases)<small>to accept</small></div>
+                    <div class="rdb-node-sub">Released to you and waiting for your count.</div>
+                </a>
+
+                <div class="rdb-arrow" aria-hidden="true">
+                    <svg viewBox="0 0 34 16" focusable="false"><path d="M1 8h30M25 2l6 6-6 6" /></svg>
+                </div>
+
+                <div class="rdb-node rdb-node-you">
+                    <div class="rdb-node-head">
+                        <span class="rdb-node-kicker">Dispatch · you</span>
+                        <span class="rdb-code">@warehouses.Count warehouse@(warehouses.Count == 1 ? "" : "s")</span>
+                    </div>
+                    <div class="rdb-node-num">@Figure(TotalInStock)<small>items in stock</small></div>
+                    <div class="rdb-node-sub">
+                        @Figure(sentToday) sent today · @Figure(TotalAtZero) at zero
+                    </div>
+                </div>
+
+                <div class="rdb-arrow" aria-hidden="true">
+                    <svg viewBox="0 0 34 16" focusable="false"><path d="M1 8h30M25 2l6 6-6 6" /></svg>
+                </div>
+
+                <div class="rdb-exits" role="list" aria-label="Where today's transfers went">
+                    @if (isLoadingSap)
+                    {
+                        <div class="dsh-state" role="status">
+                            <span class="dsh-spin" aria-hidden="true"></span>
+                            <span>Reading today's transfers from SAP&#8230;</span>
+                        </div>
+                    }
+                    else if (sapError is not null)
+                    {
+                        <div class="dsh-state">@sapError</div>
+                    }
+                    else
+                    {
+                        @foreach (var exit in exits)
+                        {
+                            <div class="rdb-node" role="listitem">
+                                <span class="rdb-code">@(exit.Code == "OTHER" ? "Other" : exit.Code)</span>
+                                <span class="rdb-exit-name">@exit.Name</span>
+                                <span class="rdb-node-sub">@exit.Sent sent today · @exit.Lines lines</span>
+                                <span class="rdb-node-sub @(exit.Open > 0 ? "rdb-warn" : "rdb-good")">
+                                    @(exit.Open > 0 ? $"{exit.Open} not yet accepted" : "Nothing waiting")
+                                </span>
+                            </div>
+                        }
+                    }
+                </div>
+            </section>
+
+            <section class="dsh-stats rdb-stats-4" aria-label="Today at a glance">
+                <StatCard Label="Waiting on you"
+                          Value="@Figure(awaitingCount)"
+                          ValueLabel="Transfers for you to count and accept"
+                          Tone="@WaitingTone"
+                          ToneNote="@WaitingNote"
+                          Icon="hourglass"
+                          IsLead="true" />
+                <StatCard Label="Sent today"
+                          Value="@Figure(sentToday)"
+                          ValueLabel="SAP transfers out of dispatch"
+                          Amount="@(sentLinesToday?.ToString("N0"))"
+                          AmountLabel="Lines"
+                          Icon="arrow-right" />
+                <StatCard Label="With receivers"
+                          Value="@Figure(outbound?.Count)"
+                          ValueLabel="Sent from dispatch, not yet accepted"
+                          Tone="@(overdueOutbound > 0 ? StatTone.Warn : StatTone.Neutral)"
+                          ToneNote="@(overdueOutbound > 0 ? $"{overdueOutbound} out longer than {OverdueHours} hours" : null)"
+                          Icon="clock" />
+                <StatCard Label="Failed in SAP"
+                          Value="@Figure(failedCount)"
+                          ValueLabel="Factory transfers SAP refused"
+                          Tone="@(failedCount > 0 ? StatTone.Critical : failedCount == 0 ? StatTone.Ok : StatTone.Neutral)"
+                          ToneNote="@(failedCount > 0 ? "Retry from Factory transfers" : failedCount == 0 ? "None stranded" : null)"
+                          Icon="plug" />
+            </section>
+
+            <section class="dsh-panels" aria-label="Queues">
+
+                <section class="dsh-panel" aria-labelledby="dsp-wait-heading">
+                    <header class="dsh-panel-head">
+                        <span class="dsh-panel-icon"><DashIcon Name="hourglass" Size="15" /></span>
+                        <h2 id="dsp-wait-heading">Waiting on you</h2>
+                        <a class="dsh-panel-link" href="/factory-transfers">
+                            Count and accept
+                            <DashIcon Name="chevron" Size="13" />
+                        </a>
+                    </header>
+
+                    @if (isLoadingFactory)
+                    {
+                        <div class="dsh-state" role="status">
+                            <span class="dsh-spin" aria-hidden="true"></span>
+                            <span>Loading factory transfers&#8230;</span>
+                        </div>
+                    }
+                    else if (factoryError is not null)
+                    {
+                        <div class="dsh-state">@factoryError</div>
+                    }
+                    else if (awaiting is { Count: > 0 })
+                    {
+                        <div class="dsh-scroll">
+                            <table class="dsh-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Transfer</th>
+                                        <th scope="col">Route</th>
+                                        <th scope="col" class="dsh-th-money">Lines</th>
+                                        <th scope="col">Waiting</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var transfer in awaiting)
+                                    {
+                                        <tr>
+                                            <td class="dsh-doc" title="@transfer.DepartmentName @FactoryTransferStatus.DirectionWord(transfer.Direction)">@transfer.Number</td>
+                                            <td class="dsh-name" title="@Route(transfer)">@Route(transfer)</td>
+                                            <td class="dsh-money">@transfer.LineCount</td>
+                                            <td class="dsh-when @(IsOverdue(transfer.SentAtUtc) ? "rdb-bad" : null)">@Age(transfer.SentAtUtc)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="dsh-state">Nothing waiting on your count</div>
+                    }
+                </section>
+
+                <section class="dsh-panel" aria-labelledby="dsp-out-heading">
+                    <header class="dsh-panel-head">
+                        <span class="dsh-panel-icon"><DashIcon Name="clock" Size="15" /></span>
+                        <h2 id="dsp-out-heading">Out with receivers</h2>
+                        <a class="dsh-panel-link" href="/factory-transfers">
+                            All open
+                            <DashIcon Name="chevron" Size="13" />
+                        </a>
+                    </header>
+
+                    @if (isLoadingFactory)
+                    {
+                        <div class="dsh-state" role="status">
+                            <span class="dsh-spin" aria-hidden="true"></span>
+                            <span>Loading factory transfers&#8230;</span>
+                        </div>
+                    }
+                    else if (factoryError is not null)
+                    {
+                        <div class="dsh-state">@factoryError</div>
+                    }
+                    else if (outbound is { Count: > 0 })
+                    {
+                        <div class="dsh-scroll">
+                            <table class="dsh-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Transfer</th>
+                                        <th scope="col">To</th>
+                                        <th scope="col">Status</th>
+                                        <th scope="col">Out</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var transfer in outbound.Take(RowsShown))
+                                    {
+                                        <tr>
+                                            <td class="dsh-doc">@transfer.Number</td>
+                                            <td class="dsh-name" title="@transfer.DestinationWarehouseCode">@NameFor(transfer.DestinationWarehouseCode)</td>
+                                            <td>
+                                                <span class="dsh-tag @StatusTag(transfer)">@FactoryTransferStatus.Describe(transfer.Status)</span>
+                                            </td>
+                                            <td class="dsh-when @(IsOverdue(transfer.SentAtUtc) ? "rdb-bad" : null)">@Age(transfer.SentAtUtc)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="dsh-state">Everything you sent has been accepted</div>
+                    }
+                </section>
+
+            </section>
+
+            <section class="dsh-panels" aria-label="Stock and today's transfers">
+
+                <section class="dsh-panel" aria-labelledby="dsp-hold-heading">
+                    <header class="dsh-panel-head">
+                        <span class="dsh-panel-icon"><DashIcon Name="box" Size="15" /></span>
+                        <h2 id="dsp-hold-heading">Holding now</h2>
+                        <a class="dsh-panel-link" href="/stock-in-hand">
+                            Stock in hand
+                            <DashIcon Name="chevron" Size="13" />
+                        </a>
+                    </header>
+
+                    <div class="rdb-holding">
+                        @foreach (var hold in holdings)
+                        {
+                            <div class="rdb-hold-row">
+                                <div class="rdb-hold-head">
+                                    <strong>@hold.Code</strong>
+                                    <span>@NameFor(hold.Code)</span>
+                                    <span class="rdb-spacer"></span>
+                                    <span>@Figure(hold.InStock) in stock</span>
+                                    <span class="@(hold.AtZero > 0 ? "rdb-warn" : "rdb-good")">@Figure(hold.AtZero) at zero</span>
+                                </div>
+                                <div class="rdb-meter" aria-hidden="true">
+                                    <span class="rdb-meter-stock" style="width:@Percent(hold.InStock, hold.Total)"></span>
+                                    <span class="rdb-meter-zero" style="width:@Percent(hold.AtZero, hold.Total)"></span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    <p class="rdb-note">Counted in items, not quantities: crates, kilograms and eaches do not add up.</p>
+                </section>
+
+                <section class="dsh-panel" aria-labelledby="dsp-today-heading">
+                    <header class="dsh-panel-head">
+                        <span class="dsh-panel-icon"><DashIcon Name="swap" Size="15" /></span>
+                        <h2 id="dsp-today-heading">Today's SAP transfers</h2>
+                        <a class="dsh-panel-link" href="/inventory-transfers">
+                            View all
+                            <DashIcon Name="chevron" Size="13" />
+                        </a>
+                    </header>
+
+                    @if (isLoadingSap)
+                    {
+                        <div class="dsh-state" role="status">
+                            <span class="dsh-spin" aria-hidden="true"></span>
+                            <span>Reading today's transfers from SAP&#8230;</span>
+                        </div>
+                    }
+                    else if (sapError is not null)
+                    {
+                        <div class="dsh-state">@sapError</div>
+                    }
+                    else if (todaysTransfers.Count > 0)
+                    {
+                        <div class="dsh-scroll">
+                            <table class="dsh-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Doc #</th>
+                                        <th scope="col">Direction</th>
+                                        <th scope="col">Route</th>
+                                        <th scope="col" class="dsh-th-money">Lines</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var transfer in todaysTransfers.Take(RowsShown * 2))
+                                    {
+                                        <tr>
+                                            <td class="dsh-doc">TR-@transfer.DocNum</td>
+                                            <td>
+                                                <span class="dsh-tag @(transfer.IsInbound ? "dsh-tag-ok" : "rdb-tag-info")">@(transfer.IsInbound ? "In" : "Out")</span>
+                                            </td>
+                                            <td class="dsh-name" title="@transfer.Route">@transfer.Route</td>
+                                            <td class="dsh-money">@transfer.Lines</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="dsh-state">No SAP transfers in or out of dispatch today</div>
+                    }
+                </section>
+
+            </section>
+        }
+
+        <section class="dsh-panel" aria-labelledby="dsp-actions-heading">
+            <header class="dsh-panel-head">
+                <span class="dsh-panel-icon"><DashIcon Name="bolt" Size="15" /></span>
+                <h2 id="dsp-actions-heading">Quick actions</h2>
+            </header>
+            <div class="dsh-quick">
+                <AuthorizeView Roles="@UserRoles.FactoryTransferRoles" Context="factoryActionCtx">
+                    <QuickAction Title="Factory transfers"
+                                 Description="Count releases and send stock on"
+                                 Href="/factory-transfers"
+                                 Icon="swap" />
+                </AuthorizeView>
+                <QuickAction Title="Stock in hand"
+                             Description="What a warehouse held at any moment"
+                             Href="/stock-in-hand"
+                             Icon="box" />
+                <QuickAction Title="Transfers"
+                             Description="Every SAP transfer and request"
+                             Href="/inventory-transfers"
+                             Icon="list-check" />
+            </div>
+        </section>
+
+    </div>
+</div>

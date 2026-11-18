@@ -323,6 +323,7 @@ try
     builder.Services.AddScoped<ISapTransferApprovalService, SapTransferApprovalService>();
     builder.Services.AddScoped<IMarketBreakageService, MarketBreakageService>();
     builder.Services.AddScoped<IFactoryTransferService, FactoryTransferService>();
+    builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
     builder.Services.AddScoped<IStockWriteOffService, StockWriteOffService>();
     builder.Services.AddScoped<ICountVarianceService, CountVarianceService>();
     builder.Services.AddScoped<IIncomingPaymentCacheService, IncomingPaymentCacheService>();

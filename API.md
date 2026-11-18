@@ -1034,6 +1034,9 @@ every warehouse.
 | GET | `/api/Stock/warehouse/{warehouseCode}` | Get all stock in a specific warehouse |
 | GET | `/api/Stock/warehouse/{warehouseCode}/paged` | The same, paginated (`page`, `pageSize`) |
 | GET | `/api/Stock/warehouse/{warehouseCode}/items` | Stock for named items only — `itemCodes` is a comma-separated list |
+| GET | `/api/Stock/warehouse/{warehouseCode}/as-at` | What the warehouse held at a past moment (`at`, UTC), per item, rebuilt from the stock ledger: the morning snapshot plus every journalled movement after it. `recorded` is false where no finished snapshot covers the moment |
+| GET | `/api/Stock/warehouse/{warehouseCode}/movements` | The stock ledger's movements between two moments (`fromUtc`, `toUtc`, at most 31 days, 2,000 rows), optionally for one `itemCode`; with an item, also each morning's opening figure inside the window |
+| GET | `/api/Stock/warehouse/{warehouseCode}/movement-totals` | The same window (`fromUtc`, `toUtc`, at most 31 days) totalled per item: units sold net of returns, transferred in, transferred out, and the hourly SAP corrections' net |
 | GET | `/api/Stock/warehouse/{warehouseCode}/sales` | Sales out of a warehouse (`fromDate`, `toDate`) |
 | POST | `/api/Stock/warehouse/{warehouseCode}/sales` | The same query with `fromDate` and `toDate` in the body |
 

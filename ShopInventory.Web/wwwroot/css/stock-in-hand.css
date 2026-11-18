@@ -1,0 +1,352 @@
+/* ==========================================================================
+   /stock-in-hand — a warehouse's stock now, or at any moment since its ledger
+   began.
+
+   The page sits on the dashboard kit (`.dsh`), so it reads the kit's tokens,
+   which carry both schemes, and the family hues from nocturne-tokens.css. No
+   palette is restated here. Prefix `sih-`. Drawn in the "Dispatch & Shop Stock
+   Dashboards" design canvas (2026-11-18).
+   ========================================================================== */
+
+/* — The moment bar — */
+
+.sih .sih-moment {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--dsh-s6);
+    padding: var(--dsh-s6);
+    border: 1px solid var(--dsh-rule);
+    border-radius: var(--dsh-r-lg);
+    background: var(--dsh-surface);
+}
+
+.sih .sih-presets {
+    flex: 999 1 560px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dsh-s3);
+}
+
+.sih .sih-preset {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1px;
+    min-height: 48px;
+    padding: var(--dsh-s3) var(--dsh-s6);
+    border: 1px solid var(--dsh-rule);
+    border-radius: var(--dsh-r-md);
+    background: var(--dsh-field-bg);
+    color: var(--dsh-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.sih .sih-preset:hover:not(:disabled) { border-color: var(--dsh-field-edge-hi); }
+.sih .sih-preset:disabled { cursor: progress; opacity: .7; }
+
+.sih .sih-preset.is-on {
+    border-color: var(--dsh-accent);
+    background: rgba(var(--dsh-accent-rgb), .12);
+}
+
+.sih .sih-preset:focus-visible,
+.sih .sih-chip:focus-visible,
+.sih .sih-item:focus-visible {
+    outline: 2px solid var(--dsh-accent);
+    outline-offset: 2px;
+}
+
+.sih .sih-preset-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13.5px;
+    font-weight: 600;
+}
+
+.sih .sih-preset-sub { font-size: 12px; color: var(--dsh-mute-3); }
+
+.sih .sih-live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--noct-fam-good);
+}
+
+.sih .sih-pick {
+    flex: 1 1 320px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-s2);
+}
+
+.sih .sih-pick-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--dsh-mute-3);
+}
+
+.sih .sih-pick-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--dsh-s3);
+}
+
+.sih .sih-pick-row .ndf { flex: 1 1 150px; }
+
+/* — The banner that says which source the figures are from — */
+
+.sih .sih-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dsh-s4);
+    padding: var(--dsh-s4) var(--dsh-s6);
+    border: 1px solid transparent;
+    border-radius: var(--dsh-r-md);
+    color: var(--dsh-ink);
+}
+
+.sih .sih-banner > div { display: flex; flex-direction: column; gap: 2px; }
+.sih .sih-banner strong { font-weight: 600; }
+.sih .sih-banner span { font-size: 13px; color: var(--dsh-mute-2); }
+
+.sih .sih-banner.is-live {
+    background: rgba(var(--noct-fam-good-rgb), .1);
+    border-color: rgba(var(--noct-fam-good-rgb), .35);
+}
+
+.sih .sih-banner.is-live > svg { color: var(--noct-fam-good); }
+
+.sih .sih-banner.is-past {
+    background: rgba(var(--noct-fam-warn-rgb), .1);
+    border-color: rgba(var(--noct-fam-warn-rgb), .35);
+}
+
+.sih .sih-banner.is-past > svg { color: var(--noct-fam-warn); }
+
+.sih .sih-banner.is-missing {
+    background: rgba(var(--noct-fam-bad-rgb), .08);
+    border-color: rgba(var(--noct-fam-bad-rgb), .35);
+}
+
+.sih .sih-banner.is-missing > svg { color: var(--noct-fam-bad); }
+
+/* — Items and the movement panel, side by side, stacking on a phone — */
+
+.sih .sih-grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--dsh-s8);
+}
+
+.sih .sih-items { flex: 999 1 600px; min-width: 0; }
+.sih .sih-detail { flex: 1 1 400px; min-width: 0; }
+
+.sih .sih-count { margin-left: auto; font-size: 12.5px; color: var(--dsh-mute-3); }
+
+.sih .sih-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--dsh-s3);
+    padding: var(--dsh-s4) var(--dsh-s8);
+    border-bottom: 1px solid var(--dsh-rule);
+}
+
+.sih .sih-search {
+    flex: 1 1 220px;
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-s3);
+    min-height: 40px;
+    padding: 0 var(--dsh-s4);
+    border: 1px solid var(--dsh-field-edge);
+    border-radius: var(--dsh-r-md);
+    background: var(--dsh-field-bg);
+    color: var(--dsh-mute-3);
+}
+
+.sih .sih-search:focus-within { border-color: var(--dsh-accent); }
+
+.sih .sih-search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--dsh-ink);
+    font: inherit;
+    font-size: 14px;
+}
+
+.sih .sih-search input::placeholder { color: var(--dsh-mute-3); }
+
+.sih .sih-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.sih .sih-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.sih .sih-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--dsh-rule);
+    border-radius: 999px;
+    background: var(--dsh-field-bg);
+    color: var(--dsh-mute);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.sih .sih-chip.is-on {
+    border-color: var(--dsh-accent);
+    background: var(--dsh-accent);
+    color: var(--dsh-accent-ink);
+}
+
+.sih .sih-chip-n { font-variant-numeric: tabular-nums; opacity: .8; }
+
+.sih .sih-table tr.is-on td { background: rgba(var(--dsh-accent-rgb), .1); }
+.sih .sih-table tr.is-on td:first-child { box-shadow: inset 3px 0 0 var(--dsh-accent); }
+
+/* align-items and justify-content are stated because MudBlazor's sheet loads last and its bare
+   `button` rule centres a button's content. */
+.sih .sih-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 1px;
+    width: 100%;
+    min-height: 40px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--dsh-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.sih .sih-item-name { font-weight: 500; }
+.sih .sih-item-code { font-size: 12px; color: var(--dsh-mute-3); }
+
+.sih .sih-neg { color: var(--noct-fam-bad); }
+.sih .sih-pos { color: var(--noct-fam-good); }
+.sih .sih-out { color: var(--noct-fam-info); }
+.sih .sih-mute { color: var(--dsh-mute-3); }
+.sih .sih-strong { font-weight: 600; }
+
+/* — The movement panel — */
+
+.sih .sih-detail-head {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--dsh-s6) var(--dsh-s8) var(--dsh-s4);
+}
+
+.sih .sih-detail-head h2 { margin: 0; font-size: 17px; font-weight: 650; }
+
+.sih .sih-span {
+    display: flex;
+    align-items: stretch;
+    gap: var(--dsh-s3);
+    padding: 0 var(--dsh-s8) var(--dsh-s6);
+}
+
+.sih .sih-span-box {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--dsh-s4);
+    border: 1px solid var(--dsh-rule);
+    border-radius: var(--dsh-r-md);
+    background: var(--dsh-field-bg);
+}
+
+.sih .sih-span-box span { font-size: 12px; color: var(--dsh-mute-3); }
+
+.sih .sih-span-box strong {
+    font-size: 22px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+}
+
+.sih .sih-span-box.is-now {
+    border-color: var(--dsh-accent);
+    background: rgba(var(--dsh-accent-rgb), .12);
+}
+
+.sih .sih-span-box.is-now span { color: var(--dsh-accent-text); }
+
+.sih .sih-span-arrow {
+    flex: 0 0 auto;
+    align-self: center;
+    width: 20px;
+    height: 12px;
+    fill: none;
+    stroke: var(--dsh-mute-3);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+}
+
+.sih .sih-ledger {
+    margin: 0;
+    padding: 0 var(--dsh-s8) var(--dsh-s6);
+    list-style: none;
+}
+
+.sih .sih-ledger-row {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content max-content;
+    gap: var(--dsh-s4);
+    align-items: start;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--dsh-rule);
+    font-size: 13px;
+}
+
+.sih .sih-ledger-row.is-start,
+.sih .sih-ledger-row.is-opening { color: var(--dsh-mute-2); }
+
+.sih .sih-ledger-row.is-opening .sih-what span { font-weight: 600; color: var(--dsh-accent-text); }
+
+.sih .sih-when { color: var(--dsh-mute-3); font-variant-numeric: tabular-nums; }
+
+.sih .sih-what { display: flex; flex-direction: column; min-width: 0; }
+.sih .sih-what span { font-weight: 500; }
+
+.sih .sih-what small {
+    overflow: hidden;
+    font-size: 12px;
+    color: var(--dsh-mute-3);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sih .sih-qty,
+.sih .sih-bal { text-align: right; font-variant-numeric: tabular-nums; }
+
+.sih .sih-qty { font-weight: 600; }
+.sih .sih-bal { color: var(--dsh-ink); }
+
+@media (max-width: 520px) {
+    .sih .sih-ledger-row { gap: var(--dsh-s3); }
+}

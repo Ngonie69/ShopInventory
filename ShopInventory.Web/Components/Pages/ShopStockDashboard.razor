@@ -1,0 +1,331 @@
+@page "/shop-stock-dashboard"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = UserRoles.ShopStockDashboardRoles)]
+@rendermode InteractiveServer
+@inject PageLifetime PageLifetime
+
+<PageTitle>Factory shop stock - Kefalos Cheese</PageTitle>
+
+@* The factory shop's stock dashboard, and the page the ShopStock user lands on when they sign in
+   (see RoleLandingRoutes). They used to land on the transfers list.
+
+   What the shop holds right now (SAP, through the Web's stock cache), what is on its way in from
+   dispatch (held transfers, mostly waiting on SAP's own approval since 2026-11-16), what is running
+   low against what the tills have sold this week (the stock ledger), and today's movements.
+
+   Built on the dashboard kit (dashboard.css) plus role-dashboards.css. Drawn in the "Dispatch &
+   Shop Stock Dashboards" design canvas. *@
+
+<div class="dsh">
+
+    <header class="dsh-head">
+        <div class="dsh-head-inner">
+            <nav class="dsh-crumbs" aria-label="Breadcrumb">
+                <span>@NameFor(warehouse)</span>
+                <span class="dsh-crumb-sep" aria-hidden="true">/</span>
+                <span class="dsh-crumb-now" aria-current="page">Dashboard</span>
+            </nav>
+
+            <div class="dsh-head-meta">
+                @if (warehouseOptions.Count > 1)
+                {
+                    <NocturneSelect TValue="string" Class="nsel-auto" Options="warehouseOptions"
+                                    @bind-Value="warehouse" OnChanged="OnWarehouseChangedAsync"
+                                    Caption="Warehouse" AriaLabel="Warehouse"
+                                    Placeholder="Pick a warehouse" />
+                }
+
+                <span class="dsh-synced">
+                    <span class="dsh-synced-dot" aria-hidden="true"></span>
+                    @(loadedAt is { } stamp ? $"Read at {stamp:HH:mm}" : "Reading…")
+                </span>
+
+                <AuthorizeView Roles="@UserRoles.InventoryTransferRoles" Context="returnCtx">
+                    <a class="dsh-btn dsh-btn-ghost" href="/inventory-transfer/create">
+                        <DashIcon Name="swap" Size="15" />
+                        Return to dispatch
+                    </a>
+                </AuthorizeView>
+
+                <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="@StockInHandHref">
+                    <DashIcon Name="box" Size="15" />
+                    Stock in hand
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <div class="dsh-body">
+
+        @if (warehouse is null)
+        {
+            <div class="dsh-state">
+                This account has no warehouse assigned, so there is no stock to report on.
+            </div>
+        }
+        else
+        {
+            <section class="dsh-hero">
+                <div class="rdb-hero-split">
+                    <div>
+                        <div class="dsh-kicker">@NameFor(warehouse) · @warehouse</div>
+                        <h1>@GreetingText, @GreetingName</h1>
+                        <p>
+                            What the shop holds right now, what is on its way in from dispatch, and what
+                            is running low against what the tills have sold this week.
+                        </p>
+                    </div>
+
+                    <a class="rdb-sih" href="@StockInHandHref" aria-label="Open stock in hand">
+                        <div class="rdb-sih-head">
+                            <span class="rdb-node-kicker">Stock in hand</span>
+                            <span class="rdb-live">Live</span>
+                        </div>
+                        <div class="rdb-sih-num">
+                            <strong>@Figure(onShelf)</strong>
+                            <span>items on the shelf</span>
+                        </div>
+                        <div class="rdb-meter" aria-hidden="true">
+                            <span class="rdb-meter-stock" style="width:@Percent(healthy, totalItems)"></span>
+                            <span class="rdb-meter-low" style="width:@Percent(lowCount, totalItems)"></span>
+                            <span class="rdb-meter-zero" style="width:@Percent(atZero, totalItems)"></span>
+                        </div>
+                        <div class="rdb-sih-legend">
+                            <span><b>@Figure(healthy)</b> healthy</span>
+                            <span class="rdb-warn"><b>@Figure(lowCount)</b> under @LowCoverDays days' cover</span>
+                            <span class="rdb-bad"><b>@Figure(atZero)</b> at zero</span>
+                            @if (oversold > 0)
+                            {
+                                <span class="rdb-bad"><b>@oversold</b> oversold</span>
+                            }
+                        </div>
+                        <span class="rdb-sih-go">See it at any moment, past or present &#8594;</span>
+                    </a>
+                </div>
+            </section>
+
+            <section class="dsh-stats rdb-stats-4" aria-label="Today at a glance">
+                <StatCard Label="On the way in"
+                          Value="@Figure(incoming?.Count)"
+                          ValueLabel="Transfers to this shop not yet in stock"
+                          Tone="@(incoming is { Count: > 0 } ? StatTone.Warn : incoming is null ? StatTone.Neutral : StatTone.Ok)"
+                          ToneNote="@IncomingNote"
+                          Icon="hourglass"
+                          IsLead="true" />
+                <StatCard Label="Received today"
+                          Value="@Figure(receivedToday)"
+                          ValueLabel="SAP transfers into the shop"
+                          Amount="@(receivedLinesToday?.ToString("N0"))"
+                          AmountLabel="Lines"
+                          Icon="check-circle" />
+                <StatCard Label="Till sales today"
+                          Value="@Figure(tillSalesToday)"
+                          ValueLabel="Sales rung up at this shop"
+                          Icon="receipt" />
+                <StatCard Label="Failed posts"
+                          Value="@Figure(failedPosts)"
+                          ValueLabel="Approved but not in SAP"
+                          Tone="@(failedPosts > 0 ? StatTone.Critical : failedPosts == 0 ? StatTone.Ok : StatTone.Neutral)"
+                          ToneNote="@(failedPosts > 0 ? "Stranded, need a retry" : failedPosts == 0 ? "None stranded" : null)"
+                          Icon="plug" />
+            </section>
+
+            <section class="dsh-panels" aria-label="Deliveries and low stock">
+
+                <section class="dsh-panel" aria-labelledby="ssd-in-heading">
+                    <header class="dsh-panel-head">
+                        <span class="dsh-panel-icon"><DashIcon Name="hourglass" Size="15" /></span>
+                        <h2 id="ssd-in-heading">On the way in</h2>
+                        <a class="dsh-panel-link" href="/inventory-transfers">
+                            View all
+                            <DashIcon Name="chevron" Size="13" />
+                        </a>
+                    </header>
+
+                    @if (isLoadingTransfers)
+                    {
+                        <div class="dsh-state" role="status">
+                            <span class="dsh-spin" aria-hidden="true"></span>
+                            <span>Loading transfers&#8230;</span>
+                        </div>
+                    }
+                    else if (incoming is { Count: > 0 })
+                    {
+                        <div class="dsh-scroll">
+                            <table class="dsh-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Draft</th>
+                                        <th scope="col">From</th>
+                                        <th scope="col">Where it stands</th>
+                                        <th scope="col" class="dsh-th-money">Lines</th>
+                                        <th scope="col">Waiting</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var transfer in incoming.Take(RowsShown))
+                                    {
+                                        <tr>
+                                            <td class="dsh-doc">@(transfer.DraftNumber ?? "—")</td>
+                                            <td class="dsh-name" title="@transfer.FromWarehouse">@NameFor(transfer.FromWarehouse)</td>
+                                            <td><span class="dsh-tag @StandingTag(transfer)">@Standing(transfer)</span></td>
+                                            <td class="dsh-money">@transfer.LineCount</td>
+                                            <td class="dsh-when">@Age(transfer.CreatedAtUtc)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="dsh-state">Nothing on its way in</div>
+                    }
+                </section>
+
+                <section class="dsh-panel" aria-labelledby="ssd-low-heading">
+                    <header class="dsh-panel-head">
+                        <span class="dsh-panel-icon"><DashIcon Name="warning" Size="15" /></span>
+                        <h2 id="ssd-low-heading">Running low</h2>
+                        <a class="dsh-panel-link" href="@StockInHandHref">
+                            Stock in hand
+                            <DashIcon Name="chevron" Size="13" />
+                        </a>
+                    </header>
+
+                    @if (isLoadingStock)
+                    {
+                        <div class="dsh-state" role="status">
+                            <span class="dsh-spin" aria-hidden="true"></span>
+                            <span>Reading stock and this week's sales&#8230;</span>
+                        </div>
+                    }
+                    else if (coverError is not null)
+                    {
+                        <div class="dsh-state">@coverError</div>
+                    }
+                    else if (lowItems.Count > 0)
+                    {
+                        <div class="dsh-scroll">
+                            <table class="dsh-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Item</th>
+                                        <th scope="col" class="dsh-th-money">On the shelf</th>
+                                        <th scope="col" class="dsh-th-money">Sells a day</th>
+                                        <th scope="col" class="dsh-th-money">Cover</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in lowItems)
+                                    {
+                                        <tr>
+                                            <td class="dsh-name" title="@item.Code">@item.Name</td>
+                                            <td class="dsh-money">@Quantity(item.OnShelf, item.UoM)</td>
+                                            <td class="dsh-money">@Quantity(item.PerDay, item.UoM)</td>
+                                            <td>
+                                                <div class="rdb-cover @CoverClass(item.CoverDays)">
+                                                    <div class="rdb-meter" aria-hidden="true">
+                                                        <span class="@CoverMeterClass(item.CoverDays)" style="width:@CoverWidth(item.CoverDays)"></span>
+                                                    </div>
+                                                    <span>@CoverLabel(item.CoverDays)</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="rdb-note">Days of cover at the last @SalesWindowDays days' till sales.</p>
+                    }
+                    else
+                    {
+                        <div class="dsh-state">Nothing is under @WatchCoverDays days' cover</div>
+                    }
+                </section>
+
+            </section>
+
+            <section class="dsh-panel" aria-labelledby="ssd-moves-heading">
+                <header class="dsh-panel-head">
+                    <span class="dsh-panel-icon"><DashIcon Name="clock" Size="15" /></span>
+                    <h2 id="ssd-moves-heading">Today in the shop</h2>
+                    <a class="dsh-panel-link" href="@StockInHandHref">
+                        Item by item
+                        <DashIcon Name="chevron" Size="13" />
+                    </a>
+                </header>
+
+                @if (isLoadingMoves)
+                {
+                    <div class="dsh-state" role="status">
+                        <span class="dsh-spin" aria-hidden="true"></span>
+                        <span>Reading today's movements&#8230;</span>
+                    </div>
+                }
+                else if (movesError is not null)
+                {
+                    <div class="dsh-state">@movesError</div>
+                }
+                else if (todayMoves.Count > 0)
+                {
+                    <div class="dsh-scroll">
+                        <table class="dsh-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Time</th>
+                                    <th scope="col">Movement</th>
+                                    <th scope="col">Reference</th>
+                                    <th scope="col" class="dsh-th-money">Items</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var move in todayMoves.Take(MovesShown))
+                                {
+                                    <tr>
+                                        <td class="dsh-when">@move.Time</td>
+                                        <td><span class="dsh-tag @move.Tag">@move.Label</span></td>
+                                        <td class="dsh-name" title="@move.Reference">@move.Reference</td>
+                                        <td class="dsh-money">@move.Items</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    @if (todayMoves.Count > MovesShown)
+                    {
+                        <p class="rdb-note">The latest @MovesShown of @todayMoves.Count today.</p>
+                    }
+                }
+                else
+                {
+                    <div class="dsh-state">Nothing has moved since the shop opened at 07:00</div>
+                }
+            </section>
+
+            <section class="dsh-panel" aria-labelledby="ssd-actions-heading">
+                <header class="dsh-panel-head">
+                    <span class="dsh-panel-icon"><DashIcon Name="bolt" Size="15" /></span>
+                    <h2 id="ssd-actions-heading">Quick actions</h2>
+                </header>
+                <div class="dsh-quick">
+                    <QuickAction Title="Stock in hand"
+                                 Description="What the shop held at any moment"
+                                 Href="@StockInHandHref"
+                                 Icon="box" />
+                    <QuickAction Title="Transfers"
+                                 Description="Deliveries in and returns out"
+                                 Href="/inventory-transfers"
+                                 Icon="list-check" />
+                    <AuthorizeView Roles="@UserRoles.SapTransferApprovalRoles" Context="sapHeldCtx">
+                        <QuickAction Title="SAP-held transfers"
+                                     Description="Transfers waiting on SAP's approval"
+                                     Href="/inventory-transfers/sap-approvals"
+                                     Icon="clipboard-data" />
+                    </AuthorizeView>
+                </div>
+            </section>
+        }
+
+    </div>
+</div>

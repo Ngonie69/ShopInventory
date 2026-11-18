@@ -27,7 +27,10 @@ public sealed class RoleLandingRouteTests
     [InlineData(UserRoles.Lab, "/lab/batch-status")]
     [InlineData(UserRoles.MerchandiserPurchaseOrderViewer, "/reports/merchandiser-purchase-orders")]
     [InlineData(UserRoles.WashBay, "/washbay-dashboard")]
-    [InlineData(UserRoles.ShopStock, "/inventory-transfers")]
+    [InlineData(UserRoles.ShopStock, "/shop-stock-dashboard")]
+    [InlineData(UserRoles.DispatchOfficer, "/dispatch-dashboard")]
+    [InlineData(UserRoles.ProductionOfficer, "/factory-transfers")]
+    [InlineData(UserRoles.DistributionOfficer, "/factory-transfers")]
     public void Each_role_lands_on_its_own_page(string role, string expected)
     {
         Assert.Equal(expected, RoleLandingRoutes.For(role));
@@ -107,7 +110,9 @@ public sealed class RoleLandingRouteTests
             RoleLandingRoutes.CashierDashboard,
             RoleLandingRoutes.StockDashboard,
             RoleLandingRoutes.ManagerDashboard,
-            RoleLandingRoutes.WashBayDashboard
+            RoleLandingRoutes.WashBayDashboard,
+            RoleLandingRoutes.ShopStockDashboard,
+            RoleLandingRoutes.DispatchDashboard
         };
 
         foreach (var role in UserRoles.DashboardNavRoles.Split(','))

@@ -1,0 +1,292 @@
+/* ==========================================================================
+   Role dashboards — the pieces /dispatch-dashboard and /shop-stock-dashboard add
+   to the shared dashboard kit (dashboard.css, `.dsh-*`).
+
+   Everything here sits inside `.dsh`, so it reads the kit's own tokens
+   (`--dsh-*`), which already carry both schemes, and the family hues from
+   nocturne-tokens.css (`--noct-fam-*`), which flip at the root. No palette is
+   restated: a value copied here is a value that drifts.
+
+   The flow strip, the holding meters and the stock-in-hand card were drawn in
+   the "Dispatch & Shop Stock Dashboards" design canvas (2026-11-18).
+   ========================================================================== */
+
+.dsh .rdb-flow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: var(--dsh-s4);
+    padding: var(--dsh-s8);
+    border: 1px solid var(--dsh-rule);
+    border-radius: var(--dsh-r-lg);
+    background: var(--dsh-surface);
+}
+
+.dsh .rdb-node {
+    flex: 1 1 200px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-s3);
+    padding: var(--dsh-s6);
+    border: 1px solid var(--dsh-rule);
+    border-radius: var(--dsh-r-md);
+    background: var(--dsh-field-bg);
+    color: var(--dsh-ink);
+    text-decoration: none;
+}
+
+.dsh a.rdb-node:hover { border-color: var(--dsh-field-edge-hi); }
+
+.dsh .rdb-node-you {
+    border-color: var(--dsh-accent);
+    background: rgba(var(--dsh-accent-rgb), .12);
+}
+
+.dsh .rdb-node-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--dsh-s3);
+}
+
+.dsh .rdb-node-kicker {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--dsh-mute-3);
+}
+
+.dsh .rdb-node-you .rdb-node-kicker { color: var(--dsh-accent-text); }
+
+.dsh .rdb-code {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: var(--dsh-field-bg);
+    border: 1px solid var(--dsh-rule);
+    color: var(--dsh-mute-2);
+    font-size: 11.5px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.dsh .rdb-node-num {
+    font-size: 28px;
+    font-weight: 650;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.dsh .rdb-node-num small {
+    margin-left: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--dsh-mute-2);
+}
+
+.dsh .rdb-node-sub {
+    font-size: 13px;
+    color: var(--dsh-mute-2);
+}
+
+.dsh .rdb-arrow {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    color: var(--dsh-mute-3);
+}
+
+.dsh .rdb-arrow svg {
+    width: 34px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+}
+
+.dsh .rdb-exits {
+    flex: 2 1 380px;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: var(--dsh-s3);
+}
+
+.dsh .rdb-exits .rdb-node { flex: none; padding: var(--dsh-s4) var(--dsh-s6); gap: var(--dsh-s2); }
+/* A column flexbox stretches its children, so the code would span the tile. */
+.dsh .rdb-exits .rdb-code { align-self: flex-start; }
+.dsh .rdb-exit-name { font-weight: 600; }
+
+.dsh .rdb-warn { color: var(--noct-fam-warn); }
+.dsh .rdb-good { color: var(--noct-fam-good); }
+.dsh .rdb-bad { color: var(--noct-fam-bad); }
+
+/* Arrows lose their meaning once the strip stacks. */
+@media (max-width: 760px) {
+    .dsh .rdb-arrow { display: none; }
+}
+
+/* — Tags the kit does not carry — */
+
+.dsh .rdb-tag-warn {
+    background: rgba(var(--noct-fam-warn-rgb), .14);
+    border-color: rgba(var(--noct-fam-warn-rgb), .45);
+    color: var(--noct-fam-warn);
+}
+
+.dsh .rdb-tag-info {
+    background: rgba(var(--noct-fam-info-rgb), .13);
+    border-color: rgba(var(--noct-fam-info-rgb), .4);
+    color: var(--noct-fam-info);
+}
+
+/* — Holding meters: items in stock against items at zero, per warehouse — */
+
+.dsh .rdb-holding {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-s6);
+    padding: var(--dsh-s6) var(--dsh-s8) var(--dsh-s8);
+}
+
+.dsh .rdb-hold-row { display: flex; flex-direction: column; gap: var(--dsh-s3); }
+
+.dsh .rdb-hold-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--dsh-s2) var(--dsh-s4);
+    font-size: 13px;
+    color: var(--dsh-mute-2);
+}
+
+.dsh .rdb-hold-head strong { color: var(--dsh-ink); font-size: 14px; font-weight: 600; }
+.dsh .rdb-hold-head .rdb-spacer { flex: 1; }
+
+.dsh .rdb-meter {
+    display: flex;
+    height: 8px;
+    border-radius: 99px;
+    overflow: hidden;
+    background: var(--dsh-field-bg);
+}
+
+.dsh .rdb-meter > span { display: block; height: 100%; }
+.dsh .rdb-meter-stock { background: var(--dsh-accent); }
+.dsh .rdb-meter-low { background: var(--noct-fam-warn); }
+.dsh .rdb-meter-zero { background: var(--noct-fam-bad); }
+
+.dsh .rdb-note {
+    margin: 0;
+    padding: 0 var(--dsh-s8) var(--dsh-s6);
+    font-size: 12.5px;
+    color: var(--dsh-mute-3);
+}
+
+/* — The stock-in-hand card in the shop's hero — */
+
+.dsh .rdb-hero-split {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: var(--dsh-s8);
+}
+
+.dsh .rdb-hero-split > :first-child { flex: 999 1 420px; min-width: 0; }
+
+.dsh .rdb-sih {
+    flex: 1 1 380px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-s4);
+    padding: var(--dsh-s8);
+    border: 1px solid var(--dsh-rule);
+    border-radius: var(--dsh-r-lg);
+    background: var(--dsh-surface);
+    color: var(--dsh-ink);
+    text-decoration: none;
+}
+
+.dsh .rdb-sih:hover { border-color: var(--dsh-field-edge-hi); }
+
+.dsh .rdb-sih-head { display: flex; align-items: center; gap: var(--dsh-s3); }
+.dsh .rdb-sih-head .rdb-node-kicker { flex: 1; }
+
+.dsh .rdb-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 99px;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(var(--noct-fam-good-rgb), .14);
+    color: var(--noct-fam-good);
+}
+
+.dsh .rdb-live::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.dsh .rdb-sih-num { display: flex; align-items: baseline; gap: var(--dsh-s3); color: var(--dsh-mute-2); }
+
+.dsh .rdb-sih-num strong {
+    font-size: 40px;
+    font-weight: 650;
+    letter-spacing: -.03em;
+    line-height: 1;
+    color: var(--dsh-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.dsh .rdb-sih-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dsh-s2) var(--dsh-s8);
+    font-size: 13px;
+    color: var(--dsh-mute-2);
+}
+
+.dsh .rdb-sih-legend b { font-weight: 600; color: var(--dsh-ink); }
+.dsh .rdb-sih-legend .rdb-warn b { color: var(--noct-fam-warn); }
+.dsh .rdb-sih-legend .rdb-bad b { color: var(--noct-fam-bad); }
+
+.dsh .rdb-sih-go { font-size: 13px; font-weight: 500; color: var(--dsh-accent-text); }
+
+/* — Days of cover — */
+
+.dsh .rdb-cover {
+    display: grid;
+    grid-template-columns: 96px 56px;
+    align-items: center;
+    justify-content: end;
+    gap: var(--dsh-s4);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    text-align: right;
+}
+
+.dsh .rdb-cover .rdb-meter { height: 6px; }
+
+/* — Four figures in a row. The kit's row is three; these pages carry four, which in three columns
+     left one card alone on a second row. Two across on a tablet, one on a phone, as the kit does. — */
+
+.dsh .rdb-stats-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+@media (max-width: 1240px) {
+    .dsh .rdb-stats-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 860px) {
+    .dsh .rdb-stats-4 { grid-template-columns: minmax(0, 1fr); }
+}
