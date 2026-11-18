@@ -355,18 +355,28 @@ public partial class StockInHand
     // ── Presentation ────────────────────────────────────────────────────────
 
     private List<StockInHandRow> VisibleRows => rows
-        .Where(row => Matches(row, view))
+        .Where(row => Matches(row, ActiveView))
         .Where(row => string.IsNullOrWhiteSpace(search)
                       || row.Name.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)
                       || row.Code.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase))
         .ToList();
 
     private IEnumerable<Filter> Filters => mode == Moment.Now
-        ? [new("all", "All"), new("stock", "On the shelf"), new("zero", "At zero"), new("oversold", "Oversold")]
+        ? [new("all", "All"), new("available", "Available"), new("stock", "On the shelf"), new("zero", "At zero"), new("oversold", "Oversold")]
         : [new("all", "All"), new("stock", "On the shelf then"), new("zero", "At zero then"), new("changed", "Changed since")];
+
+    /// <summary>
+    /// The chip in force. A chip the moment does not offer (Available or Oversold after picking a
+    /// past moment, Changed since after going back to Now) falls back to All rather than filtering
+    /// with nothing lit.
+    /// </summary>
+    private string ActiveView => Filters.Any(filter => filter.Key == view) ? view : "all";
 
     private bool Matches(StockInHandRow row, string key) => key switch
     {
+        // Free to sell above zero: on hand that is not already committed. Now only, since
+        // committed is not kept historically.
+        "available" => row.Free > 0,
         "stock" => (mode == Moment.Now ? row.Now : row.Then) > 0,
         "zero" => (mode == Moment.Now ? row.Now : row.Then) <= 0,
         "oversold" => row.Free < 0,

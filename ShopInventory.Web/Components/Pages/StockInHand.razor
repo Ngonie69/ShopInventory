@@ -139,7 +139,7 @@
                         <div class="sih-chips" role="group" aria-label="Show">
                             @foreach (var filter in Filters)
                             {
-                                var isOn = view == filter.Key;
+                                var isOn = ActiveView == filter.Key;
                                 <button type="button" class="sih-chip @(isOn ? "is-on" : null)" aria-pressed="@(isOn ? "true" : "false")"
                                         @onclick="() => view = filter.Key">
                                     @filter.Label <span class="sih-chip-n">@CountFor(filter.Key)</span>
