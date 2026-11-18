@@ -304,8 +304,8 @@ public interface ISAPServiceLayerClient
     /// <summary>
     /// <see cref="GetItemPageInWarehouseAsync"/> over codes the caller already holds, such as
     /// <see cref="WarehouseBatchSnapshot.StockedItemCodes"/>, instead of the warehouse item-code read.
+    /// The codes must be in <see cref="WarehouseItemCursor"/> order.
     /// </summary>
-    /// <param name="stockedItemCodes">The warehouse's stocked codes, in <see cref="WarehouseItemCursor"/> order.</param>
     Task<WarehouseItemPage> GetItemPageFromCodesAsync(IReadOnlyList<string> stockedItemCodes, string warehouseCode, string? after, int pageSize, bool vanSaleOnly = false, CancellationToken cancellationToken = default);
 
     /// <summary>
