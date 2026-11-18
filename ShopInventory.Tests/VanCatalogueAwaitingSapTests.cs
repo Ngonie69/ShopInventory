@@ -68,13 +68,69 @@ public sealed class VanCatalogueAwaitingSapTests : IDisposable
         Assert.All(page.Products!, product => Assert.Null(product.QuantityAwaitingSap));
     }
 
+    /// <summary>
+    /// The page's codes and its batches must come from the same read: a code from a newer list than its
+    /// batches reaches the handset with none, and it falls back to the company-wide quantity for it.
+    /// </summary>
+    [Fact]
+    public async Task The_page_is_paged_over_the_codes_of_the_batch_read_it_shows()
+    {
+        var pagedCodes = new List<IReadOnlyList<string>>();
+
+        var page = await ReadPageAsync(vanSaleOnly: true, pagedCodes: pagedCodes);
+
+        Assert.Equal(["YOG004", "YOG008", "YOG099"], Assert.Single(pagedCodes));
+        Assert.DoesNotContain(page.Products!.SelectMany(product => product.Batches!), batch => batch.BatchNumber == "YOG099/J01/26");
+    }
+
+    [Fact]
+    public async Task A_page_says_when_SAP_was_read_and_whether_that_read_is_standing_in()
+    {
+        var readAt = DateTimeOffset.UtcNow.AddMinutes(-25);
+
+        var stale = await ReadPageAsync(vanSaleOnly: true, readAt: readAt, stale: true);
+        var current = await ReadPageAsync(vanSaleOnly: true);
+
+        Assert.True(stale.BatchesStale);
+        Assert.Equal(readAt.UtcDateTime, stale.BatchesAsOfUtc);
+        Assert.False(current.BatchesStale);
+    }
+
+    /// <summary>
+    /// The safety half of answering from an older read. A sale SAP took after the read is not in its figure,
+    /// so it must still come off on the handset, or the van shows goods it has sold.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_SAP_took_after_the_read_still_comes_off_on_a_stale_page()
+    {
+        await UploadPostedSaleAsync("YOG008", 4m, postedAt: DateTime.UtcNow.AddMinutes(-20));
+
+        var stale = await ReadPageAsync(vanSaleOnly: true, readAt: DateTimeOffset.UtcNow.AddMinutes(-30), stale: true);
+
+        Assert.Equal(4m, Product(stale, "YOG008").QuantityAwaitingSap);
+    }
+
+    [Fact]
+    public async Task A_sale_SAP_took_before_the_read_does_not_come_off_twice()
+    {
+        await UploadPostedSaleAsync("YOG008", 4m, postedAt: DateTime.UtcNow.AddMinutes(-20));
+
+        var current = await ReadPageAsync(vanSaleOnly: true, readAt: DateTimeOffset.UtcNow.AddMinutes(-10));
+
+        Assert.Equal(0m, Product(current, "YOG008").QuantityAwaitingSap);
+    }
+
     private static ProductDto Product(WarehouseProductsPagedResponseDto page, string code) =>
         page.Products!.Single(product => product.ItemCode == code);
 
-    private async Task<WarehouseProductsPagedResponseDto> ReadPageAsync(bool vanSaleOnly)
+    private async Task<WarehouseProductsPagedResponseDto> ReadPageAsync(
+        bool vanSaleOnly,
+        DateTimeOffset? readAt = null,
+        bool stale = false,
+        List<IReadOnlyList<string>>? pagedCodes = null)
     {
         var handler = new GetPagedProductsInWarehouseHandler(
-            VanStockInSap(),
+            VanStockInSap(readAt ?? DateTimeOffset.UtcNow, stale, pagedCodes ?? []),
             StubProxy.Unused<ILocalPriceCatalogService>(),
             _context,
             Options.Create(new SAPSettings { Enabled = true }),
@@ -90,7 +146,13 @@ public sealed class VanCatalogueAwaitingSapTests : IDisposable
     }
 
     /// <summary>SAP after transfer 89562: 11 of YOG008 and 5 of YOG004 on VAN004, one batch each.</summary>
-    private static ISAPServiceLayerClient VanStockInSap()
+    /// <param name="readAt">When the batch read the page is built from was sent.</param>
+    /// <param name="stale">Whether that read is standing in while SAP is asked again.</param>
+    /// <param name="pagedCodes">Collects the codes the handler asks to page over.</param>
+    private static ISAPServiceLayerClient VanStockInSap(
+        DateTimeOffset readAt,
+        bool stale,
+        List<IReadOnlyList<string>> pagedCodes)
     {
         var items = new List<Item>
         {
@@ -101,17 +163,60 @@ public sealed class VanCatalogueAwaitingSapTests : IDisposable
         var batches = new List<BatchNumber>
         {
             new() { ItemCode = "YOG004", BatchNum = "YOG004/J22/26", Quantity = 5m, Warehouse = Van },
-            new() { ItemCode = "YOG008", BatchNum = "YOG008/J25/26", Quantity = 11m, Warehouse = Van }
+            new() { ItemCode = "YOG008", BatchNum = "YOG008/J25/26", Quantity = 11m, Warehouse = Van },
+            // Another item on the van that is not on this page: its batches must not leak onto it.
+            new() { ItemCode = "YOG099", BatchNum = "YOG099/J01/26", Quantity = 3m, Warehouse = Van }
         };
 
-        return StubProxy.For<ISAPServiceLayerClient>((method, _) => method.Name switch
+        var snapshot = new WarehouseBatchSnapshot(batches, readAt, stale, ["YOG004", "YOG008", "YOG099"]);
+
+        return StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
-            nameof(ISAPServiceLayerClient.GetItemPageInWarehouseAsync) =>
-                Task.FromResult(new WarehouseItemPage(items, HasMore: false, NextCursor: null)),
-            nameof(ISAPServiceLayerClient.GetBatchNumbersForItemsInWarehouseAsync) =>
-                Task.FromResult(batches),
+            nameof(ISAPServiceLayerClient.GetWarehouseBatchesForDisplayAsync) =>
+                Task.FromResult(snapshot),
+            nameof(ISAPServiceLayerClient.GetItemPageFromCodesAsync) =>
+                Record(pagedCodes, (IReadOnlyList<string>)args![0]!,
+                    Task.FromResult(new WarehouseItemPage(items, HasMore: false, NextCursor: null))),
             _ => null
         });
+    }
+
+    private static T Record<T>(List<IReadOnlyList<string>> into, IReadOnlyList<string> codes, T result)
+    {
+        into.Add(codes);
+        return result;
+    }
+
+    private async Task UploadPostedSaleAsync(string item, decimal quantity, DateTime postedAt)
+    {
+        _context.DesktopSales.Add(new DesktopSaleEntity
+        {
+            ExternalReferenceId = "VAN004-INV-20261112-0A1B2C",
+            SourceSystem = SaleSourceSystems.VanSales,
+            CardCode = "VAN008",
+            DocDate = DateTime.UtcNow.Date,
+            TotalAmount = 19.56m,
+            Currency = "USD",
+            FiscalizationStatus = DesktopSaleFiscalizationStatus.Success,
+            ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated,
+            PostedAt = postedAt,
+            WarehouseCode = Van,
+            CreatedAt = postedAt.AddMinutes(-5),
+            Lines =
+            [
+                new DesktopSaleLineEntity
+                {
+                    LineNum = 0,
+                    ItemCode = item,
+                    Quantity = quantity,
+                    UnitPrice = 4.89m,
+                    LineTotal = quantity * 4.89m,
+                    WarehouseCode = Van
+                }
+            ]
+        });
+
+        await _context.SaveChangesAsync();
     }
 
     private async Task UploadUnpostedSaleAsync(string item, decimal quantity)

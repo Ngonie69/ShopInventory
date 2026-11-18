@@ -655,6 +655,61 @@ CPU, 37.6 GB; OOM kills at 12:37 and 14:13) and 2026-11-12 (10:32: 8 at full CPU
 API log, count "presumed to be still working on it" by family per hour against 2026-11-12's 82 in
 4.3 hours, and "slots are taken" refusals by family, to see what the limit cost.
 
+## 7e. The van catalogue's batch read — answered from the last good read, refreshed behind the page
+
+Measured 2026-11-12, 06:54–12:56, from this API's log (Blue `_003`), with §7b and §7c live and §7d not
+yet deployed: **124 reads were presumed stuck, 65 of them `WHS_BATCHES_VAN*`**, the whole-warehouse
+batch read behind `GET /api/product/warehouse/{van}/paged`. VAN004 got stuck 19 times, VAN005 14.
+
+- The handsets loaded 952 catalogue pages; 90 failed after 60 s and 14 were cancelled. A van loads its
+  catalogue every 33 s at the median. The two-minute snapshot sent 311 whole-warehouse reads that
+  answered (in about 60 ms, ~40 batches) and 65 that stuck: 17 %, 12–25 % by hour.
+- **23 of the 65 were sent while an identical read was inside its §7b hold**: a failed read was not
+  kept, so the next page sent it again while SAP was still working on the first, and the hold never
+  refuses a read a person is waiting on.
+- **89 of the 90 failed pages had a good read of the same van under an hour old** (≤ 30 min: 75,
+  ≤ 10 min: 55; median 5 minutes).
+- The handset (KefalosVanSales 2.1.3 (44)) has no retry loop, but every catalogue view while online
+  starts a background walk of the whole catalogue whatever its age, and pull-to-refresh, every sale and
+  every conversion force one. It keeps its last good catalogue and sells from it, so a failed walk is
+  invisible to the rep: the cost was SAP's. A product with no batches on the page is read at its
+  company-wide quantity.
+
+`GetWarehouseBatchesForDisplayAsync` (`SAPServiceLayerClient.WarehouseBatchSnapshot.cs`) now serves the
+paged catalogue:
+
+- A warehouse's whole batch read is current for `SAP:WarehouseBatchSnapshotFreshMinutes` (10, chosen
+  2026-11-12). After that a page is answered **at once** from it, with `batchesStale: true` and
+  `batchesAsOfUtc`, and one refresh is sent behind it, as background work: the §7b hold refuses a repeat
+  of a read SAP is still working on, and §7d's background limit applies. A refresh the hold or the
+  family refused is not tried again until the hold ends or the first slot frees.
+- It is kept to answer pages for `SAP:WarehouseBatchSnapshotMaxStaleMinutes` (60). Past that, or with
+  none, the page waits for SAP as before — and that read is marked display-only
+  (`SapRequestMarks.MarkDisplayOnly`), so `SAPStuckReadHandler` refuses it at once while its URL is held,
+  even though a person is waiting. The invoice guard and transfer allocation read the same URL unmarked
+  and are still always sent.
+- The page's **item codes come from the same read** (`WarehouseBatchSnapshot.StockedItemCodes`), not the
+  separate two-minute item-code read, so a stale page never lists a code without its batches.
+- `quantityAwaitingSap` counts sales SAP took after the read was **sent** (less a minute for clock
+  skew), not after now, so a sale SAP took since still comes off on the handset.
+- A load landing on the warehouse (`StockTransferReceivedHandler`, before it wakes the handset) marks
+  the read due: the next page refreshes and waits up to `SAP:WarehouseBatchSnapshotLoadWaitSeconds` (10)
+  for it, then answers from the read before the load, which is low, never high. The mark is a time, so
+  a refresh already in flight when the load landed does not clear it.
+
+Replayed over that morning's page arrivals (each modelled read sticking at that hour's observed rate,
+2,000 runs; the model gives 352 reads / 60 stuck / 121 failed pages for the old behaviour against 376 /
+65 / 90 observed): **about 143 reads, 24 stuck and 15 failed pages**. With a two-minute window the same
+model gives 263 / 45 / 14, so most of the drop in stuck reads comes from refreshing less often, and most
+of the drop in failed pages from answering stale. The handset could also back off on its own side, but
+that needs a new build through Play; with this in, its walks reach SAP at most once per ten minutes per
+van.
+
+**How to measure it.** From the API log, per hour: "presumed to be still working on it" for
+`WHS_BATCHES_VAN*` against 65 in 6 hours on 2026-11-12; "Dependency timeout for GET
+/api/product/warehouse/" against 90; "Answered a catalogue page for … from its batch read" for how often a
+stale read stood in, and "Not refreshing …'s batch read before" for refreshes held back.
+
 ## 8. What is already good
 
 Worth stating so it is not undone:
