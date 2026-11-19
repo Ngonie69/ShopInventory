@@ -477,6 +477,7 @@ try
     builder.Services.AddScoped<IInventoryTransferApprovalService, InventoryTransferApprovalService>();
     builder.Services.AddScoped<ITransferWarehouseAuthorizer, TransferWarehouseAuthorizer>();
     builder.Services.AddScoped<ShopInventory.Features.InventoryTransfers.SapApproval.ISapTransferApprovalRoutes, ShopInventory.Features.InventoryTransfers.SapApproval.SapTransferApprovalRoutes>();
+    builder.Services.AddScoped<ShopInventory.Features.InventoryTransfers.SapApproval.ISapDraftApprovalNotice, ShopInventory.Features.InventoryTransfers.SapApproval.SapDraftApprovalNotice>();
     builder.Services.AddScoped<IPendingInventoryTransferPoster, PendingInventoryTransferPoster>();
     builder.Services.AddScoped<IFactoryTransferSapApproval, FactoryTransferSapApproval>();
     builder.Services.AddScoped<ShopInventory.Features.FactoryTransfers.IFactoryTransferLegPoster, ShopInventory.Features.FactoryTransfers.FactoryTransferLegPoster>();

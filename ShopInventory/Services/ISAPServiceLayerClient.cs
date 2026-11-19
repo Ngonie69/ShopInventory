@@ -1321,6 +1321,12 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task<SAPStockTransferDraft> CreateStockTransferDraftAsync(CreateInventoryTransferRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Puts a message in SAP users' B1 inbox (Messages/Alerts Overview, <c>POST Messages</c>), from the
+    /// Service Layer's session user. One attempt only. Answers the message's code when SAP names it.
+    /// </summary>
+    Task<int?> SendInboxMessageAsync(SapInboxMessage message, CancellationToken cancellationToken = default);
+
     // Quotation Operations (from SAP)
     Task<List<SAPQuotation>> GetQuotationsFromSAPAsync(CancellationToken cancellationToken = default);
     Task<List<SAPQuotation>> GetPagedQuotationsFromSAPAsync(int page, int pageSize, CancellationToken cancellationToken = default);

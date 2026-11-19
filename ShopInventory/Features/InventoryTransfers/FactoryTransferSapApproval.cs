@@ -55,6 +55,7 @@ public sealed class FactoryTransferSapApproval(
     ApplicationDbContext context,
     ISAPServiceLayerClient sap,
     ISapTransferApprovalRoutes sapRoutes,
+    ISapDraftApprovalNotice draftNotice,
     IPendingInventoryTransferPoster poster,
     IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
@@ -245,10 +246,15 @@ public sealed class FactoryTransferSapApproval(
         await TryAuditAsync(pending,
             $"Factory transfer {marker} ({route}) saved to SAP as draft {draft.DocNum} (DocEntry {draft.DocEntry}) for SAP's approval: {templates}");
 
+        // Only here, when the draft is first saved: a later press finds the draft and says where it stands,
+        // and must not message the approvers again.
+        var notice = await draftNotice.SendAsync(
+            draft, verdict, $"Factory transfer {marker} ({route})", marker, CancellationToken.None);
+
         return new FactoryTransferStep(null,
             $"SAP's approval {templates} covers {route}, so transfer {marker} was saved to SAP as draft {draft.DocNum}. " +
             $"Nothing has moved yet. Add draft {draft.DocNum} (order number {marker}) in the SAP client to send it to " +
-            "SAP's approver; once SAP approves it, press Check SAP here and it posts.");
+            $"SAP's approver; once SAP approves it, press Check SAP here and it posts. {notice.Sentence}");
     }
 
     /// <summary>Says where an open draft stands with SAP's approval, and adds it once SAP has approved it.</summary>

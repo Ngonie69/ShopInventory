@@ -134,7 +134,52 @@ public class SAPApprovalTemplateCondition
 
     [JsonPropertyName("ApprovalTemplateQueries")]
     public List<SAPApprovalTemplateQuery>? ApprovalTemplateQueries { get; set; }
+
+    /// <summary>The stages a document this template holds goes through, in order.</summary>
+    [JsonPropertyName("ApprovalTemplateStages")]
+    public List<SAPApprovalTemplateStage>? ApprovalTemplateStages { get; set; }
+
+    /// <summary>The originators: the users whose added document this template holds. Nobody else's is.</summary>
+    [JsonPropertyName("ApprovalTemplateUsers")]
+    public List<SAPApprovalTemplateUser>? ApprovalTemplateUsers { get; set; }
 }
+
+public class SAPApprovalTemplateStage
+{
+    [JsonPropertyName("SortID")]
+    public int? SortID { get; set; }
+
+    /// <summary>The <c>ApprovalStages</c> code.</summary>
+    [JsonPropertyName("ApprovalStageCode")]
+    public int? ApprovalStageCode { get; set; }
+}
+
+public class SAPApprovalTemplateUser
+{
+    /// <summary>The originator's <c>Users.InternalKey</c>.</summary>
+    [JsonPropertyName("UserID")]
+    public int? UserID { get; set; }
+}
+
+/// <summary>
+/// A message for SAP users' B1 inbox (Messages/Alerts Overview), sent as the Service Layer's session user.
+/// </summary>
+/// <param name="Subject">The inbox line.</param>
+/// <param name="Text">The body.</param>
+/// <param name="RecipientUserCodes">SAP <c>UserCode</c>s.</param>
+/// <param name="Link">A row the reader can click to open a document, or null.</param>
+public sealed record SapInboxMessage(
+    string Subject,
+    string Text,
+    IReadOnlyList<string> RecipientUserCodes,
+    SapInboxLink? Link);
+
+/// <summary>
+/// One linked row under a B1 inbox message: <paramref name="Value"/> shows in column
+/// <paramref name="ColumnName"/>, and its link arrow opens SAP object <paramref name="ObjectType"/> with key
+/// <paramref name="ObjectKey"/> (<c>112</c> and a <c>DocEntry</c> for a draft).
+/// </summary>
+public sealed record SapInboxLink(string ColumnName, string Value, string ObjectType, string ObjectKey);
 
 public class SAPApprovalTemplateDocument
 {

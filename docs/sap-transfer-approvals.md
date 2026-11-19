@@ -168,6 +168,19 @@ was removed in B1; the next step saves a new one. Nothing refreshes the state on
 what the last step read (`sapCheckedAtUtc`), and adding the draft from SAP-Held Transfers or in B1 is
 picked up by the next press.
 
+**Telling SAP's approvers (2026-11-19).** Saving the draft does not start SAP's approval: re-tested on
+`KEFALOS_TEST_3` on 2026-11-19, draft 80193 (DT-2026-V0003, WAREH → PROYG 2) sat at `sasWithout` with no
+approval request until a B1 user added it (16 Nov's request 74432 was opened by an Add pressed in the B1
+client). So whenever a draft is first saved, by a direct transfer or a request conversion,
+`SapDraftApprovalNotice` puts a message in the B1 inbox (Messages/Alerts Overview, `POST Messages`, one
+attempt) of every approver on the matched templates' stages (`ApprovalTemplateStages` →
+`ApprovalStages(n).ApprovalStageApprovers` → `Users`). Its "Draft" column links to the draft (object 112,
+keyed by `DocEntry`), and the text names the order number, because draft numbers repeat. The approver opens it and presses Add,
+and SAP then raises its approval. Later presses never send it again. A failed message does not fail the
+step: the reply to the person says who was told, or that nobody was. An approver missing from the
+template's originators (`ApprovalTemplateUsers`) is still messaged and is logged: if they add the draft,
+SAP posts it with no approval.
+
 **Transfer requests.** Converting a factory request skips the app's approval entirely, including a
 stage still open on a request raised before the split, and goes straight to the conversion below
 (marker lookup, SAP template, draft / wait / add, or post).

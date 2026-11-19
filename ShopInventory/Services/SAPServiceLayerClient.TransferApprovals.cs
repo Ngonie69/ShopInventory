@@ -29,7 +29,7 @@ public partial class SAPServiceLayerClient
         "$select=DocEntry,DocNum,DocDate,CreationDate,FromWarehouse,ToWarehouse,DocumentStatus,AuthorizationStatus,DocObjectCode,U_OrderNumber";
 
     private const string ApprovalTemplateConditionSelect =
-        "$select=Code,Name,IsActive,UseTerms,ApprovalTemplateDocuments,ApprovalTemplateTerms,ApprovalTemplateQueries";
+        "$select=Code,Name,IsActive,UseTerms,ApprovalTemplateDocuments,ApprovalTemplateTerms,ApprovalTemplateQueries,ApprovalTemplateStages,ApprovalTemplateUsers";
 
     private const string UserQuerySelect = "$select=InternalKey,QueryCategory,QueryDescription,Query";
 
@@ -490,6 +490,83 @@ public partial class SAPServiceLayerClient
             cancellationToken);
 
         await EnsureSapSuccessAsync(response, operation, cancellationToken);
+    }
+
+    public async Task<int?> SendInboxMessageAsync(SapInboxMessage message, CancellationToken cancellationToken = default)
+    {
+        var recipients = message.RecipientUserCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (recipients.Count == 0)
+        {
+            throw new ArgumentException("A SAP inbox message needs at least one recipient.", nameof(message));
+        }
+
+        var recipientArray = new System.Text.Json.Nodes.JsonArray();
+        foreach (var code in recipients)
+        {
+            recipientArray.Add(new System.Text.Json.Nodes.JsonObject
+            {
+                ["UserCode"] = code,
+                ["UserType"] = "rt_InternalUser",
+                ["SendInternal"] = "tYES"
+            });
+        }
+
+        var payload = new System.Text.Json.Nodes.JsonObject
+        {
+            ["Subject"] = message.Subject,
+            ["Text"] = message.Text,
+            ["Priority"] = "pr_Normal",
+            ["RecipientCollection"] = recipientArray
+        };
+
+        if (message.Link is { } link)
+        {
+            payload["MessageDataColumns"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject
+            {
+                ["ColumnName"] = link.ColumnName,
+                ["Link"] = "tYES",
+                ["MessageDataLines"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject
+                {
+                    ["Value"] = link.Value,
+                    ["Object"] = link.ObjectType,
+                    ["ObjectKey"] = link.ObjectKey
+                })
+            });
+        }
+
+        var json = payload.ToJsonString();
+        var operation = $"send a SAP inbox message to {string.Join(", ", recipients)}";
+        _logger.LogInformation("Sending SAP inbox message '{Subject}' to {Recipients}", message.Subject, string.Join(", ", recipients));
+
+        // One attempt: a message whose answer was lost and was sent again lands in the inbox twice.
+        using var response = await SendSapRequestAsync(
+            () => CreateSapJsonRequest(HttpMethod.Post, "Messages", json),
+            HttpCompletionOption.ResponseContentRead,
+            operation,
+            cancellationToken,
+            maxAttempts: 1);
+
+        await EnsureSapSuccessAsync(response, operation, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.NoContent)
+        {
+            return null;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(body);
+            return document.RootElement.TryGetProperty("Code", out var code) && code.TryGetInt32(out var value) ? value : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
     }
 
     #endregion
