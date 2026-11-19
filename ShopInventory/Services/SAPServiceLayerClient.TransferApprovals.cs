@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json.Nodes;
 using ShopInventory.Models;
 
 namespace ShopInventory.Services;
@@ -473,6 +474,22 @@ public partial class SAPServiceLayerClient
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         return ReadDocEntry(body);
+    }
+
+    public async Task UpdateStockTransferCommentsAsync(int docEntry, string comments, CancellationToken cancellationToken = default)
+    {
+        var operation = $"update the remarks of stock transfer {docEntry}";
+        _logger.LogInformation("Updating the remarks of SAP stock transfer {DocEntry}", docEntry);
+
+        // Comments alone: the same value written twice is the same document, so a retry is harmless.
+        var json = new JsonObject { ["Comments"] = comments }.ToJsonString();
+        using var response = await SendSapRequestAsync(
+            () => CreateSapJsonRequest(HttpMethod.Patch, $"StockTransfers({docEntry})", json),
+            HttpCompletionOption.ResponseContentRead,
+            operation,
+            cancellationToken);
+
+        await EnsureSapSuccessAsync(response, operation, cancellationToken);
     }
 
     #endregion

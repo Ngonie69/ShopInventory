@@ -4,6 +4,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.CreditNoteApprovals;
 using ShopInventory.Features.InventoryTransfers.SapApproval;
 using ShopInventory.Features.SapTransferApprovals;
 using ShopInventory.Features.SapTransferApprovals.Commands.AddApprovedSapTransfer;
@@ -134,6 +135,7 @@ public sealed class FactoryTransferSapApproval(
 
         if (inSap is not null)
         {
+            await TryWriteSapApproversAsync(pending, inSap, pending.SapDraftDocEntry, marker);
             var recorded = await poster.RecordAddedInSapAsync(pending, inSap, userId,
                 $"Factory transfer {marker} ({route}) found in SAP as transfer #{inSap.DocNum}, added from its SAP-approved draft");
             return new FactoryTransferStep(recorded,
@@ -327,11 +329,106 @@ public sealed class FactoryTransferSapApproval(
             transfer = Minimal(added.Value, transferDocEntry);
         }
 
+        await TryWriteSapApproversAsync(pending, transfer, draft.DocEntry, marker);
         var recorded = await poster.RecordAddedInSapAsync(pending, transfer, userId,
             $"Factory transfer {marker} ({route}): SAP-approved draft {draft.DocNum} added as transfer #{transfer.DocNum}");
         return new FactoryTransferStep(recorded,
             $"SAP approved draft {draft.DocNum}, and it was added as inventory transfer #{transfer.DocNum}.");
     }
+
+    /// <summary>
+    /// Writes who approved the transfer in SAP, and when, into its remarks beside who requested it.
+    /// </summary>
+    /// <remarks>
+    /// <para>The draft is saved before anyone in SAP has decided, so its remarks can only name the
+    /// requester; SAP's approver is known once the draft is added. The remarks are rewritten on the
+    /// posted transfer then — the remarks are the one place a B1 user reading the transfer sees on
+    /// whose authority the stock moved.</para>
+    ///
+    /// <para>Only remarks this app wrote are replaced: a transfer whose remarks a B1 user changed on
+    /// the draft keeps them. Best effort: the transfer is in SAP whatever happens here, so a failure is
+    /// logged and the step goes on.</para>
+    /// </remarks>
+    private async Task TryWriteSapApproversAsync(
+        PendingInventoryTransferEntity pending,
+        InventoryTransfer transfer,
+        int? draftEntry,
+        string marker)
+    {
+        if (draftEntry is not int entry || transfer.DocEntry <= 0)
+            return;
+
+        var reason = RequesterComments(pending);
+        var drafted = InventoryTransferRemarks.Build(pending, [], reason);
+        if (!string.IsNullOrWhiteSpace(transfer.Comments) && !string.Equals(transfer.Comments.Trim(), drafted, StringComparison.Ordinal))
+        {
+            logger.LogInformation(
+                "Factory transfer {Marker}: transfer {DocEntry}'s remarks were changed in SAP, so its approvers were not written in",
+                marker, transfer.DocEntry);
+            return;
+        }
+
+        try
+        {
+            var requests = await sap.GetStockTransferApprovalRequestsAsync([entry], withLines: true, CancellationToken.None);
+            var approved = requests
+                .SelectMany(request => request.ApprovalRequestLines ?? [])
+                .Where(line => line.UserID is int && Is(line.Status, SapApprovalDecisions.Approved))
+                .ToList();
+            if (approved.Count == 0)
+            {
+                logger.LogWarning(
+                    "Factory transfer {Marker}: SAP holds no approved decision for draft {DraftEntry}, so no approver was written",
+                    marker, entry);
+                return;
+            }
+
+            var users = (await sap.GetSapUsersAsync(approved.Select(line => line.UserID!.Value).Distinct(), CancellationToken.None))
+                .ToDictionary(user => user.InternalKey);
+            var approvals = approved
+                .Select(line => (
+                    Name: users.TryGetValue(line.UserID!.Value, out var user)
+                        ? FirstNonBlank(user.UserName, user.UserCode) ?? $"SAP user {line.UserID}"
+                        : $"SAP user {line.UserID}",
+                    DecidedAtCat: SapLocalTime(line.UpdateDate, line.UpdateTime)))
+                .DistinctBy(approval => approval.Name)
+                .ToList();
+
+            var comments = InventoryTransferRemarks.BuildForSapApproval(pending, approvals, reason);
+            if (string.Equals(comments, transfer.Comments, StringComparison.Ordinal))
+                return;
+
+            await sap.UpdateStockTransferCommentsAsync(transfer.DocEntry, comments, CancellationToken.None);
+            transfer.Comments = comments;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception,
+                "Factory transfer {Marker}: could not write SAP's approvers into transfer {DocEntry}'s remarks", marker, transfer.DocEntry);
+        }
+    }
+
+    /// <summary>
+    /// SAP's decision date and time as SAP keeps them, on the company's clock; null unless SAP gave both,
+    /// so a missing time never reads as midnight.
+    /// </summary>
+    internal static DateTime? SapLocalTime(string? date, string? time)
+    {
+        if (CreditNoteApprovalProjection.ParseSapDate(date) is not DateTime day
+            || !TimeOnly.TryParse(time, System.Globalization.CultureInfo.InvariantCulture, out var clock))
+            return null;
+        return DateTime.SpecifyKind(day.Date, DateTimeKind.Unspecified) + clock.ToTimeSpan();
+    }
+
+    /// <summary>The requester's comments as the draft was saved with them: the payload's.</summary>
+    private static string? RequesterComments(PendingInventoryTransferEntity pending)
+    {
+        try { return PendingInventoryTransferMapper.DeserializePayload(pending).Comments; }
+        catch (InvalidOperationException) { return pending.Comments; }
+    }
+
+    private static string? FirstNonBlank(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
 
     private static InventoryTransfer Minimal(AddApprovedSapTransferResultDto added, int docEntry) => new()
     {
