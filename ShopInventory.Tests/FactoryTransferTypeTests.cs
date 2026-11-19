@@ -231,6 +231,13 @@ public sealed class FactoryTransferTypeTests : IDisposable
         Assert.Equal((90001, 501), (pending.SapDraftDocEntry, pending.SapDraftDocNum));
         Assert.Equal(CmfsTemplateName, pending.SapApprovalTemplates);
         Assert.Empty(poster.Posted);
+
+        // SAP's approvers hear of the draft in their B1 inbox, once, and the person is told who did.
+        var notice = Assert.Single(_notices.Sent);
+        Assert.Equal(90001, notice.Draft.DocEntry);
+        Assert.Equal(pending.DraftNumber, notice.OrderNumber);
+        Assert.Contains("CMB to CMFS", notice.About);
+        Assert.Contains("(Whouse) has a message in the SAP inbox", step.Value.Message);
     }
 
     [Fact]
@@ -246,6 +253,7 @@ public sealed class FactoryTransferTypeTests : IDisposable
         Assert.Equal(4321, step.Value.Transfer?.DocNum);
         Assert.Equal([pending.Id], poster.Posted);
         Assert.Empty(sap.SavedDrafts);
+        Assert.Empty(_notices.Sent);
     }
 
     [Theory]
@@ -264,6 +272,7 @@ public sealed class FactoryTransferTypeTests : IDisposable
         Assert.Equal(state, pending.SapApprovalState);
         Assert.Empty(sap.SavedDrafts);
         Assert.Empty(sap.Adds);
+        Assert.Empty(_notices.Sent);
     }
 
     [Fact]
@@ -357,11 +366,13 @@ public sealed class FactoryTransferTypeTests : IDisposable
     private InventoryTransferApprovalService ApprovalService(NoOpNotificationService? notifications = null) =>
         new(_context, notifications ?? new NoOpNotificationService(), NullLogger<InventoryTransferApprovalService>.Instance);
 
+    private readonly SapApprovalStandIns.RecordingNotice _notices = new();
+
     private SapTransferApprovalRoutes Routes(FakeSap sap) =>
         new(sap.AsClient(), _templateCache, NullLogger<SapTransferApprovalRoutes>.Instance);
 
     private FactoryTransferSapApproval Steps(FakeSap sap, IPendingInventoryTransferPoster poster) => new(
-        _context, sap.AsClient(), Routes(sap), poster, new AcquiringStore(), new NoOpAuditService(), sap.AsSender(),
+        _context, sap.AsClient(), Routes(sap), _notices, poster, new AcquiringStore(), new NoOpAuditService(), sap.AsSender(),
         NullLogger<FactoryTransferSapApproval>.Instance);
 
     private CreateInventoryTransferHandler CreateHandler(IFactoryTransferSapApproval steps) => new(

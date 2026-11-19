@@ -19,7 +19,15 @@ public enum SapTransferRouteKind
 }
 
 /// <summary>A SAP approval template that would hold a transfer.</summary>
-public sealed record SapTransferTemplateMatch(int Code, string Name);
+/// <param name="Code">The template's code.</param>
+/// <param name="Name">Its name, as B1 shows it.</param>
+/// <param name="StageCodes">Its approval stages, in order: who decides.</param>
+/// <param name="OriginatorIds">Its originators' <c>Users.InternalKey</c>s: whose add it holds.</param>
+public sealed record SapTransferTemplateMatch(
+    int Code,
+    string Name,
+    IReadOnlyList<int>? StageCodes = null,
+    IReadOnlyList<int>? OriginatorIds = null);
 
 /// <summary>The verdict on one route, and why.</summary>
 public sealed record SapTransferRoute(
@@ -167,7 +175,7 @@ public sealed class SapTransferApprovalRoutes(
     {
         var matches = templates
             .Where(template => template.Holds(fromWarehouse, toWarehouse))
-            .Select(template => new SapTransferTemplateMatch(template.Code, template.Name))
+            .Select(template => new SapTransferTemplateMatch(template.Code, template.Name, template.StageCodes, template.OriginatorIds))
             .ToList();
 
         return matches.Count == 0
@@ -235,8 +243,19 @@ public sealed class SapTransferApprovalRoutes(
     internal static CompiledTemplate Compile(SAPApprovalTemplateCondition template, IReadOnlyDictionary<int, List<SAPUserQuery>> queries)
     {
         var name = string.IsNullOrWhiteSpace(template.Name) ? $"#{template.Code}" : template.Name.Trim();
+        var stageCodes = (template.ApprovalTemplateStages ?? [])
+            .Where(stage => stage.ApprovalStageCode is > 0)
+            .OrderBy(stage => stage.SortID ?? int.MaxValue)
+            .Select(stage => stage.ApprovalStageCode!.Value)
+            .Distinct()
+            .ToList();
+        var originatorIds = (template.ApprovalTemplateUsers ?? [])
+            .Where(user => user.UserID is > 0)
+            .Select(user => user.UserID!.Value)
+            .Distinct()
+            .ToList();
         if (!IsYes(template.UseTerms))
-            return new(template.Code, name, Always: true, [], []);
+            return new(template.Code, name, Always: true, [], [], stageCodes, originatorIds);
 
         var conditions = new List<SapTransferTemplateCondition>();
         var unreadable = new List<string>();
@@ -265,7 +284,7 @@ public sealed class SapTransferApprovalRoutes(
         if (template.ApprovalTemplateTerms is { Count: > 0 } terms)
             unreadable.Add($"{terms.Count} plain term{(terms.Count == 1 ? string.Empty : "s")} (totals, quantities)");
 
-        return new(template.Code, name, Always: false, conditions, unreadable);
+        return new(template.Code, name, Always: false, conditions, unreadable, stageCodes, originatorIds);
     }
 
     private static bool IsYes(string? value) => string.Equals(value, "tYES", StringComparison.OrdinalIgnoreCase);
@@ -276,7 +295,9 @@ public sealed class SapTransferApprovalRoutes(
         string Name,
         bool Always,
         IReadOnlyList<SapTransferTemplateCondition> Conditions,
-        IReadOnlyList<string> Unreadable)
+        IReadOnlyList<string> Unreadable,
+        IReadOnlyList<int>? StageCodes = null,
+        IReadOnlyList<int>? OriginatorIds = null)
     {
         // Any one condition holding is enough: template #75 "DISPATCH" names two queries, one per
         // dispatch warehouse, and a transfer goes to one of them, never both.
