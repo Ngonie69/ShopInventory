@@ -500,6 +500,14 @@ public sealed class TransferRequestConversionTests : IDisposable
         Assert.Equal(20, Assert.Single(draft.Lines!).Quantity);
         Assert.StartsWith($"Converted from Transfer Request #{RequestDocEntry}.", draft.Comments);
 
+        // SAP's approvers hear of the draft in their B1 inbox, once, and the person is told who did.
+        var notice = Assert.Single(_notices.Sent);
+        Assert.Equal(501, notice.Draft.DocNum);
+        Assert.Equal($"ITR-{RequestDocEntry}", notice.OrderNumber);
+        Assert.Contains("CMB to CMFS", notice.About);
+        Assert.Equal(["Transfer To CMFS1"], notice.Route.Templates.Select(template => template.Name));
+        Assert.Contains("(Whouse) has a message in the SAP inbox", result.Value.Message);
+
         // Still approved, not generated: nothing has moved. And not kept for replay, so the next
         // press asks SAP again.
         Assert.Equal(ApprovalRequestStatuses.Approved, Assert.Single(_context.ApprovalRequests).Status);
@@ -524,6 +532,7 @@ public sealed class TransferRequestConversionTests : IDisposable
         Assert.Empty(sap.SavedDrafts);
         Assert.Empty(sap.Adds);
         Assert.Equal(0, sap.Conversions);
+        Assert.Empty(_notices.Sent);
     }
 
     [Fact]
@@ -789,12 +798,14 @@ public sealed class TransferRequestConversionTests : IDisposable
             StubProxy.Unused<IStockValidationService>(),
             new UnpostedTillClaims(_context, Options.Create(new DailyStockSettings()), NullLogger<UnpostedTillClaims>.Instance),
             new SapTransferApprovalRoutes(sap.AsClient(), _templateCache, NullLogger<SapTransferApprovalRoutes>.Instance),
+            _notices,
             sap.AsSender(),
             Options.Create(new SAPSettings { Enabled = true }),
             NullLogger<ConvertTransferRequestHandler>.Instance);
 
     /// <summary>SAP's templates are kept between presses, as the application keeps them.</summary>
     private readonly IMemoryCache _templateCache = new MemoryCache(new MemoryCacheOptions());
+    private readonly SapApprovalStandIns.RecordingNotice _notices = new();
 
     /// <summary>
     /// Answers the two calls a conversion makes and counts the conversions, so a test can assert

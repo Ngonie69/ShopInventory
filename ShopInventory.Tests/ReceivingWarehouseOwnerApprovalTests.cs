@@ -511,6 +511,7 @@ public sealed class ReceivingWarehouseOwnerApprovalTests : IDisposable
         StubProxy.Unused<IStockValidationService>(),
         new UnpostedTillClaims(_context, Options.Create(new DailyStockSettings()), NullLogger<UnpostedTillClaims>.Instance),
         SapApprovalStandIns.NoTemplateCovers(),
+        SapApprovalStandIns.NoNotice(),
         StubProxy.Unused<MediatR.ISender>(),
         Options.Create(new SAPSettings { Enabled = true }),
         NullLogger<ConvertTransferRequestHandler>.Instance);

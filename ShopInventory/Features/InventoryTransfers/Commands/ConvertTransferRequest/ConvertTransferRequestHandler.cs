@@ -41,6 +41,7 @@ public sealed class ConvertTransferRequestHandler(
     IStockValidationService stockValidation,
     IUnpostedTillClaims tillClaims,
     ISapTransferApprovalRoutes sapRoutes,
+    ISapDraftApprovalNotice draftNotice,
     ISender sender,
     IOptions<SAPSettings> settings,
     ILogger<ConvertTransferRequestHandler> logger)
@@ -414,10 +415,15 @@ public sealed class ConvertTransferRequestHandler(
             "Transfer request {DocEntry} ({From} to {To}) saved to SAP as draft {DraftEntry} for SAP's approval ({Templates})",
             document.DocEntry, document.FromWarehouse, document.ToWarehouse, saved.DocEntry, templates);
 
+        // Only when the draft is first saved: converting again finds it and must not message the approvers twice.
+        var notice = await draftNotice.SendAsync(
+            saved, route, $"Transfer request #{document.DocNum} ({routeText})", orderNumber, CancellationToken.None);
+
         return Held(SapHoldState.Saved, saved,
             $"SAP's own approval {templates} covers {routeText}, so transfer request #{document.DocNum} was saved to SAP as " +
             $"draft {saved.DocNum} instead of being posted. Nothing has moved yet. Add draft {saved.DocNum} in the SAP " +
-            "client to send it to SAP's approver; once SAP approves it, convert again (or add it on SAP-Held Transfers) and it posts.");
+            "client to send it to SAP's approver; once SAP approves it, convert again (or add it on SAP-Held Transfers) and it posts. " +
+            notice.Sentence);
 
         ConversionOutcome Held(SapHoldState state, SAPStockTransferDraft draft, string message)
             => new(null, AlreadyInSap: false, new SapHold(state, draft, route, message));
