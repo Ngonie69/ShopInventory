@@ -485,6 +485,69 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
     }
 
     /// <summary>
+    /// The activity workbook's month-by-month sheet. Each month is read as its own window, so an online
+    /// sale made just after midnight CAT on the 1st — stored the evening before in UTC — counts in the
+    /// month it was made in, not the one before.
+    /// </summary>
+    [Fact]
+    public async Task The_history_counts_sales_per_calendar_month_on_the_CAT_trading_day()
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+        var thisMonth = new DateTime(today.Year, today.Month, 1);
+        var lastMonth = thisMonth.AddMonths(-1);
+        var lastMonthStartsUtc = AuditService.FromCAT(lastMonth);
+
+        var current = BuildUpload("VAN010-INV-1", "TUCK01");
+        current.SoldAt = today;
+        await IngestAsync(current);
+
+        var firstOfLastMonth = BuildUpload("VAN010-INV-2", "TUCK01");
+        firstOfLastMonth.SoldAt = lastMonth;
+        await IngestAsync(firstOfLastMonth);
+
+        // Half an hour either side of midnight CAT on the 1st of last month: the UTC date is the same for
+        // both, the trading month is not.
+        AddOnlineSale("VAN010-ONL-1", _tuckShopId, 40m, ReservationStatus.Confirmed,
+            DateTime.SpecifyKind(lastMonthStartsUtc.AddMinutes(-30), DateTimeKind.Utc));
+        AddOnlineSale("VAN010-ONL-2", _tuckShopId, 40m, ReservationStatus.Confirmed,
+            DateTime.SpecifyKind(lastMonthStartsUtc.AddMinutes(30), DateTimeKind.Utc));
+
+        var summary = await SummaryAsync(monthsOfHistory: 3);
+
+        Assert.Equal([lastMonth.AddMonths(-1), lastMonth, thisMonth], summary.HistoryMonths);
+        var customers = Assert.Single(summary.Routes).Customers;
+        Assert.Equal([1, 2, 1], customers.Single(customer => customer.Code == "TUCK01").MonthlySaleCounts);
+        Assert.Equal([0, 0, 0], customers.Single(customer => customer.Code == "CORNER1").MonthlySaleCounts);
+    }
+
+    [Fact]
+    public async Task No_history_is_read_unless_one_is_asked_for()
+    {
+        await IngestAsync(BuildUpload("VAN010-INV-1", "TUCK01"));
+
+        var summary = await SummaryAsync();
+
+        Assert.Empty(summary.HistoryMonths);
+        Assert.All(Assert.Single(summary.Routes).Customers, customer => Assert.Empty(customer.MonthlySaleCounts));
+    }
+
+    [Theory]
+    [InlineData(-3, 0)]
+    [InlineData(6, 6)]
+    [InlineData(40, 12)]
+    public void The_history_is_clamped_to_a_year(int asked, int expected)
+    {
+        var months = GetRouteCustomerSalesSummaryHandler.HistoryMonths(asked, new DateTime(2026, 3, 15));
+
+        Assert.Equal(expected, months.Count);
+        if (expected > 0)
+        {
+            Assert.Equal(new DateTime(2026, 3, 1), months[^1]);
+            Assert.True(months.Zip(months.Skip(1)).All(pair => pair.First.AddMonths(1) == pair.Second));
+        }
+    }
+
+    /// <summary>
     /// Deleting a route customer takes it off the vans by deactivating it, and this is the half of
     /// that the office cares about: the shop stays a customer of the route, keeps its own name, and
     /// its takings stay attributed to it rather than falling into an unnamed remainder.
@@ -771,10 +834,11 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
     private async Task<RouteCustomerSalesSummaryDto> SummaryAsync(
         int? dormantDays = null,
         DateTime? from = null,
-        DateTime? to = null)
+        DateTime? to = null,
+        int monthsOfHistory = 0)
     {
         var result = await new GetRouteCustomerSalesSummaryHandler(_context).Handle(
-            new GetRouteCustomerSalesSummaryQuery(RouteCode, from, to, dormantDays, true),
+            new GetRouteCustomerSalesSummaryQuery(RouteCode, from, to, dormantDays, true, MonthsOfHistory: monthsOfHistory),
             CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);

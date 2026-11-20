@@ -264,6 +264,12 @@ public sealed class RouteCustomerSalesRowDto
     public int OpenOrderCount { get; set; }
 
     public List<RouteCustomerSalesTotalsDto> TotalsByCurrency { get; set; } = [];
+
+    /// <summary>
+    /// Sales in each of <see cref="RouteCustomerSalesSummaryDto.HistoryMonths"/>, in the same order. Empty
+    /// unless the caller asked for a history: it is a read per month, and only the activity workbook needs it.
+    /// </summary>
+    public List<int> MonthlySaleCounts { get; set; } = [];
 }
 
 /// <summary>One route's customers, and the route's own totals.</summary>
@@ -307,6 +313,12 @@ public sealed class RouteCustomerSalesSummaryDto
 
     /// <summary>Whether SAP's booked gross profit could be read for the totals, and what it means.</summary>
     public ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
+
+    /// <summary>
+    /// The first day of each month the customers' <c>MonthlySaleCounts</c> cover, oldest first, ending with
+    /// the month <see cref="To"/> falls in (counted to <see cref="To"/>). Empty unless a history was asked for.
+    /// </summary>
+    public List<DateTime> HistoryMonths { get; set; } = [];
 }
 
 /// <summary>Everything the drill-down page needs for one route customer.</summary>

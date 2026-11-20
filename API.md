@@ -4952,7 +4952,7 @@ which is how vending writes its vendors through this base route.
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
 | GET | `/api/route-customers` | `customers.view` | The route customers (`scope`, see below) |
-| GET | `/api/route-customers/sales-summary` | `customers.view` | Sales per route customer, dormancy included |
+| GET | `/api/route-customers/sales-summary` | `customers.view` | Sales per route customer, dormancy included; `monthsOfHistory` (0–12) adds sales per calendar month |
 | GET | `/api/route-customers/product-mix` | `customers.view` | What they buy |
 | GET | `/api/route-customers/product-sales` | `customers.view` | What each customer buys, per item and currency |
 | GET | `/api/route-customers/{id}/sales` | `customers.view` | One shop's sales (`from`, `to`) |

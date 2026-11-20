@@ -51,6 +51,7 @@ public class RouteCustomersController(ISender mediator) : ApiControllerBase
     ///
     /// Also the source for the dormancy view: customers who bought nothing are returned rather than
     /// filtered out, with <c>daysSinceLastSale</c> null to distinguish "never bought" from "long gap".
+    /// <c>monthsOfHistory</c> (0 to 12) adds each customer's sale count per calendar month.
     /// </summary>
     [HttpGet("sales-summary")]
     [RequirePermission(Permission.ViewCustomers)]
@@ -61,10 +62,11 @@ public class RouteCustomersController(ISender mediator) : ApiControllerBase
         [FromQuery] int? dormantDays = null,
         [FromQuery] bool includeInactive = true,
         [FromQuery] RouteCustomerScope scope = RouteCustomerScope.Route,
+        [FromQuery] int monthsOfHistory = 0,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetRouteCustomerSalesSummaryQuery(assignedBusinessPartnerCode, from, to, dormantDays, includeInactive, scope),
+            new GetRouteCustomerSalesSummaryQuery(assignedBusinessPartnerCode, from, to, dormantDays, includeInactive, scope, monthsOfHistory),
             cancellationToken);
 
         return result.Match(Ok, Problem);

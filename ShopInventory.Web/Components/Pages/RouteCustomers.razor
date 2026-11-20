@@ -3,8 +3,12 @@
 @using ShopInventory.Web.Data
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
+@using ShopInventory.Web.Features.RouteCustomers
+@using ShopInventory.Web.Features.RouteCustomers.Queries.ExportRouteCustomerActivity
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @inject IRouteCustomerService RouteCustomerService
+@inject MediatR.IMediator Mediator
+@inject IJSRuntime JS
 @inject IMasterDataCacheService MasterDataCache
 @inject IAuditService AuditService
 @rendermode InteractiveServer
@@ -32,6 +36,11 @@
         </div>
         <div class="ops-hero-actions">
             <span class="ops-count">@FilteredCustomerCount customer(s)</span>
+            <button type="button" class="ops-btn ops-btn-primary" @onclick="OpenExport"
+                    disabled="@(isLoading || routeCustomers.Count == 0)">
+                <i class="ph ph-microsoft-excel-logo" aria-hidden="true"></i>
+                <span>Export Excel</span>
+            </button>
             <a class="ops-btn ops-btn-ghost" href="/route-sales-report">
                 <i class="ph ph-chart-bar" aria-hidden="true"></i>
                 <span>Sales report</span>
@@ -74,6 +83,14 @@
                                 @bind-Value="statusFilter" Caption="Filter by status"
                                 AriaLabel="Filter by status" />
             </div>
+            @* Trading activity is separate from Status: a shop can be on the vans and dormant, or removed and
+               still have bought last week. The two combine rather than one replacing the other. *@
+            <div class="ops-field">
+                <label class="ops-label" for="rc-activity">Trading activity</label>
+                <NocturneSelect Id="rc-activity" Class="nsel-block" TValue="string" Options="ActivityFilterOptions"
+                                @bind-Value="activityFilter" Caption="Filter by trading activity"
+                                AriaLabel="Filter by trading activity" Disabled="@(tradingFailed)" />
+            </div>
             <div class="ops-field">
                 <label class="ops-label" for="rc-search">Search</label>
                 <div class="ops-search">
@@ -84,7 +101,49 @@
                 </div>
             </div>
         </div>
+        <div class="ops-rc-window">
+            <span class="ops-label" id="rc-window-label">Activity window</span>
+            <div class="ops-rc-seg" role="radiogroup" aria-labelledby="rc-window-label">
+                @foreach (var days in RouteCustomerActivity.WindowOptions)
+                {
+                    var on = days == windowDays;
+                    <button type="button" role="radio" aria-checked="@(on ? "true" : "false")"
+                            class="ops-btn ops-btn-ghost ops-btn-sm @(on ? "is-on" : null)"
+                            disabled="@isLoadingTrading"
+                            @onclick="() => SetWindowAsync(days)">@days days</button>
+                }
+            </div>
+            <span class="ops-sub">
+                Active means at least one sale from @WindowStart.ToString("dd MMM yyyy") to today. The last sale is all time.
+            </span>
+        </div>
     </section>
+
+    @if (tradingFailed)
+    {
+        @* Said once, here, rather than left to the empty figures: without the sales roll-up no shop can be
+           called active or dormant, and filtering on a guess would hide customers for no reason. *@
+        <div class="ops-msg ops-fam-warn" role="status">
+            <i class="ph ph-warning" aria-hidden="true"></i>
+            <div class="ops-msg-body">Sales figures could not be loaded, so trading activity cannot be shown or filtered on.</div>
+        </div>
+    }
+    else if (!isLoading && string.IsNullOrWhiteSpace(errorMessage) && routeCustomers.Count > 0)
+    {
+        <section class="ops-figures ops-rc-figures" aria-label="Trading activity">
+            @foreach (var figure in ActivityFigures())
+            {
+                var on = ParsedActivityFilter == figure.Filter;
+                <button type="button" class="ops-figure ops-rc-figure @figure.Family @(on ? "is-on" : null)"
+                        aria-pressed="@(on ? "true" : "false")" disabled="@isLoadingTrading"
+                        @onclick="() => ToggleActivityFilter(figure.Filter)">
+                    <span class="ops-figure-head"><span class="ops-figure-rule"></span>@figure.Label</span>
+                    <span class="ops-figure-num">@(isLoadingTrading ? "…" : figure.Count.ToString("N0"))</span>
+                    <span class="ops-figure-sub">@figure.Caption</span>
+                </button>
+            }
+        </section>
+    }
 
     @if (isLoading)
     {
@@ -116,9 +175,11 @@
                    send someone hunting a data problem that is a dropdown. *@
                 <h3>Nothing matches these filters</h3>
                 <p>
-                    @(statusFilter == RemovedStatusFilter
-                        ? "No customer here has been removed from the vans."
-                        : "Widen the route, status or search filter to see the rest.")
+                    @(ParsedActivityFilter != RouteCustomerActivityFilter.All
+                        ? $"No customer here is {RouteCustomerActivity.Label(ParsedActivityFilter).ToLowerInvariant()} over the last {windowDays} days. Widen the window or the trading activity filter."
+                        : statusFilter == RemovedStatusFilter
+                            ? "No customer here has been removed from the vans."
+                            : "Widen the route, status or search filter to see the rest.")
                 </p>
             }
         </div>
@@ -137,7 +198,16 @@
                             <h2 class="ops-rc-title">@group.RouteLabel</h2>
                             <div class="ops-rc-key">Route key @group.RouteCode</div>
                         </div>
-                        <span class="ops-count">@group.Customers.Count customer(s)</span>
+                        <div class="ops-rc-tally">
+                            @if (!isLoadingTrading && !tradingFailed)
+                            {
+                                var states = group.Customers.Select(ActivityOf).ToList();
+                                <span><b class="ops-fam-good">@states.Count(state => state == RouteCustomerActivityState.Active)</b> active</span>
+                                <span><b class="ops-fam-warn">@states.Count(state => state == RouteCustomerActivityState.Dormant)</b> dormant</span>
+                                <span><b class="ops-fam-bad">@states.Count(state => state == RouteCustomerActivityState.NeverBought)</b> never bought</span>
+                            }
+                            <span class="ops-count">@group.Customers.Count customer(s)</span>
+                        </div>
                     </div>
 
                     <div class="ops-scroll">
@@ -153,10 +223,11 @@
                                        all time, and it is not.
 
                                        The last sale is the other way round, and also named: the API
-                                       reports it over all time, so an empty 90 days does not blank it
-                                       and the "Never bought" badge below means exactly that. *@
-                                    <th class="ops-mid">Sales (@TradingWindowDays d)</th>
+                                       reports it over all time, so an empty window does not blank it,
+                                       and the Activity column's "Never bought" means exactly that. *@
+                                    <th class="ops-mid">Sales (@windowDays d)</th>
                                     <th>Last sale (all time)</th>
+                                    <th>Activity</th>
                                     <th>Captured</th>
                                     <th class="ops-mid">Actions</th>
                                 </tr>
@@ -219,11 +290,27 @@
                                             }
                                             else if (trading is not null)
                                             {
-                                                <span class="ops-badge ops-fam-warn">Never bought</span>
+                                                @* The Activity cell beside it says "Never bought"; this one only
+                                                   says there is no date to show. *@
+                                                <span class="ops-sub">No sale on record</span>
                                             }
                                             else
                                             {
                                                 <span class="ops-sub">&mdash;</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (trading is not null)
+                                            {
+                                                var state = RouteCustomerActivity.Classify(trading, windowDays);
+                                                <span class="ops-badge @ActivityFamily(state)">
+                                                    <i class="ph @ActivityIcon(state)" aria-hidden="true"></i>
+                                                    @RouteCustomerActivity.Label(state)@(state == RouteCustomerActivityState.Dormant ? $" · {trading.DaysSinceLastSale} d" : null)
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="ops-sub">@(isLoadingTrading ? "…" : "—")</span>
                                             }
                                         </td>
                                         <td>
@@ -449,6 +536,112 @@
     </div>
 }
 
+@if (showExport)
+{
+    <div class="ops-overlay ops-overlay-center" @onclick="CloseExport">
+        <div class="ops-dialog ops-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="rc-export-title"
+             @onclick:stopPropagation="true">
+            <div class="ops-dialog-head">
+                <h2 id="rc-export-title">Export route customer activity</h2>
+                <button type="button" class="ops-x" aria-label="Close" @onclick="CloseExport" disabled="@isExporting">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="ops-dialog-body ops-rc-export">
+                @if (!string.IsNullOrWhiteSpace(exportError))
+                {
+                    <div class="ops-msg ops-fam-bad" role="alert">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <div class="ops-msg-body">@exportError</div>
+                    </div>
+                }
+
+                <p class="ops-sub">
+                    One Excel workbook. Every customer is classed active, dormant or never bought against the window below.
+                </p>
+
+                <fieldset class="ops-rc-choices">
+                    <legend class="ops-label">Which customers</legend>
+                    <label class="ops-rc-choice @(!exportAllCustomers ? "is-on" : null)">
+                        <input type="radio" name="rc-export-scope" checked="@(!exportAllCustomers)"
+                               @onchange="() => exportAllCustomers = false" />
+                        <span>
+                            <strong>What the page is showing</strong>
+                            <span class="ops-sub">@ViewDescription() — @FilteredCustomerCount customer(s)</span>
+                        </span>
+                    </label>
+                    <label class="ops-rc-choice @(exportAllCustomers ? "is-on" : null)">
+                        <input type="radio" name="rc-export-scope" checked="@exportAllCustomers"
+                               @onchange="() => exportAllCustomers = true" />
+                        <span>
+                            <strong>Every route customer</strong>
+                            <span class="ops-sub">All routes and every trading state. The page's filters are ignored.</span>
+                        </span>
+                    </label>
+                    @if (exportAllCustomers)
+                    {
+                        <label class="ops-rc-check ops-rc-indent">
+                            <input type="checkbox" @bind="exportIncludeRemoved" />
+                            <span>Include customers removed from the vans, and the sales of deleted ones</span>
+                        </label>
+                    }
+                </fieldset>
+
+                <div class="ops-rc-window">
+                    <span class="ops-label" id="rc-export-window-label">Activity window, ending today</span>
+                    <div class="ops-rc-seg" role="radiogroup" aria-labelledby="rc-export-window-label">
+                        @foreach (var days in RouteCustomerActivity.WindowOptions)
+                        {
+                            var on = days == windowDays;
+                            <button type="button" role="radio" aria-checked="@(on ? "true" : "false")"
+                                    class="ops-btn ops-btn-ghost ops-btn-sm @(on ? "is-on" : null)"
+                                    disabled="@(isExporting || isLoadingTrading)"
+                                    @onclick="() => SetWindowAsync(days)">@days days</button>
+                        }
+                    </div>
+                    <span class="ops-sub">Changes the page's window too, so the file and the screen agree.</span>
+                </div>
+
+                <fieldset class="ops-rc-choices">
+                    <legend class="ops-label">Sheets</legend>
+                    @foreach (var choice in ExportSheetChoices)
+                    {
+                        var sheet = choice.Sheet;
+                        <label class="ops-rc-choice ops-rc-choice-plain">
+                            <input type="checkbox" checked="@exportSheets.HasFlag(sheet)"
+                                   @onchange="() => ToggleExportSheet(sheet)" />
+                            <span>
+                                <strong>@choice.Label</strong>
+                                <span class="ops-sub">@choice.Hint</span>
+                            </span>
+                        </label>
+                    }
+                </fieldset>
+            </div>
+
+            <div class="ops-dialog-foot">
+                <span class="ops-rc-filename ops-code">@ExportFileName()</span>
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseExport"
+                        disabled="@isExporting">Cancel</button>
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="ExportAsync"
+                        disabled="@(isExporting || isLoadingTrading || exportSheets == RouteCustomerActivitySheets.None)">
+                    @if (isExporting)
+                    {
+                        <span class="ops-spin"></span>
+                        <span>Building workbook&hellip;</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-download-simple" aria-hidden="true"></i>
+                        <span>Download workbook</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<RouteCustomerModel> routeCustomers = [];
     private Dictionary<string, string> routeDisplayNames = new(StringComparer.OrdinalIgnoreCase);
@@ -525,24 +718,39 @@
     }
 
     /// <summary>
-    /// How far back the sales count looks. Stated here and printed in the column header, because a sales
-    /// count with an unnamed window is a number nobody can act on. The full picture, and any other
-    /// window, is a click away on the sales report.
+    /// How far back the sales count looks, and what "active" is read against. Chosen on the page and printed
+    /// in the column header, because a sales count with an unnamed window is a number nobody can act on.
     ///
-    /// It does not bound the last-sale column beside it: that one is all time, whatever is asked for
-    /// here, so a shop that last bought a year ago shows the date rather than reading as a new outlet.
+    /// It does not bound the last-sale column: that one is all time, whatever is chosen here, so a shop that
+    /// last bought a year ago shows the date rather than reading as a new outlet.
     /// </summary>
-    private const int TradingWindowDays = 90;
+    private int windowDays = RouteCustomerActivity.DefaultWindowDays;
+
+    private DateTime WindowStart => RouteCustomerActivity.WindowStart(DateTime.Today, windowDays);
+
+    /// <summary>The figures could not be read. Distinct from "still loading" and from "no sales".</summary>
+    private bool tradingFailed;
+
+    /// <summary>Bumped per load, so a slow answer for an earlier window cannot overwrite a later one.</summary>
+    private int tradingLoad;
 
     private async Task LoadTradingAsync()
     {
+        var load = ++tradingLoad;
         isLoadingTrading = true;
+        tradingFailed = false;
 
         try
         {
             var summary = await RouteCustomerService.GetSalesSummaryAsync(
-                from: DateTime.Today.AddDays(-(TradingWindowDays - 1)),
-                to: DateTime.Today);
+                from: WindowStart,
+                to: DateTime.Today,
+                dormantDays: RouteCustomerActivity.DormantDaysFor(windowDays));
+
+            if (load != tradingLoad)
+            {
+                return;
+            }
 
             tradingByCustomerId = summary.Routes
                 .SelectMany(route => route.Customers)
@@ -552,12 +760,238 @@
         }
         catch
         {
+            if (load != tradingLoad)
+            {
+                return;
+            }
+
             // Left empty on purpose, so every row reports "unknown" rather than "no sales".
             tradingByCustomerId = [];
+            tradingFailed = true;
         }
         finally
         {
-            isLoadingTrading = false;
+            if (load == tradingLoad)
+            {
+                isLoadingTrading = false;
+            }
+        }
+    }
+
+    private async Task SetWindowAsync(int days)
+    {
+        days = RouteCustomerActivity.NormalizeWindow(days);
+        if (days == windowDays && !tradingFailed)
+        {
+            return;
+        }
+
+        windowDays = days;
+        await LoadTradingAsync();
+    }
+
+    // ── Trading activity ───────────────────────────────────────────────────
+
+    private const string AllActivityFilter = "";
+
+    /// <summary>The activity filter as the select holds it: empty for all, else the filter's name.</summary>
+    private string? activityFilter = AllActivityFilter;
+
+    private RouteCustomerActivityFilter ParsedActivityFilter =>
+        Enum.TryParse<RouteCustomerActivityFilter>(activityFilter, out var filter) ? filter : RouteCustomerActivityFilter.All;
+
+    private static string FilterValue(RouteCustomerActivityFilter filter) =>
+        filter == RouteCustomerActivityFilter.All ? AllActivityFilter : filter.ToString();
+
+    /// <summary>Each choice with how many customers it would show, from the same counts as the figures.</summary>
+    private IEnumerable<NocturneSelectOption<string>> ActivityFilterOptions
+    {
+        get
+        {
+            var counts = isLoadingTrading || tradingFailed
+                ? null
+                : ActivityFigures().ToDictionary(figure => figure.Filter, figure => figure.Count);
+            string? Count(RouteCustomerActivityFilter filter) => counts?[filter].ToString("N0");
+
+            return
+            [
+                NocturneSelectOption.All("All customers"),
+                new(nameof(RouteCustomerActivityFilter.Active), "Active", "good") { Hint = Count(RouteCustomerActivityFilter.Active) },
+                new(nameof(RouteCustomerActivityFilter.Inactive), "Inactive", "warn") { Hint = Count(RouteCustomerActivityFilter.Inactive) },
+                new(nameof(RouteCustomerActivityFilter.Dormant), "Dormant", "warn") { Hint = Count(RouteCustomerActivityFilter.Dormant) },
+                new(nameof(RouteCustomerActivityFilter.NeverBought), "Never bought", "bad") { Hint = Count(RouteCustomerActivityFilter.NeverBought) }
+            ];
+        }
+    }
+
+    /// <summary>Null while the figures are loading or could not be read: the page cannot class the shop.</summary>
+    private RouteCustomerActivityState? ActivityOf(RouteCustomerModel customer) =>
+        GetTrading(customer) is { } trading ? RouteCustomerActivity.Classify(trading, windowDays) : null;
+
+    private bool MatchesActivity(RouteCustomerModel customer)
+    {
+        var filter = ParsedActivityFilter;
+        // Without the figures the filter is not applied — hiding shops on a guess is worse than showing them.
+        if (filter == RouteCustomerActivityFilter.All || tradingFailed || isLoadingTrading)
+        {
+            return true;
+        }
+
+        return ActivityOf(customer) is { } state && RouteCustomerActivity.Matches(state, filter);
+    }
+
+    private void ToggleActivityFilter(RouteCustomerActivityFilter filter) =>
+        activityFilter = ParsedActivityFilter == filter ? AllActivityFilter : FilterValue(filter);
+
+    private sealed record ActivityFigure(RouteCustomerActivityFilter Filter, string Label, int Count, string Caption, string Family);
+
+    /// <summary>
+    /// The breakdown of what the route, status and search filters leave — not of the activity filter's own
+    /// result, which would make every figure but the chosen one read zero.
+    /// </summary>
+    private IEnumerable<ActivityFigure> ActivityFigures()
+    {
+        var states = FilterCustomers(applyActivity: false)
+            .Select(ActivityOf)
+            .Where(state => state is not null)
+            .Select(state => state!.Value)
+            .ToList();
+        var active = states.Count(state => state == RouteCustomerActivityState.Active);
+        var dormant = states.Count(state => state == RouteCustomerActivityState.Dormant);
+        var never = states.Count(state => state == RouteCustomerActivityState.NeverBought);
+        var share = states.Count == 0 ? 0 : (int)Math.Round(100.0 * active / states.Count);
+
+        yield return new(RouteCustomerActivityFilter.Active, "Active", active, $"{share}% bought in the last {windowDays} days", "ops-fam-good");
+        yield return new(RouteCustomerActivityFilter.Inactive, "Inactive", dormant + never, "Dormant and never bought together", "ops-fam-warn");
+        yield return new(RouteCustomerActivityFilter.Dormant, "Dormant", dormant, $"Bought before, not in the last {windowDays} days", "ops-fam-warn");
+        yield return new(RouteCustomerActivityFilter.NeverBought, "Never bought", never, "Captured, no sale on record", "ops-fam-bad");
+    }
+
+    private static string ActivityFamily(RouteCustomerActivityState state) => state switch
+    {
+        RouteCustomerActivityState.Active => "ops-fam-good",
+        RouteCustomerActivityState.Dormant => "ops-fam-warn",
+        _ => "ops-fam-bad"
+    };
+
+    private static string ActivityIcon(RouteCustomerActivityState state) => state switch
+    {
+        RouteCustomerActivityState.Active => "ph-check",
+        RouteCustomerActivityState.Dormant => "ph-clock-countdown",
+        _ => "ph-prohibit"
+    };
+
+    // ── Export ─────────────────────────────────────────────────────────────
+
+    private bool showExport;
+    private bool exportAllCustomers;
+    private bool exportIncludeRemoved;
+    private RouteCustomerActivitySheets exportSheets = RouteCustomerActivitySheets.All;
+    private bool isExporting;
+    private string? exportError;
+
+    private static readonly (RouteCustomerActivitySheets Sheet, string Label, string Hint)[] ExportSheetChoices =
+    [
+        (RouteCustomerActivitySheets.Summary, "Summary", "Active, dormant and never bought per route, with the active rate, sales and value in the window"),
+        (RouteCustomerActivitySheets.Customers, "Customers", "One row per customer: contact, captured, first and last sale, days since, activity, sales, lines, open orders and value"),
+        (RouteCustomerActivitySheets.FollowUp, "Follow-up", "Dormant customers, most recently lapsed first, with phone and blank Called on and Outcome columns"),
+        (RouteCustomerActivitySheets.NeverBought, "Never bought", "Captured but never sold to, oldest capture first, with who captured them"),
+        (RouteCustomerActivitySheets.ByMonth, "By month", $"Sales per customer in each of the last {RouteCustomerActivity.HistoryMonths} months, shaded by count")
+    ];
+
+    private void OpenExport()
+    {
+        exportError = null;
+        showExport = true;
+    }
+
+    private void CloseExport()
+    {
+        if (!isExporting)
+        {
+            showExport = false;
+        }
+    }
+
+    private void ToggleExportSheet(RouteCustomerActivitySheets sheet) => exportSheets ^= sheet;
+
+    private string ViewDescription()
+    {
+        var parts = new List<string>
+        {
+            string.IsNullOrWhiteSpace(selectedRouteCode) ? "All routes" : GetRouteDisplayName(selectedRouteCode),
+            statusFilter switch
+            {
+                ActiveStatusFilter => "On the vans",
+                RemovedStatusFilter => "Removed",
+                _ => "On the vans and removed"
+            },
+            ParsedActivityFilter == RouteCustomerActivityFilter.All ? "any trading activity" : RouteCustomerActivity.Label(ParsedActivityFilter)
+        };
+
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            parts.Add($"search \"{searchTerm.Trim()}\"");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    private string ExportFileName()
+    {
+        var scope = exportAllCustomers
+            ? "AllRoutes"
+            : string.IsNullOrWhiteSpace(selectedRouteCode) ? "View" : selectedRouteCode.Trim();
+        var safe = string.Concat(scope.Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '_'));
+        return $"RouteCustomerActivity_{safe}_{windowDays}d_{DateTime.Today:yyyy-MM-dd}.xlsx";
+    }
+
+    private async Task ExportAsync()
+    {
+        if (isExporting || exportSheets == RouteCustomerActivitySheets.None)
+        {
+            return;
+        }
+
+        isExporting = true;
+        exportError = null;
+
+        try
+        {
+            var onlyIds = exportAllCustomers
+                ? null
+                : FilterCustomers(applyActivity: true).Select(customer => customer.Id).ToHashSet();
+            var description = exportAllCustomers
+                ? exportIncludeRemoved
+                    ? "Every route customer, removed and deleted included"
+                    : "Every route customer on the vans"
+                : $"Current view: {ViewDescription()}";
+
+            var result = await Mediator.Send(new ExportRouteCustomerActivityQuery(
+                windowDays,
+                onlyIds,
+                exportIncludeRemoved,
+                exportSheets,
+                routeCustomers,
+                routeDisplayNames,
+                description));
+
+            if (result.IsError)
+            {
+                exportError = result.FirstError.Description;
+                return;
+            }
+
+            await JS.InvokeVoidAsync("downloadFile", ExportFileName(), Convert.ToBase64String(result.Value));
+            showExport = false;
+        }
+        catch (Exception ex)
+        {
+            exportError = ex.Message;
+        }
+        finally
+        {
+            isExporting = false;
         }
     }
 
@@ -613,13 +1047,18 @@
         }
     }
 
-    private IEnumerable<(string RouteCode, string RouteLabel, List<RouteCustomerModel> Customers)> GetFilteredGroups()
-    {
-        var filteredCustomers = routeCustomers
+    /// <summary>The customers the route, status and search filters leave, and the activity filter too when asked.</summary>
+    private IEnumerable<RouteCustomerModel> FilterCustomers(bool applyActivity) =>
+        routeCustomers
             .Where(customer => string.IsNullOrWhiteSpace(selectedRouteCode)
                 || string.Equals(customer.AssignedBusinessPartnerCode, selectedRouteCode, StringComparison.OrdinalIgnoreCase))
             .Where(MatchesStatus)
             .Where(MatchesSearch)
+            .Where(customer => !applyActivity || MatchesActivity(customer));
+
+    private IEnumerable<(string RouteCode, string RouteLabel, List<RouteCustomerModel> Customers)> GetFilteredGroups()
+    {
+        var filteredCustomers = FilterCustomers(applyActivity: true)
             .OrderBy(customer => customer.AssignedBusinessPartnerCode, StringComparer.OrdinalIgnoreCase)
             .ThenBy(customer => customer.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(customer => customer.Code, StringComparer.OrdinalIgnoreCase);
