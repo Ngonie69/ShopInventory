@@ -205,6 +205,9 @@ public class RouteCustomerSalesRowModel
     public int OpenOrderCount { get; set; }
 
     public List<RouteCustomerSalesTotalsModel> TotalsByCurrency { get; set; } = [];
+
+    /// <summary>Sales in each of <see cref="RouteCustomerSalesSummaryModel.HistoryMonths"/>; empty unless a history was asked for.</summary>
+    public List<int> MonthlySaleCounts { get; set; } = [];
 }
 
 public class RouteSalesGroupModel
@@ -238,6 +241,9 @@ public class RouteCustomerSalesSummaryModel
 
     /// <summary>Whether SAP's booked gross profit could be read; null from an older API.</summary>
     public ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementMarginStatus? Margin { get; set; }
+
+    /// <summary>First day of each month the rows' <c>MonthlySaleCounts</c> cover, oldest first; empty unless asked for.</summary>
+    public List<DateTime> HistoryMonths { get; set; } = [];
 }
 
 public class RouteCustomerSalesDetailModel

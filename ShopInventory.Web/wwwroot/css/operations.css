@@ -2109,6 +2109,152 @@
     gap: 2px;
 }
 
+/* Trading activity. The window row sits under the filters inside the same
+   panel; the figures are buttons, because each one is also a filter. The
+   window row and the choice rows are used in the export dialog too, which is a
+   sibling of `.ops-rc` — hence the `.ops-overlay` half of each selector. */
+
+.ops-rc .ops-rc-window,
+.ops-overlay .ops-rc-window {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ops-s3) var(--ops-s4);
+}
+
+.ops-rc .ops-rc-window {
+    padding: var(--ops-s4) var(--ops-s8) var(--ops-s6);
+    border-top: 1px solid var(--ops-rule);
+}
+
+.ops-rc .ops-rc-seg,
+.ops-overlay .ops-rc-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.ops-rc .ops-rc-figure {
+    display: block;
+    width: 100%;
+    font: inherit;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
+    transition: border-color .14s, box-shadow .14s;
+}
+
+.ops-rc .ops-rc-figure > span {
+    display: flex;
+}
+
+.ops-rc .ops-rc-figure:hover:not(:disabled) {
+    border-color: var(--ops-field-edge-hi);
+}
+
+.ops-rc .ops-rc-figure.is-on {
+    border-color: var(--ops-accent);
+    box-shadow: 0 0 0 1px var(--ops-accent);
+}
+
+.ops-rc .ops-rc-figure:disabled {
+    cursor: default;
+}
+
+.ops-rc .ops-rc-figure:focus-visible {
+    outline: 2px solid var(--ops-accent);
+    outline-offset: 2px;
+}
+
+.ops-rc .ops-rc-tally {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--ops-s2) var(--ops-s4);
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+}
+
+.ops-rc .ops-rc-tally b {
+    font-weight: 600;
+    color: var(--ops-fam, var(--ops-ink));
+}
+
+.ops-overlay .ops-rc-export {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s6);
+}
+
+.ops-overlay .ops-rc-choices {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s2);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.ops-overlay .ops-rc-choices legend {
+    padding: 0 0 var(--ops-s3);
+}
+
+.ops-overlay .ops-rc-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ops-s4);
+    padding: var(--ops-s4);
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-md);
+    color: var(--ops-ink-2);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.ops-overlay .ops-rc-choice.is-on {
+    border-color: rgba(var(--ops-accent-rgb), .6);
+    background: rgba(var(--ops-accent-rgb), .07);
+}
+
+.ops-overlay .ops-rc-choice-plain {
+    border-color: transparent;
+    padding: var(--ops-s3) var(--ops-s4);
+}
+
+.ops-overlay .ops-rc-choice-plain:hover {
+    background: var(--ops-hover);
+}
+
+.ops-overlay .ops-rc-choice > span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.ops-overlay .ops-rc-choice strong {
+    font-weight: 600;
+    color: var(--ops-ink);
+}
+
+.ops-overlay .ops-rc-choice input {
+    margin-top: 2px;
+    accent-color: var(--ops-accent);
+}
+
+.ops-overlay .ops-rc-indent {
+    padding-left: var(--ops-s8);
+}
+
+.ops-overlay .ops-rc-filename {
+    flex: 1 1 200px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    /route-customers/calling-schedule — `.ops-rcsi`, on top of `.ops-rc`
    ═════════════════════════════════════════════════════════════════════════ */

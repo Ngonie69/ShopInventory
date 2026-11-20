@@ -41,7 +41,8 @@ public interface IRouteCustomerService
         DateTime? to = null,
         int? dormantDays = null,
         bool includeInactive = true,
-        RouteCustomerScope scope = RouteCustomerScope.Route);
+        RouteCustomerScope scope = RouteCustomerScope.Route,
+        int monthsOfHistory = 0);
 
     Task<RouteCustomerProductMixModel> GetProductMixAsync(
         string? assignedBusinessPartnerCode = null,
@@ -109,7 +110,8 @@ public class RouteCustomerService(
         DateTime? to = null,
         int? dormantDays = null,
         bool includeInactive = true,
-        RouteCustomerScope scope = RouteCustomerScope.Route)
+        RouteCustomerScope scope = RouteCustomerScope.Route,
+        int monthsOfHistory = 0)
     {
         var query = BuildQuery(
             ("assignedBusinessPartnerCode", assignedBusinessPartnerCode?.Trim()),
@@ -117,7 +119,8 @@ public class RouteCustomerService(
             ("to", FormatDate(to)),
             ("dormantDays", dormantDays?.ToString(CultureInfo.InvariantCulture)),
             ("includeInactive", includeInactive.ToString().ToLowerInvariant()),
-            ("scope", scope.ToString()));
+            ("scope", scope.ToString()),
+            ("monthsOfHistory", monthsOfHistory > 0 ? monthsOfHistory.ToString(CultureInfo.InvariantCulture) : null));
 
         return GetReportAsync<RouteCustomerSalesSummaryModel>(
             $"api/route-customers/sales-summary{query}",

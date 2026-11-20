@@ -114,6 +114,22 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         var lineCounts = await LoadLineCountsAsync(route, from, to, fromUtc, toUtcExclusive, cancellationToken);
         var openOrderCounts = await LoadOpenOrderCountsAsync(route, cancellationToken);
         var lifetimeSpans = await LoadLifetimeSpansAsync(route, cancellationToken);
+        var historyMonths = HistoryMonths(query.MonthsOfHistory, to);
+        var monthlyCounts = new List<Dictionary<CustomerKey, int>>(historyMonths.Count);
+        foreach (var monthStart in historyMonths)
+        {
+            // Each month is its own window, read exactly as the main one is: the offline arm on its bare
+            // trading days, the online arm on the CAT month's UTC bounds. The last month stops at the window's
+            // end rather than running into days that have not been reported on.
+            var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+            if (monthEnd > to)
+            {
+                monthEnd = to;
+            }
+
+            var (monthFromUtc, monthToUtcExclusive) = RouteCustomerSalesReporting.ToUtcWindow(monthStart, monthEnd);
+            monthlyCounts.Add(await LoadSaleCountsAsync(route, monthStart, monthEnd, monthFromUtc, monthToUtcExclusive, cancellationToken));
+        }
 
         var (margin, marginStatus) = await ManagementSalesRollup.MarginOfInvoicesAsync(
             aggregates.SelectMany(aggregate => aggregate.Invoices),
@@ -121,7 +137,7 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
             cancellationToken);
 
-        var rows = BuildRows(customers, aggregates, lineCounts, openOrderCounts, lifetimeSpans, query.IncludeInactive, margin);
+        var rows = BuildRows(customers, aggregates, lineCounts, openOrderCounts, lifetimeSpans, monthlyCounts, query.IncludeInactive, margin);
 
         // The split is applied to the finished rows rather than to each of the six reads above, because
         // an orphan row — a sale whose customer record is gone — carries only the route it was booked
@@ -138,8 +154,25 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             To = to,
             DormantDays = dormantDays,
             Routes = GroupByRoute(rows, dormantDays),
-            Margin = marginStatus
+            Margin = marginStatus,
+            HistoryMonths = historyMonths
         };
+    }
+
+    /// <summary>The most months of history one request may ask for: a read per month, and a year is plenty.</summary>
+    internal const int MaxMonthsOfHistory = 12;
+
+    /// <summary>
+    /// The first day of each calendar month a history covers, oldest first, ending with the month the window
+    /// ends in. Empty when none was asked for.
+    /// </summary>
+    internal static List<DateTime> HistoryMonths(int monthsOfHistory, DateTime windowEnd)
+    {
+        var count = Math.Clamp(monthsOfHistory, 0, MaxMonthsOfHistory);
+        var lastMonth = new DateTime(windowEnd.Year, windowEnd.Month, 1);
+        return Enumerable.Range(0, count)
+            .Select(offset => lastMonth.AddMonths(offset - count + 1))
+            .ToList();
     }
 
     private async Task<List<RouteCustomerEntity>> LoadCustomersAsync(string? route, CancellationToken cancellationToken)
@@ -498,6 +531,72 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
     }
 
     /// <summary>
+    /// Sales per customer in one window, counted the way <see cref="LoadOfflineAggregatesAsync"/> and
+    /// <see cref="LoadOnlineAggregatesAsync"/> count them, without the money: the month-by-month history
+    /// needs only how often a shop bought.
+    /// </summary>
+    private async Task<Dictionary<CustomerKey, int>> LoadSaleCountsAsync(
+        string? route,
+        DateTime from,
+        DateTime to,
+        DateTime fromUtc,
+        DateTime toUtcExclusive,
+        CancellationToken cancellationToken)
+    {
+        var offlineQuery = db.DesktopSales
+            .AsNoTracking()
+            // Counted by the online arm below instead — see LoadOfflineAggregatesAsync.
+            .Where(sale => sale.SourceSystem != SaleSourceSystems.VanSalesOnline)
+            .Where(sale => sale.RouteCustomerCode != null)
+            .Where(sale => sale.DocDate >= from && sale.DocDate <= to);
+
+        if (route is not null)
+        {
+            offlineQuery = offlineQuery.Where(sale => sale.CardCode == route);
+        }
+
+        var offline = await offlineQuery
+            .GroupBy(sale => new { sale.RouteCustomerId, sale.RouteCustomerCode, sale.CardCode })
+            .Select(group => new { group.Key, SaleCount = group.Count() })
+            .ToListAsync(cancellationToken);
+
+        var onlineQuery = VanSaleReservations.Sold(db)
+            .AsNoTracking()
+            .Where(reservation => reservation.RouteCustomerCode != null)
+            .Where(reservation => reservation.CreatedAt >= fromUtc && reservation.CreatedAt < toUtcExclusive);
+
+        if (route is not null)
+        {
+            onlineQuery = onlineQuery.Where(reservation => reservation.CardCode == route);
+        }
+
+        var online = await onlineQuery
+            .GroupBy(reservation => new
+            {
+                reservation.RouteCustomerId,
+                reservation.RouteCustomerCode,
+                reservation.CardCode
+            })
+            .Select(group => new { group.Key, SaleCount = group.Count() })
+            .ToListAsync(cancellationToken);
+
+        var counts = new Dictionary<CustomerKey, int>();
+        foreach (var row in offline)
+        {
+            var key = BuildKey(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.CardCode);
+            counts[key] = counts.GetValueOrDefault(key) + row.SaleCount;
+        }
+
+        foreach (var row in online)
+        {
+            var key = BuildKey(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.CardCode);
+            counts[key] = counts.GetValueOrDefault(key) + row.SaleCount;
+        }
+
+        return counts;
+    }
+
+    /// <summary>
     /// Orders still waiting to become sales. Not windowed: an order placed before the window and still
     /// open is exactly the one someone needs to see, and hiding it behind a date filter would make the
     /// count answer a question nobody asked.
@@ -535,6 +634,7 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         Dictionary<CustomerKey, int> lineCounts,
         Dictionary<CustomerKey, int> openOrderCounts,
         Dictionary<CustomerKey, SaleSpan> lifetimeSpans,
+        List<Dictionary<CustomerKey, int>> monthlyCounts,
         bool includeInactive,
         ManagementSalesRollup.MarginBook margin)
     {
@@ -613,6 +713,9 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             row.DaysSinceLastSale = RouteCustomerSalesReporting.DaysSinceLastSale(row.LastSaleAt);
             row.LineCount = accumulator.Keys.Sum(key => lineCounts.GetValueOrDefault(key));
             row.OpenOrderCount = accumulator.Keys.Sum(key => openOrderCounts.GetValueOrDefault(key));
+            row.MonthlySaleCounts = monthlyCounts
+                .Select(month => accumulator.Keys.Sum(key => month.GetValueOrDefault(key)))
+                .ToList();
         }
 
         // An inactive customer who traded inside the window is never hidden: the filter is about which

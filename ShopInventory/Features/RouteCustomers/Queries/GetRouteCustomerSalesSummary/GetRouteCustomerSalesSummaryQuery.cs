@@ -14,6 +14,9 @@ namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSalesSum
 /// <c>DormantDays</c> — days without a sale after which a customer counts as dormant — is echoed back on
 /// the response so the caller does not have to re-derive it, and so two pages cannot disagree about what
 /// dormant means.
+///
+/// <c>MonthsOfHistory</c> (0 to 12) adds each customer's sale count for that many calendar months, ending
+/// with the current one. Zero, the default, reads no history.
 /// </summary>
 public sealed record GetRouteCustomerSalesSummaryQuery(
     string? AssignedBusinessPartnerCode,
@@ -21,5 +24,6 @@ public sealed record GetRouteCustomerSalesSummaryQuery(
     DateTime? To,
     int? DormantDays,
     bool IncludeInactive,
-    RouteCustomerScope Scope = RouteCustomerScope.Route
+    RouteCustomerScope Scope = RouteCustomerScope.Route,
+    int MonthsOfHistory = 0
 ) : IRequest<ErrorOr<RouteCustomerSalesSummaryDto>>;

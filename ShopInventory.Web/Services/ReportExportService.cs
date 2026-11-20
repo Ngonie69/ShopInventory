@@ -121,6 +121,9 @@ public interface IReportExportService
         RouteCustomerProductSalesModel? productSales,
         IReadOnlyDictionary<string, string> routeLabels,
         string? currency = null);
+
+    /// <summary>The Route Customers page's activity workbook: active, dormant and never bought against one window.</summary>
+    byte[] ExportRouteCustomerActivityToExcel(Features.RouteCustomers.RouteCustomerActivityReport report);
     byte[] ExportGLAccountLedgerToExcel(GLAccountLedgerResponse ledger);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
