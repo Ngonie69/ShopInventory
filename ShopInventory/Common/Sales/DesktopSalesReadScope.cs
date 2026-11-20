@@ -9,12 +9,43 @@ namespace ShopInventory.Common.Sales;
 /// <param name="WarehouseCode">
 /// The one warehouse the caller is confined to, or null when they may read every shop's takings.
 /// </param>
-public sealed record DesktopSalesReadScope(string? WarehouseCode)
+/// <param name="PartnerCode">
+/// The one business partner the caller is confined to, or null when they are not. Only
+/// <see cref="DesktopSalesReadScopeResolver.ResolveForPartnerReads"/> sets it, and only the reads that
+/// call that resolver apply it — see <see cref="NarrowPartner"/>.
+/// </param>
+public sealed record DesktopSalesReadScope(string? WarehouseCode, string? PartnerCode = null)
 {
     /// <summary>Reads across every shop.</summary>
     public static readonly DesktopSalesReadScope Unrestricted = new((string?)null);
 
-    public bool IsUnrestricted => WarehouseCode is null;
+    /// <summary>Neither a warehouse nor a partner confines the caller.</summary>
+    public bool IsUnrestricted => WarehouseCode is null && PartnerCode is null;
+
+    /// <summary>
+    /// The business partner one read runs under, given the one the caller asked for.
+    /// </summary>
+    /// <remarks>
+    /// The partner counterpart of <see cref="Narrow"/>, on the same rule: a partner-confined caller naming
+    /// another partner is refused, and one naming none is narrowed to their own. For everyone else the
+    /// parameter stays a filter, so null means every partner.
+    /// </remarks>
+    public ErrorOr<string?> NarrowPartner(string? requestedPartner)
+    {
+        var requested = string.IsNullOrWhiteSpace(requestedPartner) ? null : requestedPartner.Trim();
+
+        if (PartnerCode is null)
+        {
+            return requested;
+        }
+
+        if (requested is not null && !string.Equals(requested, PartnerCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.Errors.DesktopSales.SalesPartnerOutsideScope(requested, PartnerCode);
+        }
+
+        return PartnerCode;
+    }
 
     /// <summary>
     /// The scope one read runs under, given the warehouse the caller asked for.
@@ -33,9 +64,10 @@ public sealed record DesktopSalesReadScope(string? WarehouseCode)
     {
         var requested = string.IsNullOrWhiteSpace(requestedWarehouse) ? null : requestedWarehouse.Trim();
 
-        if (IsUnrestricted)
+        // No warehouse confines the caller: the parameter is a filter. A partner confinement rides along.
+        if (WarehouseCode is null)
         {
-            return requested is null ? this : new DesktopSalesReadScope(requested);
+            return requested is null ? this : this with { WarehouseCode = requested };
         }
 
         if (requested is not null && !string.Equals(requested, WarehouseCode, StringComparison.OrdinalIgnoreCase))
@@ -68,7 +100,9 @@ public sealed record DesktopSalesReadScope(string? WarehouseCode)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (IsUnrestricted)
+        // No warehouse confines the caller, so the set is a filter (a partner confinement is applied
+        // apart, by NarrowPartner).
+        if (WarehouseCode is null)
         {
             return requested;
         }
@@ -197,5 +231,33 @@ public static class DesktopSalesReadScopeResolver
         }
 
         return Errors.Errors.DesktopSales.SalesReadNotPermitted;
+    }
+
+    /// <summary>
+    /// <see cref="Resolve"/>, plus the one extra reader the sales list and the analysis admit: a
+    /// <see cref="ApplicationRoles.ShopStock"/> account, confined to the business partner on its account.
+    /// </summary>
+    /// <remarks>
+    /// A separate entry point rather than a branch inside <see cref="Resolve"/>, because a partner scope
+    /// carries no warehouse — so to any reader that does not know to call
+    /// <see cref="DesktopSalesReadScope.NarrowPartner"/> it would look like every shop's takings. Only the
+    /// reads that apply the partner call this one; everywhere else a stock user is still refused.
+    ///
+    /// The partner is <see cref="User.SalesBusinessPartnerCode"/>, never the selling
+    /// <see cref="User.AssignedBusinessPartnerCode"/>. An account with none set reads nothing, and is told
+    /// why.
+    /// </remarks>
+    public static ErrorOr<DesktopSalesReadScope> ResolveForPartnerReads(User? user)
+    {
+        if (user is { IsActive: true } &&
+            string.Equals(user.Role, ApplicationRoles.ShopStock, StringComparison.OrdinalIgnoreCase))
+        {
+            var partner = user.SalesBusinessPartnerCode?.Trim();
+            return string.IsNullOrWhiteSpace(partner)
+                ? Errors.Errors.DesktopSales.SalesPartnerNotAssigned
+                : new DesktopSalesReadScope(null, partner);
+        }
+
+        return Resolve(user);
     }
 }

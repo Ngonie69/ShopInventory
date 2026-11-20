@@ -290,3 +290,25 @@
 @media (max-width: 860px) {
     .dsh .rdb-stats-4 { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* A stat card that opens a page (the stock user's "Sales today" → /shop-sales): the link is the grid
+   cell, the card fills it, and only the hover and the focus ring say it can be followed. */
+.dsh .rdb-stat-link {
+    display: flex;
+    color: inherit;
+    text-decoration: none;
+    border-radius: var(--dsh-r-lg);
+}
+
+.dsh .rdb-stat-link > * {
+    flex: 1 1 auto;
+}
+
+.dsh .rdb-stat-link:hover .dsh-stat {
+    border-color: var(--dsh-accent);
+}
+
+.dsh .rdb-stat-link:focus-visible {
+    outline: 2px solid var(--dsh-accent);
+    outline-offset: 3px;
+}

@@ -64,6 +64,8 @@
     <StaffStylesheetLate Include="wwwroot/css/role-dashboards.css" />
     <!-- /stock-in-hand, on the same kit and the role dashboards' pieces. -->
     <StaffStylesheetLate Include="wwwroot/css/stock-in-hand.css" />
+    <!-- /shop-sales, the ShopStock user's partner sales, on the same kit. -->
+    <StaffStylesheetLate Include="wwwroot/css/shop-sales.css" />
     <StaffStylesheetLate Include="wwwroot/css/operations-dashboard.css" />
     <StaffStylesheetLate Include="wwwroot/css/sales-rep-dashboard.css" />
     <!-- The depot controller's half of /dashboard. Derived from the sheet above, which it shares its

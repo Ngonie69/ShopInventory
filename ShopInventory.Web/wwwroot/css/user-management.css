@@ -2150,3 +2150,22 @@
         font-size: 16px;
     }
 }
+
+/* The one-click fill under the stock user's sales-partner picker: a button that reads as a link inside
+   the hint, so it inherits the hint's size and keeps its own accent and focus ring. */
+.um-form-hint .um-link-btn {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: var(--um-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+
+.um-form-hint .um-link-btn:focus-visible {
+    outline: 2px solid var(--um-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+}

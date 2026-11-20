@@ -73,6 +73,13 @@ public sealed class GetDesktopSalesAnalysisHandler(
                     (int)response.StatusCode,
                     detail);
 
+                // A stock account with no sales partner set: the API says so with a 404 and a detail.
+                // A 404 without one is a missing route (an older API), which stays a failure below.
+                if (response.StatusCode == HttpStatusCode.NotFound && detail is not null)
+                {
+                    return Errors.Report.SalesPartnerNotAssigned(detail);
+                }
+
                 // The API's own words where it gave some. A refused warehouse and a period that is too
                 // long are both things the operator can act on, and "failed to load" is not.
                 return Errors.Report.LoadDesktopSalesAnalysisFailed(response.StatusCode switch

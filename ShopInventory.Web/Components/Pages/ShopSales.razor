@@ -1,0 +1,316 @@
+@page "/shop-sales"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis
+@attribute [Authorize(Roles = UserRoles.ShopSalesRoles)]
+@rendermode InteractiveServer
+@inject PageLifetime PageLifetime
+
+<PageTitle>Sales - Kefalos Cheese</PageTitle>
+
+@* The sales of the business partner set on a ShopStock account, linked from the shop stock dashboard's
+   "Sales today" card and the menu. Drawn in the "ShopStock partner sales" design canvas.
+
+   Built on the dashboard kit (dashboard.css) and the shared period bar; its own pieces (the partner chip,
+   the bars, the share meters) are in shop-sales.css. Gross profit is not asked for: a stock account is
+   not shown margin. *@
+
+<div class="dsh ssl">
+
+    <header class="dsh-head">
+        <div class="dsh-head-inner">
+            <nav class="dsh-crumbs" aria-label="Breadcrumb">
+                <a href="/shop-stock-dashboard">Dashboard</a>
+                <span class="dsh-crumb-sep" aria-hidden="true">/</span>
+                <span class="dsh-crumb-now" aria-current="page">Sales</span>
+            </nav>
+
+            <div class="dsh-head-meta">
+                @if (report is not null)
+                {
+                    <button type="button" class="dsh-btn dsh-btn-ghost" disabled="@isExporting" @onclick="ExportAsync">
+                        <DashIcon Name="arrow-down" Size="15" />
+                        @(isExporting ? "Making the workbook…" : "Export to Excel")
+                    </button>
+                }
+            </div>
+        </div>
+    </header>
+
+    <div class="dsh-body">
+
+        @* One child: the kit's hero is a space-between row, which spread three loose children across the page. *@
+        <section class="dsh-hero">
+            <div>
+                <div class="dsh-kicker">Sales</div>
+                <h1>Sales on your business partner</h1>
+                @if (report?.CardCode is { } partnerCode)
+                {
+                    <p class="ssl-partner">
+                        <span class="ssl-chip"><span class="ssl-chip-code">@partnerCode</span> @PartnerName</span>
+                        <span>Set on your account. You see this business partner's till sales only.</span>
+                    </p>
+                }
+            </div>
+        </section>
+
+        @if (noPartner)
+        {
+            <section class="dsh-panel ssl-empty" aria-labelledby="ssl-none-heading">
+                <span class="ssl-empty-icon" aria-hidden="true"><DashIcon Name="users" Size="22" /></span>
+                <h2 id="ssl-none-heading">No business partner on your account yet</h2>
+                <p>@(noPartnerMessage ?? "Sales are shown for the business partner an administrator links to your account.")</p>
+                <p>Your stock pages work as before.</p>
+                <a class="dsh-btn dsh-btn-ghost" href="/shop-stock-dashboard">Back to the dashboard</a>
+            </section>
+        }
+        else
+        {
+            <VanReportPeriodBar IdPrefix="ssl" @bind-From="fromDate" @bind-To="toDate"
+                                OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="readAtUtc"
+                                ShownFrom="report?.FromDate" ShownTo="report?.ToDate"
+                                AriaLabel="Sales period" />
+
+            @if (error is not null)
+            {
+                <div class="dsh-state ssl-error" role="alert">@error</div>
+            }
+
+            @if (report is { Currencies.Count: > 1 })
+            {
+                <div class="ssl-currencies" role="group" aria-label="Currency">
+                    @foreach (var sold in report.Currencies)
+                    {
+                        var on = sold.Currency == Section?.Currency;
+                        <button type="button" class="@(on ? "ssl-on" : null)" aria-pressed="@(on ? "true" : "false")"
+                                @onclick="() => PickCurrency(sold.Currency)">@sold.Currency</button>
+                    }
+                </div>
+            }
+
+            @if (isLoading && report is null)
+            {
+                <div class="dsh-state" role="status">
+                    <span class="dsh-spin" aria-hidden="true"></span>
+                    <span>Reading the sales&#8230;</span>
+                </div>
+            }
+            else if (report is not null && Section is null)
+            {
+                <div class="dsh-state">No sales on this business partner @VanReportPeriod.Describe(report.FromDate, report.ToDate).</div>
+            }
+            else if (Section is { } section)
+            {
+                <section class="dsh-stats ssl-stats" aria-label="Totals">
+                    <StatCard Label="Sales incl. VAT"
+                              Value="@Money(section.TotalAmount)"
+                              ValueLabel="@(TrendNote(section) ?? "What the tills rang up")"
+                              Icon="receipt"
+                              IsLead="true" />
+                    <StatCard Label="Value before VAT"
+                              Value="@Money(section.NetAmount)"
+                              ValueLabel="@($"VAT {Money(section.VatAmount)}")"
+                              Icon="card" />
+                    <StatCard Label="Sales"
+                              Value="@Count(section.SalesCount)"
+                              ValueLabel="@($"Average {Money(section.AverageSale)} a sale")"
+                              Icon="list-check" />
+                    <StatCard Label="Credited back"
+                              Value="@Money(section.CreditedAmount)"
+                              ValueLabel="@(section.CreditedSalesCount == 1 ? "On 1 sale" : $"On {Count(section.CreditedSalesCount)} sales")"
+                              Icon="swap" />
+                    <StatCard Label="Not yet in SAP"
+                              Value="@(unpostedCount is { } waiting ? Count(waiting) : "—")"
+                              ValueLabel="Sales waiting for a posting run, or refused"
+                              Tone="@(unpostedCount is > 0 ? StatTone.Warn : unpostedCount == 0 ? StatTone.Ok : StatTone.Neutral)"
+                              Icon="hourglass" />
+                </section>
+
+                var bars = Bars(section);
+                var max = bars.Count == 0 ? 0m : bars.Max(bar => bar.Amount);
+                <section class="dsh-panel" aria-labelledby="ssl-trend-heading">
+                    <header class="dsh-panel-head">
+                        <span class="dsh-panel-icon"><DashIcon Name="clock" Size="15" /></span>
+                        <h2 id="ssl-trend-heading">@ChartTitle</h2>
+                        <span class="ssl-panel-note">Sales incl. VAT · highest @Money(max)</span>
+                    </header>
+                    @if (bars.Count == 0)
+                    {
+                        <div class="dsh-state">Nothing sold in this period.</div>
+                    }
+                    else
+                    {
+                        <div class="ssl-chart" role="img" aria-label="@($"{ChartTitle}, highest {Money(max)}")">
+                            <div class="ssl-bars">
+                                @foreach (var bar in bars)
+                                {
+                                    <div class="ssl-bar" title="@bar.Title">
+                                        <span style="height:@BarHeight(bar.Amount, max)"></span>
+                                    </div>
+                                }
+                            </div>
+                            <div class="ssl-axis" aria-hidden="true">
+                                @foreach (var bar in bars)
+                                {
+                                    <span>@(bar.Labelled ? bar.Label : null)</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </section>
+
+                <section class="dsh-panels" aria-label="Items and shops">
+                    <section class="dsh-panel" aria-labelledby="ssl-items-heading">
+                        <header class="dsh-panel-head">
+                            <span class="dsh-panel-icon"><DashIcon Name="box" Size="15" /></span>
+                            <h2 id="ssl-items-heading">What sold</h2>
+                        </header>
+                        @{ var items = TopItems(section); var topShare = items.Count == 0 ? 0m : items.Max(item => item.ShareOfNetPercent); }
+                        @if (items.Count == 0)
+                        {
+                            <div class="dsh-state">No item lines in this period.</div>
+                        }
+                        else
+                        {
+                            <div class="dsh-scroll">
+                                <table class="dsh-table">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Item</th>
+                                            <th scope="col" class="dsh-th-money">Qty</th>
+                                            <th scope="col" class="dsh-th-money">Before VAT</th>
+                                            <th scope="col">Share</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var item in items)
+                                        {
+                                            <tr>
+                                                <td class="dsh-name" title="@item.ItemCode">@(string.IsNullOrWhiteSpace(item.ItemDescription) ? item.ItemCode : item.ItemDescription)</td>
+                                                <td class="dsh-money">@Quantity(item.Quantity)</td>
+                                                <td class="dsh-money">@Money(item.NetAmount)</td>
+                                                <td>
+                                                    <div class="ssl-share">
+                                                        <span class="ssl-share-track" aria-hidden="true"><span style="width:@ShareWidth(item.ShareOfNetPercent, topShare)"></span></span>
+                                                        <span>@item.ShareOfNetPercent.ToString("0", System.Globalization.CultureInfo.InvariantCulture)%</span>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="ssl-note">The @items.Count best sellers by value before VAT.</p>
+                        }
+                    </section>
+
+                    <section class="dsh-panel" aria-labelledby="ssl-where-heading">
+                        <header class="dsh-panel-head">
+                            <span class="dsh-panel-icon"><DashIcon Name="clipboard-data" Size="15" /></span>
+                            <h2 id="ssl-where-heading">Where they were rung up</h2>
+                        </header>
+                        @if (section.ByWarehouse.Count == 0)
+                        {
+                            <div class="dsh-state">Nothing to break down.</div>
+                        }
+                        else
+                        {
+                            <div class="dsh-scroll">
+                                <table class="dsh-table">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Shop</th>
+                                            <th scope="col" class="dsh-th-money">Sales</th>
+                                            <th scope="col" class="dsh-th-money">Incl. VAT</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in section.ByWarehouse)
+                                        {
+                                            <tr>
+                                                <td class="dsh-name" title="@row.Key">@row.Label</td>
+                                                <td class="dsh-money">@Count(row.SalesCount)</td>
+                                                <td class="dsh-money">@Money(row.TotalAmount)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="ssl-note">Every till sale made as this business partner, at whichever shop. Gross profit is not shown on stock accounts.</p>
+                        }
+                    </section>
+                </section>
+            }
+
+            <section class="dsh-panel" aria-labelledby="ssl-list-heading">
+                <header class="dsh-panel-head ssl-list-head">
+                    <span class="dsh-panel-icon"><DashIcon Name="receipt" Size="15" /></span>
+                    <h2 id="ssl-list-heading">Sales, latest first</h2>
+                    <div class="ssl-search">
+                        <label for="ssl-search">Search</label>
+                        <input id="ssl-search" type="search" placeholder="Sale number, receipt or amount"
+                               @bind="search" @bind:event="oninput" @onkeydown="OnSearchKeyAsync" />
+                        <button type="button" class="dsh-btn dsh-btn-ghost" @onclick="SearchAsync">Find</button>
+                    </div>
+                </header>
+
+                @if (isLoadingList && list is null)
+                {
+                    <div class="dsh-state" role="status">
+                        <span class="dsh-spin" aria-hidden="true"></span>
+                        <span>Listing the sales&#8230;</span>
+                    </div>
+                }
+                else if (listError is not null)
+                {
+                    <div class="dsh-state">@listError</div>
+                }
+                else if (list is { Sales.Count: > 0 })
+                {
+                    <div class="dsh-scroll">
+                        <table class="dsh-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">When</th>
+                                    <th scope="col">Sale</th>
+                                    <th scope="col">Shop</th>
+                                    <th scope="col">Paid by</th>
+                                    <th scope="col" class="dsh-th-money">Total</th>
+                                    <th scope="col">In SAP</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var sale in list.Sales)
+                                {
+                                    var standing = SapStanding(sale);
+                                    <tr>
+                                        <td class="dsh-when">@When(sale)</td>
+                                        <td class="dsh-doc">@sale.Number</td>
+                                        <td>@sale.WarehouseCode</td>
+                                        <td>@Payment(sale)</td>
+                                        <td class="dsh-money">@Money(sale.TotalAmount, sale.Currency)</td>
+                                        <td><span class="dsh-tag @standing.Tag">@standing.Label</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="dsh-state">@(shownSearch.Length > 0 ? $"No sales match “{shownSearch}”." : "No sales in this period.")</div>
+                }
+
+                @if (list is { TotalCount: > 0 })
+                {
+                    <div class="ssl-pager">
+                        <span aria-live="polite">@ListSummary</span>
+                        <div>
+                            <button type="button" class="dsh-btn dsh-btn-ghost" disabled="@(listPage <= 1 || isLoadingList)" @onclick="() => PageAsync(-1)">Previous</button>
+                            <button type="button" class="dsh-btn dsh-btn-ghost" disabled="@(!list.HasMore || isLoadingList)" @onclick="() => PageAsync(1)">Next</button>
+                        </div>
+                    </div>
+                }
+            </section>
+        }
+    </div>
+</div>

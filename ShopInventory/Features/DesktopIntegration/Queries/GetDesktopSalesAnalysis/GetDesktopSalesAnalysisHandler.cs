@@ -94,10 +94,19 @@ public sealed class GetDesktopSalesAnalysisHandler(
             .Include(user => user.Shop)
             .FirstOrDefaultAsync(user => user.Id == request.CallerUserId, cancellationToken);
 
-        var scope = DesktopSalesReadScopeResolver.Resolve(caller);
+        // The partner-aware form: a ShopStock account reads the one business partner on its account.
+        var scope = DesktopSalesReadScopeResolver.ResolveForPartnerReads(caller);
         if (scope.IsError)
         {
             return scope.Errors;
+        }
+
+        // A partner-confined caller is narrowed to their partner and refused another; for everyone else
+        // the card code stays a filter.
+        var partner = scope.Value.NarrowPartner(request.CardCode);
+        if (partner.IsError)
+        {
+            return partner.Errors;
         }
 
         var readScope = scope.Value.Narrow(request.WarehouseCode);
@@ -113,7 +122,7 @@ public sealed class GetDesktopSalesAnalysisHandler(
         var paymentMethod = string.IsNullOrWhiteSpace(request.PaymentMethod)
             ? null
             : TenderTypes.ReportingName(request.PaymentMethod);
-        var cardCode = string.IsNullOrWhiteSpace(request.CardCode) ? null : request.CardCode.Trim();
+        var cardCode = partner.Value;
 
         IQueryable<DesktopSaleEntity> Scope(DateTime windowFrom, DateTime windowTo)
         {

@@ -59,10 +59,18 @@ public sealed class GetDesktopSalesHandler(
             .Include(user => user.Shop)
             .FirstOrDefaultAsync(user => user.Id == request.CallerUserId, cancellationToken);
 
-        var scope = DesktopSalesReadScopeResolver.Resolve(caller);
+        // The partner-aware form: a ShopStock account reads the one business partner on its account.
+        var scope = DesktopSalesReadScopeResolver.ResolveForPartnerReads(caller);
         if (scope.IsError)
         {
             return scope.Errors;
+        }
+
+        // Naming another partner is refused; the partner itself is applied in Common(), below.
+        var partnerCheck = scope.Value.NarrowPartner(request.CardCode);
+        if (partnerCheck.IsError)
+        {
+            return partnerCheck.Errors;
         }
 
         // Refused rather than narrowed when a confined caller names another shop, and narrowed rather
@@ -85,6 +93,7 @@ public sealed class GetDesktopSalesHandler(
         // in order to be any use. Folding them into one would either leak another shop's counts or count
         // only the chip already pressed.
         var scopeWarehouse = scope.Value.WarehouseCode;
+        var scopePartner = scope.Value.PartnerCode;
         var warehouses = narrowed.Value;
 
         var sources = Combine(request.SourceSystem, request.SourceSystems);
@@ -103,6 +112,10 @@ public sealed class GetDesktopSalesHandler(
 
             if (scopeWarehouse is not null)
                 q = q.Where(s => s.WarehouseCode == scopeWarehouse);
+
+            // Part of the scope, not the filter, so the facet counts never reach another partner's sales.
+            if (scopePartner is not null)
+                q = q.Where(s => s.CardCode == scopePartner);
 
             if (request.FromDate.HasValue)
                 q = q.Where(s => s.DocDate >= request.FromDate.Value.Date);

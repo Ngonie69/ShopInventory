@@ -43,6 +43,15 @@
                                 <span class="snav-text">Live transactions</span>
                             </NavLink>
                         </AuthorizeView>
+                        @* The stock user's own partner's sales, next to the dashboard that leads to them. *@
+                        <AuthorizeView Roles="@UserRoles.ShopSalesRoles" Context="shopSalesCtx">
+                            <NavLink class="snav-link" href="/shop-sales" Match="NavLinkMatch.All">
+                                <span class="snav-icon">
+                                    <i class="ph ph-receipt" aria-hidden="true"></i>
+                                </span>
+                                <span class="snav-text">Sales</span>
+                            </NavLink>
+                        </AuthorizeView>
                     </NavSection>
                 </Authorized>
             </AuthorizeView>

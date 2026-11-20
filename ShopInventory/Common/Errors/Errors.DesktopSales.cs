@@ -240,6 +240,25 @@ public static partial class Errors
             Error.Forbidden("DesktopSales.SalesReadOutsideScope",
                 $"This account can only read sales for warehouse '{assigned}', not '{requested}'.");
 
+        /// <summary>
+        /// A ShopStock account with no business partner set reads no sales.
+        /// </summary>
+        /// <remarks>
+        /// A 404 rather than a 403: the account is allowed to read sales, there are just none it has been
+        /// given yet, and /shop-sales says so in words rather than as an error.
+        /// </remarks>
+        public static Error SalesPartnerNotAssigned =>
+            Error.NotFound("DesktopSales.SalesPartnerNotAssigned",
+                "No business partner is set on this account, so there are no sales to show. An administrator sets it under Users.");
+
+        /// <summary>
+        /// A partner-confined caller named another business partner.
+        /// </summary>
+        /// <remarks>Refused rather than rewritten, for the reason <see cref="SalesReadOutsideScope"/> gives.</remarks>
+        public static Error SalesPartnerOutsideScope(string requested, string assigned) =>
+            Error.Forbidden("DesktopSales.SalesPartnerOutsideScope",
+                $"This account can only read sales for business partner '{assigned}', not '{requested}'.");
+
         // --- Posting a sale to SAP on request ---
         //
         // The manual and bulk levers on the desktop sales console. Every one of these is a refusal to

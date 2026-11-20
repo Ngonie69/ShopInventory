@@ -282,6 +282,13 @@ public class UserDetailDto
     public string? AssignedSection { get; set; }
     public string? AssignedBusinessPartnerCode { get; set; }
     public string? AssignedCostCentreCode { get; set; }
+
+    /// <summary>
+    /// The business partner whose sales a ShopStock account reads at /shop-sales. Read-only: nothing
+    /// sells under it, unlike <see cref="AssignedBusinessPartnerCode"/>.
+    /// </summary>
+    public string? SalesBusinessPartnerCode { get; set; }
+
     /// <summary>The depot a van loads from — the source of its transfer requests.</summary>
     public string? SupplyingWarehouseCode { get; set; }
 
@@ -371,6 +378,12 @@ public class CreateUserDetailRequest
     /// Assigned cost centre code for ADR/Sales van sales processing.
     /// </summary>
     public string? AssignedCostCentreCode { get; set; }
+
+    /// <summary>
+    /// The business partner whose sales a ShopStock account reads at /shop-sales. Read-only: nothing
+    /// sells under it, unlike <see cref="AssignedBusinessPartnerCode"/>.
+    /// </summary>
+    public string? SalesBusinessPartnerCode { get; set; }
 
     /// <summary>
     /// The warehouse an ADR/Sales van is loaded from, and so the source of its transfer requests.
@@ -463,6 +476,12 @@ public class UpdateUserDetailRequest
     /// Assigned cost centre code for ADR/Sales van sales processing.
     /// </summary>
     public string? AssignedCostCentreCode { get; set; }
+
+    /// <summary>
+    /// The business partner whose sales a ShopStock account reads at /shop-sales. Read-only: nothing
+    /// sells under it, unlike <see cref="AssignedBusinessPartnerCode"/>.
+    /// </summary>
+    public string? SalesBusinessPartnerCode { get; set; }
 
     /// <summary>
     /// The warehouse an ADR/Sales van is loaded from, and so the source of its transfer requests.

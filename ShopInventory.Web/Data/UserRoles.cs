@@ -417,6 +417,12 @@ public static class UserRoles
     public const string ShopStockDashboardRoles = "Admin,ShopStock,Manager";
 
     /// <summary>
+    /// Who can open /shop-sales: the ShopStock user, reading the sales of the business partner on their
+    /// account. Nobody else has one; the administrator and manager read every partner at /reports/desktop-sales.
+    /// </summary>
+    public const string ShopSalesRoles = "ShopStock";
+
+    /// <summary>
     /// Who can open /stock-in-hand: every role that looks after a warehouse's stock, each scoped to the
     /// warehouses on their own account, plus the manager, who reads it.
     /// </summary>
@@ -528,6 +534,14 @@ public static class UserRoles
     /// </remarks>
     public static bool SellsUnderOwnBusinessPartner(string? role) =>
         IsOneOf(role, Adr, Sales, CartVendor);
+
+    /// <summary>
+    /// Whether an account in <paramref name="role"/> reads one business partner's sales at /shop-sales,
+    /// set on the user form as <c>SalesBusinessPartnerCode</c>. A read grant only: nothing sells under it.
+    /// </summary>
+    /// <remarks>The web copy of <c>ApplicationRoles.SupportsSalesBusinessPartnerCode</c>.</remarks>
+    public static bool SeesAssignedPartnerSales(string? role) =>
+        IsOneOf(role, ShopStock);
 
     /// <summary>
     /// Whether an account in <paramref name="role"/> is a van loaded from a depot, and so also carries

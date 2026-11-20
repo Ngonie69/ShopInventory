@@ -301,6 +301,7 @@ Account
 ## ShopStock
 Overview
     Dashboard  /shop-stock-dashboard
+    Sales  /shop-sales
 Inventory
     Stock in Hand  /stock-in-hand
     Transfers  /inventory-transfers
