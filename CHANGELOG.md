@@ -515,6 +515,18 @@ otherwise be surprised.
     page says the items are every partner added together.
   - The exported workbook is the channel on screen, and is titled with it.
 
+### Removed
+
+- **`SAP:SwipeTransferAccount` and `SAP:SwipeCreditCardCode` are gone, and so is the deploy's warning
+  about them.** Nothing had read either setting since the daily payment moved to a G/L mapping per
+  business partner (2026-09-19). A swipe reaches SAP as transfer money in the partner's
+  `ElectronicAccount`, set on the G/L accounts tab of /reports/desktop-sales/payments. Each deploy was
+  still logging "SAP__SwipeTransferAccount is not configured, so card swipes stay Unmapped" when nothing
+  was unsettled. `Update-Production.ps1` no longer takes `-SapSwipeTransferAccount` or reads
+  `SHOPINVENTORY_SAP_SWIPE_TRANSFER_ACCOUNT`, and the deploy workflow no longer reads the
+  `SAP_SWIPE_TRANSFER_ACCOUNT` repo variable. Where a slot's web.config still holds
+  `SAP__SwipeTransferAccount`, the API ignores it.
+
 ### Added
 
 - **The till can see which lines of a sale were credited, and which credit notes put stock back.**
