@@ -78,11 +78,11 @@
             @if (report is { Currencies.Count: > 1 })
             {
                 <div class="ssl-currencies" role="group" aria-label="Currency">
-                    @foreach (var section in report.Currencies)
+                    @foreach (var sold in report.Currencies)
                     {
-                        var on = section.Currency == Section?.Currency;
+                        var on = sold.Currency == Section?.Currency;
                         <button type="button" class="@(on ? "ssl-on" : null)" aria-pressed="@(on ? "true" : "false")"
-                                @onclick="() => PickCurrency(section.Currency)">@section.Currency</button>
+                                @onclick="() => PickCurrency(sold.Currency)">@sold.Currency</button>
                     }
                 </div>
             }
