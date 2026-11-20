@@ -259,6 +259,13 @@ public sealed class CreateUserHandler(
             user.AssignedCostCentreCode = request.AssignedCostCentreCode?.Trim();
         }
 
+        if (ApplicationRoles.SupportsSalesBusinessPartnerCode(request.Role))
+        {
+            user.SalesBusinessPartnerCode = string.IsNullOrWhiteSpace(request.SalesBusinessPartnerCode)
+                ? null
+                : request.SalesBusinessPartnerCode.Trim();
+        }
+
         if (ApplicationRoles.RequiresSupplyingWarehouseCode(request.Role))
         {
             user.SupplyingWarehouseCode = request.SupplyingWarehouseCode?.Trim();
@@ -338,6 +345,7 @@ public sealed class CreateUserHandler(
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = user.AssignedCostCentreCode,
+            SalesBusinessPartnerCode = user.SalesBusinessPartnerCode,
             SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             RouteId = user.RouteId,
             FiscalDeviceId = user.FiscalDeviceId,

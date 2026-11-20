@@ -547,6 +547,9 @@ public class UserModel
     public List<string> AssignedCustomerCodes { get; set; } = new();
     public string? AssignedBusinessPartnerCode { get; set; }
     public string? AssignedCostCentreCode { get; set; }
+
+    /// <summary>The business partner whose sales a ShopStock account reads at /shop-sales.</summary>
+    public string? SalesBusinessPartnerCode { get; set; }
     /// <summary>The depot a van loads from — the source of its stock transfer requests.</summary>
     public string? SupplyingWarehouseCode { get; set; }
 

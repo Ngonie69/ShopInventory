@@ -9724,6 +9724,10 @@ namespace ShopInventory.Migrations
                     b.Property<int?>("RouteId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("SalesBusinessPartnerCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<int?>("ShopId")
                         .HasColumnType("integer");
 

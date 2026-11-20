@@ -134,6 +134,7 @@ public sealed class GetUsersHandler(
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = user.AssignedCostCentreCode,
+            SalesBusinessPartnerCode = user.SalesBusinessPartnerCode,
             SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             ShopId = user.ShopId,
             ShopCode = user.Shop?.Code,

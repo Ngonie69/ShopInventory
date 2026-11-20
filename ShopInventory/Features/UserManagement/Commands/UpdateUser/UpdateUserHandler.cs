@@ -200,6 +200,14 @@ public sealed class UpdateUserHandler(
             user.AssignedCostCentreCode = null;
         }
 
+        // A read grant, so a user moved off ShopStock loses it: a promotion should not leave them
+        // holding a view of one partner's takings that no page of their new role explains.
+        user.SalesBusinessPartnerCode =
+            ApplicationRoles.SupportsSalesBusinessPartnerCode(user.Role) &&
+            !string.IsNullOrWhiteSpace(command.Request.SalesBusinessPartnerCode)
+                ? command.Request.SalesBusinessPartnerCode.Trim()
+                : null;
+
         if (ApplicationRoles.RequiresSupplyingWarehouseCode(user.Role))
         {
             user.SupplyingWarehouseCode = command.Request.SupplyingWarehouseCode?.Trim();
@@ -377,6 +385,7 @@ public sealed class UpdateUserHandler(
                 .SetProperty(x => x.AssignedSection, user.AssignedSection)
                 .SetProperty(x => x.AssignedBusinessPartnerCode, user.AssignedBusinessPartnerCode)
                 .SetProperty(x => x.AssignedCostCentreCode, user.AssignedCostCentreCode)
+                .SetProperty(x => x.SalesBusinessPartnerCode, user.SalesBusinessPartnerCode)
                 .SetProperty(x => x.SupplyingWarehouseCode, user.SupplyingWarehouseCode)
                 .SetProperty(x => x.ShopId, user.ShopId)
                 .SetProperty(x => x.RouteId, user.RouteId)

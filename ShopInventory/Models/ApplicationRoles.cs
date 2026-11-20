@@ -362,6 +362,13 @@ public static class ApplicationRoles
     public static bool RequiresAssignedBusinessPartnerCode(string? role)
         => UsesRouteCustomerScope(role);
 
+    /// <summary>
+    /// Whether the role reads the sales of one business partner, set on the account as
+    /// <see cref="User.SalesBusinessPartnerCode"/>. Optional: until one is set the account reads none.
+    /// </summary>
+    public static bool SupportsSalesBusinessPartnerCode(string? role)
+        => Contains([ShopStock], role);
+
     public static bool RequiresAssignedCostCentreCode(string? role)
         => UsesRouteCustomerScope(role);
 

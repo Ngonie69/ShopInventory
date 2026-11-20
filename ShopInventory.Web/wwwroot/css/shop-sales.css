@@ -1,0 +1,301 @@
+/* ==========================================================================
+   /shop-sales — a ShopStock account's business partner sales
+
+   On the dashboard kit (dashboard.css), reading its --dsh-* tokens for both
+   themes, so nothing here restates a colour: light and dark come from the
+   kit's `.dsh` and `.dark-theme .dsh` blocks. Every selector is two classes
+   deep for the reason the kit gives (app.css's global dark rules).
+
+   The pieces the kit has no rule for: the partner chip, the five-up totals,
+   the bar chart, the share meters, the currency switch, the search row and
+   the pager. Drawn in the "ShopStock partner sales" design canvas.
+   ========================================================================== */
+
+/* The kit's crumbs are plain text; this page's first one is a link back to the dashboard. Without a
+   rule of its own it took app.css's global link colour, near-white on the light theme's ground. */
+.dsh .dsh-crumbs a {
+    color: var(--dsh-mute-2);
+    text-decoration: none;
+}
+
+.dsh .dsh-crumbs a:hover {
+    color: var(--dsh-ink);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.dsh .dsh-crumbs a:focus-visible {
+    outline: 2px solid var(--dsh-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+.dsh .ssl-partner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--dsh-s3);
+    margin: var(--dsh-s3) 0 0;
+    color: var(--dsh-mute-2);
+    font-size: 13px;
+}
+
+.dsh .ssl-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--dsh-s3);
+    padding: 4px 12px 4px 5px;
+    border: 1px solid var(--dsh-divider);
+    border-radius: 999px;
+    background: var(--dsh-surface);
+    color: var(--dsh-ink);
+    font-weight: 500;
+}
+
+.dsh .ssl-chip-code {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(var(--dsh-accent-rgb), .16);
+    color: var(--dsh-accent-text);
+    font: 500 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Five figures rather than the kit's three. */
+.dsh .ssl-stats {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 1320px) {
+    .dsh .ssl-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 860px) {
+    .dsh .ssl-stats { grid-template-columns: minmax(0, 1fr); }
+}
+
+.dsh .ssl-error {
+    border: 1px solid var(--dsh-crit-edge);
+    border-radius: var(--dsh-r-md);
+    background: var(--dsh-crit-bg);
+    color: var(--dsh-crit-ink);
+}
+
+/* ── Currency switch, when the period sold in more than one ─────────────── */
+
+.dsh .ssl-currencies {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--dsh-divider);
+    border-radius: var(--dsh-r-md);
+    background: var(--dsh-surface);
+    align-self: flex-start;
+}
+
+.dsh .ssl-currencies button {
+    min-height: 36px;
+    padding: 0 14px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--dsh-mute);
+    font: 500 13px Inter, system-ui, sans-serif;
+    cursor: pointer;
+}
+
+.dsh .ssl-currencies button.ssl-on {
+    border-color: var(--dsh-accent);
+    background: rgba(var(--dsh-accent-rgb), .16);
+    color: var(--dsh-ink);
+}
+
+/* ── The bars ────────────────────────────────────────────────────────────── */
+
+.dsh .ssl-panel-note {
+    margin-left: auto;
+    color: var(--dsh-mute-3);
+    font-size: 12px;
+}
+
+.dsh .ssl-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--dsh-s4) var(--dsh-s6) var(--dsh-s6);
+}
+
+.dsh .ssl-bars,
+.dsh .ssl-axis {
+    display: flex;
+    gap: 4px;
+}
+
+.dsh .ssl-bars {
+    height: 190px;
+    align-items: stretch;
+    border-bottom: 1px solid var(--dsh-divider);
+}
+
+.dsh .ssl-bar {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+}
+
+.dsh .ssl-bar > span {
+    display: block;
+    border-radius: 3px 3px 0 0;
+    background: var(--dsh-accent);
+}
+
+.dsh .ssl-bar:hover > span {
+    background: var(--dsh-accent-text);
+}
+
+.dsh .ssl-axis > span {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--dsh-mute-3);
+    font-size: 11px;
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* ── Share meters in What sold ───────────────────────────────────────────── */
+
+.dsh .ssl-share {
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-s3);
+    min-width: 120px;
+    color: var(--dsh-mute-2);
+    font-size: 12px;
+}
+
+.dsh .ssl-share-track {
+    flex: 1 1 auto;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--dsh-field-bg);
+    overflow: hidden;
+}
+
+.dsh .ssl-share-track > span {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--dsh-accent);
+}
+
+.dsh .ssl-note {
+    margin: 0;
+    padding: var(--dsh-s3) var(--dsh-s6) var(--dsh-s6);
+    color: var(--dsh-mute-3);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+/* ── The list ────────────────────────────────────────────────────────────── */
+
+.dsh .ssl-list-head {
+    flex-wrap: wrap;
+}
+
+.dsh .ssl-search {
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-s3);
+    margin-left: auto;
+    color: var(--dsh-mute-2);
+    font-size: 13px;
+}
+
+.dsh .ssl-search input {
+    width: 240px;
+    max-width: 100%;
+    min-height: 40px;
+    box-sizing: border-box;
+    padding: 0 12px;
+    border: 1px solid var(--dsh-field-edge);
+    border-radius: var(--dsh-r-md);
+    background: var(--dsh-field-bg);
+    color: var(--dsh-ink);
+    font: 14px Inter, system-ui, sans-serif;
+}
+
+.dsh .ssl-search input:focus-visible {
+    outline: 2px solid var(--dsh-accent);
+    outline-offset: 1px;
+    border-color: var(--dsh-field-edge-hi);
+}
+
+.dsh .ssl-tag-warn {
+    border-color: var(--dsh-warn-edge);
+    background: var(--dsh-warn-bg);
+    color: var(--dsh-warn-ink);
+}
+
+.dsh .ssl-tag-mute {
+    color: var(--dsh-mute-2);
+}
+
+.dsh .ssl-pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--dsh-s3);
+    padding: var(--dsh-s4) var(--dsh-s6) var(--dsh-s6);
+    color: var(--dsh-mute-2);
+    font-size: 13px;
+}
+
+.dsh .ssl-pager > div {
+    display: flex;
+    gap: var(--dsh-s3);
+}
+
+/* ── No partner on the account ───────────────────────────────────────────── */
+
+.dsh .ssl-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--dsh-s3);
+    padding: 48px var(--dsh-s8);
+    text-align: center;
+}
+
+.dsh .ssl-empty h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+}
+
+.dsh .ssl-empty p {
+    max-width: 460px;
+    margin: 0;
+    color: var(--dsh-mute-2);
+    font-size: 14px;
+    line-height: 1.55;
+}
+
+.dsh .ssl-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: rgba(var(--dsh-accent-rgb), .16);
+    color: var(--dsh-accent-text);
+}
+
+@media (max-width: 640px) {
+    .dsh .ssl-search { margin-left: 0; width: 100%; }
+    .dsh .ssl-search input { flex: 1 1 auto; width: auto; }
+    .dsh .ssl-panel-note { margin-left: 0; width: 100%; }
+}

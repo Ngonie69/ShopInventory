@@ -562,6 +562,33 @@
                                             (@userModel.AssignedWarehouseCodes.Count selected)</small>
                                         </div>
                                     }
+                                    @if (UserRoles.SeesAssignedPartnerSales(userModel.Role))
+                                    {
+                                        <div class="um-form-field">
+                                            <label>Business partner whose sales they see</label>
+                                            @* Its own field, not "Assigned Business Partner": that one is
+                                               what an account sells under, and a stock user given it would
+                                               be able to ring up sales. This one only opens /shop-sales.
+                                               Optional: without it the page says none is set. *@
+                                            <NocturnePicker Class="npick-block npick-bs"
+                                                            Options="customerPickerOptions"
+                                                            @bind-Value="userModel.SalesBusinessPartnerCode"
+                                                            Loading="isLoadingCustomers"
+                                                            Placeholder="Select business partner"
+                                                            SearchPlaceholder="Search by code or name…"
+                                                            EmptyText="No customers loaded"
+                                                            AriaLabel="Business partner whose sales they see" />
+                                            <small class="um-form-hint">
+                                                They see every till sale made as this business partner on the Sales page, and nothing else.
+                                                @if (SuggestedSalesPartner is { } suggestion && suggestion.Code != userModel.SalesBusinessPartnerCode)
+                                                {
+                                                    <span> The shop on @suggestion.Warehouse sells as
+                                                        <button type="button" class="um-link-btn"
+                                                                @onclick="() => userModel.SalesBusinessPartnerCode = suggestion.Code">@suggestion.Label</button>.</span>
+                                                }
+                                            </small>
+                                        </div>
+                                    }
                                     @if (userModel.Role == "Merchandiser" || UserRoles.SellsUnderOwnBusinessPartner(userModel.Role))
                                     {
                                         <div class="um-form-field">
@@ -1046,6 +1073,30 @@
     /// </summary>
     private List<ShopDto> ShopOptions = new();
     private bool isLoadingShops = false;
+
+    /// <summary>
+    /// The business partner the shop on the stock user's warehouse sells as, offered under the sales-partner
+    /// picker as a one-click fill. Null when no active shop sits on any of their warehouses.
+    /// </summary>
+    private (string Code, string Label, string Warehouse)? SuggestedSalesPartner
+    {
+        get
+        {
+            var shop = ShopOptions
+                .Where(candidate => candidate.IsActive && !string.IsNullOrWhiteSpace(candidate.BusinessPartnerCode))
+                .FirstOrDefault(candidate => userModel.AssignedWarehouseCodes.Contains(
+                    candidate.WarehouseCode, StringComparer.OrdinalIgnoreCase));
+
+            if (shop is null)
+            {
+                return null;
+            }
+
+            var code = shop.BusinessPartnerCode.Trim();
+            var option = customerPickerOptions.FirstOrDefault(candidate => candidate.Value == code);
+            return (code, option?.Label ?? code, shop.WarehouseCode);
+        }
+    }
 
     /// <summary>
     /// What the chosen shop actually means for the till, spelled out under the picker — the whole
@@ -1538,6 +1589,7 @@ StringComparison.OrdinalIgnoreCase)))
                 AssignedCustomerCodes = u.AssignedCustomerCodes ?? new(),
                 AssignedBusinessPartnerCode = u.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = u.AssignedCostCentreCode,
+                SalesBusinessPartnerCode = u.SalesBusinessPartnerCode,
                 SupplyingWarehouseCode = u.SupplyingWarehouseCode,
                 RouteId = u.RouteId,
                 FiscalDeviceId = u.FiscalDeviceId,
@@ -1650,6 +1702,7 @@ StringComparison.OrdinalIgnoreCase)))
             AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = user.AssignedCostCentreCode,
+            SalesBusinessPartnerCode = user.SalesBusinessPartnerCode,
             SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             RouteId = user.RouteId,
             FiscalDeviceId = user.FiscalDeviceId,
@@ -1970,6 +2023,7 @@ StringComparison.OrdinalIgnoreCase)))
                 AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = user.AssignedCostCentreCode,
+                SalesBusinessPartnerCode = user.SalesBusinessPartnerCode,
                 SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             RouteId = user.RouteId,
             FiscalDeviceId = user.FiscalDeviceId,
@@ -2029,6 +2083,11 @@ StringComparison.OrdinalIgnoreCase)))
         {
             model.AssignedBusinessPartnerCode = null;
             model.AssignedCostCentreCode = null;
+        }
+
+        if (!UserRoles.SeesAssignedPartnerSales(model.Role))
+        {
+            model.SalesBusinessPartnerCode = null;
         }
         else
         {
@@ -2156,6 +2215,9 @@ StringComparison.OrdinalIgnoreCase)))
         public List<string> AssignedCustomerCodes { get; set; } = new();
         public string? AssignedBusinessPartnerCode { get; set; }
         public string? AssignedCostCentreCode { get; set; }
+
+        /// <summary>The business partner whose sales a ShopStock account reads at /shop-sales.</summary>
+        public string? SalesBusinessPartnerCode { get; set; }
         public string? SupplyingWarehouseCode { get; set; }
 
         /// <summary>The selling route this van runs, or null. Managed under Van Sales → Routes.</summary>
@@ -2204,6 +2266,9 @@ StringComparison.OrdinalIgnoreCase)))
         public List<string> AssignedCustomerCodes { get; set; } = new();
         public string? AssignedBusinessPartnerCode { get; set; }
         public string? AssignedCostCentreCode { get; set; }
+
+        /// <summary>The business partner whose sales a ShopStock account reads at /shop-sales.</summary>
+        public string? SalesBusinessPartnerCode { get; set; }
 
         /// <summary>
         /// The depot the van loads from — the source of its stock transfer requests, as opposed to

@@ -273,6 +273,20 @@ public class User
     public string? AssignedCostCentreCode { get; set; }
 
     /// <summary>
+    /// The business partner whose sales a ShopStock account may read, and the only one.
+    /// </summary>
+    /// <remarks>
+    /// Its own column rather than <see cref="AssignedBusinessPartnerCode"/>, which is what an account
+    /// sells under: <see cref="Common.Sales.SellingAccountResolver"/> reads that one for any role, so a
+    /// stock user given it alongside their warehouse would have become able to ring up sales on a till.
+    /// This one grants a read and nothing else, and only
+    /// <see cref="Common.Sales.DesktopSalesReadScopeResolver.ResolveForPartnerReads"/> looks at it.
+    /// Null for every role but <see cref="ApplicationRoles.ShopStock"/>.
+    /// </remarks>
+    [MaxLength(100)]
+    public string? SalesBusinessPartnerCode { get; set; }
+
+    /// <summary>
     /// The shop this account works the till at, which is where its business partner, warehouse and
     /// cost centre come from.
     /// </summary>

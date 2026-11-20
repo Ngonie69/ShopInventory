@@ -1,9 +1,11 @@
 using System.Globalization;
+using MediatR;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using ShopInventory.Web.Common;
 using ShopInventory.Web.Components.Dashboard;
 using ShopInventory.Web.Data;
+using ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
 
@@ -29,6 +31,7 @@ public partial class ShopStockDashboard
     [Inject] private IDesktopIntegrationService DesktopIntegration { get; set; } = default!;
     [Inject] private IMasterDataCacheService MasterData { get; set; } = default!;
     [Inject] private IAuditService AuditService { get; set; } = default!;
+    [Inject] private IMediator Mediator { get; set; } = default!;
     [Inject] private ILogger<ShopStockDashboard> Logger { get; set; } = default!;
 
     [CascadingParameter] private Task<AuthenticationState>? AuthTask { get; set; }
@@ -82,6 +85,18 @@ public partial class ShopStockDashboard
     private int? receivedLinesToday;
     private int? tillSalesToday;
 
+    /// <summary>
+    /// Whether the viewer is the ShopStock user, whose sales card is their business partner's takings
+    /// today in money and opens /shop-sales. Everyone else reading this dashboard keeps the till count.
+    /// </summary>
+    private bool isStockUser;
+
+    /// <summary>Today's takings on the stock user's partner, as "$1,234.50", or null until read.</summary>
+    private string? partnerSalesToday;
+
+    /// <summary>What sits under that figure: the count, another currency, or that no partner is set.</summary>
+    private string partnerSalesNote = "Reading…";
+
     private List<ShopMove> todayMoves = [];
     private string? movesError;
 
@@ -102,6 +117,7 @@ public partial class ShopStockDashboard
 
         _initialized = true;
         currentUsername = user.Identity?.Name ?? currentUsername;
+        isStockUser = user.IsInRole(UserRoles.ShopStock);
 
         await ResolveWarehouseAsync(user.FindAll("warehouse").Select(claim => claim.Value));
         await LoadAsync();
@@ -283,6 +299,12 @@ public partial class ShopStockDashboard
 
     private async Task LoadTillSalesAsync(int version)
     {
+        if (isStockUser)
+        {
+            await LoadPartnerSalesAsync(version);
+            return;
+        }
+
         var code = warehouse!;
         try
         {
@@ -299,6 +321,59 @@ public partial class ShopStockDashboard
         {
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    /// <summary>
+    /// The stock user's card: today's takings on the business partner set on their account, whichever
+    /// warehouse picker value is showing — the partner, not the warehouse, is what they were given.
+    /// </summary>
+    private async Task LoadPartnerSalesAsync(int version)
+    {
+        try
+        {
+            var today = VanReportPeriod.TodayCat;
+            var result = await Mediator.Send(new GetDesktopSalesAnalysisQuery(today, today, null));
+            if (version != dataVersion) return;
+
+            if (result.IsError)
+            {
+                partnerSalesToday = "—";
+                partnerSalesNote = result.FirstError.Code == "Report.SalesPartnerNotAssigned"
+                    ? "No business partner set on your account"
+                    : "Today's sales could not be read";
+                return;
+            }
+
+            var sections = result.Value.Currencies;
+            var lead = sections.FirstOrDefault();
+            partnerSalesToday = lead is null ? "$0.00" : MoneyIn(lead.TotalAmount, lead.Currency);
+            var count = sections.Sum(section => section.SalesCount);
+            partnerSalesNote = count == 1 ? "1 sale on your business partner" : $"{count:N0} sales on your business partner";
+            if (sections.Count > 1)
+            {
+                partnerSalesNote += " · also " + string.Join(", ",
+                    sections.Skip(1).Select(section => MoneyIn(section.TotalAmount, section.Currency)));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Shop stock dashboard could not read today's partner sales.");
+            if (version == dataVersion)
+            {
+                partnerSalesToday = "—";
+                partnerSalesNote = "Today's sales could not be read";
+            }
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string MoneyIn(decimal amount, string? currency)
+    {
+        var figure = amount.ToString("N2", CultureInfo.InvariantCulture);
+        return string.Equals(currency, "USD", StringComparison.OrdinalIgnoreCase) ? $"${figure}" : $"{currency} {figure}";
     }
 
     private async Task LoadMovesAsync(int version)

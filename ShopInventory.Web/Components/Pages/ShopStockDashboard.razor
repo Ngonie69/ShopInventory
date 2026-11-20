@@ -118,10 +118,23 @@
                           Amount="@(receivedLinesToday?.ToString("N0"))"
                           AmountLabel="Lines"
                           Icon="check-circle" />
-                <StatCard Label="Till sales today"
-                          Value="@Figure(tillSalesToday)"
-                          ValueLabel="Sales rung up at this shop"
-                          Icon="receipt" />
+                @if (isStockUser)
+                {
+                    @* The stock user's own partner's takings, opening /shop-sales. *@
+                    <a class="rdb-stat-link" href="/shop-sales" aria-label="Sales today: open the sales page">
+                        <StatCard Label="Sales today"
+                                  Value="@(partnerSalesToday ?? "…")"
+                                  ValueLabel="@partnerSalesNote"
+                                  Icon="receipt" />
+                    </a>
+                }
+                else
+                {
+                    <StatCard Label="Till sales today"
+                              Value="@Figure(tillSalesToday)"
+                              ValueLabel="Sales rung up at this shop"
+                              Icon="receipt" />
+                }
                 <StatCard Label="Failed posts"
                           Value="@Figure(failedPosts)"
                           ValueLabel="Approved but not in SAP"

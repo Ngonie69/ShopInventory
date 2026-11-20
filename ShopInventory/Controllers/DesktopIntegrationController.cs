@@ -1296,7 +1296,8 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <c>api/van-sales/sales-analysis</c>. <c>includeMargin</c> adds SAP's booked gross profit to every
     /// item, and so reads SAP; without it the analysis is local only.
     /// </remarks>
-    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
+    // ShopStock reads one business partner's sales here, pinned to it by the handler (ResolveForPartnerReads).
+    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser,ShopStock")]
     [HttpGet("sales/analysis")]
     public async Task<IActionResult> GetDesktopSalesAnalysis(
         [FromQuery] DateTime? fromDate,

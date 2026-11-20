@@ -427,6 +427,7 @@ public class UserManagementService : IUserManagementService
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = user.AssignedCostCentreCode,
+            SalesBusinessPartnerCode = user.SalesBusinessPartnerCode,
             SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             RouteId = user.RouteId,
             FiscalDeviceId = user.FiscalDeviceId,
