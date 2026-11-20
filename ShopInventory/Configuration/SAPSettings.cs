@@ -350,39 +350,6 @@ public class SAPSettings
     /// How long the local SAP circuit remains open before probing again.
     /// </summary>
     public int CircuitBreakDurationSeconds { get; set; } = 30;
-
-    /// <summary>
-    /// The SAP credit card code a shop's card swipe settles against.
-    /// </summary>
-    /// <remarks>
-    /// Null until someone confirms the real code in the company database. Until then a swipe sale is
-    /// invoiced but left unsettled, visible as <c>Unmapped</c>, rather than being booked against a
-    /// guessed code or quietly folded into the cash till — either of which puts real money in the
-    /// wrong account and is only findable by reconciling by hand. Set it and the waiting sales settle
-    /// themselves on the next pass.
-    /// </remarks>
-    public int? SwipeCreditCardCode { get; set; }
-
-    /// <summary>
-    /// The SAP G/L account a shop's card swipes settle into, when card money is banked rather than
-    /// carried on a card account.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Set this and a swipe is booked as transfer money against this account, which is what actually
-    /// happens to it: the acquirer pays the bank. It takes precedence over
-    /// <see cref="SwipeCreditCardCode"/>, and needs no credit card record in SAP - the company database
-    /// has none defined, which is why every card sale since the daily payment went live has been
-    /// invoiced and left unsettled.
-    /// </para>
-    /// <para>
-    /// SAP carries one transfer account per payment, so on a day whose takings include both card and
-    /// mobile wallet money this account is left off and SAP's default applies to the whole transfer sum
-    /// - the two cannot be told apart on one document, and posting wallet money into the card
-    /// settlement account is the kind of error only a hand reconciliation would find.
-    /// </para>
-    /// </remarks>
-    public string? SwipeTransferAccount { get; set; }
 }
 
 /// <summary>One <see cref="SAPSettings.ReadFamilies"/> entry.</summary>
