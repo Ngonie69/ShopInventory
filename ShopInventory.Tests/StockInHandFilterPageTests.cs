@@ -190,7 +190,8 @@ public sealed class StockInHandFilterPageTests
 
         public async ValueTask DisposeAsync()
         {
-            await renderer.DisposeAsync();
+            // Through the interface: Renderer's own member trips BL0006.
+            await ((IAsyncDisposable)renderer).DisposeAsync();
             await provider.DisposeAsync();
         }
     }

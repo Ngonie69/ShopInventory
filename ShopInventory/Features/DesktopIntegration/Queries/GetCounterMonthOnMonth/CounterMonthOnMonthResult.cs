@@ -6,6 +6,9 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetCounterMonthOnMon
 /// </summary>
 /// <param name="PreviousMonth">First day of the earlier month.</param>
 /// <param name="CurrentMonth">First day of the later month.</param>
+/// <param name="Places">Each shop or vending point that sold in either month.</param>
+/// <param name="Tenders">Takings by month, place, currency and tender.</param>
+/// <param name="Items">Sales by month, place, currency and item, net of what was credited back.</param>
 public sealed record CounterMonthOnMonthResult(
     DateTime PreviousMonth,
     DateTime CurrentMonth,
@@ -15,9 +18,12 @@ public sealed record CounterMonthOnMonthResult(
 
 /// <summary>A shop or vending point that sold in either month.</summary>
 /// <param name="Business">shops or vending (<c>SaleBusinesses</c>).</param>
+/// <param name="WarehouseCode">The warehouse the place sells from.</param>
 /// <param name="ShopName">The place's name: a shop's from the Shops table, when it is a shop on file; a vending
 /// point's from its depot's business partner in SAP (KEFBYC → "Cortina Bulawayo Vending").</param>
 /// <param name="FirstSaleDate">The first day this place ever sold on a till, so a month before it can be flagged as partial.</param>
+/// <param name="PreviousTradingDays">How many distinct days the place sold on in the earlier month.</param>
+/// <param name="CurrentTradingDays">How many distinct days the place sold on in the later month.</param>
 public sealed record CounterPlaceRow(
     string Business,
     string WarehouseCode,
@@ -28,7 +34,15 @@ public sealed record CounterPlaceRow(
 
 /// <summary>Takings of one tender, incl. VAT, and what was credited back of those sales.</summary>
 /// <param name="Month">First day of the month.</param>
+/// <param name="Business">Shops or vending (<c>SaleBusinesses</c>).</param>
+/// <param name="WarehouseCode">The warehouse the sales were made from.</param>
+/// <param name="Currency">The currency the takings are in; they are never mixed.</param>
 /// <param name="Tender">Normalised (<c>TenderTypes.ReportingName</c>): Cash, Swipe, Ecocash, Innbucks, Not recorded, ...</param>
+/// <param name="Sales">How many sales were taken in this tender.</param>
+/// <param name="Gross">Takings including VAT, before credits.</param>
+/// <param name="Vat">The VAT in those takings.</param>
+/// <param name="CreditedSales">How many of those sales have been credited back, in whole or part.</param>
+/// <param name="CreditedAmount">What those credits gave back, including VAT.</param>
 public sealed record CounterTenderRow(
     DateTime Month,
     string Business,

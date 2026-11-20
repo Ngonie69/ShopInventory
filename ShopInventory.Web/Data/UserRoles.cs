@@ -515,14 +515,6 @@ public static class UserRoles
     ];
 
     /// <summary>
-    /// Whether <paramref name="user"/> may read a report across every customer.
-    /// </summary>
-    /// <remarks>
-    /// A sales rep may not. They reach the sales order vs invoice report through the same page as
-    /// everyone else, but always for one business partner they have named — so the statement SAP
-    /// runs for them carries that partner, and no other customer's orders are fetched at all.
-    /// </remarks>
-    /// <summary>
     /// Whether an account in <paramref name="role"/> sells under a business partner and cost centre
     /// set on the account itself, from exactly one warehouse: the van roles and the cart vendor.
     /// </summary>
@@ -567,6 +559,14 @@ public static class UserRoles
         !string.IsNullOrWhiteSpace(role) &&
         roles.Contains(role.Trim(), StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Whether <paramref name="user"/> may read a report across every customer.
+    /// </summary>
+    /// <remarks>
+    /// A sales rep may not. They reach the sales order vs invoice report through the same page as
+    /// everyone else, but always for one business partner they have named — so the statement SAP
+    /// runs for them carries that partner, and no other customer's orders are fetched at all.
+    /// </remarks>
     public static bool CanReadReportsAcrossCustomers(ClaimsPrincipal user) =>
         IsInAnyRole(user, InsightsRoles);
 

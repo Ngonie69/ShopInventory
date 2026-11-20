@@ -28,7 +28,9 @@ public static class DriverShopList
     /// <summary>
     /// The list, or null when no driver or POD operator account carries any shops.
     /// </summary>
+    /// <param name="db">The database to read driver and POD operator accounts from.</param>
     /// <param name="excludingUserId">An account not to read it off — the one being backfilled.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
     public static async Task<DriverShopListSource?> FindAsync(
         ApplicationDbContext db,
         Guid? excludingUserId,

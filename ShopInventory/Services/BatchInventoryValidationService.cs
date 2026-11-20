@@ -246,6 +246,11 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     // lifetime, where a process-wide dictionary held its first answer — right or wrong — until
     // the application restarted.
 
+    /// <param name="dbContext">The application database.</param>
+    /// <param name="sapClient">The SAP Service Layer client batch stock is read from.</param>
+    /// <param name="lockService">Serialises concurrent claims on the same item and warehouse.</param>
+    /// <param name="settings">The SAP settings.</param>
+    /// <param name="logger">Where the service logs.</param>
     /// <param name="reservedQuantityProvider">
     /// Null only where a test constructs the service by hand and has no reservations to net off. The
     /// application registers one (<see cref="StockReservationServiceCollectionExtensions.AddStockReservations"/>),

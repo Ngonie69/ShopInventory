@@ -8,6 +8,17 @@ namespace ShopInventory.Common.Sales;
 /// <summary>
 /// A sale something has been credited back on, with everything a report groups a sale by.
 /// </summary>
+/// <param name="SaleId">The sale's id, which a credit note number is built from (<c>CN1753</c>).</param>
+/// <param name="Currency">The sale's currency code, as it was rung up; null on an older row that recorded none.</param>
+/// <param name="DocDate">The trading day the sale was rung up on, with no time of day.</param>
+/// <param name="CreatedAt">When the sale was recorded, in UTC.</param>
+/// <param name="WarehouseCode">The warehouse the sale was made from: the shop's, the vending depot's or the van's.</param>
+/// <param name="CardCode">The business partner account the sale posts against; for a van sale, the van's own account rather than the shop that bought.</param>
+/// <param name="SourceSystem">Which route recorded the sale (till, vending or van), which decides its business.</param>
+/// <param name="CreatedBy">Who rang the sale up, as the client recorded it.</param>
+/// <param name="PaymentMethod">The tender the sale was paid with, as recorded and before it is normalised for reports.</param>
+/// <param name="CostCentreCode">The van's cost centre; null on a sale that is not a van sale.</param>
+/// <param name="RouteCustomerId">The route customer that bought, for a van sale to a shop on a route; null otherwise.</param>
 /// <param name="TotalAmount">What the sale was rung up for, tax included.</param>
 /// <param name="CreditedAmount">
 /// What its credits gave back, tax included — the same basis as <paramref name="TotalAmount"/>, so the
@@ -37,6 +48,7 @@ public sealed record CreditedSale(
 }
 
 /// <summary>What a sale's credits gave back of one of its lines.</summary>
+/// <param name="ItemCode">The item that was given back.</param>
 /// <param name="Quantity">Units given back, never more than the line sold.</param>
 /// <param name="Value">
 /// Their share of the line's own <c>LineTotal</c>, and so on whatever basis the sale's lines are held —

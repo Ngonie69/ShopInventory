@@ -16,10 +16,12 @@ public sealed record StockMovementTotalsResult(
     DateTime ToUtc,
     List<StockMovementTotalDto> Items);
 
+/// <param name="ItemCode">The item's SAP code.</param>
 /// <param name="Sold">Units sales took, net of what was handed back (Commit, Settle and Release).</param>
 /// <param name="TransferredIn">Units stock transfers brought in.</param>
 /// <param name="TransferredOut">Units stock transfers took out, as a positive figure.</param>
 /// <param name="Corrected">The hourly SAP corrections' net, signed.</param>
+/// <param name="Movements">How many ledger movements the totals add up.</param>
 public sealed record StockMovementTotalDto(
     string ItemCode,
     decimal Sold,

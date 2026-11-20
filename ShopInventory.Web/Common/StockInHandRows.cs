@@ -3,6 +3,9 @@ using ShopInventory.Web.Models;
 namespace ShopInventory.Web.Common;
 
 /// <summary>One item on /stock-in-hand.</summary>
+/// <param name="Code">The item's SAP code.</param>
+/// <param name="Name">The item's description.</param>
+/// <param name="UoM">The inventory unit of measure; null when SAP gives none.</param>
 /// <param name="Then">On hand at the moment picked; equal to <see cref="Now"/> for Now.</param>
 /// <param name="Now">On hand now.</param>
 /// <param name="Committed">SAP's committed figure; known for Now only, zero otherwise.</param>

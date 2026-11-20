@@ -7,6 +7,14 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
 
 /// <summary>What a SAP document did to one item on one van.</summary>
+/// <param name="WarehouseCode">The van's SAP warehouse code.</param>
+/// <param name="Kind">Invoice, credit note, or stock transfer onto or off the van.</param>
+/// <param name="DocEntry">SAP's internal key for the document.</param>
+/// <param name="DocNum">The document number SAP shows users.</param>
+/// <param name="DocDate">The date printed on the document, which can be earlier than the day SAP created it.</param>
+/// <param name="Comments">The document's remarks as typed in SAP; null when empty.</param>
+/// <param name="ItemCode">The item's SAP code.</param>
+/// <param name="ItemDescription">The item's description on the document line; null when the line has none.</param>
 /// <param name="Quantity">Signed, in the inventory unit: positive onto the van, negative off it.</param>
 /// <param name="CreatedAt">When SAP created the document, on the CAT clock.</param>
 /// <param name="CreatedTimeKnown">
@@ -46,6 +54,9 @@ public sealed record VanStockSapRead(bool Available, string? Problem, List<VanSt
 public interface IVanStockSapDocuments
 {
     /// <param name="accountsByVan">Each van warehouse and the business partners its sales invoice to.</param>
+    /// <param name="createdFrom">When SAP created the documents to read from, on the CAT clock; inclusive.</param>
+    /// <param name="createdTo">When SAP created the documents to read up to, on the CAT clock; inclusive.</param>
+    /// <param name="cancellationToken">Cancels the SAP reads.</param>
     Task<VanStockSapRead> LoadAsync(
         IReadOnlyDictionary<string, IReadOnlyCollection<string>> accountsByVan,
         DateTime createdFrom,

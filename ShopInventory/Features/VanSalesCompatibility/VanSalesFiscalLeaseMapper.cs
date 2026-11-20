@@ -64,7 +64,8 @@ public static class VanSalesFiscalLeaseMapper
     /// <para>The fallback id is included deliberately: an item whose group is not listed resolves to
     /// <paramref name="defaultTaxId"/>, and leaving that id out of the table would make
     /// <see cref="BuildItemTaxes(IReadOnlyDictionary{string, string}, IReadOnlyDictionary{string, int},
-    /// int, string?, IEnumerable{VanSalesFiscalTaxDto}, out IReadOnlyCollection{string})"/> drop every
+    /// int, string, IEnumerable{VanSalesFiscalTaxDto}, out IReadOnlyCollection{string},
+    /// IReadOnlyDictionary{string, string})"/> drop every
     /// such item.</para>
     /// </remarks>
     /// <param name="taxIdsByVatGroup">SAP VAT group to the selected provider's own tax id.</param>

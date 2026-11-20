@@ -38,8 +38,8 @@ public static class PasskeyRelyingParty
 
         return new Fido2(new Fido2Configuration
         {
-            ServerName = ServerName,
-            ServerDomain = normalizedRpId,
+            RPName = ServerName,
+            RPID = normalizedRpId,
             Origins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 originUri.GetLeftPart(UriPartial.Authority)

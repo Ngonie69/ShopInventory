@@ -54,7 +54,7 @@ public sealed class LivePricingBudgetTests
         var result = await answer.WaitAsync(HangGuard);
 
         Assert.False(result.IsError);
-        Assert.Equal(12.30m, Assert.Single(result.Value.Prices).Price);
+        Assert.Equal(12.30m, Assert.Single(result.Value.Prices!).Price);
 
         Assert.Contains(
             _log.Entries,
@@ -85,7 +85,7 @@ public sealed class LivePricingBudgetTests
 
         Assert.False(result.IsError);
         Assert.Equal(9, result.Value.PriceListNum);
-        Assert.Equal(12.34m, Assert.Single(result.Value.Prices).Price);
+        Assert.Equal(12.34m, Assert.Single(result.Value.Prices!).Price);
         Assert.Contains(_log.Entries, entry => entry.Message.Contains("live SAP item prices"));
     }
 

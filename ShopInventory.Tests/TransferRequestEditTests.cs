@@ -700,7 +700,7 @@ public sealed class TransferRequestEditTests : IDisposable
                 nameof(ISAPServiceLayerClient.GetInventoryTransferRequestByDocEntryAsync) =>
                     (object)Task.FromResult<InventoryTransferRequest?>(document),
                 nameof(ISAPServiceLayerClient.UpdateInventoryTransferRequestAsync) =>
-                    Update((IReadOnlyList<TransferRequestLineChange>)args![1], (string?)args[2], (string?)args[3]),
+                    Update((IReadOnlyList<TransferRequestLineChange>)args![1]!, (string?)args[2], (string?)args[3]),
                 _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
             });
 

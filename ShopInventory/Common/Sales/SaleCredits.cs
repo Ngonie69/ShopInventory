@@ -35,6 +35,7 @@ public sealed record SaleCredit(decimal Amount, IReadOnlyList<string> Numbers)
 /// on a sale that posted one-to-one. Null for a till credit on a consolidated sale, whose invoice line is
 /// shared with the rest of the day and is found by <paramref name="ItemCode"/> instead.
 /// </param>
+/// <param name="ItemCode">The item given back, as the credit records it; null where the credit does not name one.</param>
 /// <param name="Quantity">
 /// How many were given back. A till credit knows; the SAP memo projection stores no quantity, so a memo
 /// line leaves it null and <see cref="SaleCredits.ByInvoiceLine"/> works it out from <paramref name="Net"/>
@@ -526,6 +527,10 @@ public static class SaleCredits
                 });
 
     /// <param name="Invoice">The document the credit is against: an invoice DocEntry or a sale id.</param>
+    /// <param name="MemoDocEntry">The SAP credit memo's DocEntry; null for a till credit that has no memo.</param>
+    /// <param name="Amount">The tax-inclusive total this credit gave back.</param>
+    /// <param name="Number">The number a person would quote the credit by.</param>
+    /// <param name="Lines">What the credit gave back of each line, where it can be tied to one.</param>
     private sealed record CreditPart(
         int Invoice, int? MemoDocEntry, decimal Amount, string Number, IReadOnlyList<CreditedLine> Lines);
 }

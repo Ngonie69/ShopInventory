@@ -13,7 +13,11 @@ public sealed record GetStockMovementsQuery(
     string? ItemCode = null
 ) : IRequest<ErrorOr<StockMovementsResult>>;
 
+/// <param name="WarehouseCode">The warehouse the movements belong to.</param>
+/// <param name="FromUtc">Start of the window, in UTC, exclusive.</param>
+/// <param name="ToUtc">End of the window, in UTC, inclusive.</param>
 /// <param name="Truncated">More movements fell in the window than <see cref="Movements"/> carries.</param>
+/// <param name="Movements">The movements in the window, oldest first, at most 2000.</param>
 /// <param name="Openings">
 /// Each morning's opening figure inside the window, for the one item asked for. A ledger day starts
 /// from SAP's figure, not from the previous day's close, so a running balance across days has to

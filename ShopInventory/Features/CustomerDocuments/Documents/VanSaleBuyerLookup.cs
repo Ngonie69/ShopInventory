@@ -84,6 +84,8 @@ internal static class VanSaleBuyerLookup
         return await SellingAccountCards.IsSellingAccountAsync(dbContext, card, cancellationToken) ? name : null;
     }
 
+    /// <param name="CardCode">The account the sale was recorded against, which must match the one asked about.</param>
     /// <param name="CustomerName">The shop's name as it stood at the sale, else what the handset called the customer.</param>
+    /// <param name="SapDocEntry">The invoice the sale posted as; null while it is not yet in SAP.</param>
     private sealed record Recorded(string? CardCode, string? CustomerName, int? SapDocEntry);
 }

@@ -144,7 +144,7 @@ public sealed class SapConnectionSwitchTests : IDisposable
     }
 
     [Fact]
-    public void The_container_hands_the_breaker_the_switch()
+    public async Task The_container_hands_the_breaker_the_switch()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -156,7 +156,7 @@ public sealed class SapConnectionSwitchTests : IDisposable
 
         var connectionSwitch = provider.GetRequiredService<SapConnectionSwitch>();
         var breaker = provider.GetRequiredService<SapCircuitBreakerState>();
-        connectionSwitch.SetAsync(false).GetAwaiter().GetResult();
+        await connectionSwitch.SetAsync(false);
 
         Assert.True(breaker.IsSwitchedOff);
     }

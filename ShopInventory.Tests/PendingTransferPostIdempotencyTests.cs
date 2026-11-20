@@ -382,7 +382,7 @@ public sealed class PendingTransferPostIdempotencyTests : IDisposable
                 nameof(ISAPServiceLayerClient.CreateInventoryTransferAsync) =>
                     Create((CreateInventoryTransferRequest)args![0]!),
                 nameof(ISAPServiceLayerClient.FindStockTransferByOrderNumberAsync) =>
-                    Find((string)args![0]!),
+                    (object)Find((string)args![0]!),
                 _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
             });
 

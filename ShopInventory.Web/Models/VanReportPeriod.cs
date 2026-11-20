@@ -24,6 +24,8 @@ public static class VanReportPeriod
     /// The standard set — today, yesterday, this week, this month, last month — with a "Last N days"
     /// for each of <paramref name="recentDays"/>, which is how a page keeps its own default visible.
     /// </summary>
+    /// <param name="today">Today's trading day on the CAT clock; the end of every period except last month and a whole month.</param>
+    /// <param name="recentDays">Extra "Last N days" buttons to offer; values of 1 or less are ignored and duplicates collapse.</param>
     /// <param name="wholeMonths">
     /// "This month" as the whole calendar month rather than the month so far: for a report whose
     /// target is built on all of a month's working days, which cannot say how far behind the month

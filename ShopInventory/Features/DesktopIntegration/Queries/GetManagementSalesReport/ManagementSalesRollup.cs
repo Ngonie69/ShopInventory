@@ -326,10 +326,16 @@ internal static class ManagementSalesRollup
     /// it has found them, for a report whose sales are not all desktop sales — the vans' online invoices
     /// are known from their reservations.
     /// </summary>
+    /// <param name="direct">Sales that posted as an invoice of their own, by SAP DocEntry.</param>
+    /// <param name="consolidated">Day invoices that carry many sales, by SAP DocEntry and the sales they cover.</param>
+    /// <param name="itemCode">When given, only that item's invoice lines count.</param>
+    /// <param name="costReader">Reads the cost SAP booked on the invoices' lines.</param>
+    /// <param name="logger">Where a failed or timed-out SAP read is logged.</param>
     /// <param name="deadline">
     /// How long the SAP read may take before margin is reported unavailable rather than holding the
     /// report; null waits as long as the caller does.
     /// </param>
+    /// <param name="cancellationToken">Cancels the read.</param>
     public static async Task<(MarginBook Book, ManagementMarginStatus Status)> MarginOfPostedAsync(
         List<PostedSale> direct,
         List<ConsolidatedInvoice> consolidated,

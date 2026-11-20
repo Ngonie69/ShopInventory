@@ -105,6 +105,9 @@ public static partial class VanSalesCompatibilityMapper
     /// <summary>
     /// A web-app customer, priced as the van account the rep sells under.
     /// </summary>
+    /// <param name="user">The rep the shop is listed for; their assigned business partner becomes the van account.</param>
+    /// <param name="customer">The route customer being mapped.</param>
+    /// <param name="partner">The customer's SAP business partner, if it is known; supplies the currency, branch and, unless the account prices itself, the price list.</param>
     /// <param name="accountPricesItself">
     /// The account has a synced price profile, so the API prices the van from the account's own list.
     /// </param>

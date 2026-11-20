@@ -577,6 +577,14 @@ public sealed class GetDepartureComplianceReportHandler(
 
     private sealed record UserName(string Username, string? FullName);
 
+    /// <param name="ProductiveCalls">Distinct shops that bought, plus one if any sale names no shop.</param>
+    /// <param name="Cash">Cash takings in <c>Currency</c>.</param>
+    /// <param name="Ecocash">Ecocash takings in <c>Currency</c>.</param>
+    /// <param name="Innbucks">InnBucks takings in <c>Currency</c>.</param>
+    /// <param name="Other">Swipe, card or any tender that is none of the three declared ones, in <c>Currency</c>.</param>
+    /// <param name="Untendered">Sales that name no tender at all, in <c>Currency</c>.</param>
+    /// <param name="Total">All the day's takings in <c>Currency</c>.</param>
+    /// <param name="Currency">The currency the day is reported in: the one declared in, else US dollars, else the one that took most.</param>
     /// <param name="OtherCurrencyTotal">What the day took in any currency but <c>Currency</c>; null when nothing.</param>
     /// <param name="OtherCurrencyCodes">Those currencies, joined with "/".</param>
     private sealed record SaleTotals(

@@ -655,7 +655,7 @@ public sealed class InventoryTransferApprovalService(
     }
 
     /// <summary>
-    /// Why <paramref name="userId"/> may not approve <paramref name="request"/>, or null when they may.
+    /// Why <paramref name="user"/> may not approve <paramref name="request"/>, or null when they may.
     /// </summary>
     /// <remarks>
     /// Everyone but an administrator: what an administrator raises or changes is approved as they do
