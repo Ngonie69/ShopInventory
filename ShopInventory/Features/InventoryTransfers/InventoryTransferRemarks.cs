@@ -32,18 +32,48 @@ public static class InventoryTransferRemarks
         PendingInventoryTransferEntity pending,
         IReadOnlyList<ApprovalStageProgressDto> stages,
         string? reason = null)
+        => Compose(
+            pending,
+            stages
+                .SelectMany(stage => stage.Decisions)
+                .Where(decision => decision.Decision == ApprovalDecisionValues.Approved)
+                .OrderBy(decision => decision.DecidedAtUtc)
+                .Select(decision => $"{decision.AuthorizerName} on {FormatTime(decision.DecidedAtUtc)}")
+                .ToList(),
+            reason);
+
+    /// <summary>
+    /// The same remarks for a factory transfer, which SAP's own approval signed off: each SAP approver
+    /// with the time SAP recorded the decision.
+    /// </summary>
+    /// <param name="pending">The transfer; its creator is the requester.</param>
+    /// <param name="reason">The requester's comments; the transfer's own when null.</param>
+    /// <param name="sapApprovals">
+    /// Who approved in SAP and when, in SAP's own clock — the company's local time (CAT), which is
+    /// what <c>ApprovalRequestLines.UpdateDate/UpdateTime</c> hold, so it is written as it is.
+    /// A null time names the approver alone.
+    /// </param>
+    public static string BuildForSapApproval(
+        PendingInventoryTransferEntity pending,
+        IReadOnlyList<(string Name, DateTime? DecidedAtCat)> sapApprovals,
+        string? reason = null)
+        => Compose(
+            pending,
+            sapApprovals
+                .OrderBy(approval => approval.DecidedAtCat ?? DateTime.MaxValue)
+                .Select(approval => approval.DecidedAtCat is DateTime at
+                    ? $"{approval.Name} on {at.ToString(TimeFormat)}"
+                    : approval.Name)
+                .ToList(),
+            reason);
+
+    private static string Compose(PendingInventoryTransferEntity pending, List<string> approvals, string? reason)
     {
         var trail = new List<string>
         {
             $"Requested by {pending.CreatedByName} on {FormatTime(pending.CreatedAtUtc)}"
         };
 
-        var approvals = stages
-            .SelectMany(stage => stage.Decisions)
-            .Where(decision => decision.Decision == ApprovalDecisionValues.Approved)
-            .OrderBy(decision => decision.DecidedAtUtc)
-            .Select(decision => $"{decision.AuthorizerName} on {FormatTime(decision.DecidedAtUtc)}")
-            .ToList();
         if (approvals.Count > 0)
             trail.Add($"Approved by {string.Join(", ", approvals)}");
 
@@ -63,8 +93,10 @@ public static class InventoryTransferRemarks
             : $"{ReasonLabel}{Truncate(text, budget)}{Separator}{trailText}";
     }
 
+    private const string TimeFormat = "dd MMM yyyy HH:mm";
+
     private static string FormatTime(DateTime utc)
-        => AuditService.ToCAT(utc).ToString("dd MMM yyyy HH:mm");
+        => AuditService.ToCAT(utc).ToString(TimeFormat);
 
     private static string Truncate(string value, int maxLength)
         => value.Length <= maxLength ? value : value[..maxLength];

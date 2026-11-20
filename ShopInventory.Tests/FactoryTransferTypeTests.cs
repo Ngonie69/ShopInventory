@@ -307,6 +307,121 @@ public sealed class FactoryTransferTypeTests : IDisposable
         Assert.Equal(8801, pending.SapDocNum);
     }
 
+    // ── Remarks: who requested it and who approved it in SAP ─────────────────────────────
+
+    [Fact]
+    public async Task The_draft_names_the_requester_and_when()
+    {
+        var (pending, user) = await ClearedFactoryTransferAsync("CMB", "CMFS");
+        pending.CreatedAtUtc = new DateTime(2026, 11, 18, 6, 30, 0, DateTimeKind.Utc);
+        var sap = new FakeSap { Covers = true };
+
+        await Steps(sap, new RecordingPoster(_context)).AdvanceAsync(pending, user.Id, user.Username);
+
+        var saved = Assert.Single(sap.SavedDrafts);
+        Assert.Equal($"Reason: restock | Requested by {user.Username} on 18 Nov 2026 08:30", saved.Comments);
+    }
+
+    [Fact]
+    public async Task Once_SAP_approves_the_transfer_remarks_name_the_requester_and_SAPs_approver_with_times()
+    {
+        var (pending, user) = await ClearedFactoryTransferAsync("CMB", "CMFS");
+        pending.CreatedAtUtc = new DateTime(2026, 11, 18, 6, 30, 0, DateTimeKind.Utc);
+        var sap = new FakeSap
+        {
+            Covers = true,
+            Drafts = [Draft(pending, "sasApproved")],
+            Approvals = [Approval(90001, (12, "ardApproved", "2026-11-18T00:00:00Z", "09:41:00"), (13, "ardPending", null, null))]
+        };
+
+        var step = await Steps(sap, new RecordingPoster(_context)).AdvanceAsync(pending, user.Id, user.Username);
+
+        Assert.False(step.IsError);
+        var (docEntry, comments) = Assert.Single(sap.CommentUpdates);
+        Assert.Equal(8800, docEntry);
+        Assert.Equal(
+            $"Reason: restock | Requested by {user.Username} on 18 Nov 2026 08:30 | Approved by Whouse Approver on 18 Nov 2026 09:41",
+            comments);
+    }
+
+    [Fact]
+    public async Task A_draft_added_in_the_SAP_client_gets_SAPs_approver_written_in_too()
+    {
+        var (pending, user) = await ClearedFactoryTransferAsync("CMB", "CMFS");
+        pending.CreatedAtUtc = new DateTime(2026, 11, 18, 6, 30, 0, DateTimeKind.Utc);
+        pending.SapDraftDocEntry = 90001;
+        var drafted = $"Reason: restock | Requested by {user.Username} on 18 Nov 2026 08:30";
+        var sap = new FakeSap
+        {
+            Covers = true,
+            InSap = new InventoryTransfer { DocEntry = 8800, DocNum = 8801, FromWarehouse = "CMB", ToWarehouse = "CMFS", Comments = drafted },
+            Approvals = [Approval(90001, (12, "ardApproved", "2026-11-18", "10:05:00"), (14, "ardApproved", "2026-11-18", "09:50:00"))]
+        };
+
+        var step = await Steps(sap, new RecordingPoster(_context)).AdvanceAsync(pending, user.Id, user.Username);
+
+        Assert.False(step.IsError);
+        var (_, comments) = Assert.Single(sap.CommentUpdates);
+        Assert.Equal(
+            $"{drafted} | Approved by Opsassist on 18 Nov 2026 09:50, Whouse Approver on 18 Nov 2026 10:05",
+            comments);
+    }
+
+    [Fact]
+    public async Task Remarks_a_B1_user_changed_are_left_as_they_are()
+    {
+        var (pending, user) = await ClearedFactoryTransferAsync("CMB", "CMFS");
+        pending.SapDraftDocEntry = 90001;
+        var sap = new FakeSap
+        {
+            Covers = true,
+            InSap = new InventoryTransfer { DocEntry = 8800, DocNum = 8801, FromWarehouse = "CMB", ToWarehouse = "CMFS", Comments = "Keyed by stores" },
+            Approvals = [Approval(90001, (12, "ardApproved", "2026-11-18", "10:05:00"))]
+        };
+
+        var step = await Steps(sap, new RecordingPoster(_context)).AdvanceAsync(pending, user.Id, user.Username);
+
+        Assert.False(step.IsError);
+        Assert.Empty(sap.CommentUpdates);
+    }
+
+    [Fact]
+    public async Task The_transfer_is_still_recorded_when_SAPs_approvers_cannot_be_read()
+    {
+        var (pending, user) = await ClearedFactoryTransferAsync("CMB", "CMFS");
+        var sap = new FakeSap { Covers = true, Drafts = [Draft(pending, "sasApproved")], ApprovalsUnreadable = true };
+
+        var step = await Steps(sap, new RecordingPoster(_context)).AdvanceAsync(pending, user.Id, user.Username);
+
+        Assert.False(step.IsError);
+        Assert.Equal(PendingInventoryTransferStatuses.Posted, pending.Status);
+        Assert.Empty(sap.CommentUpdates);
+    }
+
+    [Fact]
+    public async Task A_long_reason_gives_way_to_the_requester_and_approver()
+    {
+        var pending = new PendingInventoryTransferEntity
+        {
+            CreatedByName = "stores.clerk",
+            CreatedAtUtc = new DateTime(2026, 11, 18, 6, 30, 0, DateTimeKind.Utc)
+        };
+
+        var remarks = InventoryTransferRemarks.BuildForSapApproval(
+            pending, [("Whouse Approver", new DateTime(2026, 11, 18, 9, 41, 0))], new string('x', 400));
+
+        Assert.Equal(InventoryTransferRemarks.MaxLength, remarks.Length);
+        Assert.EndsWith(" | Requested by stores.clerk on 18 Nov 2026 08:30 | Approved by Whouse Approver on 18 Nov 2026 09:41", remarks);
+    }
+
+    [Theory]
+    [InlineData("2026-11-18T00:00:00Z", "09:41:00", "2026-11-18 09:41")]
+    [InlineData("2026-11-18", "14:05", "2026-11-18 14:05")]
+    [InlineData("2026-11-18", null, null)]
+    [InlineData(null, "09:41:00", null)]
+    public void SAPs_decision_time_is_read_on_SAPs_own_clock(string? date, string? time, string? expected)
+        => Assert.Equal(expected, FactoryTransferSapApproval.SapLocalTime(date, time)?.ToString("yyyy-MM-dd HH:mm"));
+
     [Fact]
     public async Task A_draft_added_in_the_SAP_client_is_found_and_recorded_without_another_draft()
     {
@@ -453,6 +568,23 @@ public sealed class FactoryTransferTypeTests : IDisposable
         U_OrderNumber = pending.DraftNumber
     };
 
+    /// <summary>SAP's approval request on a draft, one line per approver: (user, decision, date, time).</summary>
+    private static SAPApprovalRequest Approval(
+        int draftEntry, params (int UserId, string Status, string? Date, string? Time)[] lines) => new()
+    {
+        Code = 74432,
+        DraftEntry = draftEntry,
+        Status = "arsApproved",
+        ApprovalRequestLines = lines.Select(line => new SAPApprovalRequestLine
+        {
+            StageCode = 16,
+            UserID = line.UserId,
+            Status = line.Status,
+            UpdateDate = line.Date,
+            UpdateTime = line.Time
+        }).ToList()
+    };
+
     private async Task<User> AddUserAsync(string role, params string[] warehouseCodes)
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
@@ -480,10 +612,28 @@ public sealed class FactoryTransferTypeTests : IDisposable
         public InventoryTransfer? InSap { get; init; }
         public List<CreateInventoryTransferRequest> SavedDrafts { get; } = [];
         public List<AddApprovedSapTransferCommand> Adds { get; } = [];
+        public List<SAPApprovalRequest> Approvals { get; init; } = [];
+        public bool ApprovalsUnreadable { get; init; }
+        public List<(int DocEntry, string Comments)> CommentUpdates { get; } = [];
+
+        private static readonly List<SAPUser> Users =
+        [
+            new() { InternalKey = 12, UserCode = "Whouse", UserName = "Whouse Approver" },
+            new() { InternalKey = 14, UserCode = "Opsassist", UserName = " " }
+        ];
 
         public ISAPServiceLayerClient AsClient() =>
             StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
             {
+                nameof(ISAPServiceLayerClient.GetStockTransferApprovalRequestsAsync) => ApprovalsUnreadable
+                    ? Task.FromException<List<SAPApprovalRequest>>(new HttpRequestException("SAP is down"))
+                    : Task.FromResult(Approvals
+                        .Where(request => ((IReadOnlyCollection<int>)args![0]!).Contains(request.DraftEntry ?? 0))
+                        .ToList()),
+                nameof(ISAPServiceLayerClient.GetSapUsersAsync) => Task.FromResult(Users
+                    .Where(user => ((IEnumerable<int>)args![0]!).Contains(user.InternalKey))
+                    .ToList()),
+                nameof(ISAPServiceLayerClient.UpdateStockTransferCommentsAsync) => UpdateComments((int)args![0]!, (string)args[1]!),
                 nameof(ISAPServiceLayerClient.FindStockTransferByOrderNumberAsync) => Task.FromResult(InSap),
                 nameof(ISAPServiceLayerClient.FindStockTransferDraftsByOrderNumberAsync) =>
                     Task.FromResult(Drafts.Where(draft => draft.U_OrderNumber == (string)args![0]!).ToList()),
@@ -517,6 +667,12 @@ public sealed class FactoryTransferTypeTests : IDisposable
                 ToWarehouse = "CMFS",
                 Message = "Added as transfer #8801."
             });
+        }
+
+        private Task UpdateComments(int docEntry, string comments)
+        {
+            CommentUpdates.Add((docEntry, comments));
+            return Task.CompletedTask;
         }
 
         private Task<SAPStockTransferDraft> SaveDraft(CreateInventoryTransferRequest transfer)

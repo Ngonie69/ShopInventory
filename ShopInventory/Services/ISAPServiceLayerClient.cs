@@ -1294,6 +1294,12 @@ public interface ISAPServiceLayerClient
     Task<int?> SaveStockTransferDraftToDocumentAsync(int draftDocEntry, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Rewrites a posted inventory transfer's remarks (<c>PATCH StockTransfers(n)</c>, Comments only) — the
+    /// one field of a posted transfer B1 lets you change, as its client does.
+    /// </summary>
+    Task UpdateStockTransferCommentsAsync(int docEntry, string comments, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Every SAP approval template with its document types, conditions and the user queries they name
     /// — what decides whether SAP would hold an inventory transfer between two warehouses.
     /// </summary>
