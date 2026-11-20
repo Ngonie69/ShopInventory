@@ -39,6 +39,7 @@ public interface ISapDraftApprovalNotice
     /// <param name="route">The verdict that sent it to SAP's approval.</param>
     /// <param name="about">What the draft is, for the message: "Transfer request #11067 (WASHBAY to PROYG 2)".</param>
     /// <param name="orderNumber">The draft's <c>U_OrderNumber</c>, which tells drafts with the same number apart.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
     Task<SapDraftNoticeResult> SendAsync(
         SAPStockTransferDraft draft,
         SapTransferRoute route,

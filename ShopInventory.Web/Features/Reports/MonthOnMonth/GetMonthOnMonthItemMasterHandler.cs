@@ -9,7 +9,7 @@ namespace ShopInventory.Web.Features.Reports.MonthOnMonth;
 /// Reads the cached product master straight from the Web database.
 /// </summary>
 /// <remarks>
-/// Not through <see cref="IMasterDataCacheService.GetProductsAsync"/>: that returns active items only and
+/// Not through <see cref="IMasterDataCacheService.GetProductsAsync(bool, CancellationToken)"/>: that returns active items only and
 /// leaves <c>ItemsGroupCode</c> off what it projects, and an item retired since still sold in the month and
 /// still belongs to its product line. The item group names come through the cache service, which fills its
 /// table from the API when it is empty.

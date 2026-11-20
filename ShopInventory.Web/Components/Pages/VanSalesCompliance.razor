@@ -198,7 +198,7 @@
             <span class="vsc-period">@PeriodSummary()</span>
         </div>
 
-        @if (report?.Telematics.Enabled == true)
+        @if (report.Telematics.Enabled)
         {
             @* A second row, kept apart from the exceptions above on purpose: none of these
                narrows to a finding against a rep, and mixing them into one strip would say

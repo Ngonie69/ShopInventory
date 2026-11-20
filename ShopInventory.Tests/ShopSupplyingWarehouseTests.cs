@@ -75,7 +75,7 @@ public sealed class ShopSupplyingWarehouseTests : IDisposable
         Assert.NotNull(_posted);
         Assert.Equal("KEFGRC", _posted.FromWarehouse);
         Assert.Equal("KEFGRS", _posted.ToWarehouse);
-        Assert.All(_posted.Lines, line => Assert.Equal("KEFGRC", line.FromWarehouseCode));
+        Assert.All(_posted.Lines!, line => Assert.Equal("KEFGRC", line.FromWarehouseCode));
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public sealed class ShopSupplyingWarehouseTests : IDisposable
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : string.Empty);
         Assert.Equal("KEFBYC", _posted!.FromWarehouse);
-        Assert.All(_posted.Lines, line => Assert.Equal("KEFBYC", line.FromWarehouseCode));
+        Assert.All(_posted.Lines!, line => Assert.Equal("KEFBYC", line.FromWarehouseCode));
     }
 
     [Fact]

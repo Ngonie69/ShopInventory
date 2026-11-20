@@ -24,6 +24,7 @@ public static class DesktopCreditNoteNumber
 {
     public const string Prefix = "CN";
 
+    /// <param name="saleId">The id of the sale the credit is against.</param>
     /// <param name="ordinal">1 for the sale's first credit, 2 for the second, and so on.</param>
     public static string Format(int saleId, int ordinal) =>
         ordinal <= 1 ? $"{Prefix}{saleId}" : $"{Prefix}{saleId}-{ordinal}";

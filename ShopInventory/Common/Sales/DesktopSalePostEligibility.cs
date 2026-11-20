@@ -40,6 +40,9 @@ public static class DesktopSalePostEligibility
     /// <summary>
     /// The same rule over loose values, for a caller reading projected columns rather than an entity.
     /// </summary>
+    /// <param name="sourceSystem">Which route recorded the sale; an online van sale is decided on its own rules.</param>
+    /// <param name="consolidationStatus">Whether the sale is already in SAP, excluded from posting, or still waiting.</param>
+    /// <param name="fiscalizationStatus">Where the sale stands with fiscalisation, which a sale must clear before it is posted.</param>
     /// <param name="sapDocNum">
     /// The invoice the sale posted as, when it has. Only an online van sale's row is decided by it — see
     /// <see cref="OnlineVanSaleRefusal"/> — but it is asked of every caller, so the two readers cannot

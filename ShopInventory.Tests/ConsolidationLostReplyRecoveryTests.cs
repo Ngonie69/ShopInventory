@@ -417,7 +417,7 @@ public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
         StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
             nameof(ISAPServiceLayerClient.CreateInvoiceAsync) => PostAndLoseTheReply(),
-            nameof(ISAPServiceLayerClient.GetInvoiceByVanSaleOrderAsync) => KeyLookup(args),
+            nameof(ISAPServiceLayerClient.GetInvoiceByVanSaleOrderAsync) => (object)KeyLookup(args),
             _ => throw new InvalidOperationException(
                 $"ISAPServiceLayerClient.{method.Name} was not expected on this path.")
         });

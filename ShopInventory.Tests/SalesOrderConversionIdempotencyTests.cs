@@ -449,7 +449,7 @@ public sealed class SalesOrderConversionIdempotencyTests : IDisposable
 
         public ISalesOrderService AsService() => StubProxy.For<ISalesOrderService>((method, args) => method.Name switch
         {
-            nameof(ISalesOrderService.GetByIdFromLocalAsync) => GetByIdFromLocalAsync((int)args![0]!),
+            nameof(ISalesOrderService.GetByIdFromLocalAsync) => (object)GetByIdFromLocalAsync((int)args![0]!),
             nameof(ISalesOrderService.MarkAsFulfilledAsync) => MarkAsFulfilledAsync((int)args![0]!, (int?)args[1]),
             _ => throw new InvalidOperationException($"ISalesOrderService.{method.Name} is not used by the conversion.")
         });

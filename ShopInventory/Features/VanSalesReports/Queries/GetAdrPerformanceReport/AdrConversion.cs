@@ -56,8 +56,13 @@ internal static class AdrConversion
     /// <param name="Orders">Every ADR's orders in the period, cancelled ones included.</param>
     /// <param name="PeriodSales">Every van sale made in the period, for the share of the vans' takings.</param>
     /// <param name="AdrOwnSales">Sales the ADRs made themselves, which count towards a productive call.</param>
+    /// <param name="Visits">The shops each ADR checked in at, per trading day; a shop checked in at twice in a day is one call.</param>
+    /// <param name="VisitNames">Shop names by shop code, for shops visited that may have no order to take the name from.</param>
+    /// <param name="AdrAccounts">Each ADR's own account code in SAP; null for an ADR with none.</param>
+    /// <param name="Routes">Each ADR's assigned route, by user id; an ADR with no route is absent.</param>
     /// <param name="Rows">The ADRs to give a row, in the order the report lists them.</param>
     /// <param name="Detail">The ADRs whose days, shops, items and orders to list; empty for none.</param>
+    /// <param name="TodayCat">Today on the CAT clock, with no time part; orders from the last two days may still be awaiting conversion.</param>
     internal sealed record Input(
         IReadOnlyList<VanOrderFact> Orders,
         IReadOnlyList<VanSaleFact> PeriodSales,

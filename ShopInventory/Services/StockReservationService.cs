@@ -324,7 +324,7 @@ public class StockReservationService : IStockReservationService
 
             // Convert quantity to inventory UoM if needed. One-to-one for a van checked locally, which is
             // what the conversion answers when it cannot reach SAP.
-            var checkedLocally = lineRequest.WarehouseCode is not null && localVans.Contains(lineRequest.WarehouseCode);
+            var checkedLocally = !string.IsNullOrEmpty(lineRequest.WarehouseCode) && localVans.Contains(lineRequest.WarehouseCode);
             decimal inventoryQuantity = lineRequest.Quantity;
             if (!string.IsNullOrEmpty(lineRequest.UoMCode) && !checkedLocally)
             {
@@ -1438,7 +1438,7 @@ public class StockReservationService : IStockReservationService
 
         foreach (var line in lines)
         {
-            if (line.WarehouseCode is not null && uncountedVans.Contains(line.WarehouseCode))
+            if (!string.IsNullOrEmpty(line.WarehouseCode) && uncountedVans.Contains(line.WarehouseCode))
             {
                 if (vansRefused.Add(line.WarehouseCode))
                 {
@@ -1854,7 +1854,7 @@ public class StockReservationService : IStockReservationService
                 continue;
             }
 
-            if (await _batchValidation.IsBatchManagedItemAsync(lines[index].ItemCode, cancellationToken))
+            if (lines[index].ItemCode is { Length: > 0 } itemCode && await _batchValidation.IsBatchManagedItemAsync(itemCode, cancellationToken))
             {
                 needing.Add(index);
             }

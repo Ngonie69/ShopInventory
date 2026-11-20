@@ -96,6 +96,8 @@ public interface IReportExportService
     /// <summary>The vending Reconciliation: every cashier-day's count against its sales, one row per currency.</summary>
     byte[] ExportVendingReconciliationToExcel(VendingReconciliationModel reconciliation, string scopeLabel);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
+    /// <param name="orders">The mobile orders to list, one row per order.</param>
+    /// <param name="title">The workbook title, shown on the sheet.</param>
     /// <param name="invoiceDocNum">The SAP invoice each order became, as the page resolved it; null when none.</param>
     /// <param name="statusName">The status as the page shows it (Invoiced, Delivered); defaults to the order's own.</param>
     byte[] ExportMobileOrdersToExcel(
@@ -432,6 +434,10 @@ public partial class ReportExportService : IReportExportService
     /// <summary>
     /// Styles data rows with alternating colors and borders.
     /// </summary>
+    /// <param name="ws">The worksheet to style.</param>
+    /// <param name="firstDataRow">The first data row, 1-based, below the header; nothing is styled when the last row is above it.</param>
+    /// <param name="lastRow">The last data row, 1-based, inclusive.</param>
+    /// <param name="lastCol">The last column to style, 1-based, inclusive.</param>
     /// <param name="stripeByRule">
     /// Stripes with one conditional-format rule instead of a fill per row. It looks the same, keeps its
     /// stripes when the table is sorted, and is far quicker on a table of thousands of rows — but a rule's

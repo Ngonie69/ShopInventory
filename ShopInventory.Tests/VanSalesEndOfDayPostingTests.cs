@@ -98,7 +98,7 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
         Assert.Equal(2, first.Posted);
         Assert.Equal(
             ["VAN006-INV-TWO-DAYS-AGO", "VAN006-INV-YESTERDAY"],
-            _sap.Created.Select(c => c.U_Van_saleorder).ToArray());
+            _sap.Created.Select(c => c.U_Van_saleorder!).ToArray());
 
         var second = await BuildService(batchSize: 2).PostPendingSalesAsync(TradingDate);
 

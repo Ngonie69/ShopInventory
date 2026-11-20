@@ -26,6 +26,7 @@ public interface IVanSalesAttendanceService
     /// The same narrowing for a caller holding the name rather than the id — a screen that has the
     /// rep's name off a row, not a lookup. An alternative to the id, not a companion to it.
     /// </param>
+    /// <param name="cancellationToken">Cancels the request.</param>
     Task<ReportResult<VanVisitReportResponse>> GetReportAsync(
         DateTime? fromDate = null, DateTime? toDate = null,
         Guid? userId = null, string? username = null,

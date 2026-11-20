@@ -122,6 +122,9 @@ public sealed class DesktopCreditExternalCredits(ISAPServiceLayerClient sap, IRe
     }
 
     /// <summary>Whether a credit receipt's <c>creditDebitNote</c> names the given original receipt.</summary>
+    /// <param name="reference">The <c>creditDebitNote</c> value the device returned for the credit receipt.</param>
+    /// <param name="deviceId">The fiscal device the original receipt was issued on.</param>
+    /// <param name="receiptGlobalNo">The original receipt's global number on that device.</param>
     /// <param name="readable">False when the reference is missing or not in a shape that can be read.</param>
     /// <remarks>
     /// The device passes FDMS's receipt through, where the reference is

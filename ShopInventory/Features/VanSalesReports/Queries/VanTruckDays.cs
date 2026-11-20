@@ -8,6 +8,7 @@ namespace ShopInventory.Features.VanSalesReports.Queries;
 
 /// <summary>One truck on one trading day: the unit every van call rate is measured on.</summary>
 /// <param name="Truck">The van account both reps on the truck sign in as, upper-cased.</param>
+/// <param name="TradingDate">The trading day, CAT, with no time of day.</param>
 public readonly record struct VanTruckDayKey(string Truck, DateTime TradingDate);
 
 /// <summary>

@@ -528,7 +528,7 @@ public sealed class QueuedVanInvoicePostingTests : IDisposable
         var signed = 0;
         var fiscalisation = StubProxy.For<IFiscalizationService>((method, _) => method.Name switch
         {
-            nameof(IFiscalizationService.FindPreSapReceiptAsync) => Task.FromResult<FiscalizationResult?>(
+            nameof(IFiscalizationService.FindPreSapReceiptAsync) => (object)Task.FromResult<FiscalizationResult?>(
                 new FiscalizationResult { Success = true, ReceiptGlobalNo = "R-9001", DeviceSerial = "REVMAX-1" }),
             nameof(IFiscalizationService.FiscalizePreSapInvoiceAsync) => Signed(ref signed),
             _ => throw new InvalidOperationException($"Unexpected fiscal call: {method.Name}")
@@ -647,7 +647,7 @@ public sealed class QueuedVanInvoicePostingTests : IDisposable
                 throw new InvalidOperationException($"Unexpected fiscal call: {method.Name}");
             }
 
-            filed = (InvoiceDto)args[0]!;
+            filed = (InvoiceDto)args![0]!;
             return Task.FromResult(new FiscalizationResult { Success = true, ReceiptGlobalNo = "R-NEW" });
         });
 

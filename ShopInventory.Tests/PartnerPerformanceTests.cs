@@ -54,7 +54,8 @@ public sealed class PartnerPerformanceTests
     public void Calendar_years_keep_the_window_start_and_only_the_newest_three()
     {
         var part = PartnerPerformance.CalendarYears(new DateTime(2024, 3, 15), new DateTime(2025, 6, 30));
-        Assert.Equal(["2025", "2024"], part!.Select(year => year.Label));
+        Assert.NotNull(part);
+        Assert.Equal(["2025", "2024"], part.Select(year => year.Label));
         Assert.Equal(new DateTime(2024, 3, 15), part[1].FromUtc);
 
         var long_ = PartnerPerformance.CalendarYears(new DateTime(2020, 1, 1), new DateTime(2026, 10, 16));

@@ -6,6 +6,7 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetCounterMonthOnMon
 /// <summary>
 /// Two calendar months of shop and vending sales side by side: by place, tender and item.
 /// </summary>
+/// <param name="CallerUserId">The signed-in user; a shop user sees only their own shop, as on the other counter reports.</param>
 /// <param name="PreviousMonth">Any day in the earlier month; only its year and month are used.</param>
 /// <param name="CurrentMonth">Any day in the later month; only its year and month are used.</param>
 public sealed record GetCounterMonthOnMonthQuery(

@@ -148,6 +148,8 @@ public sealed class DailyIncomingPaymentService(
     }
 
     /// <summary>Which partners a run pays: a van run pays the van-mapped partners, a shop run every other.</summary>
+    /// <param name="Run">Which daily run this scope belongs to.</param>
+    /// <param name="VanPartners">The card codes mapped to a van; they belong to the van run and every other partner to the shop run.</param>
     /// <param name="EnabledPartners">The partners whose daily payment is switched on.</param>
     /// <param name="PaysFrom">The first trading day each switched-on partner is paid for, where one is set.</param>
     private sealed record RunScope(

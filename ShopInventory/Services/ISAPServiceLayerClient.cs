@@ -272,6 +272,15 @@ public interface ISAPServiceLayerClient
     /// only, and expanding lines multiplies the payload. A caller that renders a document has to ask
     /// for it: an invoice that arrives without its lines looks exactly like one that has none.
     /// </remarks>
+    /// <param name="skip">How many invoices to pass over, newest first.</param>
+    /// <param name="pageSize">How many invoices to return.</param>
+    /// <param name="docNum">Only the invoice with this document number, when set.</param>
+    /// <param name="cardCode">Only this customer's invoices, when set.</param>
+    /// <param name="fromDate">Earliest document date, inclusive, when set.</param>
+    /// <param name="toDate">Latest document date, inclusive, when set.</param>
+    /// <param name="vanSalesOnly">True for van sales only, false for everything but, null for both.</param>
+    /// <param name="includeDocumentLines">Whether each invoice carries its lines.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
     /// <param name="search">An exact doc number, or text anywhere in the customer code or name.</param>
     Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, bool includeDocumentLines = false, CancellationToken cancellationToken = default, string? search = null);
     Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default, string? search = null);

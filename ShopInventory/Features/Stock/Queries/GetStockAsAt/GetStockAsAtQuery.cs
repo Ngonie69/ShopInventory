@@ -15,6 +15,8 @@ namespace ShopInventory.Features.Stock.Queries.GetStockAsAt;
 public sealed record GetStockAsAtQuery(string WarehouseCode, DateTime AsAtUtc)
     : IRequest<ErrorOr<StockAsAtResult>>;
 
+/// <param name="WarehouseCode">The warehouse the figures are for.</param>
+/// <param name="AsAtUtc">The moment the figures are for, in UTC.</param>
 /// <param name="Recorded">
 /// False when no finished snapshot covers the moment — before the ledger began, or for a warehouse
 /// the morning fetch does not cover. <see cref="Items"/> is then empty.
@@ -22,6 +24,7 @@ public sealed record GetStockAsAtQuery(string WarehouseCode, DateTime AsAtUtc)
 /// <param name="LedgerDay">The snapshot day the moment belongs to.</param>
 /// <param name="SnapshotTakenAtUtc">When that day's opening figures were read from SAP.</param>
 /// <param name="RecordedFrom">The first ledger day this warehouse can be read for, if any.</param>
+/// <param name="Items">One row per item the warehouse had a figure for on that ledger day; empty when not recorded.</param>
 public sealed record StockAsAtResult(
     string WarehouseCode,
     DateTime AsAtUtc,
@@ -31,6 +34,8 @@ public sealed record StockAsAtResult(
     DateTime? RecordedFrom,
     List<StockAsAtItemDto> Items);
 
+/// <param name="ItemCode">The item's SAP code.</param>
+/// <param name="ItemName">The item's name, when SAP gave one.</param>
 /// <param name="OnHand">What the item held in the warehouse at the moment, across every batch.</param>
 /// <param name="OpeningQuantity">The day's opening figure from SAP, before any movement.</param>
 /// <param name="LastMovementAtUtc">The latest journalled movement at or before the moment, that day.</param>

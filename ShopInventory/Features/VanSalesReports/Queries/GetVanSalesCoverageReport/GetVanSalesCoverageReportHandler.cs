@@ -1235,6 +1235,10 @@ public sealed class GetVanSalesCoverageReportHandler(
     }
 
     /// <param name="Id">The route customer's id, which its own sales page is addressed by.</param>
+    /// <param name="Code">The route customer's own code.</param>
+    /// <param name="Name">The route customer's name.</param>
+    /// <param name="Phone">The shop's phone number; null when none was captured.</param>
+    /// <param name="CapturedOn">The trading day the customer was first recorded, CAT.</param>
     private sealed record RosterRow(int Id, string Code, string Name, string? Phone, DateTime CapturedOn);
 
     private sealed record Bucket(string Label, DateTime Start, DateTime End, bool IsPartial);

@@ -54,6 +54,8 @@ public sealed record VanStockReportResult(
 /// One van across the period, in counts rather than quantities: a van carries cases, kilograms and
 /// singles, and a sum across them is a figure in no unit.
 /// </summary>
+/// <param name="VanWarehouseCode">The van's SAP warehouse code.</param>
+/// <param name="ItemCount">Distinct items carried on the van at any count in the period.</param>
 /// <param name="AccountCodes">The business partners this van's sales invoice to in SAP.</param>
 /// <param name="DaysCounted">Mornings with a snapshot.</param>
 /// <param name="DaysWithSales">Of those, mornings whose trading day recorded at least one sale.</param>
@@ -62,6 +64,8 @@ public sealed record VanStockReportResult(
 /// <param name="DeadItemCount">Items carried the dead-stock threshold or longer on this van and never sold from it.</param>
 /// <param name="MorningsChecked">Mornings compared with the count before them against SAP's documents.</param>
 /// <param name="MorningsTied">Of those, mornings every item of which SAP's documents explain.</param>
+/// <param name="SalesDays">Trading days with sales or SAP invoices from this van, leaving out days SAP could not be read for.</param>
+/// <param name="SalesDaysOnTime">Of those, trading days whose sales were all invoiced by the next morning's count.</param>
 /// <param name="SalesDaysLate">Trading days whose sales were all invoiced, but after the next morning's count.</param>
 /// <param name="SalesDaysNotInSap">Trading days with recorded sales that have no SAP invoice yet.</param>
 /// <param name="SalesDaysSapOnly">Trading days with SAP invoices from this van and no sale recorded by the app.</param>
@@ -150,6 +154,9 @@ public sealed record VanStockDayResult(
 /// <summary>
 /// One van between two counts: what SAP posted in between, and whether it accounts for the change.
 /// </summary>
+/// <param name="VanWarehouseCode">The van's SAP warehouse code.</param>
+/// <param name="FromSnapshot">The snapshot date of the earlier count.</param>
+/// <param name="ToSnapshot">The snapshot date of the later count.</param>
 /// <param name="CountedFrom">When the first count read SAP, on the CAT clock.</param>
 /// <param name="CountedTo">When the second count read SAP.</param>
 /// <param name="GapDays">Days between the two counts; 1 when they are consecutive.</param>
@@ -181,8 +188,13 @@ public sealed record VanStockMorningResult(
 
 /// <summary>A SAP document as a morning sees it: its printed date beside the moment SAP created it.</summary>
 /// <param name="Kind">Invoice, CreditNote, TransferIn or TransferOut.</param>
+/// <param name="DocEntry">SAP's internal key for the document.</param>
+/// <param name="DocNum">The document number SAP shows users.</param>
+/// <param name="DocDate">The date printed on the document, which can be earlier than the day SAP created it.</param>
+/// <param name="CreatedAt">When SAP created the document, on the CAT clock; midday for a transfer, which carries no time.</param>
 /// <param name="CreatedTimeKnown">False for a transfer, which SAP stamps with a date only.</param>
 /// <param name="ItemCount">Items the document moved on this van.</param>
+/// <param name="Comments">The document's remarks as typed in SAP; null when empty.</param>
 public sealed record VanStockDocumentResult(
     string Kind,
     int DocEntry,
@@ -222,13 +234,22 @@ public sealed record VanStockItemMovementResult(
 /// One van's trading day: what the van recorded against the SAP invoices dated that day, and when
 /// SAP created them.
 /// </summary>
+/// <param name="VanWarehouseCode">The van's SAP warehouse code.</param>
+/// <param name="TradingDate">The CAT trading day, with no time part.</param>
 /// <param name="Status">
 /// OnTime, Late (all invoiced, but after <paramref name="NextCountAt"/>), NotInSap (recorded, not
 /// invoiced), Pending (not invoiced yet and the next count has not happened), SapOnly (invoiced in
 /// SAP with nothing recorded by the app), or Unchecked when SAP could not be read.
 /// </param>
+/// <param name="RecordedItems">Items the app recorded selling that day, counting only those with a positive net quantity.</param>
+/// <param name="SapItems">Items SAP invoiced that day from this van, counting only those with a positive net quantity.</param>
+/// <param name="SapInvoiceCount">Distinct SAP invoices dated that day for this van.</param>
+/// <param name="FirstInvoicedAt">When SAP created the earliest of those invoices, on the CAT clock; null when there are none.</param>
+/// <param name="LastInvoicedAt">When SAP created the latest of those invoices, on the CAT clock; null when there are none.</param>
 /// <param name="NextCountAt">The count that should already include this day's sales.</param>
 /// <param name="DaysLate">Days from the trading day to the last invoice's creation, when Late.</param>
+/// <param name="ItemsNotInSap">Items the app recorded selling that SAP invoiced less of, or not at all; zero when SAP could not be read.</param>
+/// <param name="ItemsOnlyInSap">Items SAP invoiced more of than the app recorded, or that the app did not record; zero when SAP could not be read.</param>
 /// <param name="Differences">Items whose recorded and invoiced quantities differ, largest first.</param>
 public sealed record VanStockSalesDayResult(
     string VanWarehouseCode,

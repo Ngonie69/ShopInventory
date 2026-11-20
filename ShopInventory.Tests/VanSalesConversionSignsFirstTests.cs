@@ -566,7 +566,7 @@ public sealed class VanSalesConversionSignsFirstTests : IDisposable
         public ISalesOrderService AsService() => StubProxy.For<ISalesOrderService>((method, args) => method.Name switch
         {
             nameof(ISalesOrderService.GetByIdFromLocalAsync) =>
-                Task.FromResult(_orders.GetValueOrDefault((int)args![0]!)),
+                (object)Task.FromResult(_orders.GetValueOrDefault((int)args![0]!)),
             nameof(ISalesOrderService.MarkAsFulfilledAsync) => Fulfil((int)args![0]!),
             _ => throw new InvalidOperationException($"ISalesOrderService.{method.Name} is not used by the conversion.")
         });
