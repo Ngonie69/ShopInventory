@@ -201,9 +201,20 @@ public partial class ShopSales
     {
         if (report is null || isExporting) return;
         isExporting = true;
+        error = null;
+        StateHasChanged();
         try
         {
-            var bytes = ExportService.ExportDesktopSalesAnalysisToExcel(report);
+            var shown = report;
+            var (sales, readError) = await ReadEverySaleAsync(shown.FromDate.Date, shown.ToDate.Date);
+            if (sales is null)
+            {
+                error = readError;
+                return;
+            }
+
+            // Off the circuit's thread: a month of sales is a few thousand rows for ClosedXML.
+            var bytes = await Task.Run(() => ExportService.ExportDesktopSalesAnalysisToExcel(shown, sales));
             await JS.InvokeVoidAsync(
                 "downloadFile",
                 $"Sales_{report.CardCode}_{report.FromDate:yyyyMMdd}_{report.ToDate:yyyyMMdd}.xlsx",
@@ -217,7 +228,43 @@ public partial class ShopSales
         finally
         {
             isExporting = false;
+            StateHasChanged();
         }
+    }
+
+    /// <summary>Pages through for the export's Sales sheet.</summary>
+    private const int ExportPageSize = 500;
+
+    /// <summary>Twenty pages of 500: far past a month of one partner's till sales.</summary>
+    private const int ExportMaxPages = 20;
+
+    /// <summary>
+    /// Every sale in the period, unsearched, for the workbook's Sales sheet; null with the reason when a page
+    /// cannot be read or the period holds more than the cap, so the workbook never lists part of the sales.
+    /// </summary>
+    private async Task<(List<DesktopSaleDto>? Sales, string? Error)> ReadEverySaleAsync(DateTime from, DateTime to)
+    {
+        var sales = new List<DesktopSaleDto>();
+        for (var page = 1; page <= ExportMaxPages; page++)
+        {
+            var (result, readError) = await DesktopIntegration.ReadDesktopSalesAsync(new DesktopSalesQuery
+            {
+                FromDate = from,
+                ToDate = to,
+                Page = page,
+                PageSize = ExportPageSize
+            });
+            if (result is null)
+            {
+                Logger.LogWarning("Could not read page {Page} of the partner's sales for the export: {Error}", page, readError);
+                return (null, "The sales could not be listed for the workbook. Try again in a moment.");
+            }
+
+            sales.AddRange(result.Sales);
+            if (!result.HasMore) return (sales, null);
+        }
+
+        return (null, $"This period holds more than {ExportPageSize * ExportMaxPages:N0} sales. Pick a shorter period to export.");
     }
 
     // ---- What the page draws ------------------------------------------------------------------------

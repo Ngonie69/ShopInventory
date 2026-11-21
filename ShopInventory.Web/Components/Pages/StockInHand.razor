@@ -44,6 +44,14 @@
                     <span class="dsh-synced-dot" aria-hidden="true"></span>
                     @(loadedAt is { } stamp ? $"Read at {stamp:HH:mm}" : "Reading…")
                 </span>
+
+                @if (warehouse is not null)
+                {
+                    <button type="button" class="dsh-btn dsh-btn-ghost" disabled="@(!CanExport || isExporting)" @onclick="ExportAsync">
+                        <DashIcon Name="arrow-down" Size="15" />
+                        @(isExporting ? "Making the workbook…" : "Export to Excel")
+                    </button>
+                }
             </div>
         </div>
     </header>
@@ -60,6 +68,11 @@
                 </p>
             </div>
         </section>
+
+        @if (exportError is not null)
+        {
+            <div class="dsh-state" role="alert">@exportError</div>
+        }
 
         @if (warehouse is null)
         {

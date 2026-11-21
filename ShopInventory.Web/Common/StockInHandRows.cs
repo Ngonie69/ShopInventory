@@ -135,3 +135,13 @@ public static class StockInHandRows
     private static string NameOr(string? name, string code) =>
         string.IsNullOrWhiteSpace(name) ? code.Trim() : name.Trim();
 }
+
+/// <summary>
+/// What /stock-in-hand hands the workbook: the warehouse, the moment (<c>AsAtUtc</c>, null for Now) and every
+/// row it read.
+/// </summary>
+public sealed record StockInHandExport(
+    string WarehouseCode,
+    string WarehouseName,
+    DateTime? AsAtUtc,
+    IReadOnlyList<StockInHandRow> Rows);

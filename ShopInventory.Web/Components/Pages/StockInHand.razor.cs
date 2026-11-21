@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.JSInterop;
 using ShopInventory.Web.Common;
 using ShopInventory.Web.Components.Dashboard;
 using ShopInventory.Web.Data;
@@ -25,6 +26,8 @@ public partial class StockInHand
     [Inject] private IStockHistoryService StockHistory { get; set; } = default!;
     [Inject] private IMasterDataCacheService MasterData { get; set; } = default!;
     [Inject] private NavigationManager Navigation { get; set; } = default!;
+    [Inject] private IReportExportService ExportService { get; set; } = default!;
+    [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private ILogger<StockInHand> Logger { get; set; } = default!;
 
     [CascadingParameter] private Task<AuthenticationState>? AuthTask { get; set; }
@@ -83,6 +86,9 @@ public partial class StockInHand
     private decimal detailStart;
     private DateTime detailFromUtc;
     private List<DetailEntry> detail = [];
+
+    private bool isExporting;
+    private string? exportError;
 
     private bool _initialized;
 
@@ -349,6 +355,42 @@ public partial class StockInHand
         {
             if (ReferenceEquals(item, selected)) isLoadingDetail = false;
             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    /// <summary>Whether there is a read on screen to export: rows of the moment shown, not a load in flight.</summary>
+    private bool CanExport => !isLoading && loadError is null && recorded && warehouse is not null && rows.Count > 0;
+
+    /// <summary>
+    /// Every item of the moment on screen, whatever chip or search narrows the table: the workbook's own
+    /// Status column and filter narrow it again.
+    /// </summary>
+    private async Task ExportAsync()
+    {
+        if (!CanExport || isExporting) return;
+
+        isExporting = true;
+        exportError = null;
+        StateHasChanged();
+        try
+        {
+            var export = new StockInHandExport(warehouse!, NameFor(warehouse), asAtUtc, rows.ToList());
+            var bytes = await Task.Run(() => ExportService.ExportStockInHandToExcel(export));
+            var stamp = asAtUtc is { } at ? IAuditService.ToCAT(at) : IAuditService.ToCAT(DateTime.UtcNow);
+            await JS.InvokeVoidAsync(
+                "downloadFile",
+                $"Stock_in_Hand_{warehouse}_{stamp:yyyyMMdd_HHmm}.xlsx",
+                Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Could not export stock in hand for {Warehouse}.", warehouse);
+            exportError = "The workbook could not be made. Try again in a moment.";
+        }
+        finally
+        {
+            isExporting = false;
+            StateHasChanged();
         }
     }
 
