@@ -72,7 +72,15 @@ public interface IReportExportService
     /// what narrowed the list beyond the period, or is null.
     /// </summary>
     byte[] ExportVanSalesCreditNotesToExcel(IReadOnlyList<VanSalesCreditNoteRowModel> rows, DateTime fromDate, DateTime toDate, string? filters = null);
-    byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report);
+    /// <summary>
+    /// The sales analysis workbook. With <paramref name="sales"/>, a last sheet lists every one of those sales.
+    /// </summary>
+    byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report, IReadOnlyCollection<DesktopSaleDto>? sales = null);
+
+    /// <summary>
+    /// What a warehouse holds now, or held at a past moment against now, every item, as /stock-in-hand shows it.
+    /// </summary>
+    byte[] ExportStockInHandToExcel(StockInHandExport export);
     byte[] ExportCounterMonthOnMonthToExcel(ShopInventory.Web.Features.Reports.MonthOnMonth.CounterMonthOnMonthReport report);
     byte[] ExportManagementSalesReportToExcel(ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementSalesReportResult report, IReadOnlyDictionary<int, string>? itemGroupNames = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
@@ -8014,10 +8022,27 @@ public partial class ReportExportService : IReportExportService
     public byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null)
     {
         using var workbook = NewWorkbook("Shop & Vending Sales Report");
-        var ws = AddSheet(workbook, "Shop & Vending Sales");
+        WriteDesktopSalesRegisterSheet(workbook, "Shop & Vending Sales", "Shop & Vending Sales Report", sales, report, fromDate, toDate);
+        return WorkbookToBytes(workbook);
+    }
+
+    /// <summary>
+    /// One row per till sale, with a totals row per currency. The Shop &amp; Vending Sales export is this
+    /// sheet alone; the shop stock user's sales workbook adds it after the analysis sheets.
+    /// </summary>
+    private static void WriteDesktopSalesRegisterSheet(
+        XLWorkbook workbook,
+        string sheetName,
+        string title,
+        IReadOnlyCollection<DesktopSaleDto> sales,
+        EndOfDayReportDto? report,
+        DateTime? fromDate,
+        DateTime? toDate)
+    {
+        var ws = AddSheet(workbook, sheetName);
         const int cols = 17;
 
-        var row = WriteReportHeader(ws, "Shop & Vending Sales Report", cols, fromDate, toDate);
+        var row = WriteReportHeader(ws, title, cols, fromDate, toDate);
 
         // KPI cards
         if (report != null)
@@ -8133,8 +8158,7 @@ public partial class ReportExportService : IReportExportService
             });
 
         WriteFooter(ws, row - 1, cols);
-        FinalizeSheet(ws, cols, headerRow, landscape: true);
-        return WorkbookToBytes(workbook);
+        FinalizeSheet(ws, cols, headerRow, landscape: true, fitRows: 300);
     }
 
     // ─── Van Sales Documents Export ──────────────────────────────
@@ -8326,7 +8350,7 @@ public partial class ReportExportService : IReportExportService
             : $"{label} ({code})";
     }
 
-    public byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report)
+    public byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report, IReadOnlyCollection<DesktopSaleDto>? sales = null)
     {
         var vans = report.SourceSystem == DesktopAnalysisVanSource;
         using var workbook = NewWorkbook(vans ? "Van Sales Analysis" : "Shop & Vending Sales Analysis");
@@ -8424,6 +8448,14 @@ public partial class ReportExportService : IReportExportService
 
         WriteDesktopAnalysisHours(workbook, context);
         WriteDesktopAnalysisItems(workbook, context);
+
+        // Every sale behind the figures above, when the caller read them: the shop stock user's export.
+        if (sales is not null)
+        {
+            WriteDesktopSalesRegisterSheet(
+                workbook, "Sales", $"SALES LIST · {context.Scope}", sales, null,
+                report.FromDate.Date, report.ToDate.Date);
+        }
 
         return WorkbookToBytes(workbook);
     }

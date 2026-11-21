@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web.HtmlRendering;
@@ -83,6 +84,29 @@ public sealed class StockInHandFilterPageTests
         Assert.Equal(4, ItemNames(past).Count);
     }
 
+    /// <summary>
+    /// Export hands the browser a workbook of every item the moment holds, not just the chip's: the
+    /// workbook's Status column and filter narrow it again in Excel.
+    /// </summary>
+    [Fact]
+    public async Task Export_downloads_every_item_whatever_chip_is_lit()
+    {
+        await using var page = await StockPage.OpenAsync();
+        await page.ChooseAsync("available");
+
+        var html = await page.HtmlAsync();
+        Assert.Matches(@"<button type=""button"" class=""dsh-btn dsh-btn-ghost""[^>]*>\s*<svg[\s\S]*?Export to Excel", html);
+        Assert.DoesNotMatch(@"<button[^>]*disabled[^>]*>\s*<svg[\s\S]*?Export to Excel", html);
+
+        await page.ExportAsync();
+
+        var (fileName, base64) = Assert.Single(page.Downloads);
+        Assert.StartsWith("Stock_in_Hand_KEFSHOP_", fileName);
+        using var workbook = new XLWorkbook(new MemoryStream(Convert.FromBase64String(base64)));
+        var codes = workbook.Worksheet("Stock in Hand").Column(1).CellsUsed().Select(cell => cell.GetString()).ToList();
+        Assert.All(Shelf, item => Assert.Contains(item.ItemCode!, codes));
+    }
+
     private static int ChipCount(string html, string label)
     {
         var match = Regex.Match(html, $@"<button[^>]*class=""sih-chip[^""]*""[^>]*>\s*{Regex.Escape(label)} <span class=""sih-chip-n"">(\d+)</span>");
@@ -110,8 +134,12 @@ public sealed class StockInHandFilterPageTests
         private readonly HtmlRootComponent output;
         private readonly StockInHand page;
 
-        private StockPage(ServiceProvider provider, InteractivePageRenderer renderer, HtmlRootComponent output, StockInHand page)
+        /// <summary>Every <c>downloadFile</c> the page asked the browser for: file name, base64 bytes.</summary>
+        public List<(string FileName, string Base64)> Downloads { get; } = [];
+
+        private StockPage(ServiceProvider provider, InteractivePageRenderer renderer, HtmlRootComponent output, StockInHand page, List<(string, string)> downloads)
         {
+            Downloads = downloads;
             this.provider = provider;
             this.renderer = renderer;
             this.output = output;
@@ -125,7 +153,15 @@ public sealed class StockInHandFilterPageTests
             services.AddAuthorizationCore();
             services.AddScoped<PageLifetime>();
             services.AddSingleton<NavigationManager>(new FixedNavigationManager());
-            services.AddSingleton(StubProxy.Unused<IJSRuntime>());
+            var downloads = new List<(string, string)>();
+            services.AddSingleton(StubProxy.For<IJSRuntime>((method, args) =>
+            {
+                if (args?[0] is not "downloadFile" || args[^1] is not object?[] { Length: 2 } call)
+                    throw new InvalidOperationException($"IJSRuntime.{method.Name}({args?[0]}) was not expected.");
+                downloads.Add(((string)call[0]!, (string)call[1]!));
+                return Activator.CreateInstance(method.ReturnType);
+            }));
+            services.AddSingleton<IReportExportService>(new ReportExportService());
             services.AddSingleton(StubProxy.Unused<IStockHistoryService>());
             services.AddSingleton(StubProxy.For<IMasterDataCacheService>((method, _) =>
                 method.Name == nameof(IMasterDataCacheService.GetWarehousesAsync)
@@ -161,10 +197,14 @@ public sealed class StockInHandFilterPageTests
             await output.QuiescenceTask;
 
             Assert.NotNull(page);
-            return new StockPage(provider, renderer, output, page!);
+            return new StockPage(provider, renderer, output, page!, downloads);
         }
 
         public Task<string> HtmlAsync() => renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+
+        /// <summary>What the Export to Excel button's click runs.</summary>
+        public Task ExportAsync() => renderer.Dispatcher.InvokeAsync(() =>
+            (Task)typeof(StockInHand).GetMethod("ExportAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(page, null)!);
 
         /// <summary>What a chip's click does: <c>view = filter.Key</c>, then a re-render.</summary>
         public Task ChooseAsync(string key) => SetFieldAsync("view", key);
