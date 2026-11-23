@@ -272,7 +272,12 @@ try
         .AddCheck<ApiKeyExpiryHealthCheck>("api-keys", tags: ["dependencies"])
         .AddCheck<VanSalesReceiptIngestHealthCheck>("van-receipt-ingest", tags: ["dependencies"])
         .AddCheck<SapDependencyHealthCheck>("sap", tags: ["dependencies"])
-        .AddCheck<TransferListenerHealthCheck>("transfer-listener", tags: ["dependencies"]);
+        .AddCheck<TransferListenerHealthCheck>("transfer-listener", tags: ["dependencies"])
+        .AddCheck<AttachmentStorageHealthCheck>("attachment-storage", tags: ["dependencies"]);
+    // The test write behind the attachment-storage check. The check only reads its last result, so a
+    // dead share cannot hold up /api/health. See AttachmentStorageMonitor.
+    builder.Services.AddSingleton<AttachmentStorageMonitor>();
+    builder.Services.AddHostedService<AttachmentStorageProbeService>();
 
     // Configure Swagger with version-aware API metadata.
     builder.Services.AddSwaggerGen();
