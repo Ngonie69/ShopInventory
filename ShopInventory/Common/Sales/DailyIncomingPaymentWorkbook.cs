@@ -145,8 +145,10 @@ public static class DailyIncomingPaymentWorkbook
         sheet.PageSetup.FitToPages(1, 0);
         sheet.PageSetup.SetRowsToRepeatAtTop(HeaderRow, HeaderRow);
 
+        // Saved with each formula's figure: Protected View and mail previews never calculate, so a bare
+        // SUBTOTAL would read as an empty total there.
         using var stream = new MemoryStream();
-        workbook.SaveAs(stream);
+        workbook.SaveAs(stream, new SaveOptions { EvaluateFormulasBeforeSaving = true });
         return stream.ToArray();
     }
 
