@@ -18,6 +18,17 @@ otherwise be surprised.
 
 ### Added
 
+- **An `attachment-storage` check on `/health/dependencies` and `/api/health`.** Once a minute the
+  API writes a small file into the attachments folder and into each folder directly under it, then
+  deletes it. The check reports the last result. One failed write is `Degraded`. Two in a row, or a
+  write that has not come back after 15 seconds while the one before it also failed, are
+  `Unhealthy`. That puts a dead upload share in the system-health alert mail and on the dashboard.
+  On 2026-11-23 the share dropped and every POD upload from 06:25 failed, and nothing reported it,
+  because no check looked at the store. The check is tagged `dependencies` only, so a dead share
+  never takes the API out of rotation or blocks a deployment. The probe file is
+  `.health-probe-<machine>-<pid>.tmp`, and the server log records one error when the store fails
+  and one line when it recovers.
+
 - **Failed invoices and credit notes pick up their fiscal receipt on their own.** A new
   `fiscal-receipt-pickup` job (every 5 minutes, `FiscalReceiptPickup` in appsettings) asks the
   fiscalisation platform whether it holds a receipt for each SAP invoice and credit note whose

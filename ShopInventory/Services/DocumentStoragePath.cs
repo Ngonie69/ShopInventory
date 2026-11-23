@@ -16,6 +16,20 @@ namespace ShopInventory.Services;
 /// </remarks>
 public static partial class DocumentStoragePath
 {
+    /// <summary>The folder under the upload root that every uploaded attachment is written below.</summary>
+    public const string AttachmentsFolder = "attachments";
+
+    /// <summary>
+    /// The upload root: <c>FileStorage:UploadPath</c>, or <c>uploads</c> under the working directory.
+    /// </summary>
+    /// <remarks>
+    /// Uploads and <see cref="Health.AttachmentStorageMonitor"/> both read it from here. If the probe
+    /// worked the root out for itself, the two could end up testing different folders, and the check
+    /// would pass while uploads failed.
+    /// </remarks>
+    public static string UploadRoot(IConfiguration configuration) =>
+        configuration["FileStorage:UploadPath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
+
     /// <summary>
     /// The document types a template can be written for, as the Document Templates page offers them.
     /// Generation names its file after one of these, never after the request's spelling.

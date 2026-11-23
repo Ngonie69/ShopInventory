@@ -146,7 +146,7 @@ public class DocumentService : IDocumentService
         _logger = logger;
         _memoryCache = memoryCache;
         _hybridCache = hybridCache;
-        _uploadPath = configuration["FileStorage:UploadPath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
+        _uploadPath = DocumentStoragePath.UploadRoot(configuration);
 
         // Ensure upload directory exists
         if (!Directory.Exists(_uploadPath))
@@ -578,7 +578,7 @@ public class DocumentService : IDocumentService
         // Compressed images are always saved as JPEG
         var fileExtension = isCompressibleImage ? ".jpg" : DocumentStoragePath.SafeExtension(fileName);
         var storedFileName = $"{Guid.NewGuid()}{fileExtension}";
-        var attachmentPath = DocumentStoragePath.Within(_uploadPath, "attachments", request.EntityType, request.EntityId.ToString());
+        var attachmentPath = DocumentStoragePath.Within(_uploadPath, DocumentStoragePath.AttachmentsFolder, request.EntityType, request.EntityId.ToString());
 
         // Ensure directory exists. The attachment root is a network location in production, so an
         // unreachable store fails here for every upload at once rather than for one bad file — which
