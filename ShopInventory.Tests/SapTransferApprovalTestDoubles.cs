@@ -75,6 +75,18 @@ internal sealed class FakeTransferSap
     public int ManagementReads { get; private set; }
 
     public int? NewestRequestBefore { get; init; } = 20000;
+
+    /// <summary>Every decision PATCHed: the request, SAP's decision value, and the remarks.</summary>
+    public List<(int Code, string Decision, string? Remarks, CancellationToken Token)> Decisions { get; } = [];
+
+    /// <summary>
+    /// The SAP user (by key) the decision is recorded against — the service approver. Its line on the
+    /// request's current stage takes the decision.
+    /// </summary>
+    public int DeciderUserId { get; init; } = 75;
+
+    /// <summary>What SAP leaves the draft as after an approval: approved, unless another request still holds it.</summary>
+    public string DraftStatusAfterApproval { get; init; } = SapStockTransferAuthorizationStatuses.Approved;
     public List<InventoryTransferRequest> RequestsAfter { get; init; } = [];
 
     public ISAPServiceLayerClient AsClient() => StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
@@ -102,6 +114,9 @@ internal sealed class FakeTransferSap
             => Task.FromResult(NewestRequestBefore),
         nameof(ISAPServiceLayerClient.GetInventoryTransferRequestsAfterAsync)
             => Task.FromResult(RequestsAfter),
+        nameof(ISAPServiceLayerClient.GetApprovalRequestAsync)
+            => Task.FromResult(Requests.FirstOrDefault(request => request.Code == (int)args![0]!)),
+        nameof(ISAPServiceLayerClient.SubmitApprovalDecisionAsync) => Decide(args!),
         _ => throw new InvalidOperationException($"{method.Name} was not expected.")
     });
 
@@ -125,6 +140,29 @@ internal sealed class FakeTransferSap
     {
         ListReads.Add(((IReadOnlyCollection<string>?)args[3], (SapTransferDraftFilter?)args[4], (int?)args[2]));
         return Task.FromResult((ListDrafts, ListTotal));
+    }
+
+    /// <summary>Records the decision as SAP does: on the approver's line, then the request, then the draft.</summary>
+    private Task Decide(object?[] args)
+    {
+        var code = (int)args[0]!;
+        var decision = (string)args[3]!;
+        Decisions.Add((code, decision, (string?)args[4], (CancellationToken)args[5]!));
+
+        var request = Requests.Single(candidate => candidate.Code == code);
+        request.ApprovalRequestLines ??= [];
+        request.ApprovalRequestLines.Add(new SAPApprovalRequestLine
+        {
+            StageCode = request.CurrentStage,
+            UserID = DeciderUserId,
+            Status = decision,
+            Remarks = (string?)args[4]
+        });
+
+        var approved = decision == SapApprovalDecisions.Approved;
+        request.Status = approved ? SapApprovalRequestStatuses.Approved : SapApprovalRequestStatuses.NotApproved;
+        Draft.AuthorizationStatus = approved ? DraftStatusAfterApproval : SapStockTransferAuthorizationStatuses.Rejected;
+        return Task.CompletedTask;
     }
 
     private Task Close(int docEntry)

@@ -1,8 +1,11 @@
 using System.Globalization;
 using MediatR;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using MudBlazor;
+using ShopInventory.Web.Data;
 using ShopInventory.Web.Features.SapTransferApprovals.Commands.AddApprovedSapTransfer;
+using ShopInventory.Web.Features.SapTransferApprovals.Commands.DecideSapTransferApproval;
 using ShopInventory.Web.Features.SapTransferApprovals.Queries.GetSapTransferApproval;
 using ShopInventory.Web.Features.SapTransferApprovals.Queries.GetSapTransferApprovals;
 using ShopInventory.Web.Models;
@@ -11,14 +14,16 @@ using ShopInventory.Web.Services;
 namespace ShopInventory.Web.Components.Pages;
 
 /// <summary>
-/// The inventory transfers and transfer requests keyed in the SAP client that SAP's approval procedure has
-/// approved and nobody has added, and the one thing done with one here: add it, which posts the document
-/// in SAP. A transfer moves stock; a request moves none until it is converted on the Transfers page.
+/// The inventory transfers and transfer requests keyed in the SAP client and held by SAP's approval
+/// procedure. Two views: those SAP has approved and nobody has added — add one, which posts the document in
+/// SAP — and those still waiting for approval, which a user who decides their SAP stage approves or rejects
+/// here. A transfer moves stock; a request moves none until it is converted on the Transfers page.
 /// </summary>
 /// <remarks>
 /// Everything is read live from SAP through the API. The search and every filter are sent to SAP, which
 /// filters and counts, and a depot controller's queue is already narrowed there to the transfers leaving
-/// its own warehouses. Deciding stays in the B1 client: a draft only appears here once SAP has approved it.
+/// its own warehouses. Whether a waiting request can be decided here is the API's answer per request: the
+/// caller's SAP stages (the wash bay decides stage 'Factory Washbay') and whether SAP lists the app's approver.
 /// </remarks>
 public partial class SapTransferApprovals : IDisposable
 {
@@ -41,6 +46,24 @@ public partial class SapTransferApprovals : IDisposable
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
     [Inject] private IMasterDataCacheService CacheService { get; set; } = default!;
     [Inject] private ILogger<SapTransferApprovals> Logger { get; set; } = default!;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>
+    /// Where the wash bay's waiting view starts: the transfers coming into its warehouse, which SAP holds at
+    /// its stage (template "Washbay Transfers"). A chip like any other, so it can be removed.
+    /// </summary>
+    internal const string WashBayWarehouse = "WASHBAY";
+
+    /// <summary>The drafts still waiting for SAP's approval, instead of the approved ones waiting to be added.</summary>
+    private bool awaitingApproval;
+    private bool isWashBay;
+
+    /// <summary>The decision's remark, sent to SAP after the person's name.</summary>
+    private string? decideRemarks;
+
+    /// <summary>Which decision is on its way to SAP, for the spinner on its button.</summary>
+    private string? decidingAs;
 
     private readonly CancellationTokenSource disposal = new();
 
@@ -118,7 +141,16 @@ public partial class SapTransferApprovals : IDisposable
     /// <summary>Whether the search or a filter is narrowing the queue, so the count is of matches.</summary>
     private bool IsNarrowed => ActiveFilters.Count > 0 || !string.IsNullOrWhiteSpace(appliedSearch);
 
-    private string EmptyMessage => (IsNarrowed, kindFilter) switch
+    private string EmptyMessage => (awaitingApproval, IsNarrowed, kindFilter) switch
+    {
+        (true, true, _) => "Nothing waiting for approval matches this search and these filters",
+        (true, false, SapHeldDraftKinds.Request) => "SAP holds no transfer requests waiting for approval",
+        (true, false, SapHeldDraftKinds.Transfer) => "SAP holds no transfers waiting for approval",
+        (true, false, _) => "SAP holds no transfers or transfer requests waiting for approval",
+        _ => ApprovedEmptyMessage
+    };
+
+    private string ApprovedEmptyMessage => (IsNarrowed, kindFilter) switch
     {
         (true, SapHeldDraftKinds.Request) => "No approved transfer request matches this search and these filters",
         (true, SapHeldDraftKinds.Transfer) => "No approved transfer matches this search and these filters",
@@ -145,6 +177,18 @@ public partial class SapTransferApprovals : IDisposable
     };
 
     private bool DetailIsRequest => detail?.Draft.IsRequest == true;
+
+    /// <summary>The open draft is still waiting for SAP's approval (it may be opened from either view).</summary>
+    private bool DetailIsWaiting => string.Equals(detail?.Draft.DraftStatus, "Pending", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The request the open drawer can approve or reject from here. A draft held by two templates has two
+    /// requests; the API offers only those at a stage the caller decides, and the first is taken.
+    /// </summary>
+    private SapTransferApprovalRequestDto? DecidableRequest => detail?.Approvals.FirstOrDefault(approval => approval.CanDecide);
+
+    /// <summary>Why a waiting draft cannot be decided here, from the first pending request the API explained.</summary>
+    private string? DecideNote => detail?.Approvals.Select(approval => approval.DecideNote).FirstOrDefault(note => !string.IsNullOrWhiteSpace(note));
 
     private string FilterSummary
     {
@@ -256,7 +300,41 @@ public partial class SapTransferApprovals : IDisposable
 
     protected override async Task OnInitializedAsync()
     {
+        // The wash bay comes here to approve what is on its way in, so it opens on that.
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            isWashBay = user.IsInRole(UserRoles.WashBay);
+        }
+
+        if (isWashBay)
+        {
+            awaitingApproval = true;
+            toFilter.Add(WashBayWarehouse);
+        }
+
         await Task.WhenAll(LoadAsync(), LoadWarehousesAsync());
+    }
+
+    /// <summary>
+    /// Switches between the approved drafts and those waiting for approval. The search and filters carry
+    /// over; the wash bay's waiting view starts on its own warehouse when no destination is chosen.
+    /// </summary>
+    private async Task SetViewAsync(bool waiting)
+    {
+        if (awaitingApproval == waiting)
+        {
+            return;
+        }
+
+        awaitingApproval = waiting;
+        if (waiting && isWashBay && toFilter.Count == 0)
+        {
+            toFilter.Add(WashBayWarehouse);
+        }
+
+        CloseDetail();
+        await ReloadFromTopAsync();
     }
 
     private async Task LoadWarehousesAsync()
@@ -358,6 +436,7 @@ public partial class SapTransferApprovals : IDisposable
         return new SapTransferQueueFilter
         {
             Kind = kindFilter,
+            AwaitingApproval = awaitingApproval,
             Warehouse = draftNum is null ? text : null,
             DraftNum = draftNum,
             FromWarehouses = fromFilter.ToList(),
@@ -593,6 +672,76 @@ public partial class SapTransferApprovals : IDisposable
         detailError = null;
         isLoadingDetail = false;
         showAddConfirm = false;
+        decideRemarks = null;
+    }
+
+    /// <summary>
+    /// Records the decision in SAP. Either way the draft leaves the waiting view — approved, it moves to the
+    /// approved one; rejected, SAP closes it to approval — so the drawer closes and what SAP said is kept
+    /// on the page.
+    /// </summary>
+    private async Task DecideAsync(string decision)
+    {
+        if (detail is null || detailEntry is not int draftEntry || DecidableRequest is not { } request || isSubmitting)
+        {
+            return;
+        }
+
+        isSubmitting = true;
+        decidingAs = decision;
+        StateHasChanged();
+
+        var route = $"{detail.Draft.FromWarehouse} → {detail.Draft.ToWarehouse}";
+        var draftNum = detail.Draft.DraftNum;
+        var isRequest = detail.Draft.IsRequest;
+        SapTransferApprovalDecisionResultDto? decided = null;
+        string? refusal = null;
+
+        try
+        {
+            // Not the page's disposal token: once sent, the decision must be allowed to finish.
+            var result = await Mediator.Send(new DecideSapTransferApprovalCommand(
+                request.Code, decision, decideRemarks, Guid.NewGuid().ToString("N")));
+
+            if (result.IsError)
+            {
+                refusal = result.FirstError.Description;
+                Snackbar.Add(refusal, Severity.Error);
+            }
+            else
+            {
+                decided = result.Value;
+                Snackbar.Add(decided.Message, decided.Decision == SapTransferDecisions.Approved && !decided.CanAdd ? Severity.Warning : Severity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to decide SAP approval request {Code} on draft {DraftEntry}", request.Code, draftEntry);
+            refusal = "The decision could not be recorded in SAP.";
+            Snackbar.Add(refusal, Severity.Error);
+        }
+        finally
+        {
+            isSubmitting = false;
+            decidingAs = null;
+        }
+
+        if (decided is not null)
+        {
+            addedNotice = decided.Message;
+            addedNoticeSource = $"{(isRequest ? "Request draft" : "Draft")} {draftNum} · entry {draftEntry} · {route}";
+            addedNoticeNeedsAttention = decided.Decision == SapTransferDecisions.Approved && !decided.CanAdd;
+            addedRequestLink = null;
+            CloseDetail();
+            await LoadAsync();
+            return;
+        }
+
+        await Task.WhenAll(LoadDetailAsync(draftEntry), LoadAsync());
+        if (refusal is not null && detailEntry == draftEntry && detail is not null)
+        {
+            detailError = refusal;
+        }
     }
 
     private void OpenAddConfirm() => showAddConfirm = true;

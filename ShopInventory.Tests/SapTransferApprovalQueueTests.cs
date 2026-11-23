@@ -196,6 +196,8 @@ public sealed class SapTransferApprovalQueueTests : IDisposable
         sap.AsClient(),
         new FakeSapApprovalLookups(),
         Access(),
+        FixedStageScope.EveryStage,
+        new UserManagementService(_context, new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()), NullLogger<UserManagementService>.Instance),
         Options.Create(new SAPSettings { Enabled = true }),
         NullLogger<GetSapTransferApprovalHandler>.Instance);
 

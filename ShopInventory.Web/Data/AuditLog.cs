@@ -180,6 +180,8 @@ public static class AuditActions
     public const string RejectSapCreditNote = "RejectSapCreditNote";
     public const string AddApprovedSapCreditNote = "AddApprovedSapCreditNote";
     public const string AddApprovedSapTransfer = "AddApprovedSapTransfer";
+    public const string ApproveSapTransfer = "ApproveSapTransfer";
+    public const string RejectSapTransfer = "RejectSapTransfer";
     public const string ViewSapCreditNoteAttachment = "ViewSapCreditNoteAttachment";
     public const string DownloadSapCreditNoteAttachment = "DownloadSapCreditNoteAttachment";
     public const string SendPodReportEmail = "SendPodReportEmail";

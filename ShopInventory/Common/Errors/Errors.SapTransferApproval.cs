@@ -111,6 +111,17 @@ public static partial class Errors
 
         public static readonly Error AddUncertain = AddUncertainFor(SapHeldDraftKind.Transfer);
 
+        public static Error RequestNotFound(int code) =>
+            Error.NotFound("SapTransferApproval.RequestNotFound",
+                $"SAP holds no approval request {code} on an inventory transfer or transfer request.");
+
+        public static Error DraftGone(int code) =>
+            Error.Validation("SapTransferApproval.DraftGone",
+                $"The draft behind approval request {code} has already been added or removed in SAP, so there is nothing to decide.");
+
+        public static readonly Error DecisionInProgress =
+            Error.Conflict("SapTransferApproval.DecisionInProgress", "This decision is already being recorded. Wait for it to finish, then reload.");
+
         public static Error AddUncertainFor(SapHeldDraftKind kind) =>
             Error.Failure("SapTransferApproval.AddUncertain",
                 $"SAP did not answer in time. The {Noun(kind)} may already exist — reload before adding again; " +

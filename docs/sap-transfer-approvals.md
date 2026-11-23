@@ -3,8 +3,10 @@
 How the app lists the inventory transfers and transfer requests that were keyed in the SAP B1 client,
 held by SAP's own approval templates and approved there, and lets someone add one: the approved draft
 becomes the real inventory transfer, or the real transfer request (see "Transfer request drafts" below).
-Deciding stays in the B1 client. SAP is the source of truth throughout; nothing is
-mirrored into the app's local approval engine, which governs the transfers this app raises itself.
+Drafts still waiting for approval are listed too, and a request waiting at the caller's own SAP stage can
+be decided here (see "Deciding from the page" below); every other stage is decided in the B1 client. SAP
+is the source of truth throughout; nothing is mirrored into the app's local approval engine, which governs
+the transfers this app raises itself.
 
 **Why it exists.** Production holds 40 active transfer approval templates, each one SQL condition on
 the source or destination warehouse with one approver stage. Approvers decide them in B1, but nobody
@@ -293,6 +295,41 @@ user must be on the template's originator list; in production about 1,250 of 6,6
 whether SAP keeps the same draft or makes a copy (the marker lookup handles either). The run's draft on
 `KEFALOS_TEST_3` is waiting for exactly this: add it in the B1 client as a user on the
 "Trans From Warehouse" template's originator list.
+
+## Deciding from the page (2026-11-23)
+
+Asked for by the user: the wash bay should see every draft going to WASHBAY and approve them.
+
+- **The waiting view** is the same read with `AuthorizationStatus eq 'sasPending'` instead of
+  `'sasApproved'` (`SapTransferDraftFilter.AwaitingApproval`), so every filter, count and the kind switch
+  carry over. The wash bay opens on it with *To WASHBAY* set; everyone else opens on the approved view.
+- **The decision** is `PATCH ApprovalRequests(code)` as the app's SAP approver, exactly the credit memo
+  decision (`DecideSapTransferApprovalHandler` reuses its remarks, stage scope and approver checks). The
+  caller needs `transfers.approve_sap` (Admin, WashBay); which stages they decide is
+  `CreditNoteApprovals:RoleStageScopes` — for WashBay, `Factory Washbay`, the stage its credit memos already
+  wait at. After an approval the **draft** is read back: `canAdd` only when it is `sasApproved`, because a
+  draft held by a second template stays `sasPending` until that one is decided too.
+- **Why the decision should work for transfers.** Read-only, production, 2026-11-23: since 1 Oct the app
+  made 75 credit memo decisions at stage 44 as SAP user `Software`, and their drafts flipped
+  (`dasApproved`, then `dasWithout` once added) as a B1 decision does. Template 91 "Washbay Transfers"
+  holds transfers at the same stage 44, whose approvers are Opsassist, PdnAdmin, Finacc, Software and
+  Washbay — so `Software` may decide them. **Not yet proven:** no transfer request has been decided through
+  the Service Layer; the first wash bay approval is the first one. Check its draft read back `sasApproved`.
+- **What else holds drafts going to WASHBAY** (130 pending on 2026-11-23, back to 2025-09-17). Each is the
+  sending side's approval, where SAP does not list `Software`, so the drawer names the stage and offers
+  no decision:
+
+  | Stage | Template | Pending | Raised since 1 Nov |
+  |---|---|---:|---:|
+  | 44 Factory Washbay | 91 Washbay Transfers | 15 | 15 |
+  | 30 Bulawayo Depot | 70 Transfers from CMB | 20 | 10 |
+  | 24 Graniteside | 59 Graniteside Centre | 10 | 0 |
+  | 22 Transfers to Returns | 49 Transfer from Return | 7 | 1 |
+  | 8 Dispatch Warehouses | 64 Transfer from CMFCs | 4 | 0 |
+  | 8 Dispatch Warehouses | 75 Transfes To Washbay (**inactive**) | 102 | 7 |
+
+  Template 75 is inactive now, but its 102 requests stay pending, and their drafts stay in the wash bay's
+  view, until somebody approves or removes them in B1.
 
 ## The add has not been run against SAP
 

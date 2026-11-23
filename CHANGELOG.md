@@ -18,6 +18,16 @@ otherwise be surprised.
 
 ### Added
 
+- **The wash bay approves transfers coming into WASHBAY from SAP-Held Transfers.** The page has a
+  second view, *Waiting for approval* (`GET /api/sap-transfer-approvals?awaitingApproval=true`), and
+  the wash bay opens on it, filtered to drafts going to WASHBAY. A request waiting at its SAP stage,
+  `Factory Washbay` (template 91 "Washbay Transfers"), can be approved or rejected in the drawer, through
+  `POST /api/sap-transfer-approvals/requests/{code}/decision`. The decision is recorded in SAP as the
+  app's SAP approver, with the person's name in the remarks, as credit memo decisions are. It needs the
+  new permission `transfers.approve_sap`, which Admin and WashBay hold by default. Drafts held at a
+  sending warehouse's stage (Bulawayo Depot, Graniteside, Returns, Dispatch) are listed with whom they
+  wait on, and are still decided in SAP Business One.
+
 - **An `attachment-storage` check on `/health/dependencies` and `/api/health`.** Once a minute the
   API writes a small file into the attachments folder and into each folder directly under it, then
   deletes it. The check reports the last result. One failed write is `Degraded`. Two in a row, or a

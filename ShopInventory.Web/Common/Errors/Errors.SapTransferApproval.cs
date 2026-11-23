@@ -11,5 +11,8 @@ public static partial class Errors
 
         public static Error AddFailed(string message) =>
             Error.Failure("SapTransferApproval.AddFailed", message);
+
+        public static Error DecideFailed(string message) =>
+            Error.Failure("SapTransferApproval.DecideFailed", message);
     }
 }
