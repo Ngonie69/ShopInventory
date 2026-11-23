@@ -183,9 +183,11 @@ public partial class SAPServiceLayerClient
             clauses.Append(" and AttachmentEntry gt 0");
         }
 
+        // Either number the B1 client shows: the draft's own (DocNum, on the form) or its entry (DocEntry,
+        // in the window's title bar). DocNum alone is not unique — two drafts can carry the same one.
         if (filter.DraftNum is int draftNum)
         {
-            clauses.Append($" and DocNum eq {draftNum}");
+            clauses.Append($" and (DocNum eq {draftNum} or DocEntry eq {draftNum})");
         }
 
         return clauses.ToString();

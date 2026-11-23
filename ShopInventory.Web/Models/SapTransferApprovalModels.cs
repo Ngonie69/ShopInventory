@@ -63,7 +63,10 @@ public sealed record SapTransferQueueFilter
     public DateTime? CreatedTo { get; init; }
     public bool AttachedOnly { get; init; }
 
-    /// <summary>One draft, by the number the B1 client shows — the search box's text when it is one.</summary>
+    /// <summary>
+    /// The search box's text when it is a number: matched against both the draft number on the B1 form and
+    /// the draft entry in the B1 window's title bar, since two drafts can share a draft number.
+    /// </summary>
     public int? DraftNum { get; init; }
 
     public string ToQueryString()

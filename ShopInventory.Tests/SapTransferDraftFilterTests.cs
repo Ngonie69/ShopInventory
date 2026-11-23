@@ -43,7 +43,7 @@ public class SapTransferDraftFilterTests
             + " and CreationDate ge '2026-11-05'"
             + " and CreationDate le '2026-11-08'"
             + " and AttachmentEntry gt 0"
-            + " and DocNum eq 94410",
+            + " and (DocNum eq 94410 or DocEntry eq 94410)",
             clauses);
     }
 
