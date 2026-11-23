@@ -50,10 +50,10 @@ public sealed class GetGLAccountLedgerHandler(
     /// reconciliation, and it costs nothing beyond the round trip precisely because the date is a
     /// parameter rather than part of the text.
     /// </remarks>
-    internal const string BalanceSql = """
+    internal static readonly string BalanceSql = $"""
 SELECT
-    SUM(T1."Debit") AS "TotalDebit",
-    SUM(T1."Credit") AS "TotalCredit"
+    {SapSqlAmount.Sum("T1", "Debit", "TotalDebit")},
+    {SapSqlAmount.Sum("T1", "Credit", "TotalCredit")}
 FROM OJDT T0
 INNER JOIN JDT1 T1
     ON T0."TransId" = T1."TransId"

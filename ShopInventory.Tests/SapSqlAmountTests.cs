@@ -19,6 +19,8 @@ public class SapSqlAmountTests
         Assert.Equal(
             "LEFT(T1.\"Debit\", 40) AS \"Debit\", LEFT(T1.\"Credit\", 40) AS \"Credit\"",
             SapSqlAmount.Columns("T1", "Debit", "Credit"));
+        // A total is a decimal too. This exact shape was created and read against SAP on 23 Nov 2026.
+        Assert.Equal("LEFT(SUM(T0.\"LineTotal\"), 40) AS \"Total\"", SapSqlAmount.Sum("T0", "LineTotal", "Total"));
     }
 
     [Fact]

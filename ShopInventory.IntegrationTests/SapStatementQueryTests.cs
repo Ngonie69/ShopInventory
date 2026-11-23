@@ -25,7 +25,7 @@ public class SapStatementQueryTests(SapClientFixture fixture, ITestOutputHelper 
     private const string OpeningBalanceQueryCode = GetCustomerStatementHandler.OpeningBalanceQueryCode;
     private const string LedgerQueryCode = GetCustomerStatementHandler.LedgerQueryCode;
     private const string OpenItemsQueryCode = GetCustomerStatementHandler.OpenItemsQueryCode;
-    private const string OpeningBalanceSql = GetCustomerStatementHandler.OpeningBalanceSql;
+    private static readonly string OpeningBalanceSql = GetCustomerStatementHandler.OpeningBalanceSql;
     private static readonly string LedgerSql = GetCustomerStatementHandler.LedgerSql;
     private static readonly string OpenItemsSql = GetCustomerStatementHandler.OpenItemsSql;
 

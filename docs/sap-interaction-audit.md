@@ -607,11 +607,12 @@ Three changes:
   `LEFT(T0."Quantity", 40) AS "Quantity"` (`SapSqlAmount.Column`), which the Service Layer returns as a
   JSON string and never formats as a number; it also comes back in full rather than rounded to six
   significant figures. Rows are read with `SapSqlAmount.Read`, which takes text or a number and refuses
-  text that is not a number. 25 statements changed (`scripts/Convert-SapAmountsToText.py` did it and
-  reports them). **Aggregates are not changed yet**: 17 statements still select a `SUM(…)` as a
-  decimal, because whether the Service Layer's SQL accepts `LEFT(SUM(x), 40)` has not been tried
-  against SAP. They are pinned in `SapStoredQueryAmountTests`, which also fails on any new statement
-  that selects a decimal column as a number.
+  text that is not a number. A total is a decimal too, and is written
+  `LEFT(SUM(T1."LineTotal"), 40) AS "Revenue"` (`SapSqlAmount.Sum`): tried against the test company
+  on 2026-11-23, the Service Layer accepted it, stored it as written and answered `"88.600000"`.
+  42 statements changed, 25 with a decimal column and 17 with a total
+  (`scripts/Convert-SapAmountsToText.py` did it). `SapStoredQueryAmountTests` fails on any stored
+  query that selects a decimal column, a total, or a column nobody has classified, as a number.
 - **A read that sticks again is held longer.** The first hold is still `SAP:StuckReadHoldMinutes`
   (10). Each time the same URL sticks again before SAP has answered it, the next hold is four times as
   long, up to `SAP:StuckReadMaxHoldMinutes` (1440): 10 minutes, 40, 160, 640, a day. And the transient
@@ -622,8 +623,8 @@ Three changes:
   release that changes the SQL asks once more. Deleting the row has the range asked for again. A
   server error or a failed connection leaves nothing running on SAP and is retried as before.
 
-Five queries read by a typed parser got new codes with the change (`STOCK_QTY_V2_<whs>`,
-`WHS_BATCHES_V2_<whs>`, `NOBATCH_QTY_V2_<whs>`, `BATCH_SEARCH_V2`, `SHOP_PRICES_V2`), so that a build
+Six queries read by a typed parser got new codes with the change (`STOCK_QTY_V2_<whs>`,
+`WHS_BATCHES_V2_<whs>`, `NOBATCH_QTY_V2_<whs>`, `BATCH_SEARCH_V2`, `SHOP_PRICES_V2`, `SALES_QTY_V2`), so that a build
 from before it, running beside this one during a cutover or on a node nobody deployed to, keeps
 reading numbers from the old objects instead of failing on text. The old objects stay in SAP.
 

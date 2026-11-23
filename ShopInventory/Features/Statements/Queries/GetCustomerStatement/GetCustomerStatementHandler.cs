@@ -62,10 +62,10 @@ public sealed class GetCustomerStatementHandler(
     // execution immediately after a PATCH is pathologically slow — repeatedly over 25s here against
     // 0.3s warm — and a timeout invalidates the verification memo, so the next call PATCHes and
     // stalls again. Quoting them keeps the stored text byte-identical and the query simply warm.
-    internal const string OpeningBalanceSql = """
+    internal static readonly string OpeningBalanceSql = $"""
 SELECT
-    SUM(T1."Debit") AS "TotalDebit",
-    SUM(T1."Credit") AS "TotalCredit"
+    {SapSqlAmount.Sum("T1", "Debit", "TotalDebit")},
+    {SapSqlAmount.Sum("T1", "Credit", "TotalCredit")}
 FROM "OJDT" T0
 INNER JOIN "JDT1" T1
     ON T0."TransId" = T1."TransId"

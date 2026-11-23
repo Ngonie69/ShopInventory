@@ -12,12 +12,14 @@ namespace ShopInventory.Tests;
 /// good; text cannot (<see cref="SapSqlAmount"/>). Every statement the API runs is created by the API
 /// from a string in its own source, so the source is what this reads: each C# string literal holding a
 /// <c>SELECT … FROM</c> over a SAP table, with its <see cref="SapSqlAmount.Column(string, string)"/>
-/// holes filled in by the real helper.
+/// and <see cref="SapSqlAmount.Sum"/> holes filled in by the real helper.
 /// </para>
 /// <para>
 /// A selected column passes only if it is known to be text, a whole number or a date
 /// (<see cref="NotDecimal"/>). One nobody has classified fails, so a new decimal cannot arrive by being
-/// unlisted. The <c>WHERE</c> is not looked at: comparing a decimal there writes nothing.
+/// unlisted. A total fails too: <c>SUM(x)</c> is as much a decimal as <c>x</c>, and the Service Layer
+/// takes <c>LEFT(SUM(x), 40)</c> (tried on 23 Nov 2026). The <c>WHERE</c> is not looked at: comparing a
+/// decimal there writes nothing.
 /// </para>
 /// </remarks>
 public class SapStoredQueryAmountTests
@@ -53,41 +55,6 @@ public class SapStoredQueryAmountTests
     };
 
     /// <summary>
-    /// The aggregates still selected as decimals, by file and the name they are selected under.
-    /// </summary>
-    /// <remarks>
-    /// <c>SUM(x)</c> is a decimal and can stall like any other. Whether the Service Layer's SQL takes
-    /// <c>LEFT(SUM(x), 40)</c> has not been tried against SAP (the one probe was not run), and a
-    /// statement its validator refuses breaks the report it serves, so these are left until that is
-    /// known. Their rows are already read with <see cref="SapSqlAmount"/>'s reader, which takes text.
-    /// Take a line out of here when its statement is changed; never add one.
-    /// </remarks>
-    private static readonly string[] AggregatesStillDecimal =
-    [
-        "GetCustomerStatementHandler.cs: TotalCredit",
-        "GetCustomerStatementHandler.cs: TotalDebit",
-        "GetGLAccountLedgerHandler.cs: TotalCredit",
-        "GetGLAccountLedgerHandler.cs: TotalDebit",
-        "ReportService.cs: CurrentStock",
-        "ReportService.cs: DocTotal",
-        "ReportService.cs: GrossProfit",
-        "ReportService.cs: InvoicedLineTotal",
-        "ReportService.cs: PaidToDate",
-        "ReportService.cs: QuantityInvoiced",
-        "ReportService.cs: Revenue",
-        "ReportService.cs: TotalPurchases",
-        "ReportService.cs: TotalQuantitySold",
-        "ReportService.cs: TotalRevenue",
-        "ReportService.cs: TotalSales",
-        "ReportService.cs: TotalValue",
-        "ReportService.cs: TotalVat",
-        "SAPServiceLayerClient.cs: Available",
-        "SAPServiceLayerClient.cs: InStock",
-        "SAPServiceLayerClient.cs: TotalQuantitySold",
-        "SAPServiceLayerClient.cs: TotalSalesValue",
-    ];
-
-    /// <summary>
     /// Pieces of a select list held in a variable rather than in the statement's own literal, and what
     /// they hold. Checked like any other part of the list.
     /// </summary>
@@ -103,43 +70,33 @@ public class SapStoredQueryAmountTests
     {
         var offenders = Statements()
             .SelectMany(statement => statement.Items
-                .Where(item => item.Kind is ItemKind.Decimal or ItemKind.Unclassified or ItemKind.Unrecognised)
+                .Where(item => item.Kind is not (ItemKind.Text or ItemKind.NotDecimal))
                 .Select(item => $"{statement.Where}: {Describe(item)}"))
             .ToList();
 
         Assert.True(
             offenders.Count == 0,
             "A stored SAP query selects a decimal as a number, which can leave a Service Layer worker stuck for good. "
-            + "Select it with SapSqlAmount.Column and read it with SapSqlAmount.Read:\n  " + string.Join("\n  ", offenders));
-    }
-
-    [Fact]
-    public void The_aggregates_still_selected_as_decimals_are_exactly_the_ones_on_record()
-    {
-        var found = Statements()
-            .SelectMany(statement => statement.Items
-                .Where(item => item.Kind == ItemKind.DecimalAggregate)
-                .Select(item => $"{Path.GetFileName(statement.File)}: {item.Alias}"))
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-
-        Assert.Equal(AggregatesStillDecimal.Order(StringComparer.Ordinal).ToArray(), found);
+            + "Select it with SapSqlAmount.Column, or SapSqlAmount.Sum for a total, and read it with SapSqlAmount.Read:\n  "
+            + string.Join("\n  ", offenders));
     }
 
     [Fact]
     public void The_scan_reads_the_statements_it_is_there_for()
     {
-        // If the scan stops finding statements, the two tests above pass on nothing.
+        // If the scan stops finding statements, the test above passes on nothing.
         var statements = Statements();
 
         Assert.True(statements.Count >= 45, $"Only {statements.Count} stored SAP queries were found in the source.");
         // DSK_INV_COST_RANGE and the per-warehouse stock read, the two SAP was found stuck on.
         Assert.Contains(statements, statement => statement.Sql.Contains("LEFT(T0.\"GrssProfit\", 40) AS \"GrssProfit\"", StringComparison.Ordinal));
         Assert.Contains(statements, statement => statement.Sql.Contains("LEFT(T1.\"OnHand\", 40) AS \"InStock\"", StringComparison.Ordinal));
-        // Every statement Convert-SapAmountsToText.py converted. One more is one more statement with a
-        // decimal column, selected the right way; fewer means a statement was lost to the scan.
-        Assert.Equal(25, statements.Count(statement => statement.Items.Any(item => item.Kind == ItemKind.Text)));
+        // A total, as the reports select them.
+        Assert.Contains(statements, statement => statement.Sql.Contains("LEFT(SUM(T1.\"GrssProfit\"), 40) AS \"GrossProfit\"", StringComparison.Ordinal));
+        // Every statement Convert-SapAmountsToText.py converted: 25 with a decimal column and 17 with a
+        // total. One more is one more statement selecting an amount the right way; fewer means a
+        // statement was lost to the scan.
+        Assert.Equal(42, statements.Count(statement => statement.Items.Any(item => item.Kind == ItemKind.Text)));
     }
 
     [Theory]
@@ -158,6 +115,7 @@ public class SapStoredQueryAmountTests
     [InlineData("""SELECT T0."ItemCode", LEFT(T0."Quantity", 40) AS "Quantity" FROM INV1 T0 WHERE T0."Quantity" > 0""")]
     [InlineData("""SELECT DISTINCT T0."DocEntry" AS "InvoiceDocEntry" FROM INV1 T0""")]
     [InlineData("""SELECT TOP 1 T0."Currency", T0."RateDate", LEFT(T0."Rate", 40) AS "Rate" FROM ORTT T0""")]
+    [InlineData("""SELECT T0."DocDate" AS "DocDate", LEFT(SUM(T1."LineTotal"), 40) AS "Revenue" FROM OINV T0 GROUP BY T0."DocDate" """)]
     [InlineData("""SELECT T1."ItemCode", MAX(T0."DocDate") AS "LastSoldDate", COUNT(DISTINCT T0."DocEntry") as "Invoices", 'USD' AS "Currency" FROM OINV T0""")]
     public void The_scan_passes_text_whole_numbers_dates_and_a_decimal_in_the_where(string sql)
     {
@@ -189,6 +147,7 @@ public class SapStoredQueryAmountTests
     private static string Describe(SelectItem item) => item.Kind switch
     {
         ItemKind.Decimal => $"{item.Expression} is a decimal selected as a number",
+        ItemKind.DecimalAggregate => $"{item.Expression} is a total selected as a number; use SapSqlAmount.Sum",
         ItemKind.Unclassified => $"{item.Expression} is in neither list of this test; check its type in SAP and classify it",
         _ => $"{item.Expression} is not an expression this test can judge",
     };
@@ -208,7 +167,7 @@ public class SapStoredQueryAmountTests
         """",
         RegexOptions.Singleline | RegexOptions.IgnorePatternWhitespace | RegexOptions.Compiled);
 
-    private static readonly Regex AmountHole = new("""\{SapSqlAmount\.Column\("(\w+)", "(\w+)"(?:, "(\w+)")?\)\}""");
+    private static readonly Regex AmountHole = new("""\{SapSqlAmount\.(Column|Sum)\("(\w+)", "(\w+)"(?:, "(\w+)")?\)\}""");
     private static readonly Regex FragmentHole = new(@"\{(\w+)\}");
 
     // A SAP table is four capitals and digits (OINV, INV1, ITM1), quoted or not, or a table name passed in.
@@ -274,9 +233,13 @@ public class SapStoredQueryAmountTests
             return null;
         }
 
-        return AmountHole.Replace(body, hole => hole.Groups[3].Success
-            ? SapSqlAmount.Column(hole.Groups[1].Value, hole.Groups[2].Value, hole.Groups[3].Value)
-            : SapSqlAmount.Column(hole.Groups[1].Value, hole.Groups[2].Value));
+        return AmountHole.Replace(body, hole => (hole.Groups[1].Value, hole.Groups[4].Success) switch
+        {
+            ("Sum", true) => SapSqlAmount.Sum(hole.Groups[2].Value, hole.Groups[3].Value, hole.Groups[4].Value),
+            ("Column", true) => SapSqlAmount.Column(hole.Groups[2].Value, hole.Groups[3].Value, hole.Groups[4].Value),
+            ("Column", false) => SapSqlAmount.Column(hole.Groups[2].Value, hole.Groups[3].Value),
+            _ => hole.Value,
+        });
     }
 
     private static List<SelectItem> SelectItems(string sql)

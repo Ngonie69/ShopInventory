@@ -7,12 +7,14 @@ ShopInventory/Common/Sap/SapSqlAmount.cs.
 
 What it rewrites, in the C# string literals that hold a SELECT ... FROM:
 
-    T1."OnHand" as "InStock"     ->  {SapSqlAmount.Column("T1", "OnHand", "InStock")}
-    T0."Quantity"                ->  {SapSqlAmount.Column("T0", "Quantity")}
+    T1."OnHand" as "InStock"            ->  {SapSqlAmount.Column("T1", "OnHand", "InStock")}
+    T0."Quantity"                       ->  {SapSqlAmount.Column("T0", "Quantity")}
+    SUM(T1."LineTotal") AS "Revenue"    ->  {SapSqlAmount.Sum("T1", "LineTotal", "Revenue")}
 
-in the select list only (the text between SELECT and the next FROM), for the columns in DECIMALS. A
-column inside a function call -- SUM(T1."OnHand") -- is left alone and reported: whether SAP takes
-LEFT over an aggregate has not been tried. The WHERE, GROUP BY and ORDER BY are never touched. The
+in the select list only (the text between SELECT and the next FROM), for the columns in DECIMALS and
+for every SUM. SAP takes LEFT over an aggregate: LEFT(SUM(x), 40) was created and read on 23 Nov 2026
+and came back as "88.600000". An aggregate of any other shape (no alias, an AVG) is reported and left
+for a person. The WHERE, GROUP BY and ORDER BY are never touched. The
 literal is made interpolated (`"""` -> `$"""`, `@"` -> `$@"`, `"` -> `$"`), and a `const string`
 holding it becomes `static readonly string`.
 
@@ -83,15 +85,22 @@ def item_pattern(quote):
         r'(?:\s+(?:as|AS)\s+' + q + r'(?P<a>\w+)' + q + r')?')
 
 
+def sum_pattern(quote):
+    q = re.escape(quote)
+    return re.compile(
+        r'\bSUM\((?P<t>[A-Za-z_]\w*)\.' + q + r'(?P<c>\w+)' + q + r'\)\s+(?:as|AS)\s+' + q + r'(?P<a>\w+)' + q)
+
+
 def aggregate_pattern(quote):
     q = re.escape(quote)
     return re.compile(r'\b(?:SUM|AVG)\(\w+\.' + q + r'(\w+)' + q + r'\)', re.I)
 
 
 def convert_select_lists(body, quote):
-    """The literal's body with its select lists rewritten, the columns converted, and the aggregates left."""
+    """The literal's body with its select lists rewritten, what was converted, and any aggregate left."""
     converted, aggregates = [], []
     item = item_pattern(quote)
+    total = sum_pattern(quote)
     aggregate = aggregate_pattern(quote)
 
     def replace_item(match):
@@ -101,8 +110,14 @@ def convert_select_lists(body, quote):
             return f'{{SapSqlAmount.Column("{table}", "{column}")}}'
         return f'{{SapSqlAmount.Column("{table}", "{column}", "{alias}")}}'
 
+    def replace_sum(match):
+        table, column, alias = match.group("t"), match.group("c"), match.group("a")
+        converted.append(f"SUM({column}) as {alias}")
+        return f'{{SapSqlAmount.Sum("{table}", "{column}", "{alias}")}}'
+
     def replace_list(match):
-        select_list = match.group("list")
+        select_list = total.sub(replace_sum, match.group("list"))
+        # Whatever aggregate is still here has a shape replace_sum does not know: no alias, or an AVG.
         aggregates.extend(aggregate.findall(select_list))
         return "SELECT" + item.sub(replace_item, select_list) + "FROM"
 
@@ -128,7 +143,7 @@ def convert_sql(text, report, path):
 
         new_body, converted, aggregates = convert_select_lists(body, quote)
         if aggregates:
-            report.append(f"  {path}:{line}: left as a decimal aggregate: {', '.join(aggregates)}")
+            report.append(f"  {path}:{line}: NOT CONVERTED, an aggregate still selected as a decimal: {', '.join(aggregates)}")
         if not converted:
             continue
 

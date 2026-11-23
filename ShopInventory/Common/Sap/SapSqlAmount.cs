@@ -25,10 +25,9 @@ namespace ShopInventory.Common.Sap;
 /// <para>
 /// <c>LEFT</c> is the only way to text. The Service Layer's SQL knows ISNULL, IFNULL, ABS, ROUND, FLOOR,
 /// CEILING, LEFT, RIGHT, UPPER and LOWER, and refuses CAST, TO_VARCHAR, TO_NVARCHAR and <c>||</c>.
-/// Whether it takes <c>LEFT</c> over an aggregate (<c>LEFT(SUM(x), 40)</c>) has not been tried against
-/// SAP, so the statements that select a <c>SUM</c> still select it as a decimal; they are listed in
-/// <c>SapStoredQueryAmountTests</c>. Their rows are already read with <see cref="Read(JsonElement, string)"/>,
-/// so only the SQL has to change once that is known.
+/// It takes <c>LEFT</c> over an aggregate too (<see cref="Sum"/>): tried on 23 Nov 2026 against the
+/// test company, <c>LEFT(SUM(T0."LineTotal"), 40)</c> was accepted, stored as written, and answered
+/// <c>"88.600000"</c>.
 /// </para>
 /// </remarks>
 public static class SapSqlAmount
@@ -48,6 +47,13 @@ public static class SapSqlAmount
     /// </summary>
     public static string Column(string table, string column, string alias) =>
         $"LEFT({table}.\"{column}\", {TextLength}) AS \"{alias}\"";
+
+    /// <summary>
+    /// The select-list item for a total, which is as much a decimal as the column it adds up:
+    /// <c>LEFT(SUM(T1."LineTotal"), 40) AS "Revenue"</c>.
+    /// </summary>
+    public static string Sum(string table, string column, string alias) =>
+        $"LEFT(SUM({table}.\"{column}\"), {TextLength}) AS \"{alias}\"";
 
     /// <summary>Several decimal columns of one table, each under its own name, comma-separated.</summary>
     public static string Columns(string table, params string[] columns) =>

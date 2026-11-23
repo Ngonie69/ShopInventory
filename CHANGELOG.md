@@ -41,14 +41,14 @@ otherwise be surprised.
   A Service Layer worker writing a decimal into a `SQLQueries` answer can stall for good, at a full core
   and up to 8 GB; on 23 Nov 2026 thirteen of them held 76.8 GB on the SAP server and HANA's index server
   was killed six times. What an operator will see after this deploys:
-  - 25 stored queries are rewritten on first use (`LEFT(T0."Quantity", 40) AS "Quantity"` for each
-    decimal column). Five get new objects in SAP and leave the old ones behind: `STOCK_QTY_V2_<whs>`,
-    `WHS_BATCHES_V2_<whs>` and `NOBATCH_QTY_V2_<whs>` per warehouse, `BATCH_SEARCH_V2` and
-    `SHOP_PRICES_V2`. The content-addressed ones (`…_<12 hex>`) get new codes too, as any SQL change
-    gives them. The first read of each pays for the create, tens of seconds on this OUQR.
-  - 17 statements that select a `SUM(…)` are **not** changed and can still stall: the reports, the
-    statement and GL opening balances, `SALES_QTY` and the packaging stock. Whether the Service Layer
-    accepts `LEFT(SUM(x), 40)` has to be tried against SAP first.
+  - 42 stored queries are rewritten on first use: `LEFT(T0."Quantity", 40) AS "Quantity"` for each
+    decimal column (25 statements) and `LEFT(SUM(T1."LineTotal"), 40) AS "Revenue"` for each total
+    (17: the reports, the statement and GL opening balances, the sales quantities and the packaging
+    stock). Six get new objects in SAP and leave the old ones behind: `STOCK_QTY_V2_<whs>`,
+    `WHS_BATCHES_V2_<whs>` and `NOBATCH_QTY_V2_<whs>` per warehouse, `BATCH_SEARCH_V2`,
+    `SHOP_PRICES_V2` and `SALES_QTY_V2`. The content-addressed ones (`…_<12 hex>`) get new codes too,
+    as any SQL change gives them. The first read of each pays for the create, tens of seconds on this
+    OUQR.
   - The stuck-read hold (`SAP:StuckReadHoldMinutes`, 10) now grows fourfold each time the same read
     sticks again before SAP answers it, up to `SAP:StuckReadMaxHoldMinutes` (1440, new).
   - The `sale-invoice-cost-sync` job ends its run on a read SAP never answered and records the

@@ -416,12 +416,12 @@ public class ReportService : IReportService
             cancellationToken);
     }
 
-    internal const string SalesSummarySql = """
+    internal static readonly string SalesSummarySql = $"""
 SELECT
     T0."DocCur" AS "DocCur",
     COUNT(T0."DocEntry") AS "InvoiceCount",
-    SUM(T0."DocTotal") AS "TotalSales",
-    SUM(T0."VatSum") AS "TotalVat"
+    {SapSqlAmount.Sum("T0", "DocTotal", "TotalSales")},
+    {SapSqlAmount.Sum("T0", "VatSum", "TotalVat")}
 FROM OINV T0
 WHERE T0."DocDate" >= :fromDate
   AND T0."DocDate" <= :toDate
@@ -435,12 +435,12 @@ WHERE T0."DocDate" >= :fromDate
   AND T0."DocDate" <= :toDate
 """;
 
-    internal const string DailySalesSql = """
+    internal static readonly string DailySalesSql = $"""
 SELECT
     T0."DocDate" AS "DocDate",
     T0."DocCur" AS "DocCur",
     COUNT(T0."DocEntry") AS "InvoiceCount",
-    SUM(T0."DocTotal") AS "TotalSales"
+    {SapSqlAmount.Sum("T0", "DocTotal", "TotalSales")}
 FROM OINV T0
 WHERE T0."DocDate" >= :fromDate
   AND T0."DocDate" <= :toDate
@@ -457,14 +457,14 @@ ORDER BY T0."DocDate"
     // 701 "Incorrect syntax near 'ORDER'" — confirmed 2026-08-03, and only at create, so it is as
     // invisible as the CASE was. The ranking has to happen after the pivot regardless; ordering by
     // the group key here is purely so that paging the result with $skip is stable.
-    internal const string TopProductsSql = """
+    internal static readonly string TopProductsSql = $"""
 SELECT
     T1."ItemCode" AS "ItemCode",
     T2."ItemName" AS "ItemName",
     T0."DocCur" AS "DocCur",
-    SUM(T1."Quantity") AS "TotalQuantitySold",
-    SUM(T1."LineTotal") AS "TotalRevenue",
-    SUM(T1."GrssProfit") AS "GrossProfit",
+    {SapSqlAmount.Sum("T1", "Quantity", "TotalQuantitySold")},
+    {SapSqlAmount.Sum("T1", "LineTotal", "TotalRevenue")},
+    {SapSqlAmount.Sum("T1", "GrssProfit", "GrossProfit")},
     COUNT(T1."LineNum") AS "TimesOrdered"
 FROM OINV T0
 INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
@@ -475,14 +475,14 @@ GROUP BY T1."ItemCode", T2."ItemName", T0."DocCur"
 ORDER BY T1."ItemCode", T0."DocCur"
 """;
 
-    internal const string TopProductsByWarehouseSql = """
+    internal static readonly string TopProductsByWarehouseSql = $"""
 SELECT
     T1."ItemCode" AS "ItemCode",
     T2."ItemName" AS "ItemName",
     T0."DocCur" AS "DocCur",
-    SUM(T1."Quantity") AS "TotalQuantitySold",
-    SUM(T1."LineTotal") AS "TotalRevenue",
-    SUM(T1."GrssProfit") AS "GrossProfit",
+    {SapSqlAmount.Sum("T1", "Quantity", "TotalQuantitySold")},
+    {SapSqlAmount.Sum("T1", "LineTotal", "TotalRevenue")},
+    {SapSqlAmount.Sum("T1", "GrssProfit", "GrossProfit")},
     COUNT(T1."LineNum") AS "TimesOrdered"
 FROM OINV T0
 INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
@@ -494,11 +494,11 @@ GROUP BY T1."ItemCode", T2."ItemName", T0."DocCur"
 ORDER BY T1."ItemCode", T0."DocCur"
 """;
 
-    internal const string InvoiceGrossProfitByDaySql = """
+    internal static readonly string InvoiceGrossProfitByDaySql = $"""
 SELECT
     T0."DocDate" AS "DocDate",
-    SUM(T1."LineTotal") AS "Revenue",
-    SUM(T1."GrssProfit") AS "GrossProfit"
+    {SapSqlAmount.Sum("T1", "LineTotal", "Revenue")},
+    {SapSqlAmount.Sum("T1", "GrssProfit", "GrossProfit")}
 FROM OINV T0
 INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
 WHERE T0."DocDate" >= :fromDate
@@ -507,11 +507,11 @@ GROUP BY T0."DocDate"
 ORDER BY T0."DocDate"
 """;
 
-    internal const string CreditNoteGrossProfitByDaySql = """
+    internal static readonly string CreditNoteGrossProfitByDaySql = $"""
 SELECT
     T0."DocDate" AS "DocDate",
-    SUM(T1."LineTotal") AS "Revenue",
-    SUM(T1."GrssProfit") AS "GrossProfit"
+    {SapSqlAmount.Sum("T1", "LineTotal", "Revenue")},
+    {SapSqlAmount.Sum("T1", "GrssProfit", "GrossProfit")}
 FROM ORIN T0
 INNER JOIN RIN1 T1 ON T0."DocEntry" = T1."DocEntry"
 WHERE T0."DocDate" >= :fromDate
@@ -520,11 +520,11 @@ GROUP BY T0."DocDate"
 ORDER BY T0."DocDate"
 """;
 
-    internal const string CustomerGrossProfitSql = """
+    internal static readonly string CustomerGrossProfitSql = $"""
 SELECT
     T0."CardCode" AS "CardCode",
-    SUM(T1."LineTotal") AS "Revenue",
-    SUM(T1."GrssProfit") AS "GrossProfit"
+    {SapSqlAmount.Sum("T1", "LineTotal", "Revenue")},
+    {SapSqlAmount.Sum("T1", "GrssProfit", "GrossProfit")}
 FROM OINV T0
 INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
 WHERE T0."DocDate" >= :fromDate
@@ -631,10 +631,10 @@ ORDER BY T0."CardCode"
 
     private Task<List<Dictionary<string, object?>>> GetCachedStockedItemRowsAsync(CancellationToken cancellationToken)
     {
-        var sqlText = @"SELECT
+        var sqlText = $@"SELECT
             T0.""ItemCode"",
             T0.""ItemName"",
-            SUM(T1.""OnHand"") AS ""CurrentStock""
+            {SapSqlAmount.Sum("T1", "OnHand", "CurrentStock")}
         FROM OITM T0
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
         WHERE T1.""OnHand"" > 0
@@ -670,13 +670,13 @@ ORDER BY T0."CardCode"
             cancellationToken);
     }
 
-    internal const string CustomerInvoiceSql = """
+    internal static readonly string CustomerInvoiceSql = $"""
 SELECT
     T0."CardCode" AS "CardCode",
     T0."CardName" AS "CardName",
     T0."DocCur" AS "DocCur",
     COUNT(T0."DocEntry") AS "InvoiceCount",
-    SUM(T0."DocTotal") AS "TotalPurchases"
+    {SapSqlAmount.Sum("T0", "DocTotal", "TotalPurchases")}
 FROM OINV T0
 WHERE T0."DocDate" >= :fromDate
   AND T0."DocDate" <= :toDate
@@ -696,15 +696,15 @@ GROUP BY T0."CardCode", T0."CardName", T0."DocCur"
     // sums are accepted, and so is comparing one column against another, which is what the open-item
     // filter is now written as. That filter is marginally wider than the old one — it keeps balances
     // under a cent, which the > 0.01 test dropped — so the threshold is re-applied on read.
-    internal const string ReceivablesAgingSql = """
+    internal static readonly string ReceivablesAgingSql = $"""
 SELECT
     T0."CardCode" AS "CardCode",
     T0."CardName" AS "CardName",
     T0."DocDate" AS "DocDate",
     T0."DocCur" AS "DocCur",
     COUNT(T0."DocEntry") AS "InvoiceCount",
-    SUM(T0."DocTotal") AS "DocTotal",
-    SUM(T0."PaidToDate") AS "PaidToDate"
+    {SapSqlAmount.Sum("T0", "DocTotal", "DocTotal")},
+    {SapSqlAmount.Sum("T0", "PaidToDate", "PaidToDate")}
 FROM OINV T0
 WHERE T0."DocDate" >= :fromDate
   AND T0."DocDate" <= :toDate
@@ -1485,10 +1485,10 @@ ORDER BY T0."CardName"
         }
 
         // 1) Summary by customer + status + currency — aggregated, far fewer rows than individual orders
-        var customerSql = @"SELECT T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate AND T0.""CANCELED"" = 'N'" + orderFilter + @" GROUP BY T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""CardName""";
+        var customerSql = $@"SELECT T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", {SapSqlAmount.Sum("T0", "DocTotal", "TotalValue")} FROM ORDR T0 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate AND T0.""CANCELED"" = 'N'" + orderFilter + @" GROUP BY T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""CardName""";
 
         // 2) Daily summary — one row per date+status+currency
-        var dailySql = @"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate AND T0.""CANCELED"" = 'N'" + orderFilter + @" GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
+        var dailySql = $@"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", {SapSqlAmount.Sum("T0", "DocTotal", "TotalValue")} FROM ORDR T0 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate AND T0.""CANCELED"" = 'N'" + orderFilter + @" GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
 
         // 3) Order line detail used by the dedicated order-vs-invoice page and exports.
         // The quantity and value columns are selected bare. SAP's SQLQueries validator rejects
@@ -1524,12 +1524,12 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocNum"" DESC, T1.""LineNum""";
 
         // Match invoices raised directly from the sales order (INV1.BaseType = 17),
         // line-for-line on BaseEntry/BaseLine, excluding cancelled orders and invoices.
-        var directInvoiceSql = @"SELECT
+        var directInvoiceSql = $@"SELECT
     T1.""BaseEntry"" AS ""OrderDocEntry"",
     T1.""BaseLine"" AS ""OrderLineNum"",
     T0.""DocNum"" AS ""InvoiceDocNum"",
-    SUM(T1.""Quantity"") AS ""QuantityInvoiced"",
-    SUM(T1.""LineTotal"") AS ""InvoicedLineTotal""
+    {SapSqlAmount.Sum("T1", "Quantity", "QuantityInvoiced")},
+    {SapSqlAmount.Sum("T1", "LineTotal", "InvoicedLineTotal")}
 FROM OINV T0
 INNER JOIN INV1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
 INNER JOIN ORDR O0 ON O0.""DocEntry"" = T1.""BaseEntry""

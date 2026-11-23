@@ -8857,7 +8857,7 @@ ORDER BY T0.""ItemCode""";
     /// </summary>
     /// <remarks>
     /// A new code rather than new text under the old one, here and for <see cref="WarehouseBatchesQueryPrefix"/>,
-    /// <see cref="NonBatchStockQueryPrefix"/>, <c>BATCH_SEARCH_V2</c> and <c>SHOP_PRICES_V2</c>. A build from
+    /// <see cref="NonBatchStockQueryPrefix"/>, <c>BATCH_SEARCH_V2</c>, <c>SHOP_PRICES_V2</c> and <c>SALES_QTY_V2</c>. A build from
     /// before the change reads these rows with <c>JsonElement.GetDecimal()</c>, which throws on text inside a
     /// parser that logs and answers an empty list: no stock, no batches. Such a build runs beside this one
     /// across every blue/green cutover, and for good on a node nobody deployed to, and each would otherwise
@@ -10092,8 +10092,8 @@ ORDER BY T1."WhsCode", T1."ItemCode"
         var sqlText = $@"SELECT
             T0.""ItemCode"",
             T0.""ItemName"",
-            SUM(T1.""OnHand"") as ""InStock"",
-            SUM(T1.""OnHand"") as ""Available"",
+            {SapSqlAmount.Sum("T1", "OnHand", "InStock")},
+            {SapSqlAmount.Sum("T1", "OnHand", "Available")},
             T0.""InvntryUom"" as ""UoM""
         FROM OITM T0
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
@@ -10218,7 +10218,8 @@ ORDER BY T1."WhsCode", T1."ItemCode"
 
     #region Sales Quantity Operations
 
-    private const string SalesQueryCode = "SALES_QTY";
+    /// <summary>V2: its totals come back as text. See <see cref="StockQueryPrefix"/> for why the code moved.</summary>
+    private const string SalesQueryCode = "SALES_QTY_V2";
 
     /// <summary>
     /// Warehouse and date range arrive as bound parameters, so SAP holds exactly one query object
@@ -10237,13 +10238,13 @@ ORDER BY T1."WhsCode", T1."ItemCode"
     /// No trailing whitespace on any line — SAP strips it before storing, so a line ending in a
     /// space makes the stored text never compare equal and every probe re-PATCHes.
     /// </remarks>
-    internal const string SalesQuantitiesSql = """
+    internal static readonly string SalesQuantitiesSql = $"""
 SELECT
     T1."ItemCode",
     T2."ItemName",
     T2."CodeBars" as "BarCode",
-    SUM(T1."Quantity") as "TotalQuantitySold",
-    SUM(T1."LineTotal") as "TotalSalesValue",
+    {SapSqlAmount.Sum("T1", "Quantity", "TotalQuantitySold")},
+    {SapSqlAmount.Sum("T1", "LineTotal", "TotalSalesValue")},
     COUNT(DISTINCT T0."DocEntry") as "InvoiceCount",
     T2."InvntryUom" as "UoM",
     T2."U_PackagingCode" as "PackagingCode",

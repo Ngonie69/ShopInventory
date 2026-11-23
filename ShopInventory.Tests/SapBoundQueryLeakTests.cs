@@ -36,7 +36,7 @@ public class SapBoundQueryLeakTests
         await client.GetSalesQuantitiesByWarehouseAsync("WH02", new DateTime(2026, 1, 1), new DateTime(2026, 1, 31));
         await client.GetSalesQuantitiesByWarehouseAsync("WH02", new DateTime(2026, 3, 17), new DateTime(2026, 3, 18));
 
-        Assert.Equal(["SALES_QTY"], sap.CreatedCodes);
+        Assert.Equal(["SALES_QTY_V2"], sap.CreatedCodes);
         Assert.Equal(4, sap.ExecutedQueries.Count);
     }
 
