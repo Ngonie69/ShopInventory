@@ -135,6 +135,11 @@ public static class Permissions
     public const string ApproveSapCreditNotes = "creditnotes.approve";
     public const string AddApprovedCreditNotes = "creditnotes.add_approved";
 
+    // SAP-held transfers — inventory transfers and transfer requests keyed in the SAP client and held
+    // by SAP's approval procedure. Deciding one is the receiving warehouse's call, narrowed again by
+    // SAP stage (CreditNoteApprovals:RoleStageScopes), so it is not part of inventory.transfer.
+    public const string ApproveSapTransfers = "transfers.approve_sap";
+
     // Sync & System
     public const string ViewSyncStatus = "sync.view";
     public const string ManageSync = "sync.manage";
@@ -306,6 +311,10 @@ public static class Permissions
                 new(ApproveSapCreditNotes, "Approve SAP Credit Notes", "Approve or reject A/R credit memos held by SAP's approval procedure"),
                 new(AddApprovedCreditNotes, "Add Approved Credit Notes", "Convert an approved SAP credit memo draft into the posted credit note")
             },
+            ["SAP Transfer Approvals"] = new()
+            {
+                new(ApproveSapTransfers, "Approve SAP Transfers", "Approve or reject inventory transfers and transfer requests held by SAP's approval procedure")
+            },
             ["Timesheets"] = new()
             {
                 new(ViewTimesheets, "View Timesheets", "View merchandiser check-in/check-out timesheets"),
@@ -450,7 +459,9 @@ public static class Permissions
                 ViewDashboard, ViewProducts,
                 ViewStock, ViewInventory, TransferStock, TransferInventory,
                 ViewCustomers,
-                ApproveSapCreditNotes, AddApprovedCreditNotes
+                ApproveSapCreditNotes, AddApprovedCreditNotes,
+                // Transfers into the wash bay wait at the same SAP stage as its credit memos (2026-11-23).
+                ApproveSapTransfers
             },
             // Depot controllers are limited to inventory transfers, local stock, and loading vans from the
             // orders shops placed (/van-sales-customer-orders).
@@ -682,6 +693,9 @@ public static class Permission
     // Credit note approvals
     public const string ApproveSapCreditNotes = Permissions.ApproveSapCreditNotes;
     public const string AddApprovedCreditNotes = Permissions.AddApprovedCreditNotes;
+
+    // SAP-held transfer approvals
+    public const string ApproveSapTransfers = Permissions.ApproveSapTransfers;
 
     // Backups
     public const string ViewBackups = Permissions.ViewBackups;

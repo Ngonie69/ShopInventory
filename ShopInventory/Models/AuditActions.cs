@@ -58,6 +58,8 @@ public static class AuditActions
 
     // SAP-held inventory transfers (keyed in the B1 client, approved there, added from here)
     public const string AddApprovedSapTransfer = "AddApprovedSapTransfer";
+    public const string ApproveSapTransfer = "ApproveSapTransfer";
+    public const string RejectSapTransfer = "RejectSapTransfer";
 
     // Sales Order actions
     public const string CreateSalesOrder = "CreateSalesOrder";

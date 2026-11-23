@@ -1,9 +1,11 @@
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Authentication;
 using ShopInventory.Common.Security;
 using ShopInventory.DTOs;
 using ShopInventory.Features.SapTransferApprovals.Commands.AddApprovedSapTransfer;
+using ShopInventory.Features.SapTransferApprovals.Commands.DecideSapTransferApproval;
 using ShopInventory.Features.SapTransferApprovals.Queries.GetSapTransferApproval;
 using ShopInventory.Features.SapTransferApprovals.Queries.GetSapTransferApprovals;
 using ShopInventory.Models;
@@ -36,7 +38,8 @@ public sealed class SapTransferApprovalController(IMediator mediator) : ApiContr
     /// <c>warehouse</c> narrows to drafts
     /// leaving or entering one warehouse; <c>from</c> and <c>to</c> (repeatable) to drafts leaving or
     /// entering any of several; <c>createdFrom</c>/<c>createdTo</c> to the days the drafts were created;
-    /// <c>attachedOnly</c> to drafts with an attachment; <c>draftNum</c> to the drafts with that draft number or draft entry. Every filter is
+    /// <c>attachedOnly</c> to drafts with an attachment; <c>draftNum</c> to the drafts with that draft number or draft entry;
+    /// <c>awaitingApproval</c> reads the drafts still waiting for SAP's approval instead of the approved ones. Every filter is
     /// applied in SAP, so <c>totalCount</c> is of the filtered queue. <c>beforeDocEntry</c> — the
     /// previous answer's <c>nextCursor</c> — continues below the last row that answer carried.
     /// </summary>
@@ -54,11 +57,13 @@ public sealed class SapTransferApprovalController(IMediator mediator) : ApiContr
         [FromQuery] bool attachedOnly = false,
         [FromQuery] int? draftNum = null,
         [FromQuery] SapHeldDraftKind? kind = null,
+        [FromQuery] bool awaitingApproval = false,
         CancellationToken cancellationToken = default)
     {
         var filter = new SapTransferDraftFilter
         {
             Kind = kind,
+            AwaitingApproval = awaitingApproval,
             FromWarehouses = from is { Length: > 0 } ? from : null,
             ToWarehouses = to is { Length: > 0 } ? to : null,
             CreatedFrom = createdFrom,
@@ -83,6 +88,44 @@ public sealed class SapTransferApprovalController(IMediator mediator) : ApiContr
     public async Task<IActionResult> GetByDraftEntry(int draftEntry, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetSapTransferApprovalQuery(draftEntry, UserClaimReader.GetUserId(User)), cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// Approve or reject the SAP approval request <paramref name="code"/> holding a transfer or transfer
+    /// request draft, as the app's SAP approver, with the caller named in the remarks. Only a request
+    /// waiting at one of the caller's SAP stages, on a draft out of one of their warehouses. A repeat with
+    /// the same client request id replays the first answer instead of reaching SAP twice.
+    /// </summary>
+    [HttpPost("requests/{code:int}/decision")]
+    [RequirePermission(Permission.ApproveSapTransfers)]
+    [ProducesResponseType(typeof(SapTransferApprovalDecisionResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Decide(
+        int code,
+        [FromBody] SapTransferApprovalDecisionRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var clientRequestId = !string.IsNullOrWhiteSpace(request.ClientRequestId)
+            ? request.ClientRequestId
+            : Request.Headers.TryGetValue("Idempotency-Key", out var values) ? values.FirstOrDefault() : null;
+
+        var result = await mediator.Send(
+            new DecideSapTransferApprovalCommand(
+                code,
+                request.Decision,
+                request.Remarks,
+                userId.Value,
+                User.Identity?.Name ?? "unknown",
+                clientRequestId),
+            cancellationToken);
         return result.Match(Ok, Problem);
     }
 

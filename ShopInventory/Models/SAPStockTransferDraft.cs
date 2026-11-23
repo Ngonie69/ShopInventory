@@ -163,6 +163,12 @@ public sealed record SapTransferDraftFilter
     /// <summary>Only drafts of this kind. Null reads transfers and transfer requests together.</summary>
     public SapHeldDraftKind? Kind { get; init; }
 
+    /// <summary>
+    /// The drafts still waiting for SAP's approval (<c>sasPending</c>) instead of the approved ones waiting
+    /// to be added (<c>sasApproved</c>).
+    /// </summary>
+    public bool AwaitingApproval { get; init; }
+
     /// <summary>Only drafts leaving or entering this warehouse.</summary>
     public string? Warehouse { get; init; }
 

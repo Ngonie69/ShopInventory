@@ -54,6 +54,9 @@ public sealed record SapTransferQueueFilter
     /// <summary><see cref="SapHeldDraftKinds.Transfer"/>, <see cref="SapHeldDraftKinds.Request"/>, or null for both.</summary>
     public string? Kind { get; init; }
 
+    /// <summary>The drafts still waiting for SAP's approval, instead of the approved ones waiting to be added.</summary>
+    public bool AwaitingApproval { get; init; }
+
     /// <summary>Leaving or entering this warehouse — the search box's text when it is not a number.</summary>
     public string? Warehouse { get; init; }
 
@@ -103,6 +106,11 @@ public sealed record SapTransferQueueFilter
         if (DraftNum is int draftNum)
         {
             parts.Add($"draftNum={draftNum}");
+        }
+
+        if (AwaitingApproval)
+        {
+            parts.Add("awaitingApproval=true");
         }
 
         return parts.Count == 0 ? string.Empty : "&" + string.Join('&', parts);
@@ -170,6 +178,38 @@ public sealed class SapTransferApprovalRequestDto
     public DateTime? CreatedDate { get; set; }
     public string? CreatedTime { get; set; }
     public List<SapTransferApprovalDecisionDto> Decisions { get; set; } = [];
+
+    /// <summary>The signed-in user may approve or reject this request from here.</summary>
+    public bool CanDecide { get; set; }
+
+    /// <summary>Why a pending request cannot be decided from here, when the user could otherwise decide.</summary>
+    public string? DecideNote { get; set; }
+}
+
+public sealed class SapTransferApprovalDecisionRequestDto
+{
+    /// <summary>Approved or NotApproved.</summary>
+    public string Decision { get; set; } = string.Empty;
+    public string? Remarks { get; set; }
+    public string? ClientRequestId { get; set; }
+}
+
+public sealed class SapTransferApprovalDecisionResultDto
+{
+    public int Code { get; set; }
+    public int? DraftEntry { get; set; }
+    public string Decision { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public bool CanAdd { get; set; }
+    public bool StillPending { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>The two decisions SAP takes on an approval request, as the API names them.</summary>
+public static class SapTransferDecisions
+{
+    public const string Approved = "Approved";
+    public const string NotApproved = "NotApproved";
 }
 
 public sealed class SapTransferApprovalDecisionDto
