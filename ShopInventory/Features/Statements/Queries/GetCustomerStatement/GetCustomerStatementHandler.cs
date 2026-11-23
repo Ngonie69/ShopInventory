@@ -62,10 +62,10 @@ public sealed class GetCustomerStatementHandler(
     // execution immediately after a PATCH is pathologically slow — repeatedly over 25s here against
     // 0.3s warm — and a timeout invalidates the verification memo, so the next call PATCHes and
     // stalls again. Quoting them keeps the stored text byte-identical and the query simply warm.
-    internal const string OpeningBalanceSql = """
+    internal static readonly string OpeningBalanceSql = $"""
 SELECT
-    SUM(T1."Debit") AS "TotalDebit",
-    SUM(T1."Credit") AS "TotalCredit"
+    {SapSqlAmount.Sum("T1", "Debit", "TotalDebit")},
+    {SapSqlAmount.Sum("T1", "Credit", "TotalCredit")}
 FROM "OJDT" T0
 INNER JOIN "JDT1" T1
     ON T0."TransId" = T1."TransId"
@@ -75,7 +75,7 @@ WHERE T1."ShortName" = :cardCode
 
     // One card code per execution: SAP binds a parameter as a single literal, so `IN (:codes)` with
     // a comma-separated value matches nothing and reports it as zero rows rather than an error.
-    internal const string LedgerSql = """
+    internal static readonly string LedgerSql = $"""
 SELECT
     T0."RefDate" AS "PostingDate",
     T0."Number" AS "TransactionNumber",
@@ -86,10 +86,10 @@ SELECT
     T1."Line_ID" AS "LineId",
     T1."ContraAct" AS "OffsetAccount",
     T1."LineMemo" AS "Details",
-    T1."Debit" AS "Debit",
-    T1."Credit" AS "Credit",
-    T1."FCDebit" AS "DebitFC",
-    T1."FCCredit" AS "CreditFC",
+    {SapSqlAmount.Column("T1", "Debit")},
+    {SapSqlAmount.Column("T1", "Credit")},
+    {SapSqlAmount.Column("T1", "FCDebit", "DebitFC")},
+    {SapSqlAmount.Column("T1", "FCCredit", "CreditFC")},
     T1."FCCurrency" AS "Currency"
 FROM "OJDT" T0
 INNER JOIN "JDT1" T1
@@ -112,12 +112,12 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
     // rejected outright; and "not fully reconciled" is written as two `>` comparisons rather than
     // `<>` because column-against-column `>` is the form known to be accepted. Both failures would
     // land when the query object is created, taking the whole statement down with them.
-    internal const string OpenItemsSql = """
+    internal static readonly string OpenItemsSql = $"""
 SELECT
     T0."RefDate" AS "PostingDate",
     T1."DueDate" AS "DueDate",
-    T1."BalDueDeb" AS "BalanceDueDebit",
-    T1."BalDueCred" AS "BalanceDueCredit"
+    {SapSqlAmount.Column("T1", "BalDueDeb", "BalanceDueDebit")},
+    {SapSqlAmount.Column("T1", "BalDueCred", "BalanceDueCredit")}
 FROM "OJDT" T0
 INNER JOIN "JDT1" T1
     ON T0."TransId" = T1."TransId"

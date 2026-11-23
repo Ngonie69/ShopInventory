@@ -143,9 +143,22 @@ public class SAPSettings
     /// <see cref="ShopInventory.Services.SapStuckReadState"/>. The stuck reads measured on 2026-11-10/11
     /// ran about five minutes on the Service Layer at the median, so ten minutes covers most of them.
     /// One that runs longer lets a single attempt through per hold, rather than one per caller.
-    /// Reads a person is waiting on are never held.
+    /// Reads a person is waiting on are never held. This is the first hold on a read; one that gets
+    /// stuck again before SAP has answered it is held four times as long each time, up to
+    /// <see cref="StuckReadMaxHoldMinutes"/>.
     /// </remarks>
     public int StuckReadHoldMinutes { get; set; } = 10;
+
+    /// <summary>
+    /// The longest background work holds off a SQLQueries read that keeps getting stuck: a day.
+    /// </summary>
+    /// <remarks>
+    /// A stuck Service Layer process never finishes (found 2026-11-22), so a read that sticks every time
+    /// it is sent sticks once per hold. At a fixed ten minutes the nightly invoice cost copy sent the
+    /// same two reads every 15 minutes on 2026-11-22/23 and left a stuck process each time. See
+    /// <see cref="ShopInventory.Services.SapStuckReadState"/>.
+    /// </remarks>
+    public int StuckReadMaxHoldMinutes { get; set; } = 24 * 60;
 
     /// <summary>
     /// The <c>SQLQueries</c> read families this process limits, by family name: at most

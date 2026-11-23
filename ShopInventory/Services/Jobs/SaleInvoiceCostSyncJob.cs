@@ -28,9 +28,15 @@ public sealed class SaleInvoiceCostSyncJob(
     /// <para>
     /// Nobody waits on it — the reports read the stored copy — so the cost of moving it out of the day is
     /// only that a sale shows its margin from the evening it posted rather than minutes after. Every
-    /// 15 rather than 5 minutes, because overnight nothing stops a spinning worker, and a run that hangs
-    /// is asked again on the next one; a day's invoices still fit in the first run or two. The last run
-    /// starts at 05:45 and its four-minute budget ends it before 06:00.
+    /// 15 rather than 5 minutes, because overnight nothing stops a spinning worker; a day's invoices
+    /// still fit in the first run or two. The last run starts at 05:45 and its four-minute budget ends
+    /// it before 06:00.
+    /// </para>
+    /// <para>
+    /// A run that hung used to be asked again on the next one, and on 2026-11-22/23 that was this
+    /// schedule sending the same two reads all night, each leaving a worker spinning for good. A read
+    /// that hangs now ends its run and is not planned again
+    /// (<see cref="SaleInvoiceCostSyncService"/>, <see cref="Models.Entities.SaleInvoiceCostStalledReadEntity"/>).
     /// </para>
     /// </remarks>
     public const string Schedule = "0 0/15 20-23,0-5 * * ?";

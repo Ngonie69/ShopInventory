@@ -37,6 +37,28 @@ otherwise be surprised.
 
 ### Changed
 
+- **Stored SAP queries ask for their decimals as text, and a read SAP never answers is not sent again.**
+  A Service Layer worker writing a decimal into a `SQLQueries` answer can stall for good, at a full core
+  and up to 8 GB; on 23 Nov 2026 thirteen of them held 76.8 GB on the SAP server and HANA's index server
+  was killed six times. What an operator will see after this deploys:
+  - 42 stored queries are rewritten on first use: `LEFT(T0."Quantity", 40) AS "Quantity"` for each
+    decimal column (25 statements) and `LEFT(SUM(T1."LineTotal"), 40) AS "Revenue"` for each total
+    (17: the reports, the statement and GL opening balances, the sales quantities and the packaging
+    stock). Six get new objects in SAP and leave the old ones behind: `STOCK_QTY_V2_<whs>`,
+    `WHS_BATCHES_V2_<whs>` and `NOBATCH_QTY_V2_<whs>` per warehouse, `BATCH_SEARCH_V2`,
+    `SHOP_PRICES_V2` and `SALES_QTY_V2`. The content-addressed ones (`…_<12 hex>`) get new codes too,
+    as any SQL change gives them. The first read of each pays for the create, tens of seconds on this
+    OUQR.
+  - The stuck-read hold (`SAP:StuckReadHoldMinutes`, 10) now grows fourfold each time the same read
+    sticks again before SAP answers it, up to `SAP:StuckReadMaxHoldMinutes` (1440, new).
+  - The `sale-invoice-cost-sync` job ends its run on a read SAP never answered and records the
+    warehouse and invoice range in the new `SaleInvoiceCostStalledReads` table. Those invoices show no
+    gross profit until the statement changes or the row is deleted. It used to ask again every
+    15 minutes all night.
+  - Amounts read from stored queries now arrive in full (`21336.13`, where SAP's number was `21336.1`),
+    and text that is not a number fails the read instead of counting as zero.
+  See `docs/sap-interaction-audit.md` §7b.
+
 - **Transfers are now depot or factory transfers, and factory transfers are approved in SAP.** A
   transfer that touches no depot and no van — a direct transfer or a transfer request, the factory shop
   (`KEFSHOP`) included — no longer goes through the app's approval templates and stages. Its approval opens

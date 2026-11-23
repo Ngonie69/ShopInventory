@@ -22,6 +22,12 @@ namespace ShopInventory.Middleware;
 /// different read.
 /// </para>
 /// <para>
+/// A hold grows each time the same read gets stuck again before SAP has answered it
+/// (<see cref="SapStuckReadState.Hold"/>), and the read that started it is marked
+/// (<see cref="SapRequestMarks.MarkPresumedStuck"/>, <see cref="SapStalledRead"/>) so that nothing
+/// sends it straight back: not the client's transient retry, and not the job it was for.
+/// </para>
+/// <para>
 /// Only background reads are refused. A read a person is waiting on is always sent: the invoice stock
 /// guard fails closed (<c>SAPSettings.StockGuardFailClosed</c>), so refusing one would stop invoicing
 /// from that warehouse for the whole hold, and a fresh attempt usually lands on a Service Layer process
@@ -65,9 +71,12 @@ public sealed class SAPStuckReadHandler(
         {
             response = await base.SendAsync(request, cancellationToken);
         }
-        catch (OperationCanceledException) when (state.PresumedStuckAfter(request) is { } atSap)
+        catch (OperationCanceledException ex) when (state.PresumedStuckAfter(request) is { } atSap)
         {
-            StartHold(key, path, "gave no answer", atSap);
+            StartHold(request, key, path, "gave no answer", atSap);
+            // So the caller can tell this from a read that failed and left nothing behind, and end
+            // the work it was for instead of asking again.
+            SapStalledRead.Mark(ex);
             throw;
         }
 
@@ -78,7 +87,10 @@ public sealed class SAPStuckReadHandler(
         else if (response.StatusCode is HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout
                  && state.PresumedStuckAfter(request) is { } atSap)
         {
-            StartHold(key, path, $"answered {(int)response.StatusCode}", atSap);
+            StartHold(request, key, path, $"answered {(int)response.StatusCode}", atSap);
+            // The stored-query executor reads the mark off the response's request, which only the
+            // socket handler is sure to have set.
+            response.RequestMessage ??= request;
         }
 
         return response;
@@ -90,8 +102,9 @@ public sealed class SAPStuckReadHandler(
         && uri.AbsolutePath.Contains("/SQLQueries(", StringComparison.Ordinal)
         && uri.AbsolutePath.EndsWith("/List", StringComparison.Ordinal);
 
-    private void StartHold(string key, string path, string outcome, TimeSpan atSap)
+    private void StartHold(HttpRequestMessage request, string key, string path, string outcome, TimeSpan atSap)
     {
+        SapRequestMarks.MarkPresumedStuck(request);
         var until = state.Hold(key);
         logger.LogWarning(
             "SAP {Outcome} to {Path} after {SecondsAtSap:0} s and is presumed to be still working on it; background reads of the same URL are held until {HeldUntil:u}",

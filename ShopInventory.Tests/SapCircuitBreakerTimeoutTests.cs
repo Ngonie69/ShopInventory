@@ -307,7 +307,7 @@ public class SapCircuitBreakerTimeoutTests
 
         // Counted where the read enters the pipeline rather than timed: a retried read would enter three
         // times, and a wall-clock bound on "no retry sleeps" fails on a busy machine.
-        Assert.Equal(1, harness.Entered.Count(path => path.Contains("STOCK_QTY_KEFSHOP')/List", StringComparison.Ordinal)));
+        Assert.Equal(1, harness.Entered.Count(path => path.Contains("STOCK_QTY_V2_KEFSHOP')/List", StringComparison.Ordinal)));
         Assert.Equal("STOCK_QTY", ex.Family);
         Assert.Equal(harness.Clock.GetUtcNow() + TimeSpan.FromMinutes(10), ex.FirstSlotFreesAt);
         Assert.Equal(1, harness.Sap.HungRequests);
@@ -353,6 +353,81 @@ public class SapCircuitBreakerTimeoutTests
         Assert.IsType<TimeoutException>(ex.InnerException);
         Assert.Equal(1, harness.Sap.HungRequests);
     }
+
+    [Fact]
+    public async Task An_invoice_cost_read_SAP_never_answers_is_marked_stalled_and_not_sent_again()
+    {
+        // The read of 22-23 Nov 2026, through the real client and pipeline: the cost copy's two-minute
+        // budget runs out with SAP holding the read.
+        var harness = new Harness(InvoiceCostListHangs);
+        using var budget = new CancellationTokenSource();
+
+        var read = harness.Client.GetInvoiceLineCostsAsync("CORMACH2", 2433442, 2433724, budget.Token);
+        Assert.True(await harness.Sap.WaitForHangAsync(read), "The invoice cost read was never sent.");
+        harness.Clock.Advance(TimeSpan.FromMinutes(2));
+        budget.Cancel();
+
+        var stalled = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => read);
+        // What tells SaleInvoiceCostSyncService to end its run and keep the range out of later ones.
+        Assert.True(SapStalledRead.IsPresumedStuck(stalled));
+        Assert.Equal(1, harness.Sap.HungRequests);
+
+        // The identical read, from the next run: refused before it reaches SAP, and marked the same way.
+        var held = await Assert.ThrowsAsync<SapReadStillRunningException>(
+            () => harness.Client.GetInvoiceLineCostsAsync("CORMACH2", 2433442, 2433724));
+        Assert.True(SapStalledRead.IsPresumedStuck(held));
+        Assert.Equal(1, harness.Sap.HungRequests);
+    }
+
+    [Fact]
+    public async Task A_stored_query_the_load_balancer_gave_up_on_is_not_sent_straight_back()
+    {
+        // 502 at the balancer's 300 s ProxyTimeout: a transient status, and the transient retry used to
+        // resend it at once when a person was waiting. The Service Layer is still working on the first.
+        var harness = new Harness(hangs: _ => false);
+        var sent = 0;
+        harness.Sap.Answer = path =>
+        {
+            if (!InvoiceCostListHangs(path))
+            {
+                return null;
+            }
+
+            sent++;
+            harness.Clock.Advance(TimeSpan.FromSeconds(300));
+            return new HttpResponseMessage(HttpStatusCode.BadGateway) { Content = new StringContent("Proxy Error") };
+        };
+
+        SapReadFailedException failure;
+        using (SapRequestPriority.BeginInteractive())
+        {
+            failure = await Assert.ThrowsAsync<SapReadFailedException>(
+                () => harness.Client.GetInvoiceLineCostsAsync("CORMACH2", 2433442, 2433724));
+        }
+
+        Assert.Equal(HttpStatusCode.BadGateway, failure.StatusCode);
+        Assert.True(SapStalledRead.IsPresumedStuck(failure));
+        Assert.Equal(1, sent);
+    }
+
+    [Fact]
+    public async Task A_stored_query_answered_with_a_quick_server_error_is_not_marked_stalled()
+    {
+        // An answer SAP did give leaves no Service Layer worker behind, so the caller may ask again.
+        var harness = new Harness(hangs: _ => false);
+        harness.Sap.Answer = path => InvoiceCostListHangs(path)
+            ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("{\"error\":{\"code\":701}}") }
+            : null;
+
+        var failure = await Assert.ThrowsAsync<SapReadFailedException>(
+            () => harness.Client.GetInvoiceLineCostsAsync("CORMACH2", 2433442, 2433724));
+
+        Assert.False(SapStalledRead.IsPresumedStuck(failure));
+    }
+
+    private static bool InvoiceCostListHangs(string path) =>
+        path.Contains("DSK_INV_COST_RANGE", StringComparison.Ordinal)
+        && path.EndsWith("/List", StringComparison.Ordinal);
 
     private const string StatementLedgerCode = "STMT_LEDGER_ROWS";
 
@@ -478,6 +553,9 @@ public class SapCircuitBreakerTimeoutTests
         public int HungRequests => Volatile.Read(ref _hungRequests);
         public int CancelledRequests => Volatile.Read(ref _cancelledRequests);
 
+        /// <summary>An answer of the test's own for a path, ahead of everything below; null to carry on.</summary>
+        public Func<string, HttpResponseMessage?>? Answer { get; set; }
+
         /// <summary>
         /// Waits until a request is hanging, or <paramref name="call"/> finishes without one;
         /// returns whether a request is hanging.
@@ -498,6 +576,11 @@ public class SapCircuitBreakerTimeoutTests
             if (path.EndsWith("/Login", StringComparison.Ordinal))
             {
                 return Json("{\"SessionId\":\"test-session\"}");
+            }
+
+            if (Answer?.Invoke(path) is { } scripted)
+            {
+                return scripted;
             }
 
             if (hangs(path))

@@ -691,7 +691,7 @@ public sealed class GetPodUploadStatusHandler(
     /// <see cref="SapSqlRow.FormatDate"/> produces. <c>yyyyMMdd</c>, the format SAP hands back,
     /// matches nothing on the way in and does so silently, as zero rows.
     /// </remarks>
-    internal const string CreditNoteActivitySql = @"
+    internal static readonly string CreditNoteActivitySql = $@"
 SELECT
     T0.""BaseEntry"" AS ""InvoiceDocEntry"",
     T0.""BaseRef"" AS ""InvoiceDocNum"",
@@ -699,8 +699,8 @@ SELECT
     T1.""DocNum"" AS ""CreditNoteDocNum"",
     T1.""DocDate"" AS ""CreditNoteDocDate"",
     T0.""LineNum"" AS ""CreditLineNum"",
-    T0.""LineTotal"" AS ""CreditLineTotal"",
-    T0.""VatSum"" AS ""CreditVatSum"",
+    {SapSqlAmount.Column("T0", "LineTotal", "CreditLineTotal")},
+    {SapSqlAmount.Column("T0", "VatSum", "CreditVatSum")},
     T0.""U_Reasons"" AS ""CreditReason""
 FROM RIN1 T0
 INNER JOIN ORIN T1
@@ -798,8 +798,8 @@ SELECT
     T1.""DocEntry"" AS ""CreditNoteDocEntry"",
     T1.""DocNum"" AS ""CreditNoteDocNum"",
     T0.""LineNum"" AS ""CreditLineNum"",
-    T0.""LineTotal"" AS ""CreditLineTotal"",
-    T0.""VatSum"" AS ""CreditVatSum"",
+    {SapSqlAmount.Column("T0", "LineTotal", "CreditLineTotal")},
+    {SapSqlAmount.Column("T0", "VatSum", "CreditVatSum")},
     T0.""U_Reasons"" AS ""CreditReason""
 FROM RIN1 T0
 INNER JOIN ORIN T1
@@ -1221,22 +1221,9 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
         };
     }
 
-    private static decimal GetDecimal(IReadOnlyDictionary<string, object?> row, string key)
-    {
-        var value = GetValue(row, key);
-
-        return value switch
-        {
-            null => 0m,
-            decimal decimalValue => decimalValue,
-            int intValue => intValue,
-            long longValue => longValue,
-            double doubleValue => (decimal)doubleValue,
-            float floatValue => (decimal)floatValue,
-            _ when decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) => parsed,
-            _ => 0m
-        };
-    }
+    /// <summary>A credit line's amount: text since the statements select it as text (<see cref="SapSqlAmount"/>).</summary>
+    private static decimal GetDecimal(IReadOnlyDictionary<string, object?> row, string key) =>
+        SapSqlAmount.Parse(GetValue(row, key), key) ?? 0m;
 
     private static string? GetString(IReadOnlyDictionary<string, object?> row, string key) =>
         GetValue(row, key)?.ToString()?.Trim();
