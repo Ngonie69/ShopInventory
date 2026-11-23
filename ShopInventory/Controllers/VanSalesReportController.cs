@@ -17,6 +17,7 @@ using ShopInventory.Features.VanSalesReports.Commands.LinkVehicleBusinessPartner
 using ShopInventory.Features.VanSalesReports.Queries.GetFleetAudit;
 using ShopInventory.Features.VanSalesReports.Queries.GetTelematicsVehicles;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanDailyTruckReport;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanManagementExtras;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
@@ -702,6 +703,39 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
             new GetVanDailyTruckReportQuery(
                 fromDate ?? monthStart,
                 toDate ?? monthStart.AddMonths(1).AddDays(-1)),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// What the management report needs beyond the truck report: a chosen set of products sold per
+    /// truck per day, and the market breakages each truck brought back.
+    /// </summary>
+    /// <param name="fromDate">First trading day, CAT, inclusive. Defaults to the first of this month.</param>
+    /// <param name="toDate">Last trading day, CAT, inclusive. Defaults to the last of this month.</param>
+    /// <param name="items">Comma-separated item codes to count; none counts nothing.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("management-extras")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanManagementExtrasResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetManagementExtras(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? items = null,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+
+        var result = await mediator.Send(
+            new GetVanManagementExtrasQuery(
+                fromDate ?? monthStart,
+                toDate ?? monthStart.AddMonths(1).AddDays(-1),
+                (items ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
             cancellationToken);
 
         return result.Match(

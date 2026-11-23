@@ -30,6 +30,7 @@ public static class VanReportLinks
     public const string AttendancePath = "/van-sales/attendance-report";
     public const string CompliancePath = "/van-sales/compliance";
     public const string DailyTruckPath = "/van-sales/reports/daily";
+    public const string ManagementPath = "/van-sales/reports/management";
     public const string PerformancePath = "/van-sales/reports/performance";
     public const string CoveragePath = "/van-sales/reports/coverage";
     public const string OrderConversionPath = "/van-sales/reports/order-conversion";
@@ -47,6 +48,9 @@ public static class VanReportLinks
 
     public static string DailyTruck(DateTime from, DateTime to) =>
         Build(DailyTruckPath, from, to);
+
+    public static string Management(DateTime from, DateTime to) =>
+        Build(ManagementPath, from, to);
 
     public static string Performance(DateTime from, DateTime to, Guid? rep = null, string? route = null) =>
         Build(PerformancePath, from, to, route, rep);

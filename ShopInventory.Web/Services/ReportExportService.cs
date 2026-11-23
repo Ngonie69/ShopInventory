@@ -46,6 +46,13 @@ public interface IReportExportService
 
     byte[] ExportVanSalesPerformanceToExcel(VanSalesPerformanceReportResponse report);
     byte[] ExportVanDailyTruckReportToExcel(VanDailyTruckReportResponse report);
+
+    /// <summary>
+    /// The van sales management report as the office's workbook: insights, overview, monthly summary, the
+    /// daily view and truck cards for <paramref name="day"/>, the week starting <paramref name="weekStart"/>
+    /// (the latest reported when null), the route ranking, the product group, breakages and raw data.
+    /// </summary>
+    byte[] ExportVanManagementReportToExcel(VanManagementReport report, DateTime day, DateTime? weekStart);
     /// <summary>The Departure Compliance rows on screen, as the page shows them.</summary>
     byte[] ExportDepartureComplianceToExcel(IReadOnlyList<DepartureComplianceExportRow> rows, DateTime? fromDate, DateTime? toDate);
 
