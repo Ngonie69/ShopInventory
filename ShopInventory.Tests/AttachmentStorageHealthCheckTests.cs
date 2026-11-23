@@ -114,7 +114,7 @@ public sealed class AttachmentStorageHealthCheckTests : IDisposable
         Assert.Contains(_uploadRoot, error.Message); // the full path belongs in the log
 
         // The share comes back.
-        Directory.Delete(link);
+        RemoveLink(link);
         Directory.CreateDirectory(link);
         await _monitor.ProbeAsync(CancellationToken.None);
 
@@ -207,6 +207,24 @@ public sealed class AttachmentStorageHealthCheckTests : IDisposable
         Directory.CreateSymbolicLink(
             linkPath,
             Path.Combine(Path.GetTempPath(), $"gone-{Guid.NewGuid():N}", "attachments"));
+
+    /// <summary>
+    /// Removes the link itself, never what it points at. Windows made it as a directory link, which
+    /// only <see cref="Directory.Delete(string)"/> removes. Linux sees a dead link as a file, so
+    /// <c>Directory.Delete</c> there throws DirectoryNotFoundException (as CI found) and
+    /// <see cref="File.Delete"/> unlinks it.
+    /// </summary>
+    private static void RemoveLink(string linkPath)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.Delete(linkPath);
+        }
+        else
+        {
+            File.Delete(linkPath);
+        }
+    }
 
     public void Dispose()
     {
