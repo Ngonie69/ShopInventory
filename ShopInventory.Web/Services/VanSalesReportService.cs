@@ -88,6 +88,13 @@ public interface IVanSalesReportService
     Task<ReportResult<VanDailyTruckReportResponse>> GetDailyTruckReportAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// What the management report needs beyond the truck report: the chosen products sold per truck per
+    /// day, and the market breakages each truck brought back.
+    /// </summary>
+    Task<ReportResult<VanManagementExtrasResponse>> GetManagementExtrasAsync(
+        DateTime fromDate, DateTime toDate, IReadOnlyCollection<string> itemCodes, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Saves the office's figures for a truck's day. Returns the entry as it now stands, or the
     /// server's refusal.
     /// </summary>
@@ -447,6 +454,17 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         return await GetReportAsync<VanDailyTruckReportResponse>(
             $"api/van-sales/truck-report?fromDate={fromDate:yyyy-MM-dd}&toDate={toDate:yyyy-MM-dd}",
             "daily truck report",
+            cancellationToken);
+    }
+
+    public async Task<ReportResult<VanManagementExtrasResponse>> GetManagementExtrasAsync(
+        DateTime fromDate, DateTime toDate, IReadOnlyCollection<string> itemCodes, CancellationToken cancellationToken = default)
+    {
+        var items = Uri.EscapeDataString(string.Join(",", itemCodes));
+
+        return await GetReportAsync<VanManagementExtrasResponse>(
+            $"api/van-sales/management-extras?fromDate={fromDate:yyyy-MM-dd}&toDate={toDate:yyyy-MM-dd}&items={items}",
+            "product units and breakages",
             cancellationToken);
     }
 

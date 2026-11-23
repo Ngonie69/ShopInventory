@@ -1,0 +1,888 @@
+@page "/van-sales/reports/management"
+@* Admin and Manager, like the other van reports. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using ShopInventory.Web.Models
+
+<PageTitle>Van Sales Management Report - Shop Inventory</PageTitle>
+
+@* The van sales management report.
+
+   This is the office's "Vansales Daily Report" workbook (Insights Summary, Management Overview,
+   Daily Management View, Daily Truck Cards, Weekly Sales, Route Sales Ranking, Shamiso 5L and the
+   breakages log), read out of the system instead of typed. Every figure comes from the daily truck
+   report for the same period, so the two pages cannot disagree; the product group and the breakages
+   come from the sale lines and the handsets' market breakage reports.
+
+   Carried by the `vsm-` block in wwwroot/css/van-sales.css on the shared `vs-` chrome, and the section
+   chips and headings the performance report already uses (`vsp-sections`, `vsp-heading`). *@
+
+<div class="vs vsk vsm">
+
+    <div class="vs-head vsk-head">
+        <div>
+            <div class="vsk-crumb">Van sales / Reports</div>
+            <h2 class="vs-title">Management report</h2>
+            <p class="vs-subtitle">
+                The month against target, what is driving it and what to look at: the office's van sales
+                workbook, counted from the handsets and the invoices. Sales are US dollars with VAT and include
+                Ecocash; account sales are shown on their own and are not in van sales.
+            </p>
+        </div>
+        <div class="vs-actions">
+            <a class="vs-btn" href="@VanReportLinks.DailyTruck(truckReport?.FromDate ?? fromDate ?? VanReportPeriod.TodayCat, truckReport?.ToDate ?? toDate ?? VanReportPeriod.TodayCat)">
+                <i class="ph ph-calendar-check" aria-hidden="true"></i>
+                Every truck, every day
+            </a>
+            <button type="button" class="vs-btn" id="vsm-export" @onclick="ExportAsync" disabled="@(isLoading || isExporting || report is null)">
+                <i class="ph ph-download-simple" aria-hidden="true"></i>
+                @(isExporting ? "Exporting…" : "Export")
+            </button>
+        </div>
+    </div>
+
+    <VanReportPeriodBar IdPrefix="vsm" @bind-From="fromDate" @bind-To="toDate" WholeMonths="true"
+                        OnRun="LoadAsync" Loading="isLoading" ReadAtUtc="truckReport?.GeneratedAtUtc"
+                        ShownFrom="truckReport?.FromDate" ShownTo="truckReport?.ToDate">
+        <NocturneSelect Id="vsm-group" Class="nsel-block" TValue="string"
+                        Options="GroupOptions" @bind-Value="selectedGroup"
+                        OnChanged="GroupChangedAsync" Caption="Product group counted"
+                        AriaLabel="Product group counted" Placeholder="No product group" />
+    </VanReportPeriodBar>
+
+    @if (error is not null)
+    {
+        <div class="vs-notice" role="alert">@error</div>
+    }
+
+    @if (extrasError is not null)
+    {
+        <div class="vs-notice" role="status">@extrasError</div>
+    }
+
+    @if (isLoading && report is null)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Reading the month…</span>
+        </div>
+    }
+    else if (report is null)
+    {
+        @* The error above says why. An empty report here would read as a quiet month. *@
+    }
+    else if (report.Trucks.Count == 0)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">No routes</div>
+            <div>There are no live selling routes to report on. Add them under Van Sales, Routes.</div>
+        </div>
+    }
+    else
+    {
+        var total = report.Total;
+
+        <div class="vs-summary" id="vsm-kpis">
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@Money(total.Sales)</div>
+                <div class="vs-summary-label">Van sales to date</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@Percent(total.TargetAchieved)</div>
+                <div class="vs-summary-label">Target achieved · of @Money(total.PeriodTarget)</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@Money(total.BalanceToTarget)</div>
+                <div class="vs-summary-label">Gap to target</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@Money(report.DailyRunRate)</div>
+                <div class="vs-summary-label">Daily run-rate · @report.WorkingDaysToReportDate working days</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@Money(report.RequiredPerRemainingDay)</div>
+                <div class="vs-summary-label">Needed per day left</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@Count(total.CustomersVisited)</div>
+                <div class="vs-summary-label">Customers checked into</div>
+            </div>
+        </div>
+
+        <p class="vsp-note vsm-reporting">
+            Reporting through <b>@report.ReportDate.ToString("d MMMM yyyy")</b> · @report.Trucks.Count trucks ·
+            @report.Routes.SalesRecords truck-days reported · @total.SalesCount.ToString("N0") invoices
+            @if (report.Truck.SalesOutsideRoutes > 0)
+            {
+                <span> · <b>@Cents(report.Truck.SalesOutsideRoutes)</b> sold by logins on no route is in none of the figures</span>
+            }
+        </p>
+
+        <div class="vsp-sections" role="tablist" aria-label="Report sections">
+            @foreach (var option in Sections)
+            {
+                <button type="button" role="tab" aria-selected="@(section == option.Key ? "true" : "false")"
+                        class="vs-chip @(section == option.Key ? "vs-chip-info" : "vs-chip-quiet")"
+                        data-section="@option.Key" @onclick="() => ShowSection(option.Key)">
+                    @option.Label
+                    @if (SectionCount(option.Key) is { Length: > 0 } count)
+                    {
+                        <span class="vsp-section-count">@count</span>
+                    }
+                </button>
+            }
+        </div>
+
+        @switch (section)
+        {
+            case Section.Insights:
+                @InsightsView(report)
+                break;
+            case Section.Overview:
+                @OverviewView(report)
+                break;
+            case Section.Daily:
+                @DailyView(report)
+                break;
+            case Section.Weekly:
+                @WeeklyView(report)
+                break;
+            case Section.Routes:
+                @RoutesView(report)
+                break;
+            case Section.Products:
+                @ProductsView(report)
+                break;
+            case Section.Breakages:
+                @BreakagesView(report)
+                break;
+        }
+    }
+</div>
+
+@code {
+    private RenderFragment InsightsView(VanManagementReport report) => @<div id="vsm-insights">
+        <ol class="vsm-insights">
+            @foreach (var (insight, index) in report.Insights.Select((insight, index) => (insight, index)))
+            {
+                <li class="vsm-insight">
+                    <span class="vsm-insight-n">@(index + 1)</span>
+                    <div>
+                        <div class="vsm-insight-title">@insight.Title</div>
+                        <p class="vsm-insight-body">@insight.Body</p>
+                    </div>
+                </li>
+            }
+        </ol>
+
+        <h3 class="vsp-heading">Trucks ranked by sales</h3>
+        <div class="vs-table-wrap">
+            <table class="vs-table vsm-table">
+                <thead>
+                    <tr>
+                        <th class="vs-num">#</th>
+                        <th>Truck</th>
+                        <th class="vs-num">Van sales</th>
+                        <th>Target achieved</th>
+                        <th class="vs-num">Sales / km</th>
+                        <th class="vs-num">PCR</th>
+                        <th class="vs-num">Average order</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var (truck, index) in report.Ranked.Select((truck, index) => (truck, index)))
+                    {
+                        <tr>
+                            <td class="vs-num">@(index + 1)</td>
+                            <td class="vs-primary">@truck.RouteName</td>
+                            <td class="vs-num">@Cents(truck.Sales)</td>
+                            <td>@Achieved(truck.TargetAchieved)</td>
+                            <td class="vs-num">@Cents(truck.SalesPerKilometre)</td>
+                            <td class="vs-num">@Percent(truck.ProductiveCallRate)</td>
+                            <td class="vs-num">@Cents(truck.AverageOrderValue)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="vsm-grid">
+            <div class="vsm-card">
+                <h3 class="vsp-heading">Route sales · highest, middle, lowest</h3>
+                @if (report.Routes.Ranked.Count == 0)
+                {
+                    <p class="vsp-note">No truck-day names the area it worked.</p>
+                }
+                else
+                {
+                    <dl class="vsm-facts">
+                        <dt>Highest</dt><dd>@report.Routes.Highest!.Area <b>@Cents(report.Routes.Highest.Sales)</b></dd>
+                        <dt>Middle</dt><dd>@report.Routes.Middle!.Area <b>@Cents(report.Routes.Middle.Sales)</b></dd>
+                        <dt>Lowest</dt><dd>@report.Routes.Lowest!.Area <b>@Cents(report.Routes.Lowest.Sales)</b></dd>
+                    </dl>
+                }
+            </div>
+            <div class="vsm-card">
+                <h3 class="vsp-heading">Operating issues</h3>
+                @if (report.OperatingIssues.Count == 0)
+                {
+                    <p class="vsp-note">None recorded. A note entered on a truck's day on the Daily Truck Report shows here.</p>
+                }
+                else
+                {
+                    <p class="vsp-note">@report.OperatingIssues.Count flagged truck-day@(report.OperatingIssues.Count == 1 ? "" : "s"). Latest:</p>
+                    <ul class="vsm-issues">
+                        @foreach (var day in report.OperatingIssues.Take(4))
+                        {
+                            <li><b>@day.TradingDate.ToString("d MMM")</b> · @day.RouteName — @day.Notes</li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    </div>;
+
+    private RenderFragment OverviewView(VanManagementReport report) => @<div id="vsm-overview">
+        <h3 class="vsp-heading">Each truck against its target</h3>
+        <div class="vs-table-wrap">
+            <table class="vs-table vsm-table">
+                <thead>
+                    <tr>
+                        <th>Truck</th>
+                        <th class="vs-num">Month target</th>
+                        <th class="vs-num">Van sales to date</th>
+                        <th class="vs-num">Balance</th>
+                        <th>% of target</th>
+                        <th class="vs-num">Days reported</th>
+                        <th class="vs-num">Customers</th>
+                        <th class="vs-num">New</th>
+                        <th class="vs-num">CCR</th>
+                        <th class="vs-num">PCR</th>
+                        <th class="vs-num">Average order</th>
+                        <th class="vs-num">Km</th>
+                        <th class="vs-num">Fuel (L)</th>
+                        <th class="vs-num">Km / L</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var truck in report.Trucks)
+                    {
+                        <tr>
+                            <td class="vs-primary">@truck.RouteName</td>
+                            <td class="vs-num">@Money(truck.PeriodTarget)</td>
+                            <td class="vs-num">@Cents(truck.Sales)</td>
+                            <td class="vs-num">@Cents(truck.BalanceToTarget)</td>
+                            <td>@Achieved(truck.TargetAchieved)</td>
+                            <td class="vs-num @(truck.DaysReported < truck.WorkingDaysElapsed ? "vsm-short" : "")">@truck.DaysReported / @truck.WorkingDaysElapsed</td>
+                            <td class="vs-num">@Count(truck.CustomersVisited)</td>
+                            <td class="vs-num">@Count(truck.NewCustomers)</td>
+                            <td class="vs-num">@Percent(truck.CallComplianceRate)</td>
+                            <td class="vs-num">@Percent(truck.ProductiveCallRate)</td>
+                            <td class="vs-num">@Cents(truck.AverageOrderValue)</td>
+                            <td class="vs-num">@(truck.Kilometres > 0 ? truck.Kilometres.ToString("N0") : "—")</td>
+                            <td class="vs-num">@(truck.FuelLitres > 0 ? truck.FuelLitres.ToString("N0") : "—")</td>
+                            <td class="vs-num">@(truck.KilometresPerLitre is { } kmL ? kmL.ToString("N2") : "—")</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="vsm-total">
+                        <td>All trucks</td>
+                        <td class="vs-num">@Money(report.Total.PeriodTarget)</td>
+                        <td class="vs-num">@Cents(report.Total.Sales)</td>
+                        <td class="vs-num">@Cents(report.Total.BalanceToTarget)</td>
+                        <td>@Achieved(report.Total.TargetAchieved)</td>
+                        <td class="vs-num">@report.Total.DaysReported / @report.Total.WorkingDaysElapsed</td>
+                        <td class="vs-num">@Count(report.Total.CustomersVisited)</td>
+                        <td class="vs-num">@Count(report.Total.NewCustomers)</td>
+                        <td class="vs-num">@Percent(report.Total.CallComplianceRate)</td>
+                        <td class="vs-num">@Percent(report.Total.ProductiveCallRate)</td>
+                        <td class="vs-num">@Cents(report.Total.AverageOrderValue)</td>
+                        <td class="vs-num">@(report.Total.Kilometres > 0 ? report.Total.Kilometres.ToString("N0") : "—")</td>
+                        <td class="vs-num">@(report.Total.FuelLitres > 0 ? report.Total.FuelLitres.ToString("N0") : "—")</td>
+                        <td class="vs-num">@(report.Total.KilometresPerLitre is { } fleetKmL ? fleetKmL.ToString("N2") : "—")</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <div class="vsm-grid">
+            <div class="vsm-card" id="vsm-payments">
+                <h3 class="vsp-heading">Month-to-date payment summary</h3>
+                <p class="vsp-note">Ecocash is part of van sales. Cash sales are van sales less Ecocash; account deliveries are separate.</p>
+                <dl class="vsm-facts">
+                    <dt>Van sales total</dt><dd><b>@Cents(report.Payments.VanSales)</b></dd>
+                    <dt>Ecocash</dt><dd>@Cents(report.Payments.Ecocash)</dd>
+                    <dt>Van sales less Ecocash</dt><dd>@Cents(report.Payments.LessEcocash)</dd>
+                    <dt class="vsm-sub">of which cash</dt><dd class="vsm-sub">@Cents(report.Payments.Cash)</dd>
+                    @if (report.Payments.Innbucks != 0)
+                    {
+                        <dt class="vsm-sub">InnBucks</dt><dd class="vsm-sub">@Cents(report.Payments.Innbucks)</dd>
+                    }
+                    @if (report.Payments.OtherTender != 0)
+                    {
+                        <dt class="vsm-sub">Card, transfer, other</dt><dd class="vsm-sub">@Cents(report.Payments.OtherTender)</dd>
+                    }
+                    @if (report.Payments.Untendered != 0)
+                    {
+                        <dt class="vsm-sub">No tender recorded</dt><dd class="vsm-sub">@Cents(report.Payments.Untendered)</dd>
+                    }
+                    <dt>Account customer deliveries</dt><dd>@Cents(report.Payments.AccountSales)</dd>
+                    <dt>Accounts / van sales</dt><dd>@Percent(report.Payments.AccountsShare)</dd>
+                </dl>
+            </div>
+            <div class="vsm-card" id="vsm-exceptions">
+                <h3 class="vsp-heading">Exception monitor</h3>
+                <table class="vs-table vsm-table">
+                    <thead><tr><th>Rule</th><th class="vs-num">Truck-days</th></tr></thead>
+                    <tbody>
+                        @foreach (var check in report.ExceptionChecks)
+                        {
+                            <tr title="@check.Meaning">
+                                <td>@check.Rule</td>
+                                <td class="vs-num"><span class="vs-chip @(check.Count > 0 ? "vs-chip-warn" : "vs-chip-clean")">@check.Count</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <h3 class="vsp-heading">Account customer sales · separate from van sales</h3>
+        <div class="vs-table-wrap">
+            <table class="vs-table vsm-table">
+                <thead>
+                    <tr>
+                        <th>Truck</th>
+                        <th class="vs-num">Account sales</th>
+                        <th class="vs-num">Van sales</th>
+                        <th class="vs-num">Accounts / van sales</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var truck in report.Trucks)
+                    {
+                        <tr>
+                            <td class="vs-primary">@truck.RouteName</td>
+                            <td class="vs-num">@Cents(truck.AccountSales)</td>
+                            <td class="vs-num">@Cents(truck.Sales)</td>
+                            <td class="vs-num">@Percent(truck.Sales > 0 ? (double)(truck.AccountSales / truck.Sales) : null)</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="vsm-total">
+                        <td>All trucks</td>
+                        <td class="vs-num">@Cents(report.Total.AccountSales)</td>
+                        <td class="vs-num">@Cents(report.Total.Sales)</td>
+                        <td class="vs-num">@Percent(report.Payments.AccountsShare)</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <h3 class="vsp-heading">Operating issues log</h3>
+        @if (report.OperatingIssues.Count == 0)
+        {
+            <p class="vsp-note">None recorded this period. Enter one as a note on the truck's day on the Daily Truck Report.</p>
+        }
+        else
+        {
+            <div class="vs-table-wrap">
+                <table class="vs-table vsm-table">
+                    <thead><tr><th>Date</th><th>Truck</th><th>Operating issue</th><th class="vs-num">Sales that day</th></tr></thead>
+                    <tbody>
+                        @foreach (var day in report.OperatingIssues)
+                        {
+                            <tr>
+                                <td>@day.TradingDate.ToString("ddd d MMM")</td>
+                                <td class="vs-primary">@day.RouteName</td>
+                                <td>@day.Notes</td>
+                                <td class="vs-num">@(day.HasActivity ? Cents(day.Sales) : "No sale reported")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>;
+
+    private RenderFragment DailyView(VanManagementReport report)
+    {
+        var day = ShownDay;
+        var rows = VanManagementReportBuilder.DayView(report, day);
+        var reporting = rows.Count(row => row.Day?.HasActivity == true);
+        var daySales = rows.Sum(row => row.Day?.Sales ?? 0m);
+        var top = rows.Where(row => row.Day is { Sales: > 0 }).OrderByDescending(row => row.Day!.Sales).FirstOrDefault();
+        var issues = rows.Where(row => !string.IsNullOrWhiteSpace(row.Day?.Notes)).ToList();
+
+        return @<div id="vsm-daily">
+            <div class="vsm-toolbar">
+                <NocturneSelect Id="vsm-day" Class="nsel-auto" TValue="string"
+                                Options="DayOptions" @bind-Value="selectedDay" OnChanged="DayChanged"
+                                Caption="Day shown" AriaLabel="Day shown" Placeholder="Latest day reported" />
+            </div>
+
+            <div class="vs-summary">
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@Cents(daySales)</div>
+                    <div class="vs-summary-label">Van sales · @day.ToString("ddd d MMM")</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@reporting / @rows.Count</div>
+                    <div class="vs-summary-label">Trucks reporting</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@Cents(rows.Sum(row => row.ToDate.Sales))</div>
+                    <div class="vs-summary-label">Month to date</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@Count(rows.Sum(row => row.Day?.CustomersVisited ?? 0))</div>
+                    <div class="vs-summary-label">Customers</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@rows.Sum(row => row.Day?.Kilometres ?? 0).ToString("N0")</div>
+                    <div class="vs-summary-label">Km travelled</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value vsm-name">@(top?.Truck.RouteName ?? "—")</div>
+                    <div class="vs-summary-label">Top truck</div>
+                </div>
+            </div>
+
+            <div class="vs-table-wrap">
+                <table class="vs-table vsm-table">
+                    <thead>
+                        <tr>
+                            <th>Truck (SAP business partner)</th>
+                            <th>Area worked</th>
+                            <th class="vs-num">Daily sales</th>
+                            <th class="vs-num">MTD sales</th>
+                            <th>Target met</th>
+                            <th class="vs-num">Customers</th>
+                            <th class="vs-num">Km today</th>
+                            <th class="vs-num">Account sales*</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in rows)
+                        {
+                            <tr class="@(row.Day?.HasActivity == true ? "" : "vsm-silent")">
+                                <td class="vs-primary">@row.Truck.RouteName</td>
+                                <td>@(row.Day?.AreaName ?? "—")</td>
+                                <td class="vs-num">@(row.Day?.HasActivity == true ? Cents(row.Day.Sales) : "not reported")</td>
+                                <td class="vs-num">@Cents(row.ToDate.Sales)</td>
+                                <td>@Achieved(row.ToDate.TargetAchieved)</td>
+                                <td class="vs-num">@(row.Day?.HasActivity == true ? Count(row.Day.CustomersVisited) : "—")</td>
+                                <td class="vs-num">@(row.Day?.Kilometres is { } km ? km.ToString("N0") : "—")</td>
+                                <td class="vs-num">@Cents(row.Day?.AccountSales)</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr class="vsm-total">
+                            <td>Total</td>
+                            <td></td>
+                            <td class="vs-num">@Cents(daySales)</td>
+                            <td class="vs-num">@Cents(rows.Sum(row => row.ToDate.Sales))</td>
+                            <td>@Achieved(report.Total.PeriodTarget is > 0 ? (double)(rows.Sum(row => row.ToDate.Sales) / report.Total.PeriodTarget.Value) : null)</td>
+                            <td class="vs-num">@Count(rows.Sum(row => row.Day?.CustomersVisited ?? 0))</td>
+                            <td class="vs-num">@rows.Sum(row => row.Day?.Kilometres ?? 0).ToString("N0")</td>
+                            <td class="vs-num">@Cents(rows.Sum(row => row.Day?.AccountSales ?? 0m))</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            <p class="vsp-note">* Account sales are keyed in SAP by the office and are not in van sales.
+                @if (issues.Count == 0)
+                {
+                    <span>No operating issues entered for @day.ToString("d MMM yyyy").</span>
+                }
+            </p>
+            @if (issues.Count > 0)
+            {
+                <ul class="vsm-issues">
+                    @foreach (var row in issues)
+                    {
+                        <li><b>@row.Truck.RouteName</b> — @row.Day!.Notes</li>
+                    }
+                </ul>
+            }
+
+            <h3 class="vsp-heading">Daily truck cards</h3>
+            <div class="vsm-cards">
+                @foreach (var row in rows)
+                {
+                    var d = row.Day;
+                    var mtd = row.ToDate;
+
+                    <div class="vsm-truck @(d?.HasActivity == true ? "" : "vsm-silent")">
+                        <div class="vsm-truck-head">
+                            <span class="vsm-truck-name">@row.Truck.RouteName</span>
+                            <span class="vsm-truck-area">@(d?.AreaName ?? "no area recorded")</span>
+                        </div>
+                        <table class="vsm-truck-table">
+                            <thead><tr><th>Metric</th><th>Daily</th><th>MTD</th></tr></thead>
+                            <tbody>
+                                <tr><td>Customers</td><td>@(d?.HasActivity == true ? Count(d.CustomersVisited) : "—")</td><td>@Count(mtd.CustomersVisited)</td></tr>
+                                <tr><td>Departure</td><td>@Clock(d?.TimeOut)</td><td></td></tr>
+                                <tr><td>Return</td><td>@Clock(d?.TimeIn)</td><td></td></tr>
+                                <tr><td>CCR</td><td>@Percent(d?.CallComplianceRate)</td><td>@Percent(mtd.CallComplianceRate)</td></tr>
+                                <tr><td>PCR</td><td>@Percent(d?.ProductiveCallRate)</td><td>@Percent(mtd.ProductiveCallRate)</td></tr>
+                                <tr><td>Average order</td><td>@Cents(d?.AverageOrderValue)</td><td>@Cents(mtd.AverageOrderValue)</td></tr>
+                                <tr class="vsm-strong"><td>Sales</td><td>@(d?.HasActivity == true ? Cents(d.Sales) : "—")</td><td>@Cents(mtd.Sales)</td></tr>
+                                <tr><td>New customers</td><td>@(d?.HasActivity == true ? Count(d.NewCustomers) : "—")</td><td>@Count(mtd.NewCustomers)</td></tr>
+                                <tr><td>Ecocash</td><td>@(d?.HasActivity == true ? Cents(d.Ecocash) : "—")</td><td>@Cents(mtd.Ecocash)</td></tr>
+                                <tr><td>Account sales</td><td>@Cents(d?.AccountSales)</td><td>@Cents(mtd.AccountSales)</td></tr>
+                                <tr><td>Odometer out / in</td><td colspan="2">@(d?.StartingMileage?.ToString("N0") ?? "—") / @(d?.ClosingMileage?.ToString("N0") ?? "—")</td></tr>
+                                <tr><td>Km</td><td>@(d?.Kilometres?.ToString("N0") ?? "—")</td><td>@mtd.Kilometres.ToString("N0")</td></tr>
+                                <tr><td>Fuel (L)</td><td>@(d?.FuelLitres?.ToString("N0") ?? "—")</td><td>@(mtd.FuelLitres > 0 ? mtd.FuelLitres.ToString("N0") : "—")</td></tr>
+                                <tr><td>Target</td><td>@Money(d?.DailySalesTarget)</td><td>@Money(mtd.PeriodTarget)</td></tr>
+                                <tr class="vsm-strong"><td>Balance</td><td></td><td>@Cents(mtd.BalanceToTarget)</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>;
+    }
+
+    private RenderFragment WeeklyView(VanManagementReport report)
+    {
+        var week = ShownWeek;
+
+        return @<div id="vsm-weekly">
+            <div class="vsm-toolbar">
+                <NocturneSelect Id="vsm-week" Class="nsel-auto" TValue="string"
+                                Options="WeekOptions" @bind-Value="selectedWeek" OnChanged="WeekChanged"
+                                Caption="Week shown" AriaLabel="Week shown" Placeholder="Latest week reported" />
+            </div>
+
+            @if (week is not null)
+            {
+                <div class="vs-summary">
+                    <div class="vs-summary-cell">
+                        <div class="vs-summary-value">@Cents(week.Sales)</div>
+                        <div class="vs-summary-label">Weekly van sales · @week.Label</div>
+                    </div>
+                    <div class="vs-summary-cell">
+                        <div class="vs-summary-value">@week.Submissions</div>
+                        <div class="vs-summary-label">Truck-days reported</div>
+                    </div>
+                    <div class="vs-summary-cell">
+                        <div class="vs-summary-value">@week.TrucksReporting / @week.Trucks.Count</div>
+                        <div class="vs-summary-label">Trucks reporting</div>
+                    </div>
+                    <div class="vs-summary-cell">
+                        <div class="vs-summary-value">@Cents(week.AccountSales)</div>
+                        <div class="vs-summary-label">Account deliveries</div>
+                    </div>
+                </div>
+
+                <div class="vsm-grid">
+                    <div class="vsm-card">
+                        <h3 class="vsp-heading">Selected week · truck detail</h3>
+                        <table class="vs-table vsm-table">
+                            <thead><tr><th>Truck</th><th class="vs-num">Weekly sales</th><th class="vs-num">Days reported</th><th class="vs-num">Share of week</th></tr></thead>
+                            <tbody>
+                                @foreach (var truck in week.Trucks.OrderByDescending(truck => truck.Sales))
+                                {
+                                    <tr>
+                                        <td class="vs-primary">@truck.RouteName</td>
+                                        <td class="vs-num">@Cents(truck.Sales)</td>
+                                        <td class="vs-num">@truck.Submissions</td>
+                                        <td class="vs-num">@Percent(truck.Share)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr class="vsm-total"><td>Total</td><td class="vs-num">@Cents(week.Sales)</td><td class="vs-num">@week.Submissions</td><td class="vs-num">@(week.Sales > 0 ? "100.0%" : "—")</td></tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    <div class="vsm-card">
+                        <h3 class="vsp-heading">Daily pattern</h3>
+                        <table class="vs-table vsm-table">
+                            <thead><tr><th>Date</th><th class="vs-num">Van sales</th><th class="vs-num">Trucks reporting</th></tr></thead>
+                            <tbody>
+                                @foreach (var day in week.Days)
+                                {
+                                    <tr class="@(day.Submissions == 0 ? "vsm-silent" : "")">
+                                        <td>@day.Date.ToString("ddd d MMM")</td>
+                                        <td class="vs-num">@(day.Submissions == 0 ? "—" : Cents(day.Sales))</td>
+                                        <td class="vs-num">@day.Submissions</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+
+            <h3 class="vsp-heading">Week index · the first and last weeks hold this period's dates only</h3>
+            <div class="vs-table-wrap">
+                <table class="vs-table vsm-table">
+                    <thead><tr><th>Week start</th><th>Week end</th><th class="vs-num">Van sales</th><th class="vs-num">Truck-days reported</th><th class="vs-num">Trucks reporting</th></tr></thead>
+                    <tbody>
+                        @foreach (var row in report.Weeks)
+                        {
+                            <tr class="@(row.HasData ? "" : "vsm-silent") @(row == week ? "vsm-chosen" : "")">
+                                <td>@row.Start.ToString("ddd d MMM")</td>
+                                <td>@row.End.ToString("ddd d MMM")</td>
+                                <td class="vs-num">@(row.HasData ? Cents(row.Sales) : "—")</td>
+                                <td class="vs-num">@row.Submissions</td>
+                                <td class="vs-num">@row.TrucksReporting</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>;
+    }
+
+    private RenderFragment RoutesView(VanManagementReport report) => @<div id="vsm-routes">
+        @if (report.Routes.Ranked.Count == 0)
+        {
+            <div class="vs-empty">
+                <div class="vs-empty-title">No areas recorded</div>
+                <div>No truck-day in the period names the area it worked. The area comes from Start Day, the route's plan for the weekday, or the office's entry on the Daily Truck Report.</div>
+            </div>
+        }
+        else
+        {
+            <div class="vs-summary">
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value vsm-name">@report.Routes.Highest!.Area</div>
+                    <div class="vs-summary-label">Highest · @Cents(report.Routes.Highest.Sales)</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value vsm-name">@report.Routes.Middle!.Area</div>
+                    <div class="vs-summary-label">Middle · @Cents(report.Routes.Middle.Sales)</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value vsm-name">@report.Routes.Lowest!.Area</div>
+                    <div class="vs-summary-label">Lowest · @Cents(report.Routes.Lowest.Sales)</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@report.Routes.Ranked.Count</div>
+                    <div class="vs-summary-label">Distinct areas · @report.Routes.SalesRecords truck-days</div>
+                </div>
+            </div>
+
+            @if (report.Routes.RecordsWithoutArea > 0)
+            {
+                <p class="vsp-note">@report.Routes.RecordsWithoutArea truck-day@(report.Routes.RecordsWithoutArea == 1 ? "" : "s") with @Cents(report.Routes.SalesWithoutArea) of sales named no area and are not ranked.</p>
+            }
+
+            <div class="vs-table-wrap">
+                <table class="vs-table vsm-table">
+                    <thead><tr><th class="vs-num">#</th><th>Area worked</th><th>Trucks</th><th class="vs-num">Days</th><th class="vs-num">Van sales</th><th class="vs-num">Per day</th></tr></thead>
+                    <tbody>
+                        @foreach (var (route, index) in report.Routes.Ranked.Select((route, index) => (route, index)))
+                        {
+                            <tr>
+                                <td class="vs-num">@(index + 1)</td>
+                                <td class="vs-primary">@route.Area</td>
+                                <td>@route.Trucks</td>
+                                <td class="vs-num">@route.Days</td>
+                                <td class="vs-num">@Cents(route.Sales)</td>
+                                <td class="vs-num">@Cents(route.Days > 0 ? route.Sales / route.Days : null)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <p class="vsp-note">Areas are named as they were recorded, so two spellings of one place are two rows. A truck-day that sold nothing is still a day worked there.</p>
+        }
+    </div>;
+
+    private RenderFragment ProductsView(VanManagementReport report) => @<div id="vsm-products">
+        @if (report.ProductGroupName is null)
+        {
+            <div class="vs-empty">
+                <div class="vs-empty-title">No product group chosen</div>
+                <div>
+                    Choose one in the bar above. The workbook counted 5 litre Shamiso; to count it here, make a group of
+                    those items under <a class="vsm-link" href="/reports/product-groups">Reports, Product groups</a>.
+                </div>
+            </div>
+        }
+        else
+        {
+            var products = report.Products;
+
+            <div class="vs-summary">
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@Units(products.Units)</div>
+                    <div class="vs-summary-label">@report.ProductGroupName · units</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@Cents(products.Value)</div>
+                    <div class="vs-summary-label">Sales value with VAT</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@Percent(report.Total.Sales > 0 ? (double)(products.Value / report.Total.Sales) : null)</div>
+                    <div class="vs-summary-label">Share of van sales</div>
+                </div>
+            </div>
+
+            @if (products.UnitsOutsideRoutes > 0)
+            {
+                <p class="vsp-note">@Units(products.UnitsOutsideRoutes) units were sold by logins on no route and are in none of the rows.</p>
+            }
+
+            <div class="vsm-grid">
+                <div class="vsm-card">
+                    <h3 class="vsp-heading">By truck</h3>
+                    <table class="vs-table vsm-table">
+                        <thead><tr><th>Truck</th><th class="vs-num">Units</th><th class="vs-num">Value with VAT</th></tr></thead>
+                        <tbody>
+                            @foreach (var truck in products.Trucks.OrderByDescending(truck => truck.Units))
+                            {
+                                <tr class="@(truck.Units == 0 ? "vsm-silent" : "")">
+                                    <td class="vs-primary">@truck.RouteName</td>
+                                    <td class="vs-num">@Units(truck.Units)</td>
+                                    <td class="vs-num">@Cents(truck.Value)</td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot><tr class="vsm-total"><td>All trucks</td><td class="vs-num">@Units(products.Units)</td><td class="vs-num">@Cents(products.Value)</td></tr></tfoot>
+                    </table>
+                </div>
+                <div class="vsm-card">
+                    <h3 class="vsp-heading">By item</h3>
+                    @if (products.Items.Count == 0)
+                    {
+                        <p class="vsp-note">None of the group's items was sold in the period.</p>
+                    }
+                    else
+                    {
+                        <table class="vs-table vsm-table">
+                            <thead><tr><th>Item</th><th class="vs-num">Units</th><th class="vs-num">Value with VAT</th></tr></thead>
+                            <tbody>
+                                @foreach (var item in products.Items)
+                                {
+                                    <tr>
+                                        <td><span class="vs-primary">@(item.ItemName ?? item.ItemCode)</span> <span class="vs-meta">@item.ItemCode</span></td>
+                                        <td class="vs-num">@Units(item.Units)</td>
+                                        <td class="vs-num">@Cents(item.Value)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+
+            <h3 class="vsp-heading">Daily units</h3>
+            <div class="vsm-bars" role="img" aria-label="Units of @report.ProductGroupName sold each day">
+                @{ var peak = products.Days.Count > 0 ? products.Days.Max(day => day.Units) : 0m; }
+                @foreach (var day in products.Days)
+                {
+                    <div class="vsm-bar" title="@day.Date.ToString("ddd d MMM"): @Units(day.Units) units, @Cents(day.Value)">
+                        <span class="vsm-bar-fill" style="height: @(peak > 0 ? (day.Units / peak * 100m).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) : "0")%"></span>
+                        <span class="vsm-bar-label">@day.Date.Day</span>
+                    </div>
+                }
+            </div>
+        }
+    </div>;
+
+    private RenderFragment BreakagesView(VanManagementReport report) => @<div id="vsm-breakages">
+        @{ var breakages = report.Breakages; }
+        @if (breakages.Lines.Count == 0)
+        {
+            <div class="vs-empty">
+                <div class="vs-empty-title">No breakages reported</div>
+                <div>No market breakage was reported from the handsets in this period. Reports the office rejected are left out.</div>
+            </div>
+        }
+        else
+        {
+            <div class="vs-summary">
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@breakages.Lines.Count</div>
+                    <div class="vs-summary-label">Reported SKU lines</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@Units(breakages.Units)</div>
+                    <div class="vs-summary-label">Broken units</div>
+                </div>
+                <div class="vs-summary-cell">
+                    <div class="vs-summary-value">@Cents(breakages.Value)</div>
+                    <div class="vs-summary-label">Value before VAT</div>
+                </div>
+            </div>
+            <p class="vsp-note">
+                Units are the office's confirmed count where it has counted, else what the rep reported. Value is at the
+                average price before VAT the vans sold each item for in the period@(breakages.Unvalued > 0 ? $"; {breakages.Unvalued} line{(breakages.Unvalued == 1 ? "" : "s")} of items the vans did not sell are not valued" : "").
+            </p>
+
+            <div class="vsm-grid">
+                <div class="vsm-card">
+                    <h3 class="vsp-heading">By truck</h3>
+                    <table class="vs-table vsm-table">
+                        <thead><tr><th>Truck</th><th class="vs-num">Lines</th><th class="vs-num">Units</th><th class="vs-num">Value</th></tr></thead>
+                        <tbody>
+                            @foreach (var truck in breakages.Trucks)
+                            {
+                                <tr class="@(truck.Lines == 0 ? "vsm-silent" : "")">
+                                    <td class="vs-primary">@truck.RouteName</td>
+                                    <td class="vs-num">@truck.Lines</td>
+                                    <td class="vs-num">@Units(truck.Units)</td>
+                                    <td class="vs-num">@Cents(truck.Value)</td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot><tr class="vsm-total"><td>Total</td><td class="vs-num">@breakages.Lines.Count</td><td class="vs-num">@Units(breakages.Units)</td><td class="vs-num">@Cents(breakages.Value)</td></tr></tfoot>
+                    </table>
+                </div>
+                <div class="vsm-card">
+                    <h3 class="vsp-heading">By cause</h3>
+                    <table class="vs-table vsm-table">
+                        <thead><tr><th>Cause</th><th class="vs-num">Lines</th><th class="vs-num">Units</th><th class="vs-num">Value</th></tr></thead>
+                        <tbody>
+                            @foreach (var cause in breakages.Causes)
+                            {
+                                <tr><td>@cause.Cause</td><td class="vs-num">@cause.Lines</td><td class="vs-num">@Units(cause.Units)</td><td class="vs-num">@Cents(cause.Value)</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <h3 class="vsp-heading">Breakages log</h3>
+            <div class="vs-table-wrap">
+                <table class="vs-table vsm-table">
+                    <thead><tr><th>Date</th><th>Truck</th><th>Rep</th><th>Shop</th><th>Item</th><th>Cause</th><th class="vs-num">Units</th><th class="vs-num">Value</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (var line in breakages.Lines)
+                        {
+                            <tr>
+                                <td>@line.TradingDate.ToString("ddd d MMM")</td>
+                                <td>@(report.Trucks.FirstOrDefault(truck => truck.RouteId == line.RouteId)?.RouteName ?? "No route")</td>
+                                <td>@line.ReportedBy</td>
+                                <td>@(line.CustomerName ?? "—")</td>
+                                <td><span class="vs-primary">@(line.ItemDescription ?? line.ItemCode)</span> <span class="vs-meta">@line.ItemCode</span></td>
+                                <td>@(line.Reason ?? "—")</td>
+                                <td class="vs-num">@Units(line.Units)@(line.IsConfirmed ? "" : " ·")</td>
+                                <td class="vs-num">@Cents(line.ValueBeforeVat)</td>
+                                <td><span class="vs-chip @(line.Status == "Transferred" ? "vs-chip-good" : line.Status == "TransferFailed" ? "vs-chip-bad" : "vs-chip-neutral")">@line.Status</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <p class="vsp-note">· not yet counted by the office: the rep's own figure.</p>
+        }
+    </div>;
+
+    /// <summary>A target share as a chip and a meter, so a column of them reads at a glance.</summary>
+    private static RenderFragment Achieved(double? rate) => @<span class="vsm-achieved">
+        <span class="vs-chip @AchievedTone(rate)">@Percent(rate)</span>
+        @if (rate.HasValue)
+        {
+            <span class="vsm-meter" aria-hidden="true"><span class="vsm-meter-fill" style="width: @Fill(rate)"></span></span>
+        }
+    </span>;
+}

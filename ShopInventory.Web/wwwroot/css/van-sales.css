@@ -6411,3 +6411,312 @@
         flex-wrap: wrap;
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   The van sales management report (/van-sales/reports/management) — `vsm-`.
+
+   The office's "Vansales Daily Report" workbook as a page. It sits on the
+   shared `vs-` chrome and borrows the section chips and headings of the
+   performance report (`vsp-sections`, `vsp-heading`, `vsp-note`); what is here
+   is only what that chrome has no piece for: the numbered insights, the truck
+   cards, the two-up card grid, the inline target meter and the daily bars.
+   Every colour is a `--vs-*` token, so both themes come from the root block.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* A link drawn as a button: MudBlazor's bare `a` rule would underline it. */
+.vs a.vs-btn {
+    text-decoration: none;
+}
+
+.vs .vsm-reporting {
+    margin: -10px 0 0;
+}
+
+.vs .vsm-link {
+    color: var(--vs-accent-text);
+    text-decoration: underline;
+}
+
+.vs .vsm-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 0 14px;
+}
+
+/* — Numbered insights ———————————————————————————————————————— */
+
+.vs .vsm-insights {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+}
+
+.vs .vsm-insight {
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 14px;
+    align-items: start;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+    padding: 14px 18px;
+}
+
+.vs .vsm-insight-n {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(var(--vs-accent-rgb), .14);
+    color: var(--vs-accent-text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsm-insight-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vs-ink);
+}
+
+.vs .vsm-insight-body {
+    margin: 4px 0 0;
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: var(--vs-mute);
+}
+
+/* — Tables ———————————————————————————————————————————————————— */
+
+/* The shared table pads only thead and tbody cells; a totals row sits in tfoot. */
+.vs .vsm-table tfoot .vsm-total td {
+    padding: 11px 16px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--vs-ink);
+    border-top: 1px solid var(--vs-rule);
+}
+
+.vs .vsm-table .vsm-silent td {
+    color: var(--vs-faint);
+}
+
+.vs .vsm-table .vsm-chosen td {
+    background: rgba(var(--vs-accent-rgb), .07);
+}
+
+.vs .vsm-short {
+    color: var(--vs-warn);
+    font-weight: 600;
+}
+
+.vs .vsm-achieved {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.vs .vsm-meter {
+    position: relative;
+    display: inline-block;
+    width: 64px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--vs-wash);
+    overflow: hidden;
+}
+
+.vs .vsm-meter-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--vs-accent);
+    border-radius: 3px;
+}
+
+.vs .vsm-name {
+    font-size: 1.05rem;
+    line-height: 1.3;
+    letter-spacing: 0;
+}
+
+/* — Cards side by side ———————————————————————————————————————— */
+
+.vs .vsm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 16px;
+    margin-top: 8px;
+}
+
+.vs .vsm-card {
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+    padding: 4px 18px 16px;
+    min-width: 0;
+    overflow-x: auto;
+}
+
+.vs .vsm-facts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 16px;
+    margin: 0;
+    font-size: 0.88rem;
+}
+
+.vs .vsm-facts dt {
+    color: var(--vs-mute);
+    font-weight: 400;
+}
+
+.vs .vsm-facts dd {
+    margin: 0;
+    text-align: right;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsm-facts .vsm-sub {
+    padding-left: 14px;
+    font-size: 0.82rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsm-issues {
+    margin: 4px 0 0;
+    padding-left: 18px;
+    font-size: 0.86rem;
+    line-height: 1.55;
+    color: var(--vs-mute);
+}
+
+/* — Daily truck cards ————————————————————————————————————————— */
+
+.vs .vsm-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 14px;
+}
+
+.vs .vsm-truck {
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+    padding: 12px 14px;
+}
+
+.vs .vsm-truck.vsm-silent {
+    border-style: dashed;
+}
+
+.vs .vsm-truck-head {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 8px;
+}
+
+.vs .vsm-truck-name {
+    font-weight: 600;
+    color: var(--vs-ink);
+}
+
+.vs .vsm-truck-area {
+    font-size: 0.78rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsm-truck-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsm-truck-table th {
+    font-size: 0.7rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--vs-mute-3);
+    text-align: right;
+    padding: 2px 0 4px;
+    border-bottom: 1px solid var(--vs-divider);
+}
+
+.vs .vsm-truck-table th:first-child,
+.vs .vsm-truck-table td:first-child {
+    text-align: left;
+    color: var(--vs-mute);
+}
+
+.vs .vsm-truck-table td {
+    text-align: right;
+    color: var(--vs-ink);
+    padding: 3px 0;
+    border-bottom: 1px solid var(--vs-divider);
+}
+
+.vs .vsm-truck-table td + td {
+    padding-left: 8px;
+}
+
+.vs .vsm-truck-table .vsm-strong td {
+    font-weight: 600;
+}
+
+/* — Daily bars ———————————————————————————————————————————————— */
+
+.vs .vsm-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 150px;
+    padding: 10px 12px 0;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+    overflow-x: auto;
+}
+
+.vs .vsm-bar {
+    flex: 1 0 16px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 4px;
+}
+
+.vs .vsm-bar-fill {
+    width: 100%;
+    min-height: 1px;
+    background: var(--vs-accent);
+    border-radius: 3px 3px 0 0;
+}
+
+.vs .vsm-bar-label {
+    font-size: 0.66rem;
+    color: var(--vs-mute-3);
+    padding-bottom: 4px;
+}
+
+@media (max-width: 700px) {
+    .vs .vsm-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .vs .vsm-insight {
+        grid-template-columns: 1fr;
+    }
+}

@@ -268,6 +268,13 @@ public sealed record VanDailyTruckSummaryDto(
     public decimal? BalanceToTarget => PeriodTarget is { } target ? target - Sales : null;
 
     /// <summary>
+    /// The SAP business partner the truck sells on: the van account most of the route's active reps are
+    /// assigned to. Null on the fleet line and for a route none of whose reps has an account. Reports
+    /// name a truck by this partner's SAP name, which is what the office calls it.
+    /// </summary>
+    public string? BusinessPartnerCode { get; init; }
+
+    /// <summary>
     /// SAP's booked gross profit on the posted dollar sales; null when none is costed or none was read.
     /// Like <c>Sales</c>, dollars only.
     /// </summary>

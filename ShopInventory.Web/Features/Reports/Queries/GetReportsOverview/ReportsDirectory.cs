@@ -55,6 +55,7 @@ public static class ReportsDirectory
             new("Field team",
             [
                 new("Daily Truck Report", "Load, sales and returns per truck", "/van-sales/reports/daily", VanReportRoles),
+                new("Van Sales Management Report", "The month against target: insights, daily and weekly views, route ranking, breakages", "/van-sales/reports/management", VanReportRoles),
                 new("Van Sales Performance", "Sales per van and rep", "/van-sales/reports/performance", VanReportRoles),
                 new("Attendance Report", "Clock-ins for reps and merchandisers", "/van-sales/attendance-report", VanReportRoles),
                 new("Departure Compliance", "Vans leaving the depot on time", "/van-sales/compliance", VanReportRoles),

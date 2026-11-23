@@ -3863,6 +3863,7 @@ handlers and are not recorded twice.
 | GET | `/api/van-sales/fleet-audit` | `vansales.attendance.view` | The fleet over a period: a row per vehicle, each carrying its own days |
 | PUT | `/api/van-sales/fleet/{registration}/business-partner` | `users.edit` or `vansales.routes.manage` | Link a vehicle to the van sales account whose takings it carries |
 | GET | `/api/van-sales/truck-report` | `vansales.attendance.view` | The daily truck report: a row per route per day, and each route's period against its target |
+| GET | `/api/van-sales/management-extras` | `vansales.attendance.view` | For the management report: a chosen set of products sold per truck per day, and the market breakages each truck brought back |
 | PUT | `/api/van-sales/truck-days/{routeId}/{tradingDate}` | `users.edit` or `vansales.routes.manage` | The office's figures for a truck's day: fuel issued, account sales and the area worked |
 | PUT | `/api/van-sales/route-days/{id}/mileage` | role `Admin` | Correct the odometer readings a rep typed on one trading day, keeping what they typed |
 | GET | `/api/van-sales/visits` | `vansales.attendance.view` | A page of van sales calls, newest first |
@@ -4340,7 +4341,9 @@ day, and a period summary against target.
 | `toDate` | last of this month | Inclusive CAT trading day. The period may be at most 93 days |
 
 **Response:** `VanDailyTruckReportResult` — `fromDate`, `toDate`, `generatedAtUtc`, `workingDays`,
-`workingDaysElapsed`, `trucks`, `days`, `total`, `exceptions`, `salesOutsideRoutes`.
+`workingDaysElapsed`, `trucks`, `days`, `total`, `exceptions`, `salesOutsideRoutes`. Each truck carries
+`businessPartnerCode`: the van account most of the route's active reps are assigned to (null when none
+is), so a client can name the truck by its SAP business partner.
 
 The grain is the truck, which is the route. Two reps share a truck, so calls and takings are
 pooled across them. Money is US dollars and **includes VAT**: an online van sale is stored before
@@ -4395,6 +4398,29 @@ takings by a login assigned to no route. It is in no row, and is stated so the r
 as the whole.
 
 `400` when the period ends before it starts or is longer than 93 days.
+
+##### GET `/api/van-sales/management-extras`
+
+What the van sales management report needs beyond the truck report, on the same truck-day grain:
+how many of a chosen set of products each truck sold each day, and the market breakages reported.
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | first of this month | Inclusive CAT trading day |
+| `toDate` | last of this month | Inclusive CAT trading day. The period may be at most 93 days |
+| `items` | none | Comma-separated item codes to count. None counts nothing and still returns the breakages |
+
+**Response:** `VanManagementExtrasResult` — `fromDate`, `toDate`, `products` (one row per
+`routeId`, `tradingDate` and `itemCode`, with `units` in the unit sold and `value` in US dollars
+with VAT), `breakages` (one row per breakage line: `routeId`, `tradingDate`, `reportedBy`,
+`customerName`, `itemCode`, `reason`, `units`, `isConfirmed`, `status`, `valueBeforeVat`) and
+`productUnitsOutsideRoutes`.
+
+A sale or a breakage belongs to the route the rep's truck was opened on that day, else the route
+the truck's reps are assigned to, the same rule as the truck report. Breakage units are the office's
+confirmed count where there is one, else the rep's. Rejected reports are left out. `valueBeforeVat`
+is the units at the average price before VAT the vans sold the item for in the period, and null
+where they sold none of it.
 
 ##### PUT `/api/van-sales/truck-days/{routeId}/{tradingDate}`
 
