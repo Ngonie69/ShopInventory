@@ -79,14 +79,19 @@ PAGE_SIZE = 500
 # Character-for-character what SAPServiceLayerClient.NegativeStockSql sends, and both derive the
 # query code the same way -- so the baseline taken by hand here and the figure the daily job records
 # resolve to one SAP object and cannot drift into measuring slightly different things. Change one and
-# NegativeStockQueryParityTests fails.
-SQL_WAREHOUSE_NEGATIVES = """SELECT T1."ItemCode", T0."ItemName", T1."WhsCode" as "WarehouseCode", T1."OnHand" as "InStock", T1."IsCommited" as "Committed", T1."OnOrder" as "Ordered"
+# NegativeStockCensusTests fails.
+#
+# Every decimal is selected as text, LEFT(col, 40) AS "name", in all three statements: a Service
+# Layer worker writing a decimal into a stored query's answer can stall for good, at a full core and
+# up to 8 GB (found 22 Nov 2026; see ShopInventory/Common/Sap/SapSqlAmount.cs). to_decimal reads the
+# text. The WHERE still compares the column as a number, which writes nothing.
+SQL_WAREHOUSE_NEGATIVES = """SELECT T1."ItemCode", T0."ItemName", T1."WhsCode" as "WarehouseCode", LEFT(T1."OnHand", 40) AS "InStock", LEFT(T1."IsCommited", 40) AS "Committed", LEFT(T1."OnOrder", 40) AS "Ordered"
 FROM OITW T1
 INNER JOIN OITM T0 ON T0."ItemCode" = T1."ItemCode"
 WHERE T1."OnHand" < 0
 ORDER BY T1."WhsCode", T1."ItemCode\""""
 
-SQL_BATCH_NEGATIVES = """SELECT T0."ItemCode", T2."ItemName", T0."DistNumber", T1."WhsCode", T1."Quantity"
+SQL_BATCH_NEGATIVES = """SELECT T0."ItemCode", T2."ItemName", T0."DistNumber", T1."WhsCode", LEFT(T1."Quantity", 40) AS "Quantity"
 FROM OBTN T0
 INNER JOIN OBTQ T1 ON T0."AbsEntry" = T1."MdAbsEntry"
 INNER JOIN OITM T2 ON T0."ItemCode" = T2."ItemCode"
@@ -96,7 +101,7 @@ ORDER BY T1."WhsCode", T0."ItemCode", T0."DistNumber\""""
 # Bound, not interpolated: one object serves every item, warehouse and window.
 # Three separate comparisons rather than a BETWEEN -- SQLQueries rejects a BETWEEN
 # carrying two bound parameters.
-SQL_ITEM_MOVEMENTS = """SELECT T0."TransNum", T0."TransType", T0."CreatedBy", T0."BASE_REF", T0."DocDate", T0."InQty", T0."OutQty"
+SQL_ITEM_MOVEMENTS = """SELECT T0."TransNum", T0."TransType", T0."CreatedBy", T0."BASE_REF", T0."DocDate", LEFT(T0."InQty", 40) AS "InQty", LEFT(T0."OutQty", 40) AS "OutQty"
 FROM OINM T0
 WHERE T0."ItemCode" = :itemCode AND T0."Warehouse" = :warehouseCode AND T0."DocDate" >= :fromDate
 ORDER BY T0."TransNum\""""

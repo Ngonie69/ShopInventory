@@ -258,6 +258,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<SaleConsolidationEntity> SaleConsolidations { get; set; }
   public DbSet<SaleInvoiceCostEntity> SaleInvoiceCosts { get; set; }
   public DbSet<SaleInvoiceCostLineEntity> SaleInvoiceCostLines { get; set; }
+  public DbSet<SaleInvoiceCostStalledReadEntity> SaleInvoiceCostStalledReads { get; set; }
   public DbSet<StockTransferAdjustmentEntity> StockTransferAdjustments { get; set; }
   public DbSet<TransferArrivalNoticeEntity> TransferArrivalNotices { get; set; }
 

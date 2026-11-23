@@ -28,6 +28,21 @@ public static class SapRequestMarks
     private static readonly HttpRequestOptionsKey<CancellationToken> BreakerDeadlineKey =
         new("ShopInventory.Sap.BreakerDeadline");
     private static readonly HttpRequestOptionsKey<bool> DisplayOnlyKey = new("ShopInventory.Sap.DisplayOnly");
+    private static readonly HttpRequestOptionsKey<bool> PresumedStuckKey = new("ShopInventory.Sap.PresumedStuck");
+
+    /// <summary>
+    /// Records that SAP took this stored-query read, gave no answer of its own, and is presumed to be
+    /// still working on it. Set by <c>SAPStuckReadHandler</c> when it starts a hold.
+    /// </summary>
+    /// <remarks>
+    /// For the load balancer's 502 and 504, which reach the client as a response rather than an
+    /// exception: the transient retry reads this and does not send the read again, and the stored-query
+    /// executor passes it on to its caller (<see cref="SapStalledRead"/>).
+    /// </remarks>
+    public static void MarkPresumedStuck(HttpRequestMessage request) => request.Options.Set(PresumedStuckKey, true);
+
+    public static bool IsPresumedStuck(HttpRequestMessage? request) =>
+        request is not null && request.Options.TryGetValue(PresumedStuckKey, out var stuck) && stuck;
 
     /// <summary>
     /// Records that the read only feeds a screen and authorises nothing, so <c>SAPStuckReadHandler</c>

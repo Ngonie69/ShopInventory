@@ -92,7 +92,7 @@ public class SapBoundQueryLeakTests
         await client.SearchBatchesByBatchNumberAsync("B2402");
         await client.SearchBatchesByBatchNumberAsync("something else entirely");
 
-        Assert.Equal(["BATCH_SEARCH"], sap.CreatedCodes);
+        Assert.Equal(["BATCH_SEARCH_V2"], sap.CreatedCodes);
         Assert.Equal(3, sap.ExecutedQueries.Count);
     }
 

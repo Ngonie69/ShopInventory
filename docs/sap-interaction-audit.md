@@ -586,6 +586,47 @@ timeout), and the transient retry does not resend them. Reads a person is waitin
 sent: the invoice stock guard fails closed, and 269 of the 379 repeats did answer. This removes the
 repeats, not the stuck reads themselves. Why the Service Layer sticks is SAP's to fix.
 
+### What a stuck read is, and what changed on 2026-11-23
+
+Found on the SAP server on 2026-11-22 (Service Layer 10.00.250). A stuck worker is in
+`B1SSqlService::OnAction → Json::StyledWriter::write → Json::valueToString(double, …) → snprintf`,
+writing **one decimal** of the answer with a precision of about two billion digits. It fills an 8 GB
+buffer with `0.000…`, fails, and starts again, at a full core, until the worker is killed. HANA has
+already answered. So only an answer holding a decimal can stick (a count, a date and text never have),
+the size of the answer does not matter, and a stuck worker never finishes on its own.
+
+That last point is why the fixed ten-minute hold was not enough. Overnight on 2026-11-22/23 the
+`sale-invoice-cost-sync` job ran every 15 minutes, found the same uncosted invoices, planned the same
+two reads (`DSK_INV_COST_RANGE` for `CORMACH2` and for `KEFGRC`) and sent them: the hold from the run
+before had ended five minutes earlier. Each send left another worker stuck. 13 of them held 76.8 GB at
+04:45 and the kernel killed HANA's index server six times.
+
+Three changes:
+
+- **Decimals are asked for as text.** Every decimal column a stored query selects is written
+  `LEFT(T0."Quantity", 40) AS "Quantity"` (`SapSqlAmount.Column`), which the Service Layer returns as a
+  JSON string and never formats as a number; it also comes back in full rather than rounded to six
+  significant figures. Rows are read with `SapSqlAmount.Read`, which takes text or a number and refuses
+  text that is not a number. 25 statements changed (`scripts/Convert-SapAmountsToText.py` did it and
+  reports them). **Aggregates are not changed yet**: 17 statements still select a `SUM(…)` as a
+  decimal, because whether the Service Layer's SQL accepts `LEFT(SUM(x), 40)` has not been tried
+  against SAP. They are pinned in `SapStoredQueryAmountTests`, which also fails on any new statement
+  that selects a decimal column as a number.
+- **A read that sticks again is held longer.** The first hold is still `SAP:StuckReadHoldMinutes`
+  (10). Each time the same URL sticks again before SAP has answered it, the next hold is four times as
+  long, up to `SAP:StuckReadMaxHoldMinutes` (1440): 10 minutes, 40, 160, 640, a day. And the transient
+  retry no longer resends a read the balancer answered 502/504 after a long wait, whoever is waiting.
+- **The invoice cost copy does not ask twice.** A read SAP took and never answered ends that run, and
+  its warehouse and invoice range are written to `SaleInvoiceCostStalledReads`. Later runs leave those
+  invoices out and plan no read across them, for as long as the statement is the one that stalled; a
+  release that changes the SQL asks once more. Deleting the row has the range asked for again. A
+  server error or a failed connection leaves nothing running on SAP and is retried as before.
+
+Five queries read by a typed parser got new codes with the change (`STOCK_QTY_V2_<whs>`,
+`WHS_BATCHES_V2_<whs>`, `NOBATCH_QTY_V2_<whs>`, `BATCH_SEARCH_V2`, `SHOP_PRICES_V2`), so that a build
+from before it, running beside this one during a cutover or on a node nobody deployed to, keeps
+reading numbers from the old objects instead of failing on text. The old objects stay in SAP.
+
 ## 7c. `STK_ITEMS` reads stick when several run at once — superseded by §7d
 
 Measured 2026-11-11 from the same access logs, 06:00–13:47 (before the hold above was deployed): of

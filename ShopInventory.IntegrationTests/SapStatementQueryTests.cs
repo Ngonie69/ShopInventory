@@ -26,8 +26,8 @@ public class SapStatementQueryTests(SapClientFixture fixture, ITestOutputHelper 
     private const string LedgerQueryCode = GetCustomerStatementHandler.LedgerQueryCode;
     private const string OpenItemsQueryCode = GetCustomerStatementHandler.OpenItemsQueryCode;
     private const string OpeningBalanceSql = GetCustomerStatementHandler.OpeningBalanceSql;
-    private const string LedgerSql = GetCustomerStatementHandler.LedgerSql;
-    private const string OpenItemsSql = GetCustomerStatementHandler.OpenItemsSql;
+    private static readonly string LedgerSql = GetCustomerStatementHandler.LedgerSql;
+    private static readonly string OpenItemsSql = GetCustomerStatementHandler.OpenItemsSql;
 
     /// <summary>
     /// The open-items query is the one nothing offline can vouch for. Its two balance columns are not

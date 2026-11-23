@@ -63,7 +63,7 @@ WHERE T1."Account" = :acctCode
 
     // ShortName is carried here where the statement carries ContraAct: on a control account the
     // business partner is the "who" of the line, and on a nominal account it is simply empty.
-    internal const string LedgerSql = """
+    internal static readonly string LedgerSql = $"""
 SELECT
     T0."RefDate" AS "PostingDate",
     T0."Number" AS "TransactionNumber",
@@ -75,8 +75,8 @@ SELECT
     T1."ShortName" AS "PartnerCode",
     T1."ContraAct" AS "OffsetAccount",
     T1."LineMemo" AS "Details",
-    T1."Debit" AS "Debit",
-    T1."Credit" AS "Credit",
+    {SapSqlAmount.Column("T1", "Debit")},
+    {SapSqlAmount.Column("T1", "Credit")},
     T1."FCCurrency" AS "Currency"
 FROM OJDT T0
 INNER JOIN JDT1 T1

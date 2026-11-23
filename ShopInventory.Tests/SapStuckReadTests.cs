@@ -52,6 +52,95 @@ public class SapStuckReadTests
     }
 
     [Fact]
+    public async Task A_read_that_gets_stuck_again_is_held_four_times_as_long_each_time_up_to_a_day()
+    {
+        // A stuck Service Layer worker never finishes, so a hold that just runs out hands the read to
+        // the next worker. Ten minutes is still all one slow read costs.
+        var sap = new Sap();
+
+        foreach (var minutes in new[] { 10, 40, 160, 640, 1440, 1440 })
+        {
+            await sap.HangThenCancelAsync(StockRead, TimeSpan.FromSeconds(60));
+
+            var ex = await Assert.ThrowsAsync<SapReadStillRunningException>(() => sap.SendAsync(StockRead));
+            Assert.Equal(sap.Clock.GetUtcNow() + TimeSpan.FromMinutes(minutes), ex.HeldUntil);
+
+            sap.Clock.Advance(TimeSpan.FromMinutes(minutes));
+        }
+
+        Assert.Equal(6, sap.Sent);
+    }
+
+    [Fact]
+    public async Task SAP_answering_the_read_starts_the_holds_again_from_the_shortest()
+    {
+        var sap = new Sap();
+        await sap.HangThenCancelAsync(StockRead, TimeSpan.FromSeconds(60));
+        sap.Clock.Advance(TimeSpan.FromMinutes(10));
+        await sap.HangThenCancelAsync(StockRead, TimeSpan.FromSeconds(60));
+        sap.Clock.Advance(TimeSpan.FromMinutes(40));
+
+        using (var answered = await sap.SendAsync(StockRead))
+        {
+            Assert.Equal(HttpStatusCode.OK, answered.StatusCode);
+        }
+
+        await sap.HangThenCancelAsync(StockRead, TimeSpan.FromSeconds(60));
+        var ex = await Assert.ThrowsAsync<SapReadStillRunningException>(() => sap.SendAsync(StockRead));
+        Assert.Equal(sap.Clock.GetUtcNow() + TimeSpan.FromMinutes(10), ex.HeldUntil);
+    }
+
+    [Fact]
+    public async Task A_job_that_asks_every_quarter_hour_all_night_sends_a_read_that_always_sticks_four_times_not_forty()
+    {
+        // The invoice cost copy's schedule on 22-23 Nov 2026: 20:00 to 05:45, every 15 minutes. With a
+        // fixed ten-minute hold every one of the 40 runs sent the read, and each left a worker stuck.
+        var sap = new Sap();
+        var night = sap.Clock.GetUtcNow();
+
+        for (var run = 0; run < 40; run++)
+        {
+            var due = night + TimeSpan.FromMinutes(15 * run);
+            if (due > sap.Clock.GetUtcNow())
+            {
+                sap.Clock.Advance(due - sap.Clock.GetUtcNow());
+            }
+
+            if (!sap.State.IsHeld($"GET {CostRead}", out _))
+            {
+                await sap.HangThenCancelAsync(CostRead, TimeSpan.FromMinutes(2));
+            }
+        }
+
+        Assert.Equal(4, sap.Sent);
+    }
+
+    [Fact]
+    public async Task A_read_SAP_is_presumed_stuck_on_is_marked_for_its_caller()
+    {
+        var sap = new Sap();
+
+        var stuck = await sap.HangThenCancelAsync(StockRead, TimeSpan.FromSeconds(60));
+        Assert.True(SapStalledRead.IsPresumedStuck(stuck));
+        // Wrapped, as a budget wraps it in a TimeoutException, it still says so.
+        Assert.True(SapStalledRead.IsPresumedStuck(new TimeoutException("budget", stuck)));
+
+        var closedPage = await sap.HangThenCancelAsync(CostRead, TimeSpan.FromSeconds(2));
+        Assert.False(SapStalledRead.IsPresumedStuck(closedPage));
+
+        using var gaveUp = await sap.AnswerAfterAsync(OtherRead, HttpStatusCode.BadGateway, TimeSpan.FromSeconds(300));
+        Assert.True(SapRequestMarks.IsPresumedStuck(gaveUp.RequestMessage));
+
+        using var blip = await sap.AnswerAfterAsync(BlipRead, HttpStatusCode.BadGateway, TimeSpan.FromSeconds(2));
+        Assert.False(SapRequestMarks.IsPresumedStuck(blip.RequestMessage));
+    }
+
+    private const string CostRead =
+        "https://sap.invalid/b1s/v1/SQLQueries('DSK_INV_COST_RANGE')/List?docEntryStart='2433442'&docEntryEnd='2433724'&whsCode='CORMACH2'&$skip=0";
+    private const string OtherRead = "https://sap.invalid/b1s/v1/SQLQueries('WHS_BATCHES_V2_VAN004')/List?$skip=0";
+    private const string BlipRead = "https://sap.invalid/b1s/v1/SQLQueries('STOCK_QTY_V2_KEFSHOP')/List?$skip=0";
+
+    [Fact]
     public async Task A_read_a_person_is_waiting_on_is_always_sent_and_its_answer_ends_the_hold()
     {
         // The invoice stock guard fails closed, so refusing a person's read would stop invoicing for
@@ -253,7 +342,7 @@ public class SapStuckReadTests
         }
 
         /// <summary>SAP has the request for <paramref name="atSap"/> without answering, then the caller's budget cancels it.</summary>
-        public async Task HangThenCancelAsync(string url, TimeSpan atSap, bool reachSap = true, HttpMethod? method = null)
+        public async Task<OperationCanceledException> HangThenCancelAsync(string url, TimeSpan atSap, bool reachSap = true, HttpMethod? method = null)
         {
             using var budget = new CancellationTokenSource();
             _script.Next = new Step(Hang: true, ReachSap: reachSap, HttpStatusCode.OK, TimeSpan.Zero);
@@ -261,7 +350,7 @@ public class SapStuckReadTests
             Assert.True(await _script.Hanging.WaitAsync(TimeSpan.FromSeconds(30)), "The read never reached the scripted SAP.");
             Clock.Advance(atSap);
             budget.Cancel();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => send);
+            return await Assert.ThrowsAnyAsync<OperationCanceledException>(() => send);
         }
 
         /// <summary>SAP has the request for <paramref name="atSap"/>, then answers <paramref name="status"/>.</summary>
@@ -301,7 +390,7 @@ public class SapStuckReadTests
             }
 
             clock.Advance(step.AtSap);
-            return new HttpResponseMessage(step.Status);
+            return new HttpResponseMessage(step.Status) { RequestMessage = request };
         }
     }
 }

@@ -12,6 +12,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common;
 using ShopInventory.Common.Caching;
 using ShopInventory.Common.Sales;
+using ShopInventory.Common.Sap;
 using ShopInventory.Common.Security;
 using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
@@ -592,7 +593,12 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 using var request = requestFactory();
                 var response = await client.SendAsync(request, completionOption, cancellationToken);
-                if (!SapFailureClassifier.IsTransientStatusCode(response.StatusCode) || attempt >= maxRetries)
+                // A 502 or 504 the load balancer gave after a long wait is not a blip: the Service Layer
+                // process behind it is still working on the read, and for good. Sending it again here
+                // is the next process stuck beside it.
+                if (!SapFailureClassifier.IsTransientStatusCode(response.StatusCode)
+                    || attempt >= maxRetries
+                    || SapRequestMarks.IsPresumedStuck(request))
                 {
                     return response;
                 }
@@ -612,6 +618,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             catch (Exception ex) when (
                 attempt < maxRetries
                 && ex is not SapReadNotSentException
+                && !SapStalledRead.IsPresumedStuck(ex)
                 && !IsClientTimeout(ex, cancellationToken)
                 && SapFailureClassifier.IsTransient(ex, cancellationToken)
                 && !BreakerOutlastsRemainingRetries(ex, attempt, maxRetries))
@@ -4773,8 +4780,8 @@ ORDER BY T0.""ItemCode""";
     /// The parameterised SQL path pages until SAP stops sending a nextLink.
     /// The per-pair objects already minted stay behind; SQLQueries DELETE does not work here.
     /// </remarks>
-    internal const string ItemBatchesSql = """
-SELECT T0."ItemCode", T0."DistNumber" as "BatchNum", T1."Quantity", T1."WhsCode", T0."ExpDate", T0."MnfDate", T0."InDate", T0."Notes"
+    internal static readonly string ItemBatchesSql = $"""
+SELECT T0."ItemCode", T0."DistNumber" as "BatchNum", {SapSqlAmount.Column("T1", "Quantity")}, T1."WhsCode", T0."ExpDate", T0."MnfDate", T0."InDate", T0."Notes"
 FROM OBTN T0 INNER JOIN OBTQ T1 ON T0."AbsEntry" = T1."MdAbsEntry"
 WHERE T0."ItemCode" = :itemCode AND T1."WhsCode" = :whsCode AND T1."Quantity" > 0
 ORDER BY T0."DistNumber"
@@ -4793,8 +4800,8 @@ ORDER BY T0."DistNumber"
             ItemCode = RowString(row, "ItemCode"),
             ItemName = RowString(row, "ItemName"),
             BatchNum = RowString(row, "BatchNum"),
-            Quantity = row.TryGetValue("InStock", out var inStock) ? RowDecimal(inStock)
-                     : row.TryGetValue("Quantity", out var quantity) ? RowDecimal(quantity) : 0,
+            Quantity = row.TryGetValue("InStock", out _) ? SapSqlAmount.Read(row, "InStock")
+                     : SapSqlAmount.Read(row, "Quantity"),
             Warehouse = warehouseCode,
             ExpiryDate = RowString(row, "ExpDate"),
             ManufacturingDate = RowString(row, "MnfDate"),
@@ -4856,7 +4863,7 @@ ORDER BY T0."DistNumber"
         var batches = new List<BatchNumber>();
         foreach (var prefix in SqlItemCodePrefixCover.Cover(codes))
         {
-            var sqlText = $@"SELECT T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", T1.""Quantity"" as ""InStock"", T1.""WhsCode"",
+            var sqlText = $@"SELECT T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", {SapSqlAmount.Column("T1", "Quantity", "InStock")}, T1.""WhsCode"",
 T0.""ExpDate"", T0.""MnfDate"", T0.""InDate"", T0.""Notes""
 FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
 INNER JOIN OITM T2 ON T0.""ItemCode"" = T2.""ItemCode""
@@ -4892,8 +4899,8 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                         ItemCode = item.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : null,
                         ItemName = item.TryGetProperty("ItemName", out var iname) ? iname.GetString() : null,
                         BatchNum = item.TryGetProperty("BatchNum", out var bn) ? bn.GetString() : null,
-                        Quantity = item.TryGetProperty("InStock", out var inStk) ? inStk.GetDecimal()
-                                 : item.TryGetProperty("Quantity", out var qty) ? qty.GetDecimal() : 0,
+                        Quantity = item.TryGetProperty("InStock", out _) ? SapSqlAmount.Read(item, "InStock")
+                                 : SapSqlAmount.Read(item, "Quantity"),
                         Warehouse = warehouseCode,
                         ExpiryDate = item.TryGetProperty("ExpDate", out var exp) ? exp.GetString() : null,
                         ManufacturingDate = item.TryGetProperty("MnfDate", out var mnf) ? mnf.GetString() : null,
@@ -4904,7 +4911,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not SapAmountFormatException)
         {
             _logger.LogWarning(ex, "Failed to parse SQL result for batch numbers");
         }
@@ -4935,7 +4942,8 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         return await ExecuteBatchSearchQueryAsync(BatchSearchQueryCode, parameterQuery, cancellationToken);
     }
 
-    private const string BatchSearchQueryCode = "BATCH_SEARCH";
+    /// <summary>V2: its quantity comes back as text. See <see cref="StockQueryPrefix"/> for why the code moved.</summary>
+    private const string BatchSearchQueryCode = "BATCH_SEARCH_V2";
 
     /// <summary>
     /// The search term arrives bound rather than interpolated, so one query object serves every
@@ -4957,8 +4965,8 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     /// so that is the population this narrows for. Confirmed no slower than the literal it replaces.
     /// </para>
     /// </remarks>
-    internal const string BatchSearchSql = """
-SELECT T0."AbsEntry" as "BatchEntryId", T0."ItemCode", T2."ItemName", T0."DistNumber" as "BatchNum", T1."Quantity", T1."WhsCode" as "WarehouseCode", T0."Status", T0."ExpDate", T0."MnfDate", T0."InDate", T0."Notes"
+    internal static readonly string BatchSearchSql = $"""
+SELECT T0."AbsEntry" as "BatchEntryId", T0."ItemCode", T2."ItemName", T0."DistNumber" as "BatchNum", {SapSqlAmount.Column("T1", "Quantity")}, T1."WhsCode" as "WarehouseCode", T0."Status", T0."ExpDate", T0."MnfDate", T0."InDate", T0."Notes"
 FROM OBTN T0 INNER JOIN OBTQ T1 ON T0."AbsEntry" = T1."MdAbsEntry"
 INNER JOIN OITM T2 ON T0."ItemCode" = T2."ItemCode"
 WHERE T1."Quantity" > 0
@@ -5135,7 +5143,7 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
                         : item.TryGetProperty("WhsCode", out var legacyWarehouseCode)
                             ? legacyWarehouseCode.GetString() ?? string.Empty
                             : string.Empty,
-                    Quantity = item.TryGetProperty("Quantity", out var quantity) ? quantity.GetDecimal() : 0,
+                    Quantity = SapSqlAmount.Read(item, "Quantity"),
                     Status = item.TryGetProperty("Status", out var status)
                         ? BatchStatusValues.ToLabel(status.ToString())
                         : BatchStatusValues.ToLabel(null),
@@ -5151,7 +5159,7 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not SapAmountFormatException)
         {
             _logger.LogWarning(ex, "Failed to parse SQL result for batch search");
         }
@@ -5178,17 +5186,17 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var queryCode = $"WHS_BATCHES_{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
+        var queryCode = $"{WarehouseBatchesQueryPrefix}{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
 
-
-        // SQL query to get all batch numbers in a warehouse
+        // SQL query to get all batch numbers in a warehouse. One literal, so the codemod and the test
+        // that keep decimals out of the select list can see where the list ends.
         var safeWarehouse = SanitizeSqlValue(warehouseCode);
-        var sqlText = $"SELECT T0.\"ItemCode\", T2.\"ItemName\", T0.\"DistNumber\" as \"BatchNum\", T1.\"Quantity\" as \"InStock\", T1.\"WhsCode\", " +
-                      $"T0.\"ExpDate\", T0.\"MnfDate\", T0.\"InDate\", T0.\"Notes\" " +
-                      $"FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.\"AbsEntry\" = T1.\"MdAbsEntry\" " +
-                      $"INNER JOIN OITM T2 ON T0.\"ItemCode\" = T2.\"ItemCode\" " +
-                      $"WHERE T1.\"WhsCode\" = '{safeWarehouse}' AND T1.\"Quantity\" > 0 " +
-                      $"ORDER BY T0.\"ItemCode\", T0.\"DistNumber\"";
+        var sqlText = $@"SELECT T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", {SapSqlAmount.Column("T1", "Quantity", "InStock")}, T1.""WhsCode"",
+T0.""ExpDate"", T0.""MnfDate"", T0.""InDate"", T0.""Notes""
+FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
+INNER JOIN OITM T2 ON T0.""ItemCode"" = T2.""ItemCode""
+WHERE T1.""WhsCode"" = '{safeWarehouse}' AND T1.""Quantity"" > 0
+ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         // Create the SQL query
         await EnsureSqlQueryAsync(queryCode, $"Batches in {warehouseCode}", sqlText, cancellationToken);
@@ -5362,8 +5370,8 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
     /// <c>SysNumber</c> (<c>SerialNumberDetails.SystemNumber</c>), not the row id <c>AbsEntry</c>.
     /// </para>
     /// </remarks>
-    internal const string ItemSerialsSql = """
-SELECT T0."ItemCode", T0."DistNumber", T1."Quantity", T1."WhsCode", T0."SysNumber" as "SystemNumber", T0."DistNumber" as "InternalSerialNumber", T0."MnfSerial" as "ManufacturerSerialNumber"
+    internal static readonly string ItemSerialsSql = $"""
+SELECT T0."ItemCode", T0."DistNumber", {SapSqlAmount.Column("T1", "Quantity")}, T1."WhsCode", T0."SysNumber" as "SystemNumber", T0."DistNumber" as "InternalSerialNumber", T0."MnfSerial" as "ManufacturerSerialNumber"
 FROM OSRN T0 INNER JOIN OSRQ T1 ON T0."AbsEntry" = T1."MdAbsEntry"
 WHERE T0."ItemCode" = :itemCode AND T1."WhsCode" = :whsCode AND T1."Quantity" > 0
 ORDER BY T0."DistNumber"
@@ -5380,7 +5388,7 @@ ORDER BY T0."DistNumber"
         {
             ItemCode = RowString(row, "ItemCode"),
             DistNumber = RowString(row, "DistNumber"),
-            Quantity = row.TryGetValue("Quantity", out var quantity) ? RowDecimal(quantity) : 0,
+            Quantity = SapSqlAmount.Read(row, "Quantity"),
             WhsCode = warehouseCode,
             SystemNumber = row.TryGetValue("SystemNumber", out var systemNumber)
                 ? Convert.ToInt32(systemNumber, CultureInfo.InvariantCulture)
@@ -5398,13 +5406,6 @@ ORDER BY T0."DistNumber"
 
     private static string? RowString(IReadOnlyDictionary<string, object?> row, string column) =>
         row.TryGetValue(column, out var value) ? value as string : null;
-
-    /// <summary>
-    /// A numeric column from the parameterised SQL path, which answers a whole number as
-    /// <see cref="long"/> and anything else as <see cref="decimal"/>. A null reads as zero.
-    /// </summary>
-    private static decimal RowDecimal(object? value) =>
-        Convert.ToDecimal(value, CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Runs a parameterised stock read under <see cref="SAPSettings.StockSqlRequestTimeoutSeconds"/>,
@@ -5533,7 +5534,7 @@ ORDER BY T0."DistNumber"
     [Obsolete("Use GetPricesByPriceListAsync instead")]
     private const int ZigPriceList = 12;
     [Obsolete("Use GetPricesByPriceListAsync instead")]
-    private const string PriceQueryCode = "SHOP_PRICES";
+    private const string PriceQueryCode = "SHOP_PRICES_V2";
 
     [Obsolete("Use GetPricesByPriceListAsync with specific price list number instead")]
     public async Task<List<ItemPriceDto>> GetItemPricesAsync(CancellationToken cancellationToken = default)
@@ -5543,7 +5544,7 @@ ORDER BY T0."DistNumber"
 
 
         // Create and execute the SQL query
-        var sqlText = @"SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'USD' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 13 AND T0.""Price"" > 0 UNION ALL SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'ZIG' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 12 AND T0.""Price"" > 0";
+        var sqlText = $@"SELECT T1.""ItemCode"", T1.""ItemName"", {SapSqlAmount.Column("T0", "Price")}, 'USD' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 13 AND T0.""Price"" > 0 UNION ALL SELECT T1.""ItemCode"", T1.""ItemName"", {SapSqlAmount.Column("T0", "Price")}, 'ZIG' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 12 AND T0.""Price"" > 0";
 
         await EnsureSqlQueryAsync(PriceQueryCode, "Shop Item Prices", sqlText, cancellationToken);
 
@@ -5564,7 +5565,7 @@ ORDER BY T0."DistNumber"
 
         // Create item-specific query
         var safeItem = SanitizeSqlValue(itemCode);
-        var sqlText = $@"SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'USD' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 13 AND T0.""Price"" > 0 AND T1.""ItemCode"" = '{safeItem}' UNION ALL SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'ZIG' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 12 AND T0.""Price"" > 0 AND T1.""ItemCode"" = '{safeItem}'";
+        var sqlText = $@"SELECT T1.""ItemCode"", T1.""ItemName"", {SapSqlAmount.Column("T0", "Price")}, 'USD' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 13 AND T0.""Price"" > 0 AND T1.""ItemCode"" = '{safeItem}' UNION ALL SELECT T1.""ItemCode"", T1.""ItemName"", {SapSqlAmount.Column("T0", "Price")}, 'ZIG' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 12 AND T0.""Price"" > 0 AND T1.""ItemCode"" = '{safeItem}'";
 
         await EnsureSqlQueryAsync(queryCode, $"Price for {itemCode}", sqlText, cancellationToken);
 
@@ -6126,14 +6127,14 @@ ORDER BY T0."DistNumber"
                     {
                         ItemCode = item.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : null,
                         ItemName = item.TryGetProperty("ItemName", out var name) ? name.GetString() : null,
-                        Price = item.TryGetProperty("Price", out var p) ? p.GetDecimal() : 0,
+                        Price = SapSqlAmount.Read(item, "Price"),
                         Currency = item.TryGetProperty("Currency", out var curr) ? curr.GetString() : null
                     };
                     prices.Add(price);
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not SapAmountFormatException)
         {
             _logger.LogWarning(ex, "Failed to parse SQL result");
         }
@@ -6265,11 +6266,11 @@ ORDER BY T0."DistNumber"
         // only trims the ends of the whole string, so a line ending in a space made the stored text
         // never compare equal to this one — every probe logged "exists with different text" and
         // PATCHed a query that had not changed since the day it was created.
-        var sqlText = @"SELECT
+        var sqlText = $@"SELECT
             T0.""ListNum"",
             T0.""ListName"",
             T0.""BASE_NUM"" AS ""BasePriceList"",
-            T0.""Factor"",
+            {SapSqlAmount.Column("T0", "Factor")},
             T0.""RoundSys"",
             T0.""ValidFor""
         FROM OPLN T0
@@ -6535,7 +6536,7 @@ ORDER BY T0."DistNumber"
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not SapAmountFormatException)
         {
             _logger.LogWarning(ex, "Failed to parse price lists from SQL response");
         }
@@ -6567,15 +6568,14 @@ ORDER BY T0."DistNumber"
         };
     }
 
-    private static decimal? GetDecimalOrNull(JsonElement element)
-    {
-        return element.ValueKind switch
-        {
-            JsonValueKind.Number => element.GetDecimal(),
-            JsonValueKind.String => decimal.TryParse(element.GetString(), out var val) ? val : null,
-            _ => null
-        };
-    }
+    /// <summary>
+    /// A price or a price-list factor, from an entity read (a number) or a stored query (text; see
+    /// <see cref="SapSqlAmount"/>). Text that is not a number stops the read.
+    /// </summary>
+    private static decimal? GetDecimalOrNull(JsonElement element) =>
+        element.ValueKind is JsonValueKind.Number or JsonValueKind.String
+            ? SapSqlAmount.Parse(element, "the amount")
+            : null;
 
     private static bool ParseBooleanValue(JsonElement element)
     {
@@ -6629,11 +6629,11 @@ SELECT T0.""ItemCode"",
        T1.""ItemName"",
        T1.""FrgnName"",
        P.""ListNum"" AS ""PriceList"",
-       T0.""Price"",
+       {SapSqlAmount.Column("T0", "Price")},
        T0.""Currency"",
        P.""ListName"",
        P.""BASE_NUM"" AS ""BasePriceList"",
-       P.""Factor""
+       {SapSqlAmount.Column("P", "Factor")}
 FROM ""ITM1"" T0
 INNER JOIN ""OITM"" T1 ON T0.""ItemCode"" = T1.""ItemCode""
 INNER JOIN ""OPLN"" P ON P.""ListNum"" = T0.""PriceList""
@@ -7419,7 +7419,7 @@ ORDER BY T0.""ItemCode""";
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not SapAmountFormatException)
         {
             _logger.LogError(ex, "Failed to parse price list query result. Content length: {ContentLength}, Preview: {Preview}",
                 jsonContent.Length, jsonContent.Length > 500 ? jsonContent[..500] : jsonContent);
@@ -7617,7 +7617,7 @@ ORDER BY T0.""ItemCode""";
 
         // SQL query for specific item and price list - includes FrgnName for fiscalisation
         var safeItem = SanitizeSqlValue(itemCode);
-        var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", T0.""Price"", T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = {priceListNum} AND T0.""ItemCode"" = '{safeItem}'";
+        var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", {SapSqlAmount.Column("T0", "Price")}, T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = {priceListNum} AND T0.""ItemCode"" = '{safeItem}'";
 
         await EnsureSqlQueryAsync(queryCode, $"Price for {itemCode} in List {priceListNum}", sqlText, cancellationToken);
 
@@ -7680,7 +7680,7 @@ ORDER BY T0.""ItemCode""";
                         ItemCode = firstItem.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : itemCode,
                         ItemName = firstItem.TryGetProperty("ItemName", out var name) ? name.GetString() : null,
                         ForeignName = firstItem.TryGetProperty("FrgnName", out var frgnName) ? frgnName.GetString() : null,
-                        Price = firstItem.TryGetProperty("Price", out var p) ? p.GetDecimal() : 0,
+                        Price = SapSqlAmount.Read(firstItem, "Price"),
                         PriceListNum = firstItem.TryGetProperty("PriceList", out var pl) ? pl.GetInt32() : priceListNum,
                         PriceListName = $"Price List {priceListNum}",
                         Currency = firstItem.TryGetProperty("Currency", out var curr) ? curr.GetString() : null
@@ -7688,7 +7688,7 @@ ORDER BY T0.""ItemCode""";
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not SapAmountFormatException)
         {
             _logger.LogWarning(ex, "Failed to parse item price from list response");
         }
@@ -8851,14 +8851,31 @@ ORDER BY T0.""ItemCode""";
 
     #region Stock Quantity Operations
 
-    private const string StockQueryPrefix = "STOCK_QTY_";
+    /// <summary>
+    /// One recurring query object per warehouse. <c>V2</c> since the quantities are selected as text
+    /// (<see cref="SapSqlAmount"/>).
+    /// </summary>
+    /// <remarks>
+    /// A new code rather than new text under the old one, here and for <see cref="WarehouseBatchesQueryPrefix"/>,
+    /// <see cref="NonBatchStockQueryPrefix"/>, <c>BATCH_SEARCH_V2</c> and <c>SHOP_PRICES_V2</c>. A build from
+    /// before the change reads these rows with <c>JsonElement.GetDecimal()</c>, which throws on text inside a
+    /// parser that logs and answers an empty list: no stock, no batches. Such a build runs beside this one
+    /// across every blue/green cutover, and for good on a node nobody deployed to, and each would otherwise
+    /// rewrite the other's statement once an hour. With codes of their own the two never meet. The old
+    /// objects stay behind in SAP; a SQLQueries object cannot practically be deleted. The codes still start
+    /// with their read family's name (<c>SAPSettings.ReadFamilies</c>).
+    /// </remarks>
+    private const string StockQueryPrefix = "STOCK_QTY_V2_";
+
+    /// <summary>A warehouse's whole batch read. <c>V2</c> for the reason <see cref="StockQueryPrefix"/> is.</summary>
+    private const string WarehouseBatchesQueryPrefix = "WHS_BATCHES_V2_";
 
     /// <summary>
     /// One recurring query object per warehouse, matching <c>WHS_BATCHES_</c>. Never built per
     /// request: a SQLQueries object cannot practically be deleted, so a code that varies per call
     /// leaves a permanent OUQR row behind on every call.
     /// </summary>
-    private const string NonBatchStockQueryPrefix = "NOBATCH_QTY_";
+    private const string NonBatchStockQueryPrefix = "NOBATCH_QTY_V2_";
 
     public async Task<List<StockQuantityDto>> GetStockQuantitiesInWarehouseAsync(
         string warehouseCode,
@@ -8885,9 +8902,9 @@ ORDER BY T0.""ItemCode""";
             T0.""ItemName"",
             T0.""CodeBars"" as ""BarCode"",
             T1.""WhsCode"" as ""WarehouseCode"",
-            T1.""OnHand"" as ""InStock"",
-            T1.""IsCommited"" as ""Committed"",
-            T1.""OnOrder"" as ""Ordered"",
+            {SapSqlAmount.Column("T1", "OnHand", "InStock")},
+            {SapSqlAmount.Column("T1", "IsCommited", "Committed")},
+            {SapSqlAmount.Column("T1", "OnOrder", "Ordered")},
             T0.""InvntryUom"" as ""UoM""{customFieldsSql}
         FROM OITM T0
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
@@ -8932,8 +8949,8 @@ ORDER BY T0.""ItemCode""";
     /// Kept as a constant so it is one permanent SQLQueries object rather than one per call. See
     /// <see cref="GetNegativeStockAsync"/> for why it is worded exactly as it is.
     /// </summary>
-    internal const string NegativeStockSql = """
-SELECT T1."ItemCode", T0."ItemName", T1."WhsCode" as "WarehouseCode", T1."OnHand" as "InStock", T1."IsCommited" as "Committed", T1."OnOrder" as "Ordered"
+    internal static readonly string NegativeStockSql = $"""
+SELECT T1."ItemCode", T0."ItemName", T1."WhsCode" as "WarehouseCode", {SapSqlAmount.Column("T1", "OnHand", "InStock")}, {SapSqlAmount.Column("T1", "IsCommited", "Committed")}, {SapSqlAmount.Column("T1", "OnOrder", "Ordered")}
 FROM OITW T1
 INNER JOIN OITM T0 ON T0."ItemCode" = T1."ItemCode"
 WHERE T1."OnHand" < 0
@@ -8972,9 +8989,9 @@ ORDER BY T1."WhsCode", T1."ItemCode"
             T0.""ItemName"",
             T0.""CodeBars"" as ""BarCode"",
             T1.""WhsCode"" as ""WarehouseCode"",
-            T1.""OnHand"" as ""InStock"",
-            T1.""IsCommited"" as ""Committed"",
-            T1.""OnOrder"" as ""Ordered"",
+            {SapSqlAmount.Column("T1", "OnHand", "InStock")},
+            {SapSqlAmount.Column("T1", "IsCommited", "Committed")},
+            {SapSqlAmount.Column("T1", "OnOrder", "Ordered")},
             T0.""InvntryUom"" as ""UoM""
         FROM OITM T0
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
@@ -9223,9 +9240,9 @@ ORDER BY T1."WhsCode", T1."ItemCode"
             T0.""ItemName"",
             T0.""CodeBars"" as ""BarCode"",
             T1.""WhsCode"" as ""WarehouseCode"",
-            T1.""OnHand"" as ""InStock"",
-            T1.""IsCommited"" as ""Committed"",
-            T1.""OnOrder"" as ""Ordered"",
+            {SapSqlAmount.Column("T1", "OnHand", "InStock")},
+            {SapSqlAmount.Column("T1", "IsCommited", "Committed")},
+            {SapSqlAmount.Column("T1", "OnOrder", "Ordered")},
             T0.""InvntryUom"" as ""UoM""
         FROM OITM T0
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
@@ -9521,7 +9538,14 @@ ORDER BY T1."WhsCode", T1."ItemCode"
                 // The query may have gone or been redefined under us; make the next caller re-probe.
                 InvalidateSqlQueryVerification(queryCode);
                 _logger.LogError("Failed to execute SQL query {Code} ({Name}): {Status} - {Error}", queryCode, queryName, response.StatusCode, errContent);
-                throw new SapReadFailedException(response.StatusCode, $"Failed to execute SQL query: {response.StatusCode} - {errContent}");
+                var failure = new SapReadFailedException(response.StatusCode, $"Failed to execute SQL query: {response.StatusCode} - {errContent}");
+                if (SapRequestMarks.IsPresumedStuck(response.RequestMessage))
+                {
+                    // The load balancer stopped waiting; the Service Layer has not. See SapStalledRead.
+                    SapStalledRead.Mark(failure);
+                }
+
+                throw failure;
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -9645,7 +9669,7 @@ ORDER BY T1."WhsCode", T1."ItemCode"
     /// share an object, and <see cref="EnsureSqlQueryAsync"/> repairs any object whose stored text
     /// does not match what the caller is about to run.
     /// </summary>
-    private static string ComputeSqlFingerprint(string sqlText)
+    internal static string ComputeSqlFingerprint(string sqlText)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(NormalizeSqlText(sqlText)));
         return Convert.ToHexString(hash)[..12];
@@ -9958,9 +9982,9 @@ ORDER BY T1."WhsCode", T1."ItemCode"
             {
                 foreach (var item in valueArray.EnumerateArray())
                 {
-                    var inStock = item.TryGetProperty("InStock", out var inStockProp) ? inStockProp.GetDecimal() : 0;
-                    var committed = item.TryGetProperty("Committed", out var committedProp) ? committedProp.GetDecimal() : 0;
-                    var ordered = item.TryGetProperty("Ordered", out var orderedProp) ? orderedProp.GetDecimal() : 0;
+                    var inStock = SapSqlAmount.Read(item, "InStock");
+                    var committed = SapSqlAmount.Read(item, "Committed");
+                    var ordered = SapSqlAmount.Read(item, "Ordered");
 
                     var stock = new StockQuantityDto
                     {
@@ -9981,7 +10005,7 @@ ORDER BY T1."WhsCode", T1."ItemCode"
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not SapAmountFormatException)
         {
             _logger.LogWarning(ex, "Failed to parse SQL result for stock quantities");
         }
@@ -10175,15 +10199,15 @@ ORDER BY T1."WhsCode", T1."ItemCode"
                     {
                         ItemCode = itemCode,
                         ItemName = item.TryGetProperty("ItemName", out var name) ? name.GetString() : null,
-                        InStock = item.TryGetProperty("InStock", out var inStockProp) ? inStockProp.GetDecimal() : 0,
-                        Available = item.TryGetProperty("Available", out var availProp) ? availProp.GetDecimal() : 0,
+                        InStock = SapSqlAmount.Read(item, "InStock"),
+                        Available = SapSqlAmount.Read(item, "Available"),
                         UoM = item.TryGetProperty("UoM", out var uom) ? uom.GetString() : null
                     };
                     result[itemCode] = stock;
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not SapAmountFormatException)
         {
             _logger.LogWarning(ex, "Failed to parse packaging material stock from SQL result");
         }
@@ -10319,16 +10343,16 @@ ORDER BY T1."ItemCode"
     /// given there.
     /// </para>
     /// </remarks>
-    internal const string InvoiceLineCostSql = """
+    internal static readonly string InvoiceLineCostSql = $"""
 SELECT
     T0."DocEntry",
     T0."ItemCode",
     T0."WhsCode",
-    T0."Quantity",
-    T0."LineTotal",
-    T0."TotalFrgn",
-    T0."GrssProfit",
-    T0."GrssProfFC"
+    {SapSqlAmount.Column("T0", "Quantity")},
+    {SapSqlAmount.Column("T0", "LineTotal")},
+    {SapSqlAmount.Column("T0", "TotalFrgn")},
+    {SapSqlAmount.Column("T0", "GrssProfit")},
+    {SapSqlAmount.Column("T0", "GrssProfFC")}
 FROM INV1 T0
 WHERE T0."DocEntry" >= :docEntryStart AND T0."DocEntry" <= :docEntryEnd
   AND T0."WhsCode" = :whsCode
@@ -10396,16 +10420,16 @@ ORDER BY T0."DocEntry"
     /// <summary>One row of <see cref="InvoiceLineCostSql"/>, in the document's own currency.</summary>
     internal static ShopInventory.Common.Sales.SaleInvoiceLineCost ReadInvoiceLineCost(IReadOnlyDictionary<string, object?> row)
     {
-        var foreignRevenue = SqlDecimal(row, "TotalFrgn");
+        var foreignRevenue = SapSqlAmount.Read(row, "TotalFrgn");
         var inDocumentCurrency = foreignRevenue != 0m;
 
         return new ShopInventory.Common.Sales.SaleInvoiceLineCost(
             (int)SqlDecimal(row, "DocEntry"),
             row.GetValueOrDefault("ItemCode") as string ?? string.Empty,
             row.GetValueOrDefault("WhsCode") as string ?? string.Empty,
-            SqlDecimal(row, "Quantity"),
-            inDocumentCurrency ? foreignRevenue : SqlDecimal(row, "LineTotal"),
-            inDocumentCurrency ? SqlDecimal(row, "GrssProfFC") : SqlDecimal(row, "GrssProfit"));
+            SapSqlAmount.Read(row, "Quantity"),
+            inDocumentCurrency ? foreignRevenue : SapSqlAmount.Read(row, "LineTotal"),
+            inDocumentCurrency ? SapSqlAmount.Read(row, "GrssProfFC") : SapSqlAmount.Read(row, "GrssProfit"));
     }
 
     private static decimal SqlDecimal(IReadOnlyDictionary<string, object?> row, string column) =>
@@ -10513,8 +10537,8 @@ ORDER BY T0."DocEntry"
                         ItemCode = item.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : null,
                         ItemName = item.TryGetProperty("ItemName", out var name) ? name.GetString() : null,
                         BarCode = item.TryGetProperty("BarCode", out var bc) ? bc.GetString() : null,
-                        TotalQuantitySold = item.TryGetProperty("TotalQuantitySold", out var qty) ? qty.GetDecimal() : 0,
-                        TotalSalesValue = item.TryGetProperty("TotalSalesValue", out var val) ? val.GetDecimal() : 0,
+                        TotalQuantitySold = SapSqlAmount.Read(item, "TotalQuantitySold"),
+                        TotalSalesValue = SapSqlAmount.Read(item, "TotalSalesValue"),
                         InvoiceCount = item.TryGetProperty("InvoiceCount", out var cnt) ? cnt.GetInt32() : 0,
                         UoM = item.TryGetProperty("UoM", out var uom) ? uom.GetString() : null,
                         PackagingCode = item.TryGetProperty("PackagingCode", out var pc) ? pc.GetString() : null,
@@ -10525,7 +10549,7 @@ ORDER BY T0."DocEntry"
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not SapAmountFormatException)
         {
             _logger.LogWarning(ex, "Failed to parse SQL result for sales quantities");
         }
@@ -12200,7 +12224,7 @@ ORDER BY T0."DocEntry"
         var serials = new List<SerialNumber>();
         foreach (var prefix in SqlItemCodePrefixCover.Cover(codes))
         {
-            var sqlText = $@"SELECT T0.""ItemCode"", T0.""DistNumber"", T1.""Quantity"", T1.""WhsCode"",
+            var sqlText = $@"SELECT T0.""ItemCode"", T0.""DistNumber"", {SapSqlAmount.Column("T1", "Quantity")}, T1.""WhsCode"",
 T0.""SysNumber"" as ""SystemNumber"", T0.""DistNumber"" as ""InternalSerialNumber"",
 T0.""MnfSerial"" as ""ManufacturerSerialNumber""
 FROM OSRN T0 INNER JOIN OSRQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
@@ -12221,7 +12245,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 {
                     ItemCode = GetSapSqlString(row, "ItemCode"),
                     DistNumber = GetSapSqlString(row, "DistNumber"),
-                    Quantity = GetSapSqlDecimal(row, "Quantity"),
+                    Quantity = SapSqlAmount.Read(row, "Quantity"),
                     WhsCode = GetSapSqlString(row, "WhsCode") ?? warehouseCode,
                     SystemNumber = GetSapSqlInt32(row, "SystemNumber"),
                     InternalSerialNumber = GetSapSqlString(row, "InternalSerialNumber"),
@@ -12240,13 +12264,6 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         IReadOnlyDictionary<string, object?> row,
         string fieldName) =>
         row.TryGetValue(fieldName, out var value) ? Convert.ToString(value, CultureInfo.InvariantCulture) : null;
-
-    private static decimal GetSapSqlDecimal(
-        IReadOnlyDictionary<string, object?> row,
-        string fieldName) =>
-        row.TryGetValue(fieldName, out var value) && value is not null
-            ? Convert.ToDecimal(value, CultureInfo.InvariantCulture)
-            : 0;
 
     private static int GetSapSqlInt32(
         IReadOnlyDictionary<string, object?> row,
@@ -17785,7 +17802,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         // Today's rate, not the latest keyed: SAP keys rates ahead (production had ZiG through 30 Nov
         // on 2 Nov), and the latest of those is not the rate anything books at today.
         var today = ExchangeRateMonitorDates.TodayCat(DateTime.UtcNow).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var sqlText = $@"SELECT T0.""Currency"", T0.""RateDate"", T0.""Rate""
+        var sqlText = $@"SELECT T0.""Currency"", T0.""RateDate"", {SapSqlAmount.Column("T0", "Rate")}
                         FROM ORTT T0
                         WHERE T0.""RateDate"" = (SELECT MAX(T1.""RateDate"") FROM ORTT T1 WHERE T1.""Currency"" = T0.""Currency"" AND T1.""RateDate"" <= '{today}')
                         ORDER BY T0.""Currency""";
@@ -17803,7 +17820,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             {
                 Currency = item.TryGetProperty("Currency", out var currency) ? currency.GetString() ?? "" : "",
                 RateDate = item.TryGetProperty("RateDate", out var rateDate) ? DateTime.Parse(rateDate.GetString() ?? DateTime.Now.ToString()) : DateTime.Now,
-                Rate = item.TryGetProperty("Rate", out var rateVal) ? rateVal.GetDecimal() : 0
+                Rate = SapSqlAmount.Read(item, "Rate")
             };
             rates.Add(rate);
         }
@@ -17833,7 +17850,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         // ORTT holds SAP's own code and HANA compares it case-sensitively. ZiG is mixed case, so the
         // upper-cased suffix ('ZIG') matched no row and the ZiG rate was never found.
         var sapCode = SapCurrencyCodes.ToSapCode(currency);
-        var sqlText = $@"SELECT TOP 1 T0.""Currency"", T0.""RateDate"", T0.""Rate""
+        var sqlText = $@"SELECT TOP 1 T0.""Currency"", T0.""RateDate"", {SapSqlAmount.Column("T0", "Rate")}
                          FROM ORTT T0
                          WHERE T0.""Currency"" = '{sapCode}'
                          AND T0.""RateDate"" <= '{formattedDate}'
@@ -17868,7 +17885,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             Currency = item.TryGetProperty("Currency", out var currencyProp) ? currencyProp.GetString() ?? currency : currency,
             RateDate = item.TryGetProperty("RateDate", out var rateDateProp) ? DateTime.Parse(rateDateProp.GetString() ?? DateTime.Now.ToString()) : DateTime.Now,
-            Rate = item.TryGetProperty("Rate", out var rateVal) ? rateVal.GetDecimal() : 0
+            Rate = SapSqlAmount.Read(item, "Rate")
         };
     }
 

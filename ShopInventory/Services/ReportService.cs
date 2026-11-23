@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using ShopInventory.Common.Caching;
 using ShopInventory.Common.Sales;
+using ShopInventory.Common.Sap;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 
@@ -228,14 +229,12 @@ public class ReportService : IReportService
         return Convert.ToInt32(value, CultureInfo.InvariantCulture);
     }
 
-    private static decimal GetRowDecimal(Dictionary<string, object?> row, string key)
-    {
-        var value = GetRowValue(row, key);
-        if (value is null)
-            return 0;
-
-        return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
-    }
+    /// <summary>
+    /// An amount of a report row: text where the statement selects it as text, a number where it is
+    /// still an aggregate. See <see cref="SapSqlAmount"/>.
+    /// </summary>
+    private static decimal GetRowDecimal(Dictionary<string, object?> row, string key) =>
+        SapSqlAmount.Read(row, key);
 
     private static DateTime GetRowDate(Dictionary<string, object?> row, string key) =>
         ParseSapDate(GetRowValue(row, key)?.ToString());
@@ -1498,7 +1497,7 @@ ORDER BY T0."CardName"
         // never needed anyway: GetRowDecimal already reads a missing or null cell as 0.
         // QuantityPending is not selected either: ApplyOrderInvoiceMetrics computes it from the
         // invoiced quantity and overwrites the key on every row before anything reads it.
-        var detailSql = @"SELECT
+        var detailSql = $@"SELECT
     T0.""DocEntry"" AS ""DocEntry"",
     T0.""DocNum"" AS ""DocNum"",
     T0.""DocDate"" AS ""DocDate"",
@@ -1506,16 +1505,16 @@ ORDER BY T0."CardName"
     T0.""CardCode"" AS ""CardCode"",
     T0.""CardName"" AS ""CardName"",
     T0.""DocCur"" AS ""DocCurrency"",
-    T0.""DocTotal"" AS ""DocTotal"",
+    {SapSqlAmount.Column("T0", "DocTotal")},
     T0.""DocStatus"" AS ""DocStatus"",
     T0.""CANCELED"" AS ""CANCELED"",
     T1.""LineNum"" AS ""LineNum"",
     T1.""ItemCode"" AS ""ItemCode"",
     T1.""Dscription"" AS ""ItemDescription"",
     T1.""WhsCode"" AS ""WarehouseCode"",
-    T1.""Quantity"" AS ""QuantityOrdered"",
-    T1.""Price"" AS ""UnitPrice"",
-    T1.""LineTotal"" AS ""LineTotal"",
+    {SapSqlAmount.Column("T1", "Quantity", "QuantityOrdered")},
+    {SapSqlAmount.Column("T1", "Price", "UnitPrice")},
+    {SapSqlAmount.Column("T1", "LineTotal")},
     T1.""LineStatus"" AS ""LineStatus""
 FROM ORDR T0
 INNER JOIN RDR1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
@@ -1573,7 +1572,7 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
             var status = isCancelled ? "Cancelled" : isClosed ? "Closed" : "Open";
 
             var count = Convert.ToInt32(row.GetValueOrDefault("OrderCount") ?? 0);
-            var value = Convert.ToDecimal(row.GetValueOrDefault("TotalValue") ?? 0);
+            var value = GetRowDecimal(row, "TotalValue");
             var currency = row.GetValueOrDefault("DocCur")?.ToString() ?? "USD";
             var isUSD = currency == "USD" || currency == "$" || string.IsNullOrEmpty(currency);
             var isZIG = currency == "ZIG" || currency == "ZiG";
@@ -1660,7 +1659,7 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
             var cancelled = row.GetValueOrDefault("CANCELED")?.ToString() ?? "";
             var isClosed = docStatus == "C" && cancelled != "Y";
             var count = Convert.ToInt32(row.GetValueOrDefault("OrderCount") ?? 0);
-            var value = Convert.ToDecimal(row.GetValueOrDefault("TotalValue") ?? 0);
+            var value = GetRowDecimal(row, "TotalValue");
             var currency = row.GetValueOrDefault("DocCur")?.ToString() ?? "USD";
             var isUSD = currency == "USD" || currency == "$" || string.IsNullOrEmpty(currency);
 

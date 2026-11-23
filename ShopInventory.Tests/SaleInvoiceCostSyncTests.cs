@@ -127,6 +127,164 @@ public sealed class SaleInvoiceCostSyncTests : IDisposable
     }
 
     [Fact]
+    public async Task A_read_SAP_took_and_never_answered_ends_the_run_and_is_never_asked_for_again()
+    {
+        // 22-23 Nov 2026: this job sent CORMACH2's 2433442-2433724 and KEFGRC's 2433446-2433670 every
+        // 15 minutes all night, and each send left one more Service Layer worker stuck for good.
+        _context.DesktopSales.AddRange(
+            CounterSale("S1", 2433442, ("BREAD", 10, 100m), warehouse: "CORMACH2"),
+            CounterSale("S2", 2433724, ("BREAD", 10, 100m), warehouse: "CORMACH2"),
+            CounterSale("S3", 2433446, ("BREAD", 10, 100m), warehouse: "KEFGRC"),
+            CounterSale("S4", 2433670, ("BREAD", 10, 100m), warehouse: "KEFGRC"));
+        await _context.SaveChangesAsync();
+        _sap.Failure = Stalled();
+
+        Assert.Equal(0, await SyncAsync());
+
+        // One read, not the two a failing SAP is given: the second would have been the second stuck worker.
+        var only = Assert.Single(_sap.Reads);
+        Assert.Equal(("CORMACH2", 2433442, 2433724), (only.Warehouse, only.DocEntries[0], only.DocEntries[^1]));
+        var kept = Assert.Single(await NewContext().SaleInvoiceCostStalledReads.ToListAsync());
+        Assert.Equal(("CORMACH2", 2433442, 2433724), (kept.WarehouseCode, kept.DocEntryStart, kept.DocEntryEnd));
+        Assert.Equal(SaleInvoiceCostSyncService.StatementId, kept.StatementId);
+
+        // The next run, 15 minutes later, with SAP still stalling: the other warehouse is tried once
+        // and kept too; CORMACH2 is not sent.
+        _sap.Reads.Clear();
+        Assert.Equal(0, await SyncAsync());
+        Assert.Equal("KEFGRC", Assert.Single(_sap.Reads).Warehouse);
+
+        // And every run after that sends nothing at all, however long the night.
+        _sap.Reads.Clear();
+        for (var run = 0; run < 40; run++)
+        {
+            Assert.Equal(0, await SyncAsync());
+        }
+
+        Assert.Empty(_sap.Reads);
+        Assert.Equal(0, await NewContext().SaleInvoiceCosts.CountAsync());
+    }
+
+    [Fact]
+    public async Task A_read_refused_because_an_identical_one_is_held_ends_the_run_the_same_way()
+    {
+        _context.DesktopSales.AddRange(
+            CounterSale("S1", 501, ("BREAD", 10, 100m)),
+            CounterSale("S2", 601, ("BREAD", 10, 100m), warehouse: "DEPOT1"));
+        await _context.SaveChangesAsync();
+        _sap.Failure = new SapReadStillRunningException("/b1s/v1/SQLQueries('DSK_INV_COST_RANGE')/List", DateTimeOffset.UtcNow.AddMinutes(10));
+
+        Assert.Equal(0, await SyncAsync());
+
+        Assert.Single(_sap.Reads);
+        Assert.Single(await NewContext().SaleInvoiceCostStalledReads.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Invoices_posted_after_a_stalled_read_are_copied_without_reaching_across_it()
+    {
+        _context.DesktopSales.AddRange(
+            CounterSale("S1", 500, ("BREAD", 10, 100m)),
+            CounterSale("S2", 510, ("BREAD", 10, 100m)));
+        await _context.SaveChangesAsync();
+        _sap.Failure = Stalled();
+        Assert.Equal(0, await SyncAsync());
+
+        // SAP answers again. An older and two newer invoices are now waiting, all within one read's span.
+        _sap.Failure = null;
+        _sap.Reads.Clear();
+        _context.DesktopSales.AddRange(
+            CounterSale("S3", 490, ("BREAD", 10, 100m)),
+            CounterSale("S4", 520, ("BREAD", 10, 100m)),
+            CounterSale("S5", 530, ("BREAD", 10, 100m)));
+        await _context.SaveChangesAsync();
+
+        Assert.Equal(3, await SyncAsync());
+
+        // SAP is asked for everything between a read's first and last invoice, so one read over
+        // 490-530 would have asked for 500-510 again.
+        Assert.Equal(
+            [(520, 530), (490, 490)],
+            _sap.Reads.Select(read => (read.DocEntries[0], read.DocEntries[^1])));
+        Assert.Equal([490, 520, 530], (await NewContext().SaleInvoiceCosts.Select(cost => cost.DocEntry).ToListAsync()).Order());
+    }
+
+    [Fact]
+    public async Task A_stalled_read_is_asked_for_once_more_when_the_statement_changes()
+    {
+        // A release that changes the SQL, as the one asking for every amount as text does, is a
+        // different request to SAP. The record names the statement it stalled under.
+        _context.DesktopSales.Add(CounterSale("S1", 501, ("BREAD", 10, 100m)));
+        _context.SaleInvoiceCostStalledReads.Add(new SaleInvoiceCostStalledReadEntity
+        {
+            WarehouseCode = Shop,
+            DocEntryStart = 501,
+            DocEntryEnd = 501,
+            StatementId = "AN-OLDER-TEXT",
+            StalledAt = DateTime.UtcNow.AddDays(-1)
+        });
+        await _context.SaveChangesAsync();
+        _sap.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", Shop, 10m, 100m, 30m));
+
+        Assert.Equal(1, await SyncAsync());
+        Assert.Single(_sap.Reads);
+    }
+
+    [Fact]
+    public async Task A_server_error_or_a_failed_connection_is_not_kept_and_is_tried_again()
+    {
+        // Neither leaves a Service Layer worker behind, so the next run may ask again.
+        _context.DesktopSales.Add(CounterSale("S1", 501, ("BREAD", 10, 100m)));
+        await _context.SaveChangesAsync();
+        _sap.Lines.Add(new SaleInvoiceLineCost(501, "BREAD", Shop, 10m, 100m, 30m));
+
+        foreach (var failure in new Exception[]
+                 {
+                     new SapReadFailedException(System.Net.HttpStatusCode.InternalServerError, "Failed to execute SQL query: 500"),
+                     new SapReadFailedException(System.Net.HttpStatusCode.BadGateway, "Failed to execute SQL query: 502"),
+                     new HttpRequestException("No connection could be made because the target machine actively refused it."),
+                     new SapCircuitOpenException("SAP circuit is open", TimeSpan.FromSeconds(30)),
+                 })
+        {
+            _sap.Failure = failure;
+            _sap.Reads.Clear();
+            Assert.Equal(0, await SyncAsync());
+            Assert.Single(_sap.Reads);
+        }
+
+        Assert.Empty(await NewContext().SaleInvoiceCostStalledReads.ToListAsync());
+
+        _sap.Failure = null;
+        Assert.Equal(1, await SyncAsync());
+    }
+
+    [Fact]
+    public void A_planned_read_never_reaches_across_a_stalled_range()
+    {
+        var pending = new[] { 100, 110, 150, 160, 400 }.Select(docEntry => new SaleInvoiceCostSyncService.PendingInvoice(docEntry, Shop))
+            .Append(new SaleInvoiceCostSyncService.PendingInvoice(130, Van));
+        var stalled = new[] { new SaleInvoiceCostSyncService.StalledRead(Shop, 120, 140) };
+
+        var reads = SaleInvoiceCostSyncService.PlanReads(pending, stalled).ToList();
+
+        Assert.Equal(
+            [(Shop, 150, 400), (Van, 130, 130), (Shop, 100, 110)],
+            reads.Select(read => (read.WarehouseCode, read.DocEntries[0], read.DocEntries[^1])));
+        Assert.True(stalled[0].Covers(new SaleInvoiceCostSyncService.PendingInvoice(120, "kefshop")));
+        Assert.False(stalled[0].Covers(new SaleInvoiceCostSyncService.PendingInvoice(141, Shop)));
+        // The same numbers in another warehouse are another read: SAP filters the lines by warehouse.
+        Assert.False(stalled[0].Covers(new SaleInvoiceCostSyncService.PendingInvoice(130, Van)));
+    }
+
+    /// <summary>What a caller sees when SAP took the read and its budget ran out: the cancellation, marked by the pipeline.</summary>
+    private static OperationCanceledException Stalled()
+    {
+        var stalled = new OperationCanceledException("The read's two-minute budget ran out.");
+        SapStalledRead.Mark(stalled);
+        return stalled;
+    }
+
+    [Fact]
     public void Reads_stay_short_and_the_newest_go_first()
     {
         var pending = Enumerable.Range(0, 250).Select(i => new SaleInvoiceCostSyncService.PendingInvoice(10_000 + i, Shop))

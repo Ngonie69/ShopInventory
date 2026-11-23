@@ -36,24 +36,18 @@ public static class SapSqlRow
         };
     }
 
-    public static decimal GetDecimal(IReadOnlyDictionary<string, object?> row, string key)
-    {
-        if (!row.TryGetValue(key, out var value) || value is null)
-        {
-            return 0m;
-        }
-
-        return value switch
-        {
-            decimal decimalValue => decimalValue,
-            int intValue => intValue,
-            long longValue => longValue,
-            double doubleValue => Convert.ToDecimal(doubleValue, CultureInfo.InvariantCulture),
-            _ when decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) => parsed,
-            _ when decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.CurrentCulture, out var fallback) => fallback,
-            _ => 0m
-        };
-    }
+    /// <summary>
+    /// An amount, which SAP sends as text when the statement asked for it that way
+    /// (<see cref="SapSqlAmount.Column(string, string)"/>) and as a number otherwise. A missing or null
+    /// cell is zero; text that is not a number stops the read (<see cref="SapAmountFormatException"/>).
+    /// </summary>
+    /// <remarks>
+    /// It used to answer zero for text it could not read, after a second try in the server's own
+    /// culture. Zero is a balance nobody keyed, and now that every amount arrives as text there is no
+    /// number underneath to fall back on.
+    /// </remarks>
+    public static decimal GetDecimal(IReadOnlyDictionary<string, object?> row, string key) =>
+        SapSqlAmount.Read(row, key);
 
     /// <summary>
     /// Returns <see cref="DateTime.MinValue"/> for a missing or unreadable cell — callers that need

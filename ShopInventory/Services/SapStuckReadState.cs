@@ -25,8 +25,24 @@ namespace ShopInventory.Services;
 /// out while the first was still running, and 110 repeats got stuck too.
 /// </para>
 /// <para>
+/// What a stuck process is doing was found on 2026-11-22: writing one decimal of the answer with a
+/// precision of about two billion digits, over and over (<see cref="ShopInventory.Common.Sap.SapSqlAmount"/>).
+/// It never finishes; only killing it ends it. So a hold that simply runs out sends the read to its
+/// next stuck process. Overnight on 2026-11-22/23 the invoice cost copy ran every 15 minutes against a
+/// 10-minute hold, sent the same two <c>DSK_INV_COST_RANGE</c> reads each time, and each send left one
+/// more process stuck: 13 of them held 76.8 GB at 04:45 and HANA's index server was killed six times.
+/// </para>
+/// <para>
+/// So the hold grows. The first lasts <see cref="HoldDuration"/>; each time the same read gets stuck
+/// again without SAP having answered it in between, the next hold is four times as long, up to
+/// <see cref="MaxHoldDuration"/>: 10 minutes, 40, 160, 640, then a day. One slow read on a bad
+/// afternoon still costs ten minutes; a read that sticks every time is sent four times in the first
+/// fourteen hours rather than fifty-six. SAP answering the read ends it and starts the count again.
+/// </para>
+/// <para>
 /// In memory and per process, like the circuit breaker: a recycle forgets the holds, which costs at
-/// most one more stuck read per URL.
+/// most one more stuck read per URL. Work that must not pay even that keeps its own record, as the
+/// invoice cost copy does (<see cref="SaleInvoiceCostSyncService"/>).
 /// </para>
 /// </remarks>
 public sealed class SapStuckReadState(IOptions<SAPSettings> settings, TimeProvider timeProvider)
@@ -39,16 +55,32 @@ public sealed class SapStuckReadState(IOptions<SAPSettings> settings, TimeProvid
     /// </remarks>
     public static readonly TimeSpan MinimumTimeAtSap = TimeSpan.FromSeconds(15);
 
+    /// <summary>How much longer each hold on the same read is than the one before it.</summary>
+    internal const int HoldGrowth = 4;
+
     /// <summary>
-    /// Expired holds are swept once there are this many. Far above anything seen: a stuck read is a
-    /// few per minute at the worst hour, and each hold lasts minutes.
+    /// Finished holds are swept once there are this many. Far above anything seen: a stuck read is a
+    /// few per minute at the worst hour.
     /// </summary>
     private const int SweepAbove = 1000;
 
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _holds = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, StuckRead> _holds = new(StringComparer.Ordinal);
 
-    /// <summary>How long a hold lasts; zero when the guard is turned off.</summary>
+    /// <summary>A read's hold: when it ends, and how many times running the read has got stuck.</summary>
+    private readonly record struct StuckRead(DateTimeOffset Until, int Times);
+
+    /// <summary>How long the first hold on a read lasts; zero when the guard is turned off.</summary>
     public TimeSpan HoldDuration => TimeSpan.FromMinutes(Math.Max(0, settings.Value.StuckReadHoldMinutes));
+
+    /// <summary>The longest a hold grows to. Never shorter than <see cref="HoldDuration"/>.</summary>
+    public TimeSpan MaxHoldDuration
+    {
+        get
+        {
+            var longest = TimeSpan.FromMinutes(Math.Max(0, settings.Value.StuckReadMaxHoldMinutes));
+            return longest > HoldDuration ? longest : HoldDuration;
+        }
+    }
 
     public bool Enabled => HoldDuration > TimeSpan.Zero;
 
@@ -77,42 +109,64 @@ public sealed class SapStuckReadState(IOptions<SAPSettings> settings, TimeProvid
     }
 
     /// <summary>Whether the read named by <paramref name="key"/> is held, and until when.</summary>
+    /// <remarks>
+    /// A hold that has run out stays on record until SAP answers the read (<see cref="Release"/>): it is
+    /// what makes the next one longer if the read gets stuck again.
+    /// </remarks>
     public bool IsHeld(string key, out DateTimeOffset until)
     {
-        if (_holds.TryGetValue(key, out until))
+        if (_holds.TryGetValue(key, out var hold) && hold.Until > timeProvider.GetUtcNow())
         {
-            if (until > timeProvider.GetUtcNow())
-            {
-                return true;
-            }
-
-            _holds.TryRemove(new KeyValuePair<string, DateTimeOffset>(key, until));
+            until = hold.Until;
+            return true;
         }
 
         until = default;
         return false;
     }
 
-    /// <summary>Holds the read named by <paramref name="key"/> from now; returns when the hold ends.</summary>
+    /// <summary>
+    /// Holds the read named by <paramref name="key"/> from now; returns when the hold ends. Longer each
+    /// time the read gets stuck again before SAP has answered it.
+    /// </summary>
     public DateTimeOffset Hold(string key)
     {
         var now = timeProvider.GetUtcNow();
         if (_holds.Count >= SweepAbove)
         {
+            // Long finished, so nothing is being asked for it any more and its count can go.
+            var forgotten = now - MaxHoldDuration;
             foreach (var hold in _holds)
             {
-                if (hold.Value <= now)
+                if (hold.Value.Until <= forgotten)
                 {
                     _holds.TryRemove(hold);
                 }
             }
         }
 
-        var until = now + HoldDuration;
-        _holds[key] = until;
-        return until;
+        return _holds.AddOrUpdate(
+            key,
+            _ => new StuckRead(now + HoldAfter(1), 1),
+            (_, earlier) => new StuckRead(now + HoldAfter(earlier.Times + 1), earlier.Times + 1)).Until;
     }
 
-    /// <summary>Ends the hold on <paramref name="key"/>, if there is one: SAP answered that read.</summary>
+    /// <summary>How long the hold lasts once a read has got stuck <paramref name="times"/> times running.</summary>
+    internal TimeSpan HoldAfter(int times)
+    {
+        var hold = HoldDuration;
+        var longest = MaxHoldDuration;
+        for (var repeat = 1; repeat < times && hold < longest; repeat++)
+        {
+            hold *= HoldGrowth;
+        }
+
+        return hold < longest ? hold : longest;
+    }
+
+    /// <summary>
+    /// Ends the hold on <paramref name="key"/>, if there is one, and forgets how often the read got
+    /// stuck: SAP answered it.
+    /// </summary>
     public void Release(string key) => _holds.TryRemove(key, out _);
 }
