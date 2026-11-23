@@ -138,6 +138,8 @@ public sealed class GetVanDailyTruckReportHandler(
             }
         }
 
+        var accounts = await RouteAccountsAsync(cancellationToken);
+
         var summaries = routes
             .OrderBy(route => route.Territory)
             .ThenBy(route => route.Name)
@@ -149,7 +151,10 @@ public sealed class GetVanDailyTruckReportHandler(
                 route.DailySalesTarget,
                 days.Where(day => day.RouteId == route.Id).ToList(),
                 workingDays.Count,
-                workingDaysElapsed.Count))
+                workingDaysElapsed.Count) with
+            {
+                BusinessPartnerCode = accounts.GetValueOrDefault(route.Id)
+            })
             .ToList();
 
         var total = Summarise(
@@ -192,6 +197,32 @@ public sealed class GetVanDailyTruckReportHandler(
 
         decimal OutsidePaid(VanSalesTender tender) =>
             outsideRoutes.Where(sale => sale.Tender == tender).Sum(sale => sale.TotalAmount);
+    }
+
+    /// <summary>
+    /// Each route's van account: the business partner most of its active reps are assigned to, ties to
+    /// the lowest code so the answer does not move between runs.
+    /// </summary>
+    private async Task<Dictionary<int, string>> RouteAccountsAsync(CancellationToken cancellationToken)
+    {
+        var reps = await db.Users
+            .AsNoTracking()
+            .Where(user => user.IsActive
+                           && user.RouteId != null
+                           && user.AssignedBusinessPartnerCode != null
+                           && user.AssignedBusinessPartnerCode != "")
+            .Select(user => new { RouteId = user.RouteId!.Value, Account = user.AssignedBusinessPartnerCode! })
+            .ToListAsync(cancellationToken);
+
+        return reps
+            .GroupBy(rep => rep.RouteId)
+            .ToDictionary(
+                route => route.Key,
+                route => route
+                    .GroupBy(rep => rep.Account.Trim().ToUpperInvariant())
+                    .OrderByDescending(account => account.Count())
+                    .ThenBy(account => account.Key, StringComparer.Ordinal)
+                    .First().Key);
     }
 
     /// <summary>

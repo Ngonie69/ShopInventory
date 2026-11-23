@@ -87,6 +87,46 @@ public static class VanManagementReportBuilder
     }
 
     /// <summary>
+    /// Names each truck by the SAP business partner it sells on — "Van Sales Up Country 2 - Bulawayo"
+    /// rather than the route's own name — on its summary and on every one of its days, so the tables,
+    /// the charts and the Monthly Summary and Raw Data sheets all say the same name.
+    /// </summary>
+    /// <remarks>
+    /// A truck whose account has no name in <paramref name="partnerNames"/> (no account, or the partner
+    /// cache could not be read) keeps its route name: a truck must never be left unnamed. The route code
+    /// is untouched, so the two can still be told apart.
+    /// </remarks>
+    /// <returns>How many trucks were renamed.</returns>
+    public static int NameTrucksByBusinessPartner(
+        VanDailyTruckReportResponse truck,
+        IReadOnlyDictionary<string, string> partnerNames)
+    {
+        var renamed = new Dictionary<int, string>();
+
+        foreach (var summary in truck.Trucks)
+        {
+            if (summary.RouteId is { } routeId
+                && summary.BusinessPartnerCode is { Length: > 0 } code
+                && partnerNames.TryGetValue(code.Trim(), out var name)
+                && !string.IsNullOrWhiteSpace(name))
+            {
+                summary.RouteName = name.Trim();
+                renamed[routeId] = summary.RouteName;
+            }
+        }
+
+        foreach (var day in truck.Days)
+        {
+            if (renamed.TryGetValue(day.RouteId, out var name))
+            {
+                day.RouteName = name;
+            }
+        }
+
+        return renamed.Count;
+    }
+
+    /// <summary>
     /// Every truck on one day, with its month to that day: the workbook's daily management view and its
     /// truck cards. A truck that has no row on the day is still listed, with no day.
     /// </summary>

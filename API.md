@@ -4341,7 +4341,9 @@ day, and a period summary against target.
 | `toDate` | last of this month | Inclusive CAT trading day. The period may be at most 93 days |
 
 **Response:** `VanDailyTruckReportResult` — `fromDate`, `toDate`, `generatedAtUtc`, `workingDays`,
-`workingDaysElapsed`, `trucks`, `days`, `total`, `exceptions`, `salesOutsideRoutes`.
+`workingDaysElapsed`, `trucks`, `days`, `total`, `exceptions`, `salesOutsideRoutes`. Each truck carries
+`businessPartnerCode`: the van account most of the route's active reps are assigned to (null when none
+is), so a client can name the truck by its SAP business partner.
 
 The grain is the truck, which is the route. Two reps share a truck, so calls and takings are
 pooled across them. Money is US dollars and **includes VAT**: an online van sale is stored before

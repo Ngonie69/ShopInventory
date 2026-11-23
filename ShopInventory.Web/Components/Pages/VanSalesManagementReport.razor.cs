@@ -17,6 +17,7 @@ public partial class VanSalesManagementReport : IDisposable
     [Inject] private IMediator Mediator { get; set; } = default!;
     [Inject] private NavigationManager Navigation { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
+    [Inject] private IMasterDataCacheService MasterDataCache { get; set; } = default!;
 
     private const string ViewQueryName = "view";
     private const string DayQueryName = "day";
@@ -56,6 +57,9 @@ public partial class VanSalesManagementReport : IDisposable
     private string selectedGroup = string.Empty;
 
     private IReadOnlyList<ReportProductGroupDto> groups = [];
+
+    /// <summary>SAP business partner names by code, read once from the partner cache; null until read.</summary>
+    private Dictionary<string, string>? partnerNames;
     private MonthOnMonthItemMaster? itemMaster;
 
     private enum Section
@@ -170,6 +174,11 @@ public partial class VanSalesManagementReport : IDisposable
             extras = extrasResult.Value;
             error = truckResult.Error;
 
+            if (truckReport is not null)
+            {
+                await NameTrucksAsync(truckReport);
+            }
+
             if (truckReport is not null && extrasResult.Error is { } extrasFailure)
             {
                 extrasError = $"The product units and breakages could not be read, so those sections are empty: {extrasFailure}";
@@ -193,6 +202,33 @@ public partial class VanSalesManagementReport : IDisposable
                 StateHasChanged();
             }
         }
+    }
+
+    /// <summary>
+    /// Names each truck by its SAP business partner, as the office does. The partner cache holds every
+    /// partner, inactive ones too, so a van account that was closed still has its name. A cache that will
+    /// not load costs the names, not the report: the trucks keep their route names.
+    /// </summary>
+    private async Task NameTrucksAsync(VanDailyTruckReportResponse report)
+    {
+        if (partnerNames is null)
+        {
+            try
+            {
+                var partners = await MasterDataCache.GetBusinessPartnersAsync(includeInactive: true);
+                partnerNames = partners
+                    .Where(partner => !string.IsNullOrWhiteSpace(partner.CardCode) && !string.IsNullOrWhiteSpace(partner.CardName))
+                    .GroupBy(partner => partner.CardCode!.Trim(), StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.First().CardName!.Trim(), StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                partnerNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                extrasError = $"SAP business partner names could not be read ({ex.Message}), so trucks show their route names.";
+            }
+        }
+
+        VanManagementReportBuilder.NameTrucksByBusinessPartner(report, partnerNames);
     }
 
     /// <summary>Counts another group without reading the truck report again.</summary>

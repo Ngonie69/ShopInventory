@@ -1,4 +1,7 @@
 using ClosedXML.Excel;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Validation;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
 
@@ -151,8 +154,119 @@ public class VanManagementReportTests
 
         Assert.Equal(
             ["Insights Summary", "Management Overview", "Monthly Summary", "Daily Management View", "Daily Truck Cards",
-             "Weekly Sales", "Route Sales Ranking", "Shamiso 5L", "Breakages", "Raw Data"],
+             "Weekly Sales", "Route Sales Ranking", "Shamiso 5L", "Breakages", "Raw Data", "Chart Data"],
             workbook.Worksheets.Select(sheet => sheet.Name).ToArray());
+        Assert.Equal(XLWorksheetVisibility.Hidden, workbook.Worksheet("Chart Data").Visibility);
+        Assert.True(workbook.Worksheet("Insights Summary").TabActive);
+    }
+
+    /// <summary>
+    /// The charts are native: a chart part per chart on its sheet, each reading the Chart Data sheet. A
+    /// misplaced element in a chart or drawing makes Excel offer to repair the file and drop the chart,
+    /// so the whole package is validated, with a negative control so "no errors" means the validator looked.
+    /// </summary>
+    [Fact]
+    public void Each_sheet_carries_its_native_charts_and_the_package_is_valid()
+    {
+        var bytes = _service.ExportVanManagementReportToExcel(
+            VanManagementReportBuilder.Build(Truck(), Extras(), "Shamiso 5L"), Through, null);
+
+        using (var document = SpreadsheetDocument.Open(new MemoryStream(bytes), false))
+        {
+            var errors = new OpenXmlValidator(FileFormatVersions.Microsoft365).Validate(document).ToList();
+            Assert.Empty(errors.Select(error => $"{error.Part?.Uri} {error.Path?.XPath}: {error.Description}"));
+
+            var expected = new Dictionary<string, int>
+            {
+                ["Insights Summary"] = 2, ["Management Overview"] = 2, ["Daily Management View"] = 2,
+                ["Weekly Sales"] = 2, ["Route Sales Ranking"] = 1, ["Shamiso 5L"] = 1, ["Breakages"] = 2
+            };
+
+            foreach (var (name, count) in expected)
+            {
+                var part = SheetPart(document, name);
+                var charts = part.DrawingsPart?.ChartParts.ToList() ?? [];
+                Assert.True(charts.Count == count, $"{name} has {charts.Count} charts, expected {count}");
+
+                foreach (var chart in charts)
+                {
+                    var formulas = chart.ChartSpace.Descendants<DocumentFormat.OpenXml.Drawing.Charts.Formula>().Select(f => f.Text).ToList();
+                    Assert.NotEmpty(formulas);
+                    Assert.All(formulas, formula => Assert.StartsWith("'Chart Data'!", formula));
+                }
+            }
+
+            Assert.Null(SheetPart(document, "Monthly Summary").DrawingsPart);
+        }
+
+        using var copy = new MemoryStream();
+        copy.Write(bytes);
+        using (var document = SpreadsheetDocument.Open(copy, true))
+        {
+            // Put a series' values ahead of its categories, as a careless edit would.
+            var series = SheetPart(document, "Breakages").DrawingsPart!.ChartParts.First()
+                .ChartSpace.Descendants<DocumentFormat.OpenXml.Drawing.Charts.BarChartSeries>().First();
+            var values = series.GetFirstChild<DocumentFormat.OpenXml.Drawing.Charts.Values>()!;
+            values.Remove();
+            series.InsertBefore(values, series.GetFirstChild<DocumentFormat.OpenXml.Drawing.Charts.CategoryAxisData>());
+
+            Assert.NotEmpty(new OpenXmlValidator(FileFormatVersions.Microsoft365).Validate(document));
+        }
+    }
+
+    /// <summary>
+    /// A KPI figure written as text is flagged by Excel as a number stored as text and loses its decimals
+    /// (44.5% read 44%). They are numbers with formats.
+    /// </summary>
+    [Fact]
+    public void Kpi_figures_are_numbers_with_formats()
+    {
+        var report = VanManagementReportBuilder.Build(Truck(), null, null);
+        using var workbook = Open(_service.ExportVanManagementReportToExcel(report, Through, null));
+        var sheet = workbook.Worksheet("Insights Summary");
+
+        var label = sheet.CellsUsed().Single(cell => cell.GetString() == "Target Achieved" && cell.Address.RowNumber < 10);
+        var figure = sheet.Cell(label.Address.RowNumber - 1, label.Address.ColumnNumber);
+
+        Assert.Equal(XLDataType.Number, figure.DataType);
+        Assert.Equal("0.0%", figure.Style.NumberFormat.Format);
+        Assert.Equal(report.Total.TargetAchieved!.Value, figure.GetValue<double>(), 6);
+    }
+
+    /// <summary>The pace line ends on the month's sales, and the target pace on a working day's share of the target.</summary>
+    [Fact]
+    public void The_pace_chart_reads_cumulative_sales_and_the_fleet_target()
+    {
+        var truck = Truck();
+        var report = VanManagementReportBuilder.Build(truck, null, null);
+        using var workbook = Open(_service.ExportVanManagementReportToExcel(report, Through, null));
+        var data = workbook.Worksheet("Chart Data");
+
+        int header = data.Column(1).CellsUsed().Single(cell => cell.GetString() == "Month pace").Address.RowNumber + 1;
+        int through = data.Column(1).CellsUsed().First(cell => cell.Address.RowNumber > header && cell.GetString() == "18 Nov").Address.RowNumber;
+        int after = through + 1;
+
+        Assert.Equal(truck.Total.Sales, data.Cell(through, 2).GetValue<decimal>());
+        Assert.True(data.Cell(after, 2).IsEmpty(), "a day not yet reported must be a gap in the line, not a zero");
+        Assert.Equal(truck.Total.DailySalesTarget!.Value * 13, data.Cell(through, 3).GetValue<decimal>());
+    }
+
+    [Fact]
+    public void Trucks_take_their_sap_business_partner_names_and_keep_the_route_name_without_one()
+    {
+        var truck = Truck();
+        truck.Trucks[0].BusinessPartnerCode = "VAN008";
+        truck.Trucks[1].BusinessPartnerCode = "VAN404";
+
+        var renamed = VanManagementReportBuilder.NameTrucksByBusinessPartner(
+            truck, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["van008"] = "Van Sales West 1 " });
+
+        Assert.Equal(1, renamed);
+        Assert.Equal("Van Sales West 1", truck.Trucks[0].RouteName);
+        Assert.Equal("R1", truck.Trucks[0].RouteCode);
+        Assert.All(truck.Days.Where(day => day.RouteId == 1), day => Assert.Equal("Van Sales West 1", day.RouteName));
+        Assert.Equal("UPC 1", truck.Trucks[1].RouteName);
+        Assert.All(truck.Days.Where(day => day.RouteId == 2), day => Assert.Equal("UPC 1", day.RouteName));
     }
 
     [Fact]
@@ -208,6 +322,12 @@ public class VanManagementReportTests
     // — Data ————————————————————————————————————————————————————————————————————————————————————
 
     private static XLWorkbook Open(byte[] bytes) => new(new MemoryStream(bytes));
+
+    private static WorksheetPart SheetPart(SpreadsheetDocument document, string name)
+    {
+        var sheet = document.WorkbookPart!.Workbook.Descendants<DocumentFormat.OpenXml.Spreadsheet.Sheet>().First(candidate => candidate.Name == name);
+        return (WorksheetPart)document.WorkbookPart.GetPartById(sheet.Id!);
+    }
 
     private static string TextOf(IXLWorksheet sheet) =>
         string.Join("\n", sheet.CellsUsed()
