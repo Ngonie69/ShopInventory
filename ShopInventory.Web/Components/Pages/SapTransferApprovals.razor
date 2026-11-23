@@ -110,7 +110,7 @@
                 <label class="sta-q-search">
                     <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
                     <span class="sta-sr">Search drafts</span>
-                    @* A number is a draft number; anything else is a warehouse the transfer leaves or enters.
+                    @* A number is a draft number or draft entry; anything else is a warehouse the transfer leaves or enters.
                        Both are sent to SAP, which filters and counts — so the rows follow once the typing rests. *@
                     <input type="text" placeholder="Warehouse or draft no." maxlength="20"
                            value="@searchText" @oninput="OnSearchInputAsync" />
@@ -301,6 +301,9 @@
                                     <span class="sta-q-refs">
                                         <span class="sta-q-kind @(draft.IsRequest ? "is-request" : "")">@(draft.IsRequest ? "Request" : "Transfer")</span>
                                         <span>Draft @draft.DraftNum</span>
+                                        @* The entry is the number in the B1 window's title bar. Two drafts can share a
+                                           draft number, so it is what tells them apart. *@
+                                        <span aria-hidden="true">·</span><span title="SAP draft entry, as in the B1 window's title bar">Entry @draft.DraftEntry</span>
                                         @if (draft.RequestCode is int requestCode)
                                         {
                                             <span aria-hidden="true">·</span><span>Req @requestCode</span>
@@ -528,6 +531,11 @@
                         <div>
                             <dt class="sta-dt">Attachment</dt>
                             <dd class="sta-dd">@(detail.Draft.HasAttachment ? "Yes, in SAP" : "None")</dd>
+                        </div>
+                        <div>
+                            <dt class="sta-dt">Draft entry</dt>
+                            <dd class="sta-dd">@detail.Draft.DraftEntry</dd>
+                            <dd class="sta-d-sub">In the B1 window's title bar</dd>
                         </div>
                     </dl>
 

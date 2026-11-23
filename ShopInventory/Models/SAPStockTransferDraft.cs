@@ -181,6 +181,9 @@ public sealed record SapTransferDraftFilter
     /// <summary>Only drafts that carry an attachment.</summary>
     public bool AttachedOnly { get; init; }
 
-    /// <summary>Only the draft with this number — the one the B1 client shows.</summary>
+    /// <summary>
+    /// Only drafts with this number — the draft number on the B1 form (<c>DocNum</c>), which two drafts
+    /// can share, or the entry in the B1 window's title bar (<c>DocEntry</c>).
+    /// </summary>
     public int? DraftNum { get; init; }
 }

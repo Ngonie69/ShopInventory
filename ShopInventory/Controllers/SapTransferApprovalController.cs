@@ -36,7 +36,7 @@ public sealed class SapTransferApprovalController(IMediator mediator) : ApiContr
     /// <c>warehouse</c> narrows to drafts
     /// leaving or entering one warehouse; <c>from</c> and <c>to</c> (repeatable) to drafts leaving or
     /// entering any of several; <c>createdFrom</c>/<c>createdTo</c> to the days the drafts were created;
-    /// <c>attachedOnly</c> to drafts with an attachment; <c>draftNum</c> to one draft. Every filter is
+    /// <c>attachedOnly</c> to drafts with an attachment; <c>draftNum</c> to the drafts with that draft number or draft entry. Every filter is
     /// applied in SAP, so <c>totalCount</c> is of the filtered queue. <c>beforeDocEntry</c> — the
     /// previous answer's <c>nextCursor</c> — continues below the last row that answer carried.
     /// </summary>

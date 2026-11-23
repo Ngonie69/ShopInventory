@@ -335,7 +335,7 @@ public partial class SapTransferApprovals : IDisposable
     }
 
     /// <summary>
-    /// The search and filters as SAP will apply them. A whole number in the search box is a draft number;
+    /// The search and filters as SAP will apply them. A whole number in the search box is a draft number or draft entry;
     /// anything else is a warehouse the transfer leaves or enters.
     /// </summary>
     private SapTransferQueueFilter BuildFilter()
