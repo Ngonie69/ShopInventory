@@ -87,6 +87,10 @@
                 <div class="vs-summary-value">@Money(total.Sales)</div>
                 <div class="vs-summary-label">Van sales to date</div>
             </div>
+            <div class="vs-summary-cell" id="vsm-month-target">
+                <div class="vs-summary-value">@Money(total.PeriodTarget)</div>
+                <div class="vs-summary-label">Month target with VAT · @Money(VanManagementReport.BeforeVat(total.PeriodTarget)) before VAT</div>
+            </div>
             <div class="vs-summary-cell">
                 <div class="vs-summary-value">@Percent(total.TargetAchieved)</div>
                 <div class="vs-summary-label">Target achieved · of @Money(total.PeriodTarget)</div>
@@ -249,7 +253,8 @@
                 <thead>
                     <tr>
                         <th>Truck</th>
-                        <th class="vs-num">Month target</th>
+                        <th class="vs-num">Target with VAT</th>
+                        <th class="vs-num">Target before VAT</th>
                         <th class="vs-num">Van sales to date</th>
                         <th class="vs-num">Balance</th>
                         <th>% of target</th>
@@ -270,6 +275,7 @@
                         <tr>
                             <td class="vs-primary">@truck.RouteName</td>
                             <td class="vs-num">@Money(truck.PeriodTarget)</td>
+                            <td class="vs-num">@Money(VanManagementReport.BeforeVat(truck.PeriodTarget))</td>
                             <td class="vs-num">@Cents(truck.Sales)</td>
                             <td class="vs-num">@Cents(truck.BalanceToTarget)</td>
                             <td>@Achieved(truck.TargetAchieved)</td>
@@ -289,6 +295,7 @@
                     <tr class="vsm-total">
                         <td>All trucks</td>
                         <td class="vs-num">@Money(report.Total.PeriodTarget)</td>
+                        <td class="vs-num">@Money(VanManagementReport.BeforeVat(report.Total.PeriodTarget))</td>
                         <td class="vs-num">@Cents(report.Total.Sales)</td>
                         <td class="vs-num">@Cents(report.Total.BalanceToTarget)</td>
                         <td>@Achieved(report.Total.TargetAchieved)</td>
@@ -305,6 +312,10 @@
                 </tfoot>
             </table>
         </div>
+        <p class="vsp-note" id="vsm-target-vat-note">
+            Targets are set with VAT, as van sales are counted. Before VAT is the target taken back at the standard
+            @VanManagementReport.TargetVatRateText rate; balance and % of target are against the target with VAT.
+        </p>
 
         <div class="vsm-grid">
             <div class="vsm-card" id="vsm-payments">

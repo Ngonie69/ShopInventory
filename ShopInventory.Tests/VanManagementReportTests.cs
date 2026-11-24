@@ -154,7 +154,7 @@ public class VanManagementReportTests
 
         Assert.Equal(
             ["Insights Summary", "Management Overview", "Monthly Summary", "Daily Management View", "Daily Truck Cards",
-             "Weekly Sales", "Route Sales Ranking", "Shamiso 5L", "Breakages", "Raw Data", "Chart Data"],
+             "PCR & CCR Trends", "Weekly Sales", "Route Sales Ranking", "Shamiso 5L", "Breakages", "Raw Data", "Chart Data"],
             workbook.Worksheets.Select(sheet => sheet.Name).ToArray());
         Assert.Equal(XLWorksheetVisibility.Hidden, workbook.Worksheet("Chart Data").Visibility);
         Assert.True(workbook.Worksheet("Insights Summary").TabActive);
@@ -179,7 +179,7 @@ public class VanManagementReportTests
             var expected = new Dictionary<string, int>
             {
                 ["Insights Summary"] = 2, ["Management Overview"] = 2, ["Daily Management View"] = 2,
-                ["Weekly Sales"] = 2, ["Route Sales Ranking"] = 1, ["Shamiso 5L"] = 1, ["Breakages"] = 2
+                ["PCR & CCR Trends"] = 3, ["Weekly Sales"] = 2, ["Route Sales Ranking"] = 1, ["Shamiso 5L"] = 1, ["Breakages"] = 2
             };
 
             foreach (var (name, count) in expected)
@@ -317,6 +317,195 @@ public class VanManagementReportTests
 
         Assert.Contains("Awaiting sales".ToUpperInvariant(), TextOf(workbook.Worksheet("Insights Summary")));
         Assert.Contains("Nothing recorded in the period.", TextOf(workbook.Worksheet("Breakages")));
+    }
+
+    /// <summary>
+    /// Targets are set with VAT, so the before-VAT figure is the target taken back at 15.5%: 8,000 a day
+    /// for 21 days is 168,000 with VAT and 145,454.55 before it, for the fleet and truck by truck.
+    /// </summary>
+    [Fact]
+    public void The_overview_shows_the_target_with_and_before_vat()
+    {
+        var report = VanManagementReportBuilder.Build(Truck(), null, null);
+        using var workbook = Open(_service.ExportVanManagementReportToExcel(report, Through, null));
+        var sheet = workbook.Worksheet("Management Overview");
+
+        Assert.Equal(145_454.55m, VanManagementReport.BeforeVat(168_000m));
+        Assert.Null(VanManagementReport.BeforeVat(null));
+
+        var kpi = sheet.CellsUsed().Single(cell => cell.GetString() == "Month Target Before VAT" && cell.Address.RowNumber < 10);
+        Assert.Equal(145_454.55m, sheet.Cell(kpi.Address.RowNumber - 1, kpi.Address.ColumnNumber).GetValue<decimal>());
+
+        int headings = sheet.Column(1).CellsUsed().First(cell => cell.GetString() == "Truck").Address.RowNumber;
+        int withVat = sheet.Row(headings).CellsUsed().Single(cell => cell.GetString() == "Target With VAT").Address.ColumnNumber;
+        int beforeVat = sheet.Row(headings).CellsUsed().Single(cell => cell.GetString() == "Target Before VAT").Address.ColumnNumber;
+        int upc = sheet.Column(1).CellsUsed().First(cell => cell.Address.RowNumber > headings && cell.GetString() == "UPC 1").Address.RowNumber;
+        int total = sheet.Column(1).CellsUsed().First(cell => cell.Address.RowNumber > headings && cell.GetString() == "ALL TRUCKS").Address.RowNumber;
+
+        Assert.Equal(63_000m, sheet.Cell(upc, withVat).GetValue<decimal>());
+        Assert.Equal(54_545.45m, sheet.Cell(upc, beforeVat).GetValue<decimal>());
+        Assert.Equal(168_000m, sheet.Cell(total, withVat).GetValue<decimal>());
+        Assert.Equal(145_454.55m, sheet.Cell(total, beforeVat).GetValue<decimal>());
+        Assert.Contains("15.5%", TextOf(sheet));
+    }
+
+    // — PCR & CCR trends ——————————————————————————————————————————————————————————————————————
+
+    /// <summary>
+    /// The fleet's day is the trucks' calls added up, the month to date ends on the Monthly Summary's
+    /// figure, and a working day nobody checked in on has no rate rather than 0%.
+    /// </summary>
+    [Fact]
+    public void Call_rates_add_the_trucks_up_by_day_and_end_on_the_months_figures()
+    {
+        var truck = Trending();
+        var report = VanManagementReportBuilder.Build(truck, null, null);
+        var rates = VanManagementReportBuilder.CallRates(report);
+
+        Assert.DoesNotContain(rates.Dates, date => date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday);
+        Assert.Equal(Through, rates.Dates[^1]);
+
+        var tenth = rates.Fleet.Single(day => day.Date == new DateTime(2026, 11, 10));
+        var onTenth = truck.Days.Where(day => day.TradingDate == tenth.Date).ToList();
+        Assert.Equal((double)onTenth.Sum(day => day.PlannedCallsMade) / onTenth.Sum(day => day.PlannedCustomers!.Value), tenth.Day.CallComplianceRate!.Value, 9);
+        Assert.Equal((double)onTenth.Sum(day => day.ProductiveCalls) / onTenth.Sum(day => day.CallsMade), tenth.Day.ProductiveCallRate!.Value, 9);
+
+        Assert.Equal(truck.Total.CallComplianceRate!.Value, rates.Fleet[^1].ToDate.CallComplianceRate!.Value, 9);
+        Assert.Equal(truck.Total.ProductiveCallRate!.Value, rates.Fleet[^1].ToDate.ProductiveCallRate!.Value, 9);
+
+        var quiet = rates.Fleet.Single(day => day.Date == new DateTime(2026, 11, 11));
+        Assert.Null(quiet.Day.ProductiveCallRate);
+        Assert.Equal(0, quiet.Day.CallsMade);
+
+        // Each truck's cell is its own day's rate.
+        var west = rates.Trucks.Single(row => row.Truck.RouteName == "West 1");
+        var westTenth = truck.Days.Single(day => day.RouteId == 1 && day.TradingDate == tenth.Date);
+        Assert.Equal(westTenth.ProductiveCallRate!.Value, west.Days[rates.Dates.ToList().IndexOf(tenth.Date)].ProductiveCallRate!.Value, 9);
+    }
+
+    [Fact]
+    public void Week_on_week_compares_the_latest_week_with_calls_to_the_one_before()
+    {
+        var report = VanManagementReportBuilder.Build(Trending(), null, null);
+        var (previous, latest) = VanManagementReportBuilder.CallRates(report).LastTwoWeeks;
+
+        Assert.Equal(new DateTime(2026, 11, 16), latest!.Start);
+        Assert.Equal(new DateTime(2026, 11, 9), previous!.Start);
+
+        // PCR rises through the month in the data, so the latest week sells on more of its calls.
+        Assert.True(latest.Calls.ProductiveCallRate > previous.Calls.ProductiveCallRate);
+    }
+
+    /// <summary>
+    /// The sheet writes rates as numbers formatted as shares, a day with no calls as a dash, and each
+    /// truck's day in the grid; the charts read the fleet's day and its month to date.
+    /// </summary>
+    [Fact]
+    public void The_trends_sheet_writes_each_days_rates_as_numbers()
+    {
+        var truck = Trending();
+        var report = VanManagementReportBuilder.Build(truck, null, null);
+        var rates = VanManagementReportBuilder.CallRates(report);
+        using var workbook = Open(_service.ExportVanManagementReportToExcel(report, Through, null));
+        var sheet = workbook.Worksheet("PCR & CCR Trends");
+
+        // The fleet table: a row per day, its first column the date.
+        int headings = sheet.Column(1).CellsUsed().First(cell => cell.GetString() == "Date").Address.RowNumber;
+        int pcr = sheet.Row(headings).CellsUsed().Single(cell => cell.GetString() == "PCR").Address.ColumnNumber;
+        int ccr = sheet.Row(headings).CellsUsed().Single(cell => cell.GetString() == "CCR").Address.ColumnNumber;
+        int tenth = sheet.Column(1).CellsUsed()
+            .First(cell => cell.Address.RowNumber > headings && cell.DataType == XLDataType.DateTime && cell.GetDateTime() == new DateTime(2026, 11, 10))
+            .Address.RowNumber;
+        int quiet = tenth + 1;
+
+        var fleetTenth = rates.Fleet.Single(day => day.Date == new DateTime(2026, 11, 10)).Day;
+        Assert.Equal(XLDataType.Number, sheet.Cell(tenth, pcr).DataType);
+        Assert.Equal("0.0%", sheet.Cell(tenth, pcr).Style.NumberFormat.Format);
+        Assert.Equal(fleetTenth.ProductiveCallRate!.Value, sheet.Cell(tenth, pcr).GetValue<double>(), 9);
+        Assert.Equal(fleetTenth.CallComplianceRate!.Value, sheet.Cell(tenth, ccr).GetValue<double>(), 9);
+        Assert.Equal("—", sheet.Cell(quiet, pcr).GetString());
+
+        // The PCR grid: West 1's row, the column headed with the 10th.
+        int grid = sheet.Column(1).CellsUsed().Single(cell => cell.GetString() == "PCR BY TRUCK, DAY BY DAY").Address.RowNumber + 2;
+        int column = sheet.Row(grid).CellsUsed().Single(cell => cell.GetString() == "Tue 10").Address.ColumnNumber;
+        int west = sheet.Column(1).CellsUsed().First(cell => cell.Address.RowNumber > grid && cell.GetString() == "West 1").Address.RowNumber;
+        Assert.Equal(truck.Days.Single(day => day.RouteId == 1 && day.TradingDate == new DateTime(2026, 11, 10)).ProductiveCallRate!.Value,
+            sheet.Cell(west, column).GetValue<double>(), 9);
+
+        // The chart data: the month to date on the last day is the month's PCR.
+        var data = workbook.Worksheet("Chart Data");
+        int header = data.Column(1).CellsUsed().Single(cell => cell.GetString() == "PCR day by day").Address.RowNumber + 1;
+        int last = data.Column(1).CellsUsed().First(cell => cell.Address.RowNumber > header && cell.GetString() == "18 Nov").Address.RowNumber;
+        Assert.Equal(truck.Total.ProductiveCallRate!.Value, data.Cell(last, 3).GetValue<double>(), 9);
+    }
+
+    /// <summary>The office knows the trucks by their SAP business partner, so every truck row on the sheet carries that name.</summary>
+    [Fact]
+    public void The_trends_sheet_names_trucks_by_their_sap_business_partner()
+    {
+        var truck = Trending();
+        truck.Trucks[0].BusinessPartnerCode = "VAN008";
+        VanManagementReportBuilder.NameTrucksByBusinessPartner(
+            truck, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["VAN008"] = "Van Sales West 1" });
+
+        var report = VanManagementReportBuilder.Build(truck, null, null);
+        using var workbook = Open(_service.ExportVanManagementReportToExcel(report, Through, null));
+        var names = workbook.Worksheet("PCR & CCR Trends").Column(1).CellsUsed().Select(cell => cell.GetString()).ToList();
+
+        Assert.Equal(3, names.Count(name => name == "Van Sales West 1")); // the CCR grid, the PCR grid and the week on week
+        Assert.DoesNotContain("West 1", names);
+    }
+
+    [Fact]
+    public void A_day_on_the_whole_list_is_marked_in_the_ccr_grid()
+    {
+        var truck = Trending();
+        var listDay = truck.Days.Single(day => day.RouteId == 3 && day.TradingDate == new DateTime(2026, 11, 4));
+        listDay.PlanBasis = "List";
+        listDay.PlannedCustomers = 300;
+
+        var report = VanManagementReportBuilder.Build(truck, null, null);
+        using var workbook = Open(_service.ExportVanManagementReportToExcel(report, Through, null));
+        var sheet = workbook.Worksheet("PCR & CCR Trends");
+
+        int grid = sheet.Column(1).CellsUsed().Single(cell => cell.GetString() == "CCR BY TRUCK, DAY BY DAY").Address.RowNumber + 2;
+        int column = sheet.Row(grid).CellsUsed().Single(cell => cell.GetString() == "Wed 4").Address.ColumnNumber;
+        int east = sheet.Column(1).CellsUsed().First(cell => cell.Address.RowNumber > grid && cell.GetString() == "East 1 & 2").Address.RowNumber;
+
+        Assert.True(sheet.Cell(east, column).Style.Font.Italic);
+        Assert.False(sheet.Cell(east, column + 1).Style.Font.Italic);
+    }
+
+    /// <summary>
+    /// <see cref="Truck"/> with calls that change day to day: PCR climbs through the month, CCR dips mid
+    /// month, and on Wednesday the 11th sales were taken but nobody checked in.
+    /// </summary>
+    private static VanDailyTruckReportResponse Trending()
+    {
+        var truck = Truck();
+
+        foreach (var day in truck.Days.Where(day => day.HasActivity))
+        {
+            var quiet = day.TradingDate == new DateTime(2026, 11, 11);
+            day.CustomersVisited = quiet ? 0 : 30 + day.RouteId;
+            day.CallsMade = quiet ? 0 : 30 + day.RouteId;
+            day.ProductiveCalls = quiet ? 0 : Math.Min(day.CallsMade, 10 + day.TradingDate.Day + day.RouteId);
+            day.PlannedCallsMade = quiet ? 0 : 36 - Math.Abs(day.TradingDate.Day - 10) / 2 - day.RouteId;
+        }
+
+        foreach (var summary in truck.Trucks.Append(truck.Total))
+        {
+            var mine = truck.Days.Where(day => summary.RouteId is null || day.RouteId == summary.RouteId).ToList();
+            var checkedIn = mine.Where(day => day.CustomersVisited > 0).ToList();
+            summary.CustomersVisited = mine.Sum(day => day.CustomersVisited);
+            summary.ProductiveCalls = mine.Sum(day => day.ProductiveCalls);
+            summary.PlannedCustomers = mine.Sum(day => day.PlannedCustomers ?? 0);
+            summary.CcrCustomersVisited = mine.Sum(day => day.PlannedCallsMade);
+            summary.PcrProductiveCalls = checkedIn.Sum(day => day.ProductiveCalls);
+            summary.PcrCallsMade = checkedIn.Sum(day => day.CallsMade);
+        }
+
+        return truck;
     }
 
     // — Data ————————————————————————————————————————————————————————————————————————————————————

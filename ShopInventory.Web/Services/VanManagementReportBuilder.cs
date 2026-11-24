@@ -152,16 +152,7 @@ public static class VanManagementReportBuilder
     /// <summary>A truck's month up to a day, measured the way the truck report measures the month.</summary>
     public static VanManagementToDate ToDate(IReadOnlyCollection<VanDailyTruckDay> days, decimal? periodTarget)
     {
-        // The CCR is over the days with a round where any has one; the list days are left out of it then,
-        // as the API does for the period.
-        var planned = days.Where(day => day.PlannedCustomers is > 0).ToList();
-        var measured = planned.Any(day => !day.PlanIsWholeList)
-            ? planned.Where(day => !day.PlanIsWholeList).ToList()
-            : planned;
-
-        var withCheckIns = days.Where(day => day.CustomersVisited > 0).ToList();
-        var plannedCustomers = measured.Sum(day => day.PlannedCustomers!.Value);
-        var callsMade = withCheckIns.Sum(day => day.CallsMade);
+        var calls = Calls(days);
 
         return new VanManagementToDate(
             days.Sum(day => day.Sales),
@@ -172,9 +163,80 @@ public static class VanManagementReportBuilder
             days.Sum(day => day.NewCustomers),
             days.Sum(day => day.Kilometres ?? 0),
             days.Sum(day => day.FuelLitres ?? 0m),
-            plannedCustomers > 0 ? (double)measured.Sum(day => day.PlannedCallsMade) / plannedCustomers : null,
-            callsMade > 0 ? (double)withCheckIns.Sum(day => day.ProductiveCalls) / callsMade : null,
+            calls.CallComplianceRate,
+            calls.ProductiveCallRate,
             periodTarget);
+    }
+
+    /// <summary>
+    /// The calls under a CCR and a PCR over any set of truck-days — one truck's day, the fleet's day, a
+    /// week, the month — counted the way the truck report counts the period, so the month's figure here is
+    /// the Monthly Summary's.
+    /// </summary>
+    public static VanManagementCalls Calls(IReadOnlyCollection<VanDailyTruckDay> days)
+    {
+        // The CCR is over the days with a round where any has one; the list days are left out of it then,
+        // as the API does for the period.
+        var planned = days.Where(day => day.PlannedCustomers is > 0).ToList();
+        var measured = planned.Any(day => !day.PlanIsWholeList)
+            ? planned.Where(day => !day.PlanIsWholeList).ToList()
+            : planned;
+
+        var withCheckIns = days.Where(day => day.CustomersVisited > 0).ToList();
+
+        return new VanManagementCalls(
+            measured.Sum(day => day.PlannedCustomers!.Value),
+            measured.Sum(day => day.PlannedCallsMade),
+            withCheckIns.Sum(day => day.CallsMade),
+            withCheckIns.Sum(day => day.ProductiveCalls),
+            measured.Count > 0 && measured.All(day => day.PlanIsWholeList));
+    }
+
+    /// <summary>
+    /// CCR and PCR day by day: the fleet's each day and its month to that day, each truck's each day, and
+    /// week on week. The days are the working days up to the report date, and any weekend day a truck
+    /// worked; a day nobody checked in on is a gap, never 0%.
+    /// </summary>
+    public static VanManagementCallRates CallRates(VanManagementReport report)
+    {
+        var days = report.Truck.Days;
+        var dates = report.Dates
+            .Where(date => date <= report.ReportDate)
+            .Where(date => IsWorkingDay(date) || days.Any(day => day.TradingDate.Date == date && day.HasActivity))
+            .ToList();
+
+        var fleet = dates
+            .Select(date =>
+            {
+                var onDay = days.Where(day => day.TradingDate.Date == date).ToList();
+                var toDate = days.Where(day => day.TradingDate.Date <= date).ToList();
+
+                return new VanManagementCallRateDay(date, onDay.Count(day => day.HasActivity), Calls(onDay), Calls(toDate));
+            })
+            .ToList();
+
+        var weeks = report.Weeks
+            .Where(week => week.Start <= report.ReportDate)
+            .Select(week => new VanManagementCallRateWeek(
+                week.Start,
+                week.End,
+                week.Label,
+                Calls(days.Where(day => day.TradingDate.Date >= week.Start && day.TradingDate.Date <= week.End).ToList())))
+            .ToList();
+
+        var trucks = report.Trucks
+            .Select(truck =>
+            {
+                var mine = days.Where(day => day.RouteId == truck.RouteId).ToList();
+
+                return new VanManagementCallRateTruck(
+                    truck,
+                    dates.Select(date => Calls(mine.Where(day => day.TradingDate.Date == date).ToList())).ToList(),
+                    weeks.Select(week => Calls(mine.Where(day => day.TradingDate.Date >= week.Start && day.TradingDate.Date <= week.End).ToList())).ToList());
+            })
+            .ToList();
+
+        return new VanManagementCallRates(dates, fleet, weeks, trucks);
     }
 
     /// <summary>The week holding <paramref name="date"/>, or the latest week with any report, or the first.</summary>
