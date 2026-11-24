@@ -70,6 +70,90 @@ public sealed class SapTransferApprovalQueueTests : IDisposable
     }
 
     /// <summary>
+    /// The wash bay and a shop's stock user see every warehouse's held drafts (user, 2026-11-24) but approve
+    /// and add only those leaving or entering their own warehouses (2026-11-23). A depot controller still
+    /// sees and adds only what leaves its own. The wash bay holds no assignments: its warehouse is WASHBAY.
+    /// </summary>
+    [Fact]
+    public async Task The_wash_bay_and_a_shop_stock_user_read_every_draft_and_act_at_either_end_of_their_own()
+    {
+        var access = Access();
+        var shop = (await access.ResolveAsync((await UserAsync(ApplicationRoles.ShopStock, "KEFSHOP")).Id, CancellationToken.None)).Value;
+        var washBay = (await access.ResolveAsync((await UserAsync(ApplicationRoles.WashBay)).Id, CancellationToken.None)).Value;
+        var depot = (await access.ResolveAsync((await UserAsync(ApplicationRoles.DepotController, "CMFS")).Id, CancellationToken.None)).Value;
+
+        Assert.True(shop.ReadsEveryDraft);
+        Assert.Null(shop.SourceWarehouses);
+        Assert.Equal(["KEFSHOP"], shop.Warehouses);
+        Assert.True(washBay.ReadsEveryDraft);
+        Assert.Equal(["WASHBAY"], washBay.Warehouses);
+        Assert.False(depot.ReadsEveryDraft);
+        Assert.Equal(["CMFS"], depot.SourceWarehouses);
+
+        var foreign = HeldTransfers.Draft(3, "DISPCH", "CMFS");
+        Assert.True(shop.MayRead(foreign));
+        Assert.False(shop.AdmitsDraft(foreign));
+        Assert.True(shop.AdmitsDraft(HeldTransfers.Draft(1, "DISPCH", "KEFSHOP")));
+        Assert.True(shop.AdmitsDraft(HeldTransfers.Draft(2, "KEFSHOP", "DISPCH")));
+        Assert.True(washBay.AdmitsDraft(HeldTransfers.Draft(4, "PROYG 2", "WASHBAY")));
+        Assert.False(washBay.AdmitsDraft(HeldTransfers.Draft(5, "CMFC", "DISPYOG")));
+        Assert.False(depot.MayRead(foreign));
+        Assert.True(depot.AdmitsDraft(HeldTransfers.Draft(7, "CMFS", "DISPCH")));
+    }
+
+    [Fact]
+    public async Task A_shop_stock_users_list_is_every_warehouses_and_each_row_says_whether_it_is_theirs_to_add()
+    {
+        var shop = await UserAsync(ApplicationRoles.ShopStock, "KEFSHOP");
+        var incoming = HeldTransfers.Draft(88560, "DISPCH", "KEFSHOP");
+        var foreign = HeldTransfers.Draft(79744, "CMFC", "DISPYOG");
+        var sap = new FakeTransferSap(incoming, HeldTransfers.Request(98700, 88560), HeldTransfers.Request(74045, 79744))
+        {
+            ListDrafts = [incoming, foreign],
+            ListTotal = 2
+        };
+
+        var result = await new GetSapTransferApprovalsHandler(
+                sap.AsClient(), new FakeSapApprovalLookups(), Access(), Options.Create(new SAPSettings { Enabled = true }),
+                NullLogger<GetSapTransferApprovalsHandler>.Instance)
+            .Handle(new GetSapTransferApprovalsQuery(1, 25, CallerUserId: shop.Id), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        var read = Assert.Single(sap.ListReads);
+        Assert.Null(read.Scope);
+        Assert.Null(read.Filter?.FromWarehouses);
+        Assert.Null(read.Filter?.ToWarehouses);
+        Assert.Null(result.Value.ScopedWarehouses);
+
+        Assert.True(result.Value.Items[0].CanAdd);
+        Assert.False(result.Value.Items[1].CanAdd);
+        Assert.Contains("neither leaves nor enters one of your warehouses", result.Value.Items[1].StatusNote);
+    }
+
+    [Fact]
+    public async Task The_drawer_shows_a_shop_stock_user_another_warehouses_transfer_but_offers_neither_add_nor_decision()
+    {
+        var shop = await UserAsync(ApplicationRoles.ShopStock, "KEFSHOP");
+
+        var incoming = new FakeTransferSap(HeldTransfers.Draft(88560, "DISPCH", "KEFSHOP"), HeldTransfers.Request(98700, 88560));
+        var own = await Detail(incoming).Handle(new GetSapTransferApprovalQuery(88560, shop.Id), CancellationToken.None);
+        Assert.False(own.IsError, own.IsError ? own.FirstError.Description : null);
+        Assert.True(own.Value.Draft.CanAdd);
+
+        var waiting = HeldTransfers.Draft(79744, "CMFC", "DISPYOG");
+        waiting.AuthorizationStatus = SapStockTransferAuthorizationStatuses.Pending;
+        var foreign = new FakeTransferSap(waiting, HeldTransfers.Request(74045, 79744, SapApprovalRequestStatuses.Pending));
+        var read = await Detail(foreign).Handle(new GetSapTransferApprovalQuery(79744, shop.Id), CancellationToken.None);
+
+        Assert.False(read.IsError, read.IsError ? read.FirstError.Description : null);
+        Assert.False(read.Value.Draft.CanAdd);
+        var request = Assert.Single(read.Value.Approvals);
+        Assert.False(request.CanDecide);
+        Assert.Contains("CMFC → DISPYOG", request.DecideNote);
+        Assert.Contains("neither leaves nor enters", request.DecideNote);
+    }
+
+    /// <summary>
     /// A depot controller's queue is filtered in SAP — so the count and the pages are of their queue —
     /// rather than thinned out of somebody else's page here.
     /// </summary>

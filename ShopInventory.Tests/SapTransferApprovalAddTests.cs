@@ -7,6 +7,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.InventoryTransfers.Commands.ConvertTransferRequest;
+using ShopInventory.Features.SapTransferApprovals;
 using ShopInventory.Features.SapTransferApprovals.Commands.AddApprovedSapTransfer;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -252,7 +253,7 @@ public sealed class SapTransferApprovalAddTests : IDisposable
 
         var foreign = new FakeTransferSap(HeldTransfers.Draft(79744, "CMFC", "DISPYOG"), HeldTransfers.Request(74045, 79744));
         var foreignResult = await Handler(foreign).Handle(Command(79744, depot), CancellationToken.None);
-        Assert.Equal("InventoryTransfer.WarehouseNotAssigned", foreignResult.FirstError.Code);
+        Assert.Equal("SapTransferApproval.OutsideWarehouseScope", foreignResult.FirstError.Code);
         Assert.Empty(foreign.Saves);
 
         var mixed = new FakeTransferSap(
@@ -261,7 +262,7 @@ public sealed class SapTransferApprovalAddTests : IDisposable
                 HeldTransfers.Line(1, "CHE011", 5m, "CMFC", "CMFS", ("CHE011/B", 5m))),
             HeldTransfers.Request(72043, 77717));
         var mixedResult = await Handler(mixed).Handle(Command(77717, depot), CancellationToken.None);
-        Assert.Equal("InventoryTransfer.WarehouseNotAssigned", mixedResult.FirstError.Code);
+        Assert.Equal("SapTransferApproval.OutsideWarehouseScope", mixedResult.FirstError.Code);
         Assert.Empty(mixed.Saves);
 
         var own = new FakeTransferSap(HeldTransfers.Draft(77664, "CMFS", "CMFC"), HeldTransfers.Request(71993, 77664));
@@ -270,20 +271,53 @@ public sealed class SapTransferApprovalAddTests : IDisposable
         Assert.Single(own.Saves);
     }
 
+    /// <summary>
+    /// The wash bay and a shop's stock user add what leaves or enters their warehouses (user, 2026-11-23):
+    /// mostly stock coming in, which a source-only rule refused them. Anything else is not theirs.
+    /// </summary>
     [Fact]
-    public async Task The_wash_bay_adds_from_anywhere_and_a_cashier_adds_nothing()
+    public async Task The_wash_bay_adds_only_what_goes_into_or_out_of_WASHBAY_and_a_cashier_adds_nothing()
     {
         var washBay = await UserAsync(ApplicationRoles.WashBay);
         var cashier = await UserAsync(ApplicationRoles.Cashier);
 
-        var sap = new FakeTransferSap(HeldTransfers.Draft(79744, "CMFC", "DISPYOG"), HeldTransfers.Request(74045, 79744));
-        var cashierResult = await Handler(sap).Handle(Command(79744, cashier), CancellationToken.None);
-        Assert.Equal("InventoryTransfer.TransferRequestConverterRoleRequired", cashierResult.FirstError.Code);
-        Assert.Empty(sap.Saves);
+        var foreign = new FakeTransferSap(HeldTransfers.Draft(79744, "CMFC", "DISPYOG"), HeldTransfers.Request(74045, 79744));
+        var cashierResult = await Handler(foreign).Handle(Command(79744, cashier), CancellationToken.None);
+        Assert.Equal("SapTransferApproval.RoleNotAllowed", cashierResult.FirstError.Code);
 
-        var washBayResult = await Handler(sap).Handle(Command(79744, washBay), CancellationToken.None);
-        Assert.False(washBayResult.IsError, Describe(washBayResult));
-        Assert.Single(sap.Saves);
+        var foreignResult = await Handler(foreign).Handle(Command(79744, washBay), CancellationToken.None);
+        Assert.Equal("SapTransferApproval.OutsideWarehouseScope", foreignResult.FirstError.Code);
+        Assert.Contains("neither leaves nor enters", foreignResult.FirstError.Description);
+        Assert.Empty(foreign.Saves);
+
+        var incoming = new FakeTransferSap(HeldTransfers.Draft(89165, "PROYG 2", "WASHBAY"), HeldTransfers.Request(98635, 89165));
+        var incomingResult = await Handler(incoming).Handle(Command(89165, washBay), CancellationToken.None);
+        Assert.False(incomingResult.IsError, Describe(incomingResult));
+        Assert.Single(incoming.Saves);
+    }
+
+    [Fact]
+    public async Task A_shop_stock_user_adds_a_transfer_into_its_shop_but_not_one_touching_none_of_its_warehouses()
+    {
+        var shop = await UserAsync(ApplicationRoles.ShopStock, "KEFSHOP");
+
+        var foreign = new FakeTransferSap(HeldTransfers.Draft(79744, "CMFC", "DISPYOG"), HeldTransfers.Request(74045, 79744));
+        var foreignResult = await Handler(foreign).Handle(Command(79744, shop), CancellationToken.None);
+        Assert.Equal("SapTransferApproval.OutsideWarehouseScope", foreignResult.FirstError.Code);
+        Assert.Empty(foreign.Saves);
+
+        var incoming = new FakeTransferSap(HeldTransfers.Draft(88560, "DISPCH", "KEFSHOP"), HeldTransfers.Request(98700, 88560));
+        var incomingResult = await Handler(incoming).Handle(Command(88560, shop), CancellationToken.None);
+        Assert.False(incomingResult.IsError, Describe(incomingResult));
+        Assert.Single(incoming.Saves);
+
+        // A replay is checked again, on the warehouses the first answer recorded.
+        var other = await UserAsync(ApplicationRoles.ShopStock, "KEFGRS");
+        var replay = await Handler(incoming).Handle(Command(88560, other), CancellationToken.None);
+        Assert.Equal("SapTransferApproval.OutsideWarehouseScope", replay.FirstError.Code);
+        var again = await Handler(incoming).Handle(Command(88560, shop), CancellationToken.None);
+        Assert.False(again.IsError, Describe(again));
+        Assert.Single(incoming.Saves);
     }
 
     /// <summary>A lost answer is settled by the draft: closed means the transfer exists, and the add is reported as done.</summary>
@@ -362,7 +396,7 @@ public sealed class SapTransferApprovalAddTests : IDisposable
         Assert.False((await Handler(sap).Handle(Command(79744, admin), CancellationToken.None)).IsError);
         var replay = await Handler(sap).Handle(Command(79744, depot), CancellationToken.None);
 
-        Assert.Equal("InventoryTransfer.WarehouseNotAssigned", replay.FirstError.Code);
+        Assert.Equal("SapTransferApproval.OutsideWarehouseScope", replay.FirstError.Code);
     }
 
     /// <summary>
@@ -566,7 +600,7 @@ public sealed class SapTransferApprovalAddTests : IDisposable
         FixedTillClaims? claims = null,
         FixedStockValidation? stock = null) => new(
         sap.AsClient(),
-        new TransferWarehouseAuthorizer(_context),
+        new SapTransferApprovalAccess(_context, new TransferWarehouseAuthorizer(_context)),
         (approvals ?? new RecordingTransferApprovals()).AsService(),
         claims ?? new FixedTillClaims(),
         (stock ?? new FixedStockValidation(new StockValidationResult())).AsService(),

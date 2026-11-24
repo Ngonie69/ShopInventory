@@ -367,7 +367,7 @@ public sealed class SapTransferRequestDraftTests : IDisposable
         FixedTillClaims? claims = null,
         FixedStockValidation? stock = null) => new(
         sap.AsClient(),
-        new TransferWarehouseAuthorizer(_context),
+        new SapTransferApprovalAccess(_context, new TransferWarehouseAuthorizer(_context)),
         new RecordingTransferApprovals().AsService(),
         claims ?? new FixedTillClaims(),
         (stock ?? new FixedStockValidation(new StockValidationResult())).AsService(),

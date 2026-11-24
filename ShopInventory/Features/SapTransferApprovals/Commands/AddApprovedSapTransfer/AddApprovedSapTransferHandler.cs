@@ -24,9 +24,11 @@ namespace ShopInventory.Features.SapTransferApprovals.Commands.AddApprovedSapTra
 /// credit memo add uses, measured on a transfer draft the B1 client added (<c>bost_Close</c>,
 /// <c>sasWithout</c>).</para>
 ///
-/// <para>Who may add mirrors who may convert a transfer request, through the same
-/// <see cref="ITransferWarehouseAuthorizer.EnsureCanConvertRequestAsync"/>, asked for every warehouse the
-/// draft takes stock out of — its header and each line.</para>
+/// <para>Who may add is who may see the draft on the page (<see cref="ISapTransferApprovalAccess"/>):
+/// administrators and stock controllers any draft; a depot controller a draft every source of which —
+/// header and each line — is one of theirs; the wash bay and a shop's stock user a draft that leaves or
+/// enters one of theirs (WASHBAY for the wash bay). A conversion or a factory transfer's own step has
+/// already asked its own rule and says so (<see cref="AddApprovedSapTransferCommand.CallerAuthorized"/>).</para>
 ///
 /// <para>A draft copied from a transfer request in the B1 client carries the request on its lines
 /// (<c>BaseType InventoryTransferRequest</c>). The request is held under the conversion lock while the
@@ -40,7 +42,7 @@ namespace ShopInventory.Features.SapTransferApprovals.Commands.AddApprovedSapTra
 /// </remarks>
 public sealed class AddApprovedSapTransferHandler(
     ISAPServiceLayerClient sap,
-    ITransferWarehouseAuthorizer warehouseAuthorizer,
+    ISapTransferApprovalAccess access,
     IInventoryTransferApprovalService approvalService,
     IUnpostedTillClaims tillClaims,
     IStockValidationService stockValidation,
@@ -78,7 +80,8 @@ public sealed class AddApprovedSapTransferHandler(
                 case IdempotencyAcquireOutcome.ReplayAvailable when acquired.Response is not null:
                     var replayCheck = command.CallerAuthorized
                         ? Result.Success
-                        : await EnsureMayAddAsync(command.UserId, [acquired.Response.FromWarehouse], cancellationToken);
+                        : await EnsureMayAddAsync(
+                            command.UserId, [acquired.Response.FromWarehouse], [acquired.Response.ToWarehouse], cancellationToken);
                     return replayCheck.IsError ? replayCheck.Errors : acquired.Response;
                 case IdempotencyAcquireOutcome.InProgress:
                     return Errors.SapTransferApproval.AddInProgress;
@@ -99,12 +102,11 @@ public sealed class AddApprovedSapTransferHandler(
             var kind = SapTransferApprovalProjection.KindOf(draft);
             var isRequest = kind == SapHeldDraftKind.Request;
 
-            // Before any state is described: a transfer out of someone else's warehouse is not theirs
-            // to learn anything about.
+            // Before any state is described: a draft outside the caller's warehouses is not theirs to
+            // learn anything about.
             var allowed = command.CallerAuthorized
                 ? Result.Success
-                : await EnsureMayAddAsync(
-                command.UserId, SapTransferApprovalProjection.SourceWarehouses(draft), cancellationToken);
+                : await EnsureMayAddAsync(command.UserId, draft, cancellationToken);
             if (allowed.IsError)
             {
                 return allowed.Errors;
@@ -274,31 +276,49 @@ public sealed class AddApprovedSapTransferHandler(
         }
     }
 
+    /// <summary>The page's scope, on the draft's header and line warehouses.</summary>
+    private async Task<ErrorOr<Success>> EnsureMayAddAsync(
+        Guid userId,
+        SAPStockTransferDraft draft,
+        CancellationToken cancellationToken)
+    {
+        var caller = await access.ResolveAsync(userId, cancellationToken);
+        if (caller.IsError)
+        {
+            return caller.Errors;
+        }
+
+        return caller.Value.AdmitsDraft(draft)
+            ? Result.Success
+            : SapTransferApprovalProjection.OutsideScope(caller.Value, draft);
+    }
+
     /// <summary>
-    /// The conversion rule, for every warehouse the draft takes stock out of. A draft that names none
-    /// is asked about with none, which a warehouse-scoped user is refused.
+    /// The page's scope on a replay, where the draft is closed and only the warehouses the first answer
+    /// recorded are left.
     /// </summary>
     private async Task<ErrorOr<Success>> EnsureMayAddAsync(
         Guid userId,
-        IReadOnlyCollection<string?> sourceWarehouses,
+        IReadOnlyCollection<string?> sources,
+        IReadOnlyCollection<string?> destinations,
         CancellationToken cancellationToken)
     {
-        var sources = sourceWarehouses.Where(code => !string.IsNullOrWhiteSpace(code)).ToList();
-        if (sources.Count == 0)
+        var caller = await access.ResolveAsync(userId, cancellationToken);
+        if (caller.IsError)
         {
-            return await warehouseAuthorizer.EnsureCanConvertRequestAsync(userId, null, cancellationToken);
+            return caller.Errors;
         }
 
-        foreach (var source in sources)
+        if (caller.Value.AdmitsRoute(sources, destinations))
         {
-            var check = await warehouseAuthorizer.EnsureCanConvertRequestAsync(userId, source, cancellationToken);
-            if (check.IsError)
-            {
-                return check.Errors;
-            }
+            return Result.Success;
         }
 
-        return Result.Success;
+        var from = sources.FirstOrDefault(code => !string.IsNullOrWhiteSpace(code)) ?? "an unnamed warehouse";
+        var to = destinations.FirstOrDefault(code => !string.IsNullOrWhiteSpace(code)) ?? "an unnamed warehouse";
+        return caller.Value.EitherEnd
+            ? Errors.SapTransferApproval.OutsideLinkedWarehouses(from, to)
+            : Errors.SapTransferApproval.OutsideWarehouseScope(from);
     }
 
     /// <summary>

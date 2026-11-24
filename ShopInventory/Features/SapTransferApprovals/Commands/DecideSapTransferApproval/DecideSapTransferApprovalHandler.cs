@@ -145,10 +145,9 @@ public sealed class DecideSapTransferApprovalHandler(
                 return Errors.SapTransferApproval.DraftGone(command.Code);
             }
 
-            var kind = SapTransferApprovalProjection.KindOf(draft);
-            if (!caller.Value.Admits(draft.FromWarehouse))
+            if (!caller.Value.AdmitsDraft(draft))
             {
-                return Errors.SapTransferApproval.OutsideWarehouseScope(draft.FromWarehouse ?? "an unnamed warehouse", kind);
+                return SapTransferApprovalProjection.OutsideScope(caller.Value, draft);
             }
 
             var stage = await lookups.GetStageAsync(stageCode, cancellationToken);

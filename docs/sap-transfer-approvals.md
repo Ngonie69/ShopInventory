@@ -45,18 +45,36 @@ December 2023, so its numbers describe that copy, not production.
 | How many approved drafts lack a pick? | Of the 154 open drafts: 124 have every batch-managed line fully picked, 21 hold no batch-managed item, and 9 have a batch-managed line with no or a partial pick |
 | Can a draft be traced to the transfer request it was copied from? | **Yes.** Its lines carry `BaseType "InventoryTransferRequest"` and `BaseEntry` = the request's DocEntry. Request 22788 (#10688), behind draft 78464, is still open with most of its lines closed by other transfers |
 
-## Who may add
+## Who may see, decide and add
 
-The people who may convert a transfer request, through the same
-`ITransferWarehouseAuthorizer.EnsureCanConvertRequestAsync`: Admin, StockController and WashBay from any
-warehouse; DepotController and ShopStock only from the warehouses on their account. The add asks it for
-every warehouse the draft takes stock out of — its header and each line — because a line can name its
-own source.
+The roles are the ones that may convert a transfer request (`SapTransferApprovalQueueTests` holds the two
+lists together). Which drafts each sees, decides and adds is one rule, `SapTransferApprovalCaller`
+(resolved by `SapTransferApprovalAccess`), asked by the list, the drawer, the decision and the add:
+
+| Role | Sees | Decides and adds |
+|---|---|---|
+| Admin, StockController | every draft | every draft |
+| DepotController | drafts whose every source — header and each line — is one of the warehouses on the account | the same |
+| ShopStock | every draft | leaving **or entering** one of the warehouses on the account, header or line |
+| WashBay | every draft | leaving **or entering** `WASHBAY`, header or line (a WashBay account holds no assignments) |
+
+**Why (the user):** 2026-11-23, "washbay and shopstock should be able to view SAP held transfers and be
+able to approve drafts and add, for the warehouse they are linked to"; 2026-11-24, "shopstock and washbay
+should be able to see all warehouse under sap held transfers". What they approve and add is mostly coming
+in — PROYG 2 → WASHBAY, Dispatch → KEFSHOP — which the source-only rule never allowed a ShopStock user.
+Until then the wash bay could add every warehouse's drafts; it now adds only WASHBAY's. Converting a
+request on the Transfers page is unchanged: a conversion that reaches the SAP-held add has already asked
+`EnsureCanConvertRequestAsync` on its request and passes `CallerAuthorized`, so the wash bay still converts
+from any warehouse there.
+
+Seeing is not acting: a WashBay or ShopStock row outside their warehouses has `canAdd: false` and a status
+note saying it neither leaves nor enters one of theirs, and its drawer offers no decision, with the same
+sentence as the request's `decideNote`. The decision and the add check again (`AdmitsDraft`), so the API
+refuses what the page does not offer.
 
 The role is read from the account by user id, never from the request's role claims: the Web calls the
 API with its integration key and the user's token together, so those claims include the key's Admin.
-A scoped account's queue is filtered — and counted — in SAP on the draft's source warehouse.
-`SapTransferApprovalQueueTests` holds the queue's roles to the conversion's.
+A depot controller's queue is filtered — and counted — in SAP on the draft header's `FromWarehouse`.
 
 ## What happens on the add
 
@@ -302,12 +320,18 @@ Asked for by the user: the wash bay should see every draft going to WASHBAY and 
 
 - **The waiting view** is the same read with `AuthorizationStatus eq 'sasPending'` instead of
   `'sasApproved'` (`SapTransferDraftFilter.AwaitingApproval`), so every filter, count and the kind switch
-  carry over. The wash bay opens on it with *To WASHBAY* set; everyone else opens on the approved view.
+  carry over. The wash bay opens on it with *To WASHBAY* set, a ShopStock user opens on it too; everyone else opens
+  on the approved view.
 - **The decision** is `PATCH ApprovalRequests(code)` as the app's SAP approver, exactly the credit memo
   decision (`DecideSapTransferApprovalHandler` reuses its remarks, stage scope and approver checks). The
-  caller needs `transfers.approve_sap` (Admin, WashBay); which stages they decide is
-  `CreditNoteApprovals:RoleStageScopes` — for WashBay, `Factory Washbay`, the stage its credit memos already
-  wait at. After an approval the **draft** is read back: `canAdd` only when it is `sasApproved`, because a
+  caller needs `transfers.approve_sap` (Admin, WashBay, and ShopStock since 2026-11-23); which stages they
+  decide is `CreditNoteApprovals:RoleStageScopes` — for WashBay, `Factory Washbay`, the stage its credit
+  memos already wait at. ShopStock has no stage configured, so it is narrowed by its warehouses alone
+  (either end, above) and by whether SAP lists the app's approver (`Software`) on the stage. **Not checked
+  in production:** which stage holds transfers into KEFSHOP, and whether `Software` is listed on it. Where
+  it is not, the drawer says so and offers no decision, and the shop decides in the B1 client. A ShopStock
+  user opens on the waiting view too, across every warehouse, with no destination chip.
+  After an approval the **draft** is read back: `canAdd` only when it is `sasApproved`, because a
   draft held by a second template stays `sasPending` until that one is decided too.
 - **Why the decision should work for transfers.** Read-only, production, 2026-11-23: since 1 Oct the app
   made 75 credit memo decisions at stage 44 as SAP user `Software`, and their drafts flipped
@@ -363,4 +387,5 @@ number. The Filters panel offers source and destination warehouses (several each
 so SAP filters and counts. Two filters the design drew are not offered: the approval stage and the
 originator live on the approval request, not the draft, and SAP cannot filter one entity set by another's
 fields in a single read. A Ready/Held split is not counted either: the queue is already the approved, open
-drafts in the caller's warehouses, so a held row is rare and only the row itself can say so.
+drafts, so a held row is rare and only the row itself can say so. (For the wash bay and a shop's stock
+user, who see every warehouse, a row outside their own says so the same way.)

@@ -481,7 +481,10 @@ public static class Permissions
             ApplicationRoles.ShopStock => new List<string>
             {
                 ViewProducts,
-                ViewStock, ViewInventory, TransferStock, TransferInventory
+                ViewStock, ViewInventory, TransferStock, TransferInventory,
+                // The transfers SAP holds into or out of the shop's warehouses (2026-11-23). Which ones is
+                // narrowed by those warehouses, at either end (SapTransferApprovalAccess).
+                ApproveSapTransfers
             },
             ApplicationRoles.ReadOnly => new List<string>
             {
