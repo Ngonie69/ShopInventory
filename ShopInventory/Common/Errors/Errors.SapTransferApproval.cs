@@ -36,6 +36,11 @@ public static partial class Errors
                     ? $"This transfer request asks for stock from {warehouse}, which is not one of your warehouses."
                     : $"This transfer takes stock out of {warehouse}, which is not one of your warehouses.");
 
+        /// <summary>For the wash bay and a shop's stock user, whose drafts are those leaving or entering their warehouses.</summary>
+        public static Error OutsideLinkedWarehouses(string from, string to, SapHeldDraftKind kind = SapHeldDraftKind.Transfer) =>
+            Error.Forbidden("SapTransferApproval.OutsideWarehouseScope",
+                $"This {Noun(kind)} ({from} → {to}) neither leaves nor enters one of your warehouses.");
+
         public static Error NotApproved(string state, SapHeldDraftKind kind = SapHeldDraftKind.Transfer) =>
             Error.Validation("SapTransferApproval.NotApproved",
                 $"SAP has this {Noun(kind)} draft as {state}; only an approved draft can be added.");

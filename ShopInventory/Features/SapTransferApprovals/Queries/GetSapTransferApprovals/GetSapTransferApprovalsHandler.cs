@@ -17,7 +17,7 @@ namespace ShopInventory.Features.SapTransferApprovals.Queries.GetSapTransferAppr
 /// </summary>
 /// <remarks>
 /// The queue is read from the draft side: the draft is what says a transfer is approved and still
-/// waiting, and it carries the warehouses, so a depot controller's queue is filtered and counted in
+/// waiting, and it carries the warehouses, so a scoped caller's queue is filtered and counted in
 /// SAP rather than thinned out of a page here. A label that fails to read costs the row its name, not
 /// the list its answer.
 /// </remarks>
@@ -50,6 +50,8 @@ public sealed class GetSapTransferApprovalsHandler(
             return caller.Errors;
         }
 
+        // A depot controller's queue is its source warehouses, which the read takes on its own. The wash bay
+        // and a shop stock user read every draft; each row says whether it is theirs to add.
         var filter = query.EffectiveFilter;
 
         // The kind switch shows both totals. The page's own read counts the kind it reads (both kinds

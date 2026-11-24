@@ -18,6 +18,17 @@ otherwise be surprised.
 
 ### Added
 
+- **The wash bay and shops' stock users see every SAP-held transfer, and approve and add those into or out
+  of their warehouses.** On SAP-Held Transfers, WashBay and ShopStock now see every warehouse's held drafts.
+  They approve and add a draft that leaves *or enters* their warehouses — WASHBAY for the wash bay, the
+  warehouses on the account for a ShopStock user; any other row says it is not theirs and offers neither.
+  Before, a ShopStock user saw only drafts leaving its warehouses (so never Dispatch → KEFSHOP), and the
+  wash bay could add every warehouse's. ShopStock now holds `transfers.approve_sap` by default and opens on
+  the *Waiting for approval* view, like the wash bay. Converting a transfer request on the Transfers page
+  is unchanged. An add outside the caller's warehouses answers `SapTransferApproval.OutsideWarehouseScope`
+  instead of `InventoryTransfer.WarehouseNotAssigned`.
+  `InventoryTransfer.WarehouseNotAssigned`.
+
 - **The wash bay approves transfers coming into WASHBAY from SAP-Held Transfers.** The page has a
   second view, *Waiting for approval* (`GET /api/sap-transfer-approvals?awaitingApproval=true`), and
   the wash bay opens on it, filtered to drafts going to WASHBAY. A request waiting at its SAP stage,

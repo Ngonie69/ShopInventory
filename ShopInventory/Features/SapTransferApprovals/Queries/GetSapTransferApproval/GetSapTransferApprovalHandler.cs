@@ -51,12 +51,12 @@ public sealed class GetSapTransferApprovalHandler(
                 return Errors.SapTransferApproval.NotFound(query.DraftEntry);
             }
 
-            // Before anything else is described: a transfer out of somebody else's warehouse is not
-            // theirs to read about, and nor is a request for stock from one.
-            if (!caller.Value.Admits(draft.FromWarehouse))
+            // Before anything else is described: a depot controller reads only drafts leaving its own
+            // warehouses. The wash bay and a shop's stock user read every draft; whether they may add or
+            // decide it is said on the draft and on each request below.
+            if (!caller.Value.MayRead(draft))
             {
-                return Errors.SapTransferApproval.OutsideWarehouseScope(
-                    draft.FromWarehouse ?? "an unnamed warehouse", SapTransferApprovalProjection.KindOf(draft));
+                return SapTransferApprovalProjection.OutsideScope(caller.Value, draft);
             }
 
             requests = await sap.GetStockTransferApprovalRequestsAsync([draft.DocEntry], withLines: true, cancellationToken);
@@ -111,7 +111,8 @@ public sealed class GetSapTransferApprovalHandler(
         {
             Draft = item,
             Lines = lines,
-            Approvals = await BuildApprovalsAsync(requests, await DecisionContextAsync(query.CallerUserId, requests, cancellationToken), cancellationToken),
+            Approvals = await BuildApprovalsAsync(
+                requests, await DecisionContextAsync(query.CallerUserId, caller.Value, draft, requests, cancellationToken), cancellationToken),
             LinkedRequests = isRequest ? [] : await ReadLinkedRequestsAsync(draft, cancellationToken),
             SelectionUnchecked = flagsUnread
         };
@@ -124,6 +125,8 @@ public sealed class GetSapTransferApprovalHandler(
     /// </summary>
     private async Task<DecisionContext?> DecisionContextAsync(
         Guid? callerUserId,
+        SapTransferApprovalCaller caller,
+        SAPStockTransferDraft draft,
         IReadOnlyCollection<SAPApprovalRequest> requests,
         CancellationToken cancellationToken)
     {
@@ -135,6 +138,13 @@ public sealed class GetSapTransferApprovalHandler(
         if (callerUserId is Guid userId && !await userManagement.HasPermissionAsync(userId, Permission.ApproveSapTransfers))
         {
             return null;
+        }
+
+        // Readable is not decidable: the wash bay and a shop's stock user see every draft but decide only
+        // those into or out of their own warehouses, as the decision itself checks.
+        if (!caller.AdmitsDraft(draft))
+        {
+            return new DecisionContext(null, null, SapTransferApprovalProjection.OutsideScope(caller, draft).Description);
         }
 
         var scope = await stageScope.ResolveAsync(callerUserId, cancellationToken);

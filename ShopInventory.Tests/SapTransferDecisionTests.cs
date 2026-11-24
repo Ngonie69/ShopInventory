@@ -62,15 +62,57 @@ public sealed class SapTransferDecisionTests : IDisposable
     }
 
     [Fact]
-    public void Only_the_wash_bay_and_administrators_approve_SAP_held_transfers_by_default()
+    public void The_wash_bay_shop_stock_and_administrators_approve_SAP_held_transfers_by_default()
     {
-        Assert.Contains(Permission.ApproveSapTransfers, Permission.GetDefaultPermissionsForRole(ApplicationRoles.WashBay));
-        Assert.Contains(Permission.ApproveSapTransfers, Permission.GetDefaultPermissionsForRole(ApplicationRoles.Admin));
+        foreach (var role in new[] { ApplicationRoles.WashBay, ApplicationRoles.ShopStock, ApplicationRoles.Admin })
+        {
+            Assert.Contains(Permission.ApproveSapTransfers, Permission.GetDefaultPermissionsForRole(role));
+        }
 
-        foreach (var role in new[] { ApplicationRoles.StockController, ApplicationRoles.DepotController, ApplicationRoles.ShopStock })
+        foreach (var role in new[] { ApplicationRoles.StockController, ApplicationRoles.DepotController, ApplicationRoles.Manager })
         {
             Assert.DoesNotContain(Permission.ApproveSapTransfers, Permission.GetDefaultPermissionsForRole(role));
         }
+    }
+
+    /// <summary>
+    /// A shop's stock user decides a transfer coming into its shop. No SAP stage is configured for the role,
+    /// so its warehouses are the scope, with SAP's own listing of the app's approver on the stage.
+    /// </summary>
+    [Fact]
+    public async Task A_shop_stock_user_approves_a_transfer_into_its_shop_and_not_one_touching_none_of_its_warehouses()
+    {
+        var shop = await UserAsync(ApplicationRoles.ShopStock, "KEFSHOP");
+
+        var foreign = WaitingTransfer(WashbayStage);
+        var refused = await Handler(foreign, scope: FixedStageScope.EveryStage).Handle(
+            new DecideSapTransferApprovalCommand(98635, ApprovalDecisionValues.Approved, null, shop.Id, "shop", null),
+            CancellationToken.None);
+        Assert.Equal("SapTransferApproval.OutsideWarehouseScope", refused.FirstError.Code);
+        Assert.Empty(foreign.Decisions);
+
+        var incoming = WaitingTransfer(WashbayStage, from: "DISPCH", to: "KEFSHOP");
+        var result = await Handler(incoming, scope: FixedStageScope.EveryStage).Handle(
+            new DecideSapTransferApprovalCommand(98635, ApprovalDecisionValues.Approved, null, shop.Id, "shop", null),
+            CancellationToken.None);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
+        Assert.Single(incoming.Decisions);
+        Assert.True(result.Value.CanAdd);
+    }
+
+    [Fact]
+    public async Task The_wash_bay_cannot_decide_a_transfer_touching_no_wash_bay_warehouse()
+    {
+        var washbay = await UserAsync(ApplicationRoles.WashBay);
+        var sap = WaitingTransfer(WashbayStage, from: "PROYG 2", to: "DISPYOG");
+
+        var result = await Handler(sap).Handle(
+            new DecideSapTransferApprovalCommand(98635, ApprovalDecisionValues.Approved, null, washbay.Id, "washbay", null),
+            CancellationToken.None);
+
+        Assert.Equal("SapTransferApproval.OutsideWarehouseScope", result.FirstError.Code);
+        Assert.Empty(sap.Decisions);
     }
 
     [Fact]
@@ -233,9 +275,13 @@ public sealed class SapTransferDecisionTests : IDisposable
     }
 
     /// <summary>Draft entry 89165, PROYG 2 → WASHBAY, pending; request 98635 waiting at <paramref name="stage"/>.</summary>
-    private static FakeTransferSap WaitingTransfer(int stage, string draftAfterApproval = SapStockTransferAuthorizationStatuses.Approved)
+    private static FakeTransferSap WaitingTransfer(
+        int stage,
+        string draftAfterApproval = SapStockTransferAuthorizationStatuses.Approved,
+        string from = "PROYG 2",
+        string to = "WASHBAY")
     {
-        var draft = HeldTransfers.Draft(89165, "PROYG 2", "WASHBAY");
+        var draft = HeldTransfers.Draft(89165, from, to);
         draft.DocNum = 96285;
         draft.AuthorizationStatus = SapStockTransferAuthorizationStatuses.Pending;
 
@@ -274,11 +320,12 @@ public sealed class SapTransferDecisionTests : IDisposable
     private DecideSapTransferApprovalHandler Handler(
         FakeTransferSap sap,
         RecordingAuditService? audit = null,
-        FakeSapApprovalLookups? lookups = null) => new(
+        FakeSapApprovalLookups? lookups = null,
+        ICreditNoteApprovalStageScope? scope = null) => new(
         sap.AsClient(),
         lookups ?? Lookups(),
         new SapTransferApprovalAccess(_context, new TransferWarehouseAuthorizer(_context)),
-        FixedStageScope.Stages("Factory Washbay", WashbayStage),
+        scope ?? FixedStageScope.Stages("Factory Washbay", WashbayStage),
         new IdempotencyRequestStore(new SingleDbContextScopeFactory(_options), Options.Create(new SecuritySettings())),
         audit ?? new RecordingAuditService(),
         Options.Create(new SAPSettings { Enabled = true, Username = "Software", Password = "pw" }),
@@ -293,7 +340,7 @@ public sealed class SapTransferDecisionTests : IDisposable
         Options.Create(new SAPSettings { Enabled = true }),
         NullLogger<GetSapTransferApprovalHandler>.Instance);
 
-    private async Task<User> UserAsync(string role)
+    private async Task<User> UserAsync(string role, string warehouse = "WASHBAY")
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var user = new User
@@ -305,7 +352,7 @@ public sealed class SapTransferDecisionTests : IDisposable
             Role = role,
             IsActive = true
         };
-        user.SetWarehouseCodes(["WASHBAY"]);
+        user.SetWarehouseCodes([warehouse]);
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
         return user;

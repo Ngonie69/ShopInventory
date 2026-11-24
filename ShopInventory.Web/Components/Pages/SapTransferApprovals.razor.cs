@@ -22,7 +22,8 @@ namespace ShopInventory.Web.Components.Pages;
 /// <remarks>
 /// Everything is read live from SAP through the API. The search and every filter are sent to SAP, which
 /// filters and counts, and a depot controller's queue is already narrowed there to the transfers leaving
-/// its own warehouses. Whether a waiting request can be decided here is the API's answer per request: the
+/// its own warehouses. The wash bay and a shop's stock user see every warehouse's; each row and the drawer
+/// say whether it is theirs to approve or add (those into or out of their own warehouses). Whether a waiting request can be decided here is the API's answer per request: the
 /// caller's SAP stages (the wash bay decides stage 'Factory Washbay') and whether SAP lists the app's approver.
 /// </remarks>
 public partial class SapTransferApprovals : IDisposable
@@ -58,6 +59,12 @@ public partial class SapTransferApprovals : IDisposable
     /// <summary>The drafts still waiting for SAP's approval, instead of the approved ones waiting to be added.</summary>
     private bool awaitingApproval;
     private bool isWashBay;
+
+    /// <summary>
+    /// The wash bay and a shop's stock user come here mainly to approve what is on its way in or out of
+    /// their warehouses, so they open on the waiting view.
+    /// </summary>
+    private bool opensOnWaiting;
 
     /// <summary>The decision's remark, sent to SAP after the person's name.</summary>
     private string? decideRemarks;
@@ -300,16 +307,21 @@ public partial class SapTransferApprovals : IDisposable
 
     protected override async Task OnInitializedAsync()
     {
-        // The wash bay comes here to approve what is on its way in, so it opens on that.
+        // The wash bay and a shop's stock user come here to approve what is on its way, so they open on that.
         if (AuthState is not null)
         {
             var user = (await AuthState).User;
             isWashBay = user.IsInRole(UserRoles.WashBay);
+            opensOnWaiting = isWashBay || user.IsInRole(UserRoles.ShopStock);
+        }
+
+        if (opensOnWaiting)
+        {
+            awaitingApproval = true;
         }
 
         if (isWashBay)
         {
-            awaitingApproval = true;
             toFilter.Add(WashBayWarehouse);
         }
 

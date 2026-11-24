@@ -77,7 +77,8 @@ public sealed class SapTransferApprovalListResponseDto
 
     /// <summary>
     /// The source warehouses the caller's queue is limited to; null when they see every warehouse.
-    /// A depot controller sees only transfers leaving the warehouses on their account.
+    /// A depot controller sees only transfers leaving the warehouses on their account. The wash bay and a
+    /// shop's stock user see every warehouse's, and each row's <c>canAdd</c> says which are theirs.
     /// </summary>
     public List<string>? ScopedWarehouses { get; set; }
 

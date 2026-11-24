@@ -39,6 +39,24 @@ public sealed class SapTransferWaitingPageTests
         Assert.Contains("Waiting</span>", run.Html);
     }
 
+    /// <summary>
+    /// A shop's stock user also opens on what is waiting (2026-11-23), across every warehouse (2026-11-24):
+    /// no destination chip and no "Leaving" scope, because its queue is not narrowed.
+    /// </summary>
+    [Fact]
+    public async Task A_shop_stock_user_opens_on_everything_waiting_with_no_warehouse_narrowing()
+    {
+        var run = await RenderAsync("ShopStock");
+
+        var filter = Assert.Single(run.ListFilters);
+        Assert.True(filter.AwaitingApproval);
+        Assert.Empty(filter.ToWarehouses);
+        Assert.Empty(filter.FromWarehouses);
+        Assert.Contains("aria-pressed=\"true\"", Around(run.Html, "Waiting for approval"));
+        Assert.DoesNotContain("sta-q-scope", run.Html);
+        Assert.DoesNotContain("To WASHBAY", run.Html);
+    }
+
     [Fact]
     public async Task Everyone_else_opens_on_the_approved_transfers_as_before()
     {

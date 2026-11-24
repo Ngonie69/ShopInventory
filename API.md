@@ -6163,17 +6163,20 @@ Nothing is mirrored into the local approval engine (§44). See `docs/sap-transfe
 |--------|----------|-------------|
 | GET | `/api/sap-transfer-approvals` | The approved drafts waiting to be added, newest first: `page` 1, `pageSize` 25, `beforeDocEntry` for cursor paging, `kind` (`transfer` or `request`; omitted reads both, each row's `kind` saying which), `warehouse` for drafts leaving or entering one warehouse; `from` and `to` (repeatable) for drafts leaving or entering any of several; `createdFrom`/`createdTo` (`yyyy-MM-dd`, SAP's `CreationDate`); `attachedOnly`; `draftNum` (the draft number or the draft entry); `awaitingApproval=true` for the drafts still waiting for SAP's approval instead of the approved ones. Every filter is applied in SAP, so `totalCount` is of the filtered queue; `transferCount` and `requestCount` are each kind's total for the same filters, null when that count could not be read |
 | GET | `/api/sap-transfer-approvals/{draftEntry}` | One draft, either kind: lines with their batch picks (a transfer's only), the approval requests and approver lines, and the transfer requests a transfer draft was copied from. Each pending request carries `canDecide`, and `decideNote` saying why not when the caller holds the permission but the request waits at a stage that is not theirs |
-| POST | `/api/sap-transfer-approvals/requests/{code}/decision` | **`transfers.approve_sap`** (Admin, WashBay by default). Approve or reject SAP approval request `{code}` on a transfer or transfer request draft. Body `{ "decision": "Approved" \| "NotApproved", "remarks": "…", "clientRequestId": "…" }` (or an `Idempotency-Key` header). Only a pending request at one of the caller's stages (`CreditNoteApprovals:RoleStageScopes` — the wash bay's is `Factory Washbay`), on a draft out of one of their warehouses, at a stage SAP lists the app's approver on. Answers `canAdd` from the draft read back afterwards, since a draft held by a second template stays Pending |
+| POST | `/api/sap-transfer-approvals/requests/{code}/decision` | **`transfers.approve_sap`** (Admin, WashBay, ShopStock by default). Approve or reject SAP approval request `{code}` on a transfer or transfer request draft. Body `{ "decision": "Approved" \| "NotApproved", "remarks": "…", "clientRequestId": "…" }` (or an `Idempotency-Key` header). Only a pending request at one of the caller's stages (`CreditNoteApprovals:RoleStageScopes` — the wash bay's is `Factory Washbay`; a role with none configured, ShopStock, is not narrowed by stage), on a draft in the caller's warehouses (see below), at a stage SAP lists the app's approver on. Answers `canAdd` from the draft read back afterwards, since a draft held by a second template stays Pending |
 | POST | `/api/sap-transfer-approvals/{draftEntry}/add` | Add the approved draft as the document it describes: a transfer draft as the inventory transfer, then close any transfer request it was copied from; a request draft as an open transfer request, which moves no stock. Body `{ "clientRequestId": "…" }` or an `Idempotency-Key` header |
 
-**Who may add, and see.** The people who may convert a transfer request
-(`ITransferWarehouseAuthorizer.EnsureCanConvertRequestAsync`): Admin, StockController and WashBay from
-any warehouse; DepotController and ShopStock only from the warehouses on their account — the draft's
-header and every line. The role is read from the account by user id, never from the request's role
-claims, because the Web's integration key carries Admin. A scoped account's list and `totalCount` are
-filtered in SAP, and `scopedWarehouses` names its warehouses; the detail answers
-`403 SapTransferApproval.OutsideWarehouseScope` for a draft leaving another warehouse, and the add the
-conversion's own `403 InventoryTransfer.WarehouseNotAssigned`.
+**Who may see, decide and add** (`SapTransferApprovalAccess`, 2026-11-23/24). Admin and StockController:
+every draft. DepotController: sees and acts on a draft leaving the warehouses on its account — the header
+and every line — and its list and `totalCount` are filtered in SAP on them (`scopedWarehouses`).
+**WashBay and ShopStock: see every warehouse's drafts, and decide and add a draft leaving or entering
+their warehouses**, header or line — for ShopStock the warehouses on its account, for WashBay `WASHBAY`
+(a WashBay account holds no assignments). Their rows outside those warehouses carry `canAdd: false`
+with a `statusNote`, and a pending request on one `canDecide: false` with a `decideNote`. The role is
+read from the account by user id, never from the request's role claims, because the Web's integration
+key carries Admin. The decision and the add answer `403 SapTransferApproval.OutsideWarehouseScope` for a
+draft outside the caller's warehouses, as does the detail for a depot controller. A conversion (§50)
+that reaches the add has already asked the conversion rule on its request, so it is not asked this one.
 
 Each row carries `canAdd` and, when false, `statusNote`. The list sees only the draft's header; the
 detail reads the draft by key — the only read SAP answers with each line's batch picks — and also
