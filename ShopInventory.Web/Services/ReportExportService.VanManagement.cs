@@ -10,7 +10,7 @@ namespace ShopInventory.Web.Services;
 /// <summary>
 /// The van sales management report as a workbook, laid out as the office's "Vansales Daily Report"
 /// workbook was: Insights Summary, Management Overview, Monthly Summary, Daily Management View, Daily
-/// Truck Cards, Weekly Sales, Route Sales Ranking, the product group, Breakages and Raw Data.
+/// Truck Cards, then PCR &amp; CCR Trends (not in the office's book), Weekly Sales, Route Sales Ranking, the product group, Breakages and Raw Data.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -139,6 +139,7 @@ public partial class ReportExportService
 
             BuildMgmtDailySheet(workbook, report, day, charts, now);
             BuildMgmtTruckCardsSheet(workbook, report, day, now);
+            BuildMgmtCallRatesSheet(workbook, report, charts, now);
             BuildMgmtWeeklySheet(workbook, report, weekStart, charts, now);
             BuildMgmtRoutesSheet(workbook, report, charts, now);
 
@@ -293,7 +294,7 @@ public partial class ReportExportService
 
     private static void BuildMgmtOverviewSheet(XLWorkbook workbook, VanManagementReport report, MgmtCharts charts, DateTime now)
     {
-        const int lastCol = 6;
+        const int lastCol = 7;
         const string sheet = "Management Overview";
         var ws = workbook.Worksheets.Add(sheet);
         TsApplyDefaults(ws);
@@ -303,7 +304,8 @@ public partial class ReportExportService
         var payments = report.Payments;
 
         row = MgmtKpiStrip(ws, row, lastCol,
-            ("Full-Month Target", total.PeriodTarget, MgmtMoney, null),
+            ("Month Target With VAT", total.PeriodTarget, MgmtMoney, null),
+            ("Month Target Before VAT", VanManagementReport.BeforeVat(total.PeriodTarget), MgmtMoney, null),
             ("Van Sales To Date", total.Sales, MgmtMoney, null),
             ("Balance To Target", total.BalanceToTarget, MgmtMoney, null),
             ("Target Achieved", total.TargetAchieved, MgmtRate, MgmtToneInk(total.TargetAchieved)),
@@ -333,23 +335,28 @@ public partial class ReportExportService
         row = MgmtTable(ws, row, lastCol, report.Trucks.ToList(),
         [
             new("Truck", truck => truck.RouteName),
-            new("Monthly Target", truck => truck.PeriodTarget, FormatUsd),
+            new("Target With VAT", truck => truck.PeriodTarget, FormatUsd),
+            new("Target Before VAT", truck => VanManagementReport.BeforeVat(truck.PeriodTarget), FormatUsd),
             new("Van Sales To Date", truck => truck.Sales, FormatUsd),
             new("Balance", truck => truck.BalanceToTarget, FormatUsdSigned),
             new("% Target", truck => truck.TargetAchieved, FormatPercent),
             new("Days Reported", truck => $"{truck.DaysReported} of {truck.WorkingDaysElapsed}")
-        ], total: ["ALL TRUCKS", total.PeriodTarget, total.Sales, total.BalanceToTarget, total.TargetAchieved, $"{total.DaysReported} of {total.WorkingDaysElapsed}"]);
+        ], total: ["ALL TRUCKS", total.PeriodTarget, VanManagementReport.BeforeVat(total.PeriodTarget), total.Sales, total.BalanceToTarget, total.TargetAchieved, $"{total.DaysReported} of {total.WorkingDaysElapsed}"]);
 
         foreach (var (truck, offset) in report.Trucks.Select((truck, offset) => (truck, offset)))
         {
-            MgmtTone(ws.Cell(firstData + offset, 5), truck.TargetAchieved);
+            MgmtTone(ws.Cell(firstData + offset, 6), truck.TargetAchieved);
 
             if (truck.DaysReported < truck.WorkingDaysElapsed)
             {
-                ws.Cell(firstData + offset, 6).Style.Font.FontColor = TsOrange;
-                ws.Cell(firstData + offset, 6).Style.Font.Bold = true;
+                ws.Cell(firstData + offset, 7).Style.Font.FontColor = TsOrange;
+                ws.Cell(firstData + offset, 7).Style.Font.Bold = true;
             }
         }
+
+        row = MgmtNote(ws, row - 1, lastCol,
+            $"Targets are set with VAT, as van sales are counted. Before VAT is the target taken back at the standard {VanManagementReport.TargetVatRateText} rate; balance and % of target are against the target with VAT.");
+        row++;
 
         TsSectionTitle(ws, row, lastCol, "MONTH-TO-DATE VANSALES PAYMENT SUMMARY");
         row += 2;
@@ -634,6 +641,260 @@ public partial class ReportExportService
             ws.Column(col).Width = Math.Max(ws.Column(col).Width, 13);
         }
     }
+
+    // — PCR & CCR Trends ———————————————————————————————————————————————————————————————————————
+
+    private const string MgmtCallRatesSheet = "PCR & CCR Trends";
+
+    /// <summary>A change in percentage points: green up, red down.</summary>
+    private const string MgmtPoints = "[Color10]\"▲ \"0.0\" pts\";[Red]\"▼ \"0.0\" pts\";0.0\" pts\"";
+
+    /// <summary>The same without colour, for the navy total rows, where green and red do not read.</summary>
+    private const string MgmtPointsPlain = "\"▲ \"0.0\" pts\";\"▼ \"0.0\" pts\";0.0\" pts\"";
+
+    /// <summary>
+    /// CCR and PCR day by day: the fleet's rate each day against its month to date, the calls behind them,
+    /// week on week, and a grid of each truck's day shaded from its lowest to its highest, so a slide or a
+    /// recovery shows across a row.
+    /// </summary>
+    private static void BuildMgmtCallRatesSheet(XLWorkbook workbook, VanManagementReport report, MgmtCharts charts, DateTime now)
+    {
+        var rates = VanManagementReportBuilder.CallRates(report);
+        var dates = rates.Dates;
+        int lastCol = Math.Max(12, dates.Count + 2);
+        var ws = workbook.Worksheets.Add(MgmtCallRatesSheet);
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, $"CALL RATES  |  CCR AND PCR DAY BY DAY  —  {MgmtPeriod(report).ToUpperInvariant()}", lastCol, now);
+        row = MgmtNote(ws, row, lastCol,
+            "CCR (call compliance) is the shops on the day's round that were checked into, over the shops on the round. " +
+            "PCR (productive calls) is the calls that ended in a sale, over the calls made. A day with no plan or no check-in has no rate and shows a dash, never 0%. " +
+            "The month's figures are the Monthly Summary's.");
+        row++;
+
+        var total = report.Total;
+        var latest = rates.Fleet.LastOrDefault(day => day.Day.CallsMade > 0 || day.Day.PlannedCustomers > 0);
+        var (previousWeek, latestWeek) = rates.LastTwoWeeks;
+        var ccrWeekChange = MgmtPointsBetween(latestWeek?.Calls.CallComplianceRate, previousWeek?.Calls.CallComplianceRate);
+        var pcrWeekChange = MgmtPointsBetween(latestWeek?.Calls.ProductiveCallRate, previousWeek?.Calls.ProductiveCallRate);
+
+        row = MgmtKpiStrip(ws, row, lastCol,
+            ("Month CCR", total.CallComplianceRate, MgmtRate, null),
+            ("Month PCR", total.ProductiveCallRate, MgmtRate, null),
+            (latest is null ? "Latest Day CCR" : $"CCR On {latest.Date:d MMM}", latest?.Day.CallComplianceRate, MgmtRate, null),
+            (latest is null ? "Latest Day PCR" : $"PCR On {latest.Date:d MMM}", latest?.Day.ProductiveCallRate, MgmtRate, null),
+            ("CCR Week On Week", ccrWeekChange, MgmtPoints, MgmtSignInk(ccrWeekChange)),
+            ("PCR Week On Week", pcrWeekChange, MgmtPoints, MgmtSignInk(pcrWeekChange)),
+            ("Calls Made", total.PcrCallsMade, MgmtWhole, null));
+
+        var ccrBlock = charts.Block("CCR day by day", ["Day", "CCR on the day", "CCR month to date"], rates.Fleet,
+            day => [day.Date.ToString("d MMM"), day.Day.CallComplianceRate, day.ToDate.CallComplianceRate]);
+        var pcrBlock = charts.Block("PCR day by day", ["Day", "PCR on the day", "PCR month to date"], rates.Fleet,
+            day => [day.Date.ToString("d MMM"), day.Day.ProductiveCallRate, day.ToDate.ProductiveCallRate]);
+        var callsBlock = charts.Block("Calls day by day", ["Day", "Productive calls", "Calls with no sale"], rates.Fleet,
+            day => [day.Date.ToString("d MMM"), day.Day.CallsMade > 0 ? day.Day.ProductiveCalls : null, day.Day.CallsMade > 0 ? day.Day.CallsMade - day.Day.ProductiveCalls : null]);
+
+        // The day's rate is the light line and the month to date the dark one, so the noise of a single
+        // day reads as noise and the trend as the trend.
+        charts.Place(MgmtCallRatesSheet, row, 0, new MgmtChartSpec("CCR — the fleet day by day", ccrBlock,
+            [new MgmtSeries(2, MgmtSoftBlueHex, Line: true), new MgmtSeries(3, MgmtNavyHex, Line: true)],
+            MgmtChartType.Line, AxisFormat: "0%"));
+        charts.Place(MgmtCallRatesSheet, row, 1, new MgmtChartSpec("PCR — the fleet day by day", pcrBlock,
+            [new MgmtSeries(2, MgmtSoftBlueHex, Line: true), new MgmtSeries(3, MgmtNavyHex, Line: true)],
+            MgmtChartType.Line, AxisFormat: "0%"));
+        row = MgmtChartBand(row);
+        charts.Place(MgmtCallRatesSheet, row, 0, new MgmtChartSpec("Calls made each day, and how many sold", callsBlock,
+            [new MgmtSeries(2, MgmtBlueHex), new MgmtSeries(3, MgmtTrackHex)],
+            MgmtChartType.Column, Stacked: true, AxisFormat: "#,##0"),
+            width: MgmtChartWidth * 2 + MgmtChartGap, height: 300);
+        row = MgmtChartBand(row, 300);
+
+        // — The fleet day by day, each rate's change on the last day that had one.
+        TsSectionTitle(ws, row, lastCol, "THE FLEET DAY BY DAY");
+        row += 2;
+
+        double? lastCcr = null, lastPcr = null;
+        var fleetRows = new List<(VanManagementCallRateDay Day, double? CcrChange, double? PcrChange)>();
+        foreach (var day in rates.Fleet)
+        {
+            fleetRows.Add((day, MgmtPointsBetween(day.Day.CallComplianceRate, lastCcr), MgmtPointsBetween(day.Day.ProductiveCallRate, lastPcr)));
+            lastCcr = day.Day.CallComplianceRate ?? lastCcr;
+            lastPcr = day.Day.ProductiveCallRate ?? lastPcr;
+        }
+
+        int fleetFirst = row + 1;
+        var month = VanManagementReportBuilder.Calls(report.Truck.Days);
+        row = MgmtTable(ws, row, lastCol, fleetRows,
+        [
+            new("Date", item => item.Day.Date, FormatDayDate),
+            new("Trucks Reporting", item => item.Day.TrucksReporting, FormatCount),
+            new("Shops Planned", item => item.Day.Day.PlannedCustomers > 0 ? item.Day.Day.PlannedCustomers : null, FormatCount),
+            new("Planned Shops Called", item => item.Day.Day.PlannedCustomers > 0 ? item.Day.Day.PlannedCallsMade : null, FormatCount),
+            new("CCR", item => item.Day.Day.CallComplianceRate, FormatPercent),
+            new("CCR Month To Date", item => item.Day.ToDate.CallComplianceRate, FormatPercent),
+            new("CCR Change", item => item.CcrChange, MgmtPoints),
+            new("Calls Made", item => item.Day.Day.CallsMade > 0 ? item.Day.Day.CallsMade : null, FormatCount),
+            new("Productive Calls", item => item.Day.Day.CallsMade > 0 ? item.Day.Day.ProductiveCalls : null, FormatCount),
+            new("PCR", item => item.Day.Day.ProductiveCallRate, FormatPercent),
+            new("PCR Month To Date", item => item.Day.ToDate.ProductiveCallRate, FormatPercent),
+            new("PCR Change", item => item.PcrChange, MgmtPoints)
+        ], total:
+        [
+            "MONTH", null, month.PlannedCustomers, month.PlannedCallsMade, total.CallComplianceRate, null, null,
+            month.CallsMade, month.ProductiveCalls, total.ProductiveCallRate, null, null
+        ]);
+
+        if (fleetRows.Count > 0)
+        {
+            MgmtRateScale(ws.Range(fleetFirst, 5, fleetFirst + fleetRows.Count - 1, 5));
+            MgmtRateScale(ws.Range(fleetFirst, 10, fleetFirst + fleetRows.Count - 1, 10));
+        }
+
+        row = MgmtNote(ws, row - 1, lastCol, "Change is in percentage points against the last day that had the rate. Shading runs from the month's lowest day (red) to its highest (green).");
+        row++;
+
+        // — Week on week.
+        TsSectionTitle(ws, row, lastCol, "WEEK ON WEEK  |  THE FIRST AND LAST WEEKS HOLD THIS PERIOD'S DATES ONLY");
+        row += 2;
+        VanManagementCallRateWeek? priorWeek = null;
+        var weekRows = new List<(VanManagementCallRateWeek Week, double? CcrChange, double? PcrChange)>();
+        foreach (var week in rates.Weeks.Where(week => week.Calls.CallsMade > 0 || week.Calls.PlannedCustomers > 0))
+        {
+            weekRows.Add((week,
+                MgmtPointsBetween(week.Calls.CallComplianceRate, priorWeek?.Calls.CallComplianceRate),
+                MgmtPointsBetween(week.Calls.ProductiveCallRate, priorWeek?.Calls.ProductiveCallRate)));
+            priorWeek = week;
+        }
+
+        row = MgmtTable(ws, row, lastCol, weekRows,
+        [
+            new("Week", item => item.Week.Label),
+            new("Shops Planned", item => item.Week.Calls.PlannedCustomers, FormatCount),
+            new("Planned Shops Called", item => item.Week.Calls.PlannedCallsMade, FormatCount),
+            new("CCR", item => item.Week.Calls.CallComplianceRate, FormatPercent),
+            new("CCR Change", item => item.CcrChange, MgmtPoints),
+            new("Calls Made", item => item.Week.Calls.CallsMade, FormatCount),
+            new("Productive Calls", item => item.Week.Calls.ProductiveCalls, FormatCount),
+            new("PCR", item => item.Week.Calls.ProductiveCallRate, FormatPercent),
+            new("PCR Change", item => item.PcrChange, MgmtPoints)
+        ]);
+
+        // — Each truck, day by day.
+        row = MgmtTruckRateGrid(ws, row, lastCol, rates, "CCR BY TRUCK, DAY BY DAY", calls => calls.CallComplianceRate,
+            truck => truck.CallComplianceRate, total.CallComplianceRate, markWholeList: true);
+        row = MgmtTruckRateGrid(ws, row, lastCol, rates, "PCR BY TRUCK, DAY BY DAY", calls => calls.ProductiveCallRate,
+            truck => truck.ProductiveCallRate, total.ProductiveCallRate, markWholeList: false);
+
+        // — Each truck, its latest week against the one before.
+        var previousIndex = previousWeek is null ? -1 : rates.Weeks.ToList().IndexOf(previousWeek);
+        var latestIndex = latestWeek is null ? -1 : rates.Weeks.ToList().IndexOf(latestWeek);
+        VanManagementCalls? WeekOf(VanManagementCallRateTruck truck, int index) => index >= 0 ? truck.Weeks[index] : null;
+
+        TsSectionTitle(ws, row, lastCol, latestWeek is null
+            ? "EACH TRUCK  |  LATEST WEEK AGAINST THE ONE BEFORE"
+            : $"EACH TRUCK  |  {latestWeek.Label.ToUpperInvariant()} AGAINST {(previousWeek?.Label ?? "NO EARLIER WEEK").ToUpperInvariant()}");
+        row += 2;
+        row = MgmtTable(ws, row, lastCol, rates.Trucks.ToList(),
+        [
+            new("Truck", truck => truck.Truck.RouteName),
+            new("Month CCR", truck => truck.Truck.CallComplianceRate, FormatPercent),
+            new("CCR Week Before", truck => WeekOf(truck, previousIndex)?.CallComplianceRate, FormatPercent),
+            new("CCR Latest Week", truck => WeekOf(truck, latestIndex)?.CallComplianceRate, FormatPercent),
+            new("CCR Change", truck => MgmtPointsBetween(WeekOf(truck, latestIndex)?.CallComplianceRate, WeekOf(truck, previousIndex)?.CallComplianceRate), MgmtPoints),
+            new("Month PCR", truck => truck.Truck.ProductiveCallRate, FormatPercent),
+            new("PCR Week Before", truck => WeekOf(truck, previousIndex)?.ProductiveCallRate, FormatPercent),
+            new("PCR Latest Week", truck => WeekOf(truck, latestIndex)?.ProductiveCallRate, FormatPercent),
+            new("PCR Change", truck => MgmtPointsBetween(WeekOf(truck, latestIndex)?.ProductiveCallRate, WeekOf(truck, previousIndex)?.ProductiveCallRate), MgmtPoints)
+        ], total:
+        [
+            "ALL TRUCKS", total.CallComplianceRate, previousWeek?.Calls.CallComplianceRate, latestWeek?.Calls.CallComplianceRate, ccrWeekChange,
+            total.ProductiveCallRate, previousWeek?.Calls.ProductiveCallRate, latestWeek?.Calls.ProductiveCallRate, pcrWeekChange
+        ]);
+        ws.Cell(row - 2, 5).Style.NumberFormat.Format = MgmtPointsPlain;
+        ws.Cell(row - 2, 9).Style.NumberFormat.Format = MgmtPointsPlain;
+
+        TsFinalize(ws, lastCol, freezeCol: 1);
+        ws.Column(1).Width = Math.Max(ws.Column(1).Width, 30);
+    }
+
+    /// <summary>
+    /// A truck per row and a day per column, each cell the truck's rate that day, shaded across the whole
+    /// grid from its lowest to its highest, with the month's rate at the end.
+    /// </summary>
+    private static int MgmtTruckRateGrid(
+        IXLWorksheet ws,
+        int row,
+        int lastCol,
+        VanManagementCallRates rates,
+        string title,
+        Func<VanManagementCalls, double?> rate,
+        Func<VanDailyTruckSummary, double?> monthRate,
+        double? fleetMonth,
+        bool markWholeList)
+    {
+        TsSectionTitle(ws, row, lastCol, title);
+        row += 2;
+
+        var columns = new List<MgmtColumn<VanManagementCallRateTruck>> { new("Truck", truck => truck.Truck.RouteName) };
+        columns.AddRange(rates.Dates.Select((date, index) =>
+            new MgmtColumn<VanManagementCallRateTruck>(date.ToString("ddd d"), truck => rate(truck.Days[index]), FormatPercent)));
+        columns.Add(new("Month", truck => monthRate(truck.Truck), FormatPercent));
+
+        int first = row + 1;
+        var monthCol = rates.Dates.Count + 2;
+        row = MgmtTable(ws, row, lastCol, rates.Trucks.ToList(), columns.ToArray(),
+            total: ["FLEET", .. rates.Fleet.Select(day => (object?)rate(day.Day)), fleetMonth]);
+
+        if (rates.Trucks.Count > 0 && rates.Dates.Count > 0)
+        {
+            MgmtRateScale(ws.Range(first, 2, first + rates.Trucks.Count - 1, rates.Dates.Count + 1));
+            ws.Range(first - 1, 2, first + rates.Trucks.Count, rates.Dates.Count + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Range(first, monthCol, first + rates.Trucks.Count - 1, monthCol).Style.Font.Bold = true;
+
+            if (markWholeList)
+            {
+                for (int t = 0; t < rates.Trucks.Count; t++)
+                {
+                    for (int d = 0; d < rates.Dates.Count; d++)
+                    {
+                        if (rates.Trucks[t].Days[d].OnWholeListOnly)
+                        {
+                            ws.Cell(first + t, d + 2).Style.Font.Italic = true;
+                            ws.Cell(first + t, d + 2).Style.Font.FontColor = TsTextMuted;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (markWholeList)
+        {
+            row = MgmtNote(ws, row - 1, lastCol,
+                "Grey italics: the truck had no round that day, so its CCR is over its whole customer list and reads low. Shading runs from the grid's lowest rate (red) to its highest (green).");
+            row++;
+        }
+
+        return row;
+    }
+
+    /// <summary>Red at the range's lowest rate, white at its middle, green at its highest.</summary>
+    private static void MgmtRateScale(IXLRange range) =>
+        range.AddConditionalFormat()
+            .ColorScale()
+            .LowestValue(XLColor.FromHtml("#F2B8B5"))
+            .Midpoint(XLCFContentType.Percentile, "50", XLColor.FromHtml("#FFFFFF"))
+            .HighestValue(XLColor.FromHtml("#B9DDBB"));
+
+    /// <summary>The change from one rate to another in percentage points; null unless both are known.</summary>
+    private static double? MgmtPointsBetween(double? now, double? before) =>
+        now is { } current && before is { } earlier ? Math.Round((current - earlier) * 100, 4) : null;
+
+    private static XLColor? MgmtSignInk(double? change) => change switch
+    {
+        > 0 => TsGreen,
+        < 0 => TsRed,
+        _ => null
+    };
 
     // — Weekly Sales ————————————————————————————————————————————————————————————————————————————
 
@@ -1168,7 +1429,7 @@ public partial class ReportExportService
             clean = clean[..31];
         }
 
-        string[] taken = ["Insights Summary", "Management Overview", "Monthly Summary", "Daily Management View", "Daily Truck Cards", "Weekly Sales", "Route Sales Ranking", "Breakages", "Raw Data", "Trucks", "Days", MgmtChartDataSheet];
+        string[] taken = ["Insights Summary", "Management Overview", "Monthly Summary", "Daily Management View", "Daily Truck Cards", MgmtCallRatesSheet, "Weekly Sales", "Route Sales Ranking", "Breakages", "Raw Data", "Trucks", "Days", MgmtChartDataSheet];
         return taken.Contains(clean, StringComparer.OrdinalIgnoreCase) ? $"{clean[..Math.Min(clean.Length, 27)]} (2)" : clean;
     }
 

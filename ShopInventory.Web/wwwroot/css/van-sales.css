@@ -6428,6 +6428,12 @@
     text-decoration: none;
 }
 
+/* Seven figures in one row on a laptop: at the summary's usual 150px minimum the month target's
+   tile left the seventh wrapping onto a row of its own. */
+.vs #vsm-kpis {
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+}
+
 .vs .vsm-reporting {
     margin: -10px 0 0;
 }

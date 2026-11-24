@@ -65,6 +65,21 @@ public sealed record VanManagementReport(
     string? ProductGroupName,
     VanManagementExtrasResponse? Extras)
 {
+    /// <summary>
+    /// The VAT rate a target is taken back to before VAT at: the standard rate, the API's <c>Tax:VatRate</c>.
+    /// A route's target is typed with VAT included, as a single figure, not per item, so the standard rate
+    /// is the only one it can be read at.
+    /// </summary>
+    public const decimal TargetVatRate = 0.155m;
+
+    /// <summary>The rate as people write it, "15.5%", whatever the server's culture.</summary>
+    public static string TargetVatRateText =>
+        (TargetVatRate * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+    /// <summary>A target with VAT, before VAT at <see cref="TargetVatRate"/>, to the cent; null with no target.</summary>
+    public static decimal? BeforeVat(decimal? withVat) =>
+        withVat is { } amount ? decimal.Round(amount / (1 + TargetVatRate), 2) : null;
+
     public IReadOnlyList<VanDailyTruckSummary> Trucks => Truck.Trucks;
 
     public VanDailyTruckSummary Total => Truck.Total;
@@ -214,6 +229,49 @@ public sealed record VanManagementBreakageCause(string Cause, int Lines, decimal
 
 /// <summary>One truck on one day with its month to that day: the workbook's daily truck card.</summary>
 public sealed record VanManagementTruckDay(VanDailyTruckSummary Truck, VanDailyTruckDay? Day, VanManagementToDate ToDate);
+
+/// <summary>
+/// The calls a CCR and a PCR are measured on over a set of truck-days. CCR is the shops on the plan that
+/// were called on, over the shops planned; PCR is the calls that sold, over the calls made.
+/// </summary>
+/// <param name="PlannedCustomers">The shops planned on the days the CCR is measured over.</param>
+/// <param name="PlannedCallsMade">Those of them that were checked into.</param>
+/// <param name="CallsMade">Calls made on the days with any check-in.</param>
+/// <param name="ProductiveCalls">Those of them that ended in a sale.</param>
+/// <param name="OnWholeListOnly">Every planned day measured had the whole customer list and no round, so the CCR reads low.</param>
+public sealed record VanManagementCalls(int PlannedCustomers, int PlannedCallsMade, int CallsMade, int ProductiveCalls, bool OnWholeListOnly)
+{
+    public double? CallComplianceRate => PlannedCustomers > 0 ? (double)PlannedCallsMade / PlannedCustomers : null;
+
+    public double? ProductiveCallRate => CallsMade > 0 ? (double)ProductiveCalls / CallsMade : null;
+}
+
+/// <summary>The fleet on one day, and its month up to and including that day.</summary>
+public sealed record VanManagementCallRateDay(DateTime Date, int TrucksReporting, VanManagementCalls Day, VanManagementCalls ToDate);
+
+/// <summary>The fleet over one Monday-to-Sunday week, clipped to the month.</summary>
+public sealed record VanManagementCallRateWeek(DateTime Start, DateTime End, string Label, VanManagementCalls Calls);
+
+/// <summary>One truck's calls on each of <see cref="VanManagementCallRates.Dates"/> and in each of its weeks.</summary>
+public sealed record VanManagementCallRateTruck(VanDailyTruckSummary Truck, IReadOnlyList<VanManagementCalls> Days, IReadOnlyList<VanManagementCalls> Weeks);
+
+/// <summary>CCR and PCR day by day, for the fleet and for each truck, and week on week.</summary>
+public sealed record VanManagementCallRates(
+    IReadOnlyList<DateTime> Dates,
+    IReadOnlyList<VanManagementCallRateDay> Fleet,
+    IReadOnlyList<VanManagementCallRateWeek> Weeks,
+    IReadOnlyList<VanManagementCallRateTruck> Trucks)
+{
+    /// <summary>The latest week with any calls, and the one with calls before it; either may be null.</summary>
+    public (VanManagementCallRateWeek? Previous, VanManagementCallRateWeek? Latest) LastTwoWeeks
+    {
+        get
+        {
+            var withCalls = Weeks.Where(week => week.Calls.CallsMade > 0 || week.Calls.PlannedCustomers > 0).ToList();
+            return (withCalls.Count > 1 ? withCalls[^2] : null, withCalls.Count > 0 ? withCalls[^1] : null);
+        }
+    }
+}
 
 /// <summary>A truck's month up to and including a day.</summary>
 public sealed record VanManagementToDate(
