@@ -1,3 +1,5 @@
+// MailKit 5 moved the SendAsync(MimeMessage, ...) overloads to extension methods in this namespace.
+using MailKit;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;

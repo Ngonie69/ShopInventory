@@ -32,6 +32,32 @@ updates:
       - dependency-name: "Quartz*"
         update-types:
           - "version-update:semver-major"
+      # The projects target net10.0, and the Microsoft servicing packages move
+      # as one train (scripts/Set-AlignedPackageVersion.ps1). The 11.x majors
+      # cannot all follow: EF Core and the ASP.NET Core packages 11 need net11.0,
+      # so Dependabot bumps only the ones that still restore on net10.0 and
+      # leaves the train split, with 11.0 assemblies shadowing the 10.0 shared
+      # framework. Serilog.AspNetCore 11 and Caching.Hybrid 11 pull in the
+      # Microsoft.Extensions 11 packages the same way. Moving to .NET 11 is its
+      # own change: retarget, then move every one of these together.
+      - dependency-name: "Microsoft.AspNetCore.*"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "Microsoft.EntityFrameworkCore*"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "System.*"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "dotnet-ef"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "Serilog.AspNetCore"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "github-actions"
     directory: "/"

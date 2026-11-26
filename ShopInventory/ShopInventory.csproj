@@ -38,12 +38,12 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.15" />
-    <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="11.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.11.1" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.4" />
     <PackageReference Include="Quartz" Version="3.22.11" />
     <PackageReference Include="Quartz.Extensions.Hosting" Version="3.22.11" />
     <PackageReference Include="Quartz.Serialization.SystemTextJson" Version="3.22.11" />
-    <PackageReference Include="Serilog.AspNetCore" Version="11.0.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageReference Include="SkiaSharp" Version="4.157.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="11.0.1" />
     <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="11.0.1" />
