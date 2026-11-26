@@ -18,7 +18,9 @@ public interface ILocalPriceCatalogService
         string itemCode,
         CancellationToken cancellationToken = default);
     /// <summary>
-    /// The business partner's special prices that apply today, from the locally synced catalog.
+    /// The business partner's special prices that apply today, from the locally synced catalog —
+    /// its own, and its price list's period and volume discounts for items it has none of its own
+    /// for (see <see cref="Common.Pricing.SpecialPriceScope"/>).
     /// </summary>
     /// <remarks>
     /// Special prices are negotiated for long validity windows and change rarely, so the synced

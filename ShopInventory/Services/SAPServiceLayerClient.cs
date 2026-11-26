@@ -11,6 +11,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common;
 using ShopInventory.Common.Caching;
+using ShopInventory.Common.Pricing;
 using ShopInventory.Common.Sales;
 using ShopInventory.Common.Sap;
 using ShopInventory.Common.Security;
@@ -7696,8 +7697,8 @@ ORDER BY T0.""ItemCode""";
         return null;
     }
 
-    public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, CancellationToken cancellationToken = default)
-        => await GetSpecialPricesForBPAsync(cardCode, itemCodes: null, cancellationToken);
+    public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, int? priceListNum, CancellationToken cancellationToken = default)
+        => await GetSpecialPricesForBPAsync(cardCode, priceListNum, itemCodes: null, cancellationToken);
 
     /// <summary>
     /// Every special price SAP would charge today, across all business partners.
@@ -7966,13 +7967,17 @@ ORDER BY T0.""ItemCode""";
         }
     }
 
-    public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default)
-        => (await GetSpecialPricesForBPWithStatusAsync(cardCode, itemCodes, cancellationToken)).Prices;
+    public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, int? priceListNum, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default)
+        => (await GetSpecialPricesForBPWithStatusAsync(cardCode, priceListNum, itemCodes, cancellationToken)).Prices;
 
-    public async Task<SpecialPriceLookupResult> GetSpecialPricesForBPWithStatusAsync(string cardCode, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default)
+    public async Task<SpecialPriceLookupResult> GetSpecialPricesForBPWithStatusAsync(string cardCode, int? priceListNum, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        var safeCardCode = SanitizeODataValue(cardCode);
+        // The customer's own rows and its price list's period and volume discounts (*46) come back
+        // in one read; SpecialPriceScope decides between them once both are known.
+        var safeCardCodes = SpecialPriceScope.CardCodes(cardCode, priceListNum)
+            .Select(SanitizeODataValue)
+            .ToList();
         var safeItemCodes = itemCodes?
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -7981,12 +7986,12 @@ ORDER BY T0.""ItemCode""";
 
         // Use OData SpecialPrices endpoint — OSPP is not on the SQL table allowlist.
         // Fetch the full entity so we can honor validity windows and ignore expired BP overrides.
-        var result = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        var currentRows = new List<(string CardCode, string ItemCode, decimal Price)>();
         const int pageSize = 100;
         var todayUtc = DateTime.UtcNow.Date;
         var filteredOutCount = 0;
         var lookupComplete = true;
-        var itemCodeBatches = BuildSpecialPriceItemCodeBatches(safeCardCode, safeItemCodes);
+        var itemCodeBatches = BuildSpecialPriceItemCodeBatches(safeCardCodes, safeItemCodes);
 
         if (safeItemCodes is { Count: > 0 } && itemCodeBatches.Count > 1)
         {
@@ -8005,7 +8010,7 @@ ORDER BY T0.""ItemCode""";
 
                 while (true)
                 {
-                    var filter = BuildSpecialPriceFilter(safeCardCode, itemCodeBatch);
+                    var filter = BuildSpecialPriceFilter(safeCardCodes, itemCodeBatch);
                     var url = $"SpecialPrices?$filter={filter}&$top={pageSize}&$skip={skip}";
                     var requestSession = _sessionId;
 
@@ -8054,7 +8059,8 @@ ORDER BY T0.""ItemCode""";
                                 continue;
                             }
 
-                            result[itemCode] = price;
+                            var rowCardCode = item.TryGetProperty("CardCode", out var cc) ? cc.GetString() : null;
+                            currentRows.Add((rowCardCode ?? string.Empty, itemCode, price));
                         }
                     }
 
@@ -8073,6 +8079,8 @@ ORDER BY T0.""ItemCode""";
             lookupComplete = false;
             _logger.LogWarning(ex, "Error fetching special prices for BP {CardCode}", cardCode);
         }
+
+        var result = SpecialPriceScope.Resolve(cardCode, currentRows);
 
         if (filteredOutCount > 0)
         {
@@ -8141,7 +8149,7 @@ ORDER BY T0.""ItemCode""";
     private const int MaxSpecialPricesFilterLength = 1200;
 
     private static List<IReadOnlyList<string>> BuildSpecialPriceItemCodeBatches(
-        string safeCardCode,
+        IReadOnlyList<string> safeCardCodes,
         IReadOnlyList<string>? safeItemCodes)
     {
         if (safeItemCodes is not { Count: > 0 })
@@ -8154,7 +8162,7 @@ ORDER BY T0.""ItemCode""";
         {
             currentBatch.Add(safeItemCode);
 
-            if (currentBatch.Count <= 1 || BuildSpecialPriceFilter(safeCardCode, currentBatch).Length <= MaxSpecialPricesFilterLength)
+            if (currentBatch.Count <= 1 || BuildSpecialPriceFilter(safeCardCodes, currentBatch).Length <= MaxSpecialPricesFilterLength)
                 continue;
 
             currentBatch.RemoveAt(currentBatch.Count - 1);
@@ -8168,9 +8176,11 @@ ORDER BY T0.""ItemCode""";
         return batches;
     }
 
-    private static string BuildSpecialPriceFilter(string safeCardCode, IReadOnlyCollection<string> safeItemCodes)
+    internal static string BuildSpecialPriceFilter(IReadOnlyList<string> safeCardCodes, IReadOnlyCollection<string> safeItemCodes)
     {
-        var filter = $"CardCode eq '{safeCardCode}'";
+        var filter = safeCardCodes.Count == 1
+            ? $"CardCode eq '{safeCardCodes[0]}'"
+            : $"({string.Join(" or ", safeCardCodes.Select(code => $"CardCode eq '{code}'"))})";
         if (safeItemCodes.Count == 0)
             return filter;
 
