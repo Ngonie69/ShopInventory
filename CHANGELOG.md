@@ -18,6 +18,38 @@ otherwise be surprised.
 
 ### Added
 
+- **The wash bay and shops' stock users see every SAP-held transfer, and approve and add those into or out
+  of their warehouses.** On SAP-Held Transfers, WashBay and ShopStock now see every warehouse's held drafts.
+  They approve and add a draft that leaves *or enters* their warehouses — WASHBAY for the wash bay, the
+  warehouses on the account for a ShopStock user; any other row says it is not theirs and offers neither.
+  Before, a ShopStock user saw only drafts leaving its warehouses (so never Dispatch → KEFSHOP), and the
+  wash bay could add every warehouse's. ShopStock now holds `transfers.approve_sap` by default and opens on
+  the *Waiting for approval* view, like the wash bay. Converting a transfer request on the Transfers page
+  is unchanged. An add outside the caller's warehouses answers `SapTransferApproval.OutsideWarehouseScope`
+  instead of `InventoryTransfer.WarehouseNotAssigned`.
+  `InventoryTransfer.WarehouseNotAssigned`.
+
+- **The wash bay approves transfers coming into WASHBAY from SAP-Held Transfers.** The page has a
+  second view, *Waiting for approval* (`GET /api/sap-transfer-approvals?awaitingApproval=true`), and
+  the wash bay opens on it, filtered to drafts going to WASHBAY. A request waiting at its SAP stage,
+  `Factory Washbay` (template 91 "Washbay Transfers"), can be approved or rejected in the drawer, through
+  `POST /api/sap-transfer-approvals/requests/{code}/decision`. The decision is recorded in SAP as the
+  app's SAP approver, with the person's name in the remarks, as credit memo decisions are. It needs the
+  new permission `transfers.approve_sap`, which Admin and WashBay hold by default. Drafts held at a
+  sending warehouse's stage (Bulawayo Depot, Graniteside, Returns, Dispatch) are listed with whom they
+  wait on, and are still decided in SAP Business One.
+
+- **An `attachment-storage` check on `/health/dependencies` and `/api/health`.** Once a minute the
+  API writes a small file into the attachments folder and into each folder directly under it, then
+  deletes it. The check reports the last result. One failed write is `Degraded`. Two in a row, or a
+  write that has not come back after 15 seconds while the one before it also failed, are
+  `Unhealthy`. That puts a dead upload share in the system-health alert mail and on the dashboard.
+  On 2026-11-23 the share dropped and every POD upload from 06:25 failed, and nothing reported it,
+  because no check looked at the store. The check is tagged `dependencies` only, so a dead share
+  never takes the API out of rotation or blocks a deployment. The probe file is
+  `.health-probe-<machine>-<pid>.tmp`, and the server log records one error when the store fails
+  and one line when it recovers.
+
 - **Failed invoices and credit notes pick up their fiscal receipt on their own.** A new
   `fiscal-receipt-pickup` job (every 5 minutes, `FiscalReceiptPickup` in appsettings) asks the
   fiscalisation platform whether it holds a receipt for each SAP invoice and credit note whose
@@ -36,6 +68,28 @@ otherwise be surprised.
   (a CAT date, `2026-11-16`) limits it to invoices first seen in the fiscal log on or after that day.
 
 ### Changed
+
+- **Stored SAP queries ask for their decimals as text, and a read SAP never answers is not sent again.**
+  A Service Layer worker writing a decimal into a `SQLQueries` answer can stall for good, at a full core
+  and up to 8 GB; on 23 Nov 2026 thirteen of them held 76.8 GB on the SAP server and HANA's index server
+  was killed six times. What an operator will see after this deploys:
+  - 42 stored queries are rewritten on first use: `LEFT(T0."Quantity", 40) AS "Quantity"` for each
+    decimal column (25 statements) and `LEFT(SUM(T1."LineTotal"), 40) AS "Revenue"` for each total
+    (17: the reports, the statement and GL opening balances, the sales quantities and the packaging
+    stock). Six get new objects in SAP and leave the old ones behind: `STOCK_QTY_V2_<whs>`,
+    `WHS_BATCHES_V2_<whs>` and `NOBATCH_QTY_V2_<whs>` per warehouse, `BATCH_SEARCH_V2`,
+    `SHOP_PRICES_V2` and `SALES_QTY_V2`. The content-addressed ones (`…_<12 hex>`) get new codes too,
+    as any SQL change gives them. The first read of each pays for the create, tens of seconds on this
+    OUQR.
+  - The stuck-read hold (`SAP:StuckReadHoldMinutes`, 10) now grows fourfold each time the same read
+    sticks again before SAP answers it, up to `SAP:StuckReadMaxHoldMinutes` (1440, new).
+  - The `sale-invoice-cost-sync` job ends its run on a read SAP never answered and records the
+    warehouse and invoice range in the new `SaleInvoiceCostStalledReads` table. Those invoices show no
+    gross profit until the statement changes or the row is deleted. It used to ask again every
+    15 minutes all night.
+  - Amounts read from stored queries now arrive in full (`21336.13`, where SAP's number was `21336.1`),
+    and text that is not a number fails the read instead of counting as zero.
+  See `docs/sap-interaction-audit.md` §7b.
 
 - **Transfers are now depot or factory transfers, and factory transfers are approved in SAP.** A
   transfer that touches no depot and no van — a direct transfer or a transfer request, the factory shop

@@ -1,3 +1,5 @@
+using ErrorOr;
+using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
 using ShopInventory.Features.CreditNoteApprovals;
 using ShopInventory.Models;
@@ -65,6 +67,22 @@ internal static class SapTransferApprovalProjection
             .Select(code => code!.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    /// <summary>Every warehouse the draft puts stock into: the header's, and any a line names of its own.</summary>
+    public static IReadOnlyList<string> DestinationWarehouses(SAPStockTransferDraft draft) =>
+        new[] { draft.ToWarehouse }
+            .Concat(draft.StockTransferLines?.Select(line => line.WarehouseCode) ?? [])
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    /// <summary>The refusal for a draft <see cref="SapTransferApprovalCaller.AdmitsDraft"/> keeps from the caller.</summary>
+    public static Error OutsideScope(SapTransferApprovalCaller caller, SAPStockTransferDraft draft) =>
+        caller.EitherEnd
+            ? Errors.SapTransferApproval.OutsideLinkedWarehouses(
+                draft.FromWarehouse ?? "an unnamed warehouse", draft.ToWarehouse ?? "an unnamed warehouse", KindOf(draft))
+            : Errors.SapTransferApproval.OutsideWarehouseScope(caller.OutsideWarehouse(draft), KindOf(draft));
 
     /// <summary>
     /// The transfer requests the draft was made from: those its lines were copied from in the B1 client,
@@ -148,12 +166,9 @@ internal static class SapTransferApprovalProjection
             return (false, $"SAP approval request {unsettled.Code} on this {(isRequest ? "transfer request" : "transfer")} is still {SapApprovalRequestStatuses.ToDisplay(unsettled.Status)}.");
         }
 
-        var outside = SourceWarehouses(draft).FirstOrDefault(code => !caller.Admits(code));
-        if (outside is not null)
+        if (!caller.AdmitsDraft(draft))
         {
-            return (false, isRequest
-                ? $"This transfer request asks for stock from {outside}, which is not one of your warehouses."
-                : $"This transfer takes stock out of {outside}, which is not one of your warehouses.");
+            return (false, OutsideScope(caller, draft).Description);
         }
 
         return (true, null);

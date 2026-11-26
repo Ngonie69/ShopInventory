@@ -247,17 +247,43 @@ public sealed class LocalPriceCatalogService(
             return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         }
 
+        // The customer's price list, so its period and volume discounts count too. Without a
+        // synced profile only the customer's own rows can be read.
+        var priceListNum = await context.BusinessPartnerPriceProfiles
+            .AsNoTracking()
+            .Where(profile => profile.SyncedFromSAP && profile.CardCode == normalizedCardCode)
+            .Select(profile => (int?)profile.PriceListNum)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return await GetCurrentSpecialPricesAsync(
+            normalizedCardCode,
+            priceListNum,
+            NormalizeItemCodes(itemCodes),
+            DateTime.UtcNow.Date,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// One special price per item that applies to this customer today — its own where it has one,
+    /// otherwise its price list's period and volume discount. See <see cref="SpecialPriceScope"/>.
+    /// </summary>
+    private async Task<Dictionary<string, decimal>> GetCurrentSpecialPricesAsync(
+        string normalizedCardCode,
+        int? priceListNum,
+        IReadOnlyCollection<string> normalizedItemCodes,
+        DateTime todayUtc,
+        CancellationToken cancellationToken)
+    {
         var rows = await BuildCurrentSpecialPriceQuery(
-                normalizedCardCode,
-                NormalizeItemCodes(itemCodes),
-                DateTime.UtcNow.Date)
-            .Select(price => new { price.ItemCode, price.Price })
+                SpecialPriceScope.CardCodes(normalizedCardCode, priceListNum),
+                normalizedItemCodes,
+                todayUtc)
+            .Select(price => new { price.CardCode, price.ItemCode, price.Price })
             .ToListAsync(cancellationToken);
 
-        return rows
-            .Where(row => !string.IsNullOrWhiteSpace(row.ItemCode))
-            .GroupBy(row => row.ItemCode, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First().Price, StringComparer.OrdinalIgnoreCase);
+        return SpecialPriceScope.Resolve(
+            normalizedCardCode,
+            rows.Select(row => (row.CardCode, row.ItemCode, row.Price)));
     }
 
     /// <summary>
@@ -271,17 +297,20 @@ public sealed class LocalPriceCatalogService(
     /// applying one would put the document line through at 0.00.
     /// </remarks>
     private IQueryable<BusinessPartnerSpecialPriceEntity> BuildCurrentSpecialPriceQuery(
-        string normalizedCardCode,
+        IReadOnlyCollection<string> cardCodes,
         IReadOnlyCollection<string> normalizedItemCodes,
         DateTime todayUtc)
     {
+        // A plain list, so the provider sees an ordinary parameter collection.
+        var cardCodeList = cardCodes.ToList();
+
         var query = context.BusinessPartnerSpecialPrices
             .AsNoTracking()
             .Where(price =>
                 price.SyncedFromSAP &&
                 price.IsActive &&
                 price.Price > 0 &&
-                price.CardCode == normalizedCardCode &&
+                cardCodeList.Contains(price.CardCode) &&
                 (!price.ValidFrom.HasValue || price.ValidFrom <= todayUtc) &&
                 (!price.ValidTo.HasValue || price.ValidTo >= todayUtc));
 
@@ -319,17 +348,12 @@ public sealed class LocalPriceCatalogService(
         var normalizedItemCodes = NormalizeItemCodes(itemCodes);
         var priceListNum = businessPartnerProfile.PriceListNum;
         var priceListPrices = await GetPricesByPriceListAsync(priceListNum, normalizedItemCodes, cancellationToken);
-        var todayUtc = DateTime.UtcNow.Date;
-
-        var specialPriceQuery = BuildCurrentSpecialPriceQuery(normalizedCardCode, normalizedItemCodes, todayUtc);
-
-        var specialPrices = await specialPriceQuery
-            .Select(price => new
-            {
-                price.ItemCode,
-                price.Price
-            })
-            .ToListAsync(cancellationToken);
+        var specialPrices = await GetCurrentSpecialPricesAsync(
+            normalizedCardCode,
+            priceListNum,
+            normalizedItemCodes,
+            DateTime.UtcNow.Date,
+            cancellationToken);
 
         var mergedPrices = (priceListPrices.Prices ?? [])
             .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode))
@@ -337,26 +361,21 @@ public sealed class LocalPriceCatalogService(
 
         foreach (var specialPrice in specialPrices)
         {
-            if (string.IsNullOrWhiteSpace(specialPrice.ItemCode))
-            {
-                continue;
-            }
-
-            if (mergedPrices.TryGetValue(specialPrice.ItemCode, out var existingPrice))
+            if (mergedPrices.TryGetValue(specialPrice.Key, out var existingPrice))
             {
                 // Same as the live SAP path: keep the price list price and the discount that gets us
                 // to the special price, so the document line can be shown the way SAP shows it.
                 var listPrice = existingPrice.Price;
-                existingPrice.Price = specialPrice.Price;
-                existingPrice.DiscountPercent = SpecialPriceDiscount.CalculatePercent(listPrice, specialPrice.Price);
+                existingPrice.Price = specialPrice.Value;
+                existingPrice.DiscountPercent = SpecialPriceDiscount.CalculatePercent(listPrice, specialPrice.Value);
                 existingPrice.PriceBeforeDiscount = existingPrice.DiscountPercent.HasValue ? listPrice : null;
                 continue;
             }
 
-            mergedPrices[specialPrice.ItemCode] = new ItemPriceByListDto
+            mergedPrices[specialPrice.Key] = new ItemPriceByListDto
             {
-                ItemCode = specialPrice.ItemCode,
-                Price = specialPrice.Price,
+                ItemCode = specialPrice.Key,
+                Price = specialPrice.Value,
                 PriceListNum = priceListNum,
                 PriceListName = priceListPrices.PriceListName,
                 Currency = priceListPrices.Currency

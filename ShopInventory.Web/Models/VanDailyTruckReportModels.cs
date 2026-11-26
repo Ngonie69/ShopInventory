@@ -190,6 +190,9 @@ public class VanDailyTruckSummary
 
     public decimal? BalanceToTarget => PeriodTarget is { } target ? target - Sales : null;
 
+    /// <summary>The SAP business partner (van account) the truck sells on; null on the fleet line or with none.</summary>
+    public string? BusinessPartnerCode { get; set; }
+
     public double? TargetAchieved =>
         PeriodTarget is > 0 ? (double)(Sales / PeriodTarget.Value) : null;
 

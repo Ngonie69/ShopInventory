@@ -514,7 +514,9 @@ public sealed class ConvertTransferRequestHandler(
                 hold.Draft.DocEntry,
                 command.UserId,
                 command.Username ?? $"user {command.UserId}",
-                ClientRequestId: null),
+                ClientRequestId: null,
+                // Handle asked EnsureCanConvertRequestAsync on this request before converting it.
+                CallerAuthorized: true),
             cancellationToken);
         if (added.IsError)
             return added.Errors;

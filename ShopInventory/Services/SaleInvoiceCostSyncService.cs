@@ -23,6 +23,15 @@ namespace ShopInventory.Services;
 /// keeps that overhead small. Each read is bounded, and a run stops after two failures in a row, so
 /// a slow Service Layer costs one background slot for a while rather than a queue of them.
 /// </para>
+/// <para>
+/// A read SAP took and never answered is different from one that failed. It leaves a Service Layer
+/// process working on it for good, and asking again leaves another (<see cref="SapStalledRead"/>). So
+/// it ends the run at once, and its warehouse and invoice range are kept
+/// (<see cref="SaleInvoiceCostStalledReadEntity"/>): later runs leave those invoices out and plan no
+/// read across them, for as long as the statement is the one that stalled. Their sales stay uncosted
+/// meanwhile, as a sale not yet in SAP is. A failed connection or a server error leaves nothing
+/// running, and is tried again on the next run as before.
+/// </para>
 /// </remarks>
 public sealed class SaleInvoiceCostSyncService(
     ApplicationDbContext db,
@@ -44,10 +53,26 @@ public sealed class SaleInvoiceCostSyncService(
 
     private const int ConsecutiveFailuresToStop = 2;
 
+    /// <summary>
+    /// The statement the invoice cost is read with, by the fingerprint of its text. A stalled read is
+    /// kept under it, so a release that changes the statement asks for those invoices once more.
+    /// </summary>
+    internal static readonly string StatementId =
+        SAPServiceLayerClient.ComputeSqlFingerprint(SAPServiceLayerClient.InvoiceLineCostSql);
+
     /// <summary>Copies what it can in one run; returns how many invoices were copied.</summary>
     public async Task<int> SyncAsync(CancellationToken cancellationToken)
     {
-        var pending = await PendingInvoicesAsync(cancellationToken);
+        var stalled = await StalledReadsAsync(cancellationToken);
+        var uncosted = await PendingInvoicesAsync(cancellationToken);
+        var pending = uncosted.Where(invoice => !stalled.Any(read => read.Covers(invoice))).ToList();
+        if (pending.Count < uncosted.Count)
+        {
+            logger.LogInformation(
+                "Leaving out {LeftOut} posted invoice(s) in {Ranges} range(s) SAP was asked for and never answered; they are not asked for again while the statement is the same",
+                uncosted.Count - pending.Count, stalled.Count);
+        }
+
         if (pending.Count == 0)
         {
             return 0;
@@ -57,7 +82,7 @@ public sealed class SaleInvoiceCostSyncService(
         var copied = 0;
         var failures = 0;
 
-        foreach (var read in PlanReads(pending))
+        foreach (var read in PlanReads(pending, stalled))
         {
             if (DateTime.UtcNow - started > RunBudget)
             {
@@ -72,6 +97,16 @@ public sealed class SaleInvoiceCostSyncService(
                 var lines = await sapReader.ReadAsync([read.WarehouseCode], read.DocEntries, timeout.Token);
                 copied += await SaveAsync(read, lines, cancellationToken);
                 failures = 0;
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested && SapStalledRead.IsPresumedStuck(ex))
+            {
+                db.ChangeTracker.Clear();
+                await KeepStalledReadAsync(read, cancellationToken);
+                logger.LogWarning(
+                    ex,
+                    "SAP took the invoice cost read for {Warehouse} over DocEntry {Start}-{End} and never answered. Those invoices are not asked for again and this run ends here: SAP stays stuck on such a read, and asking again leaves it stuck on another",
+                    read.WarehouseCode, read.DocEntries[0], read.DocEntries[^1]);
+                break;
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
@@ -99,6 +134,39 @@ public sealed class SaleInvoiceCostSyncService(
 
     /// <summary>One SAP read: one warehouse, a short ascending run of invoice numbers.</summary>
     internal sealed record PlannedRead(string WarehouseCode, int[] DocEntries);
+
+    /// <summary>A read SAP took and never answered: a warehouse, and the invoice range it was asked for.</summary>
+    internal sealed record StalledRead(string WarehouseCode, int DocEntryStart, int DocEntryEnd)
+    {
+        public bool IsFor(string warehouseCode) =>
+            string.Equals(WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>True when asking for <paramref name="invoice"/> again would ask for what stalled.</summary>
+        public bool Covers(PendingInvoice invoice) =>
+            IsFor(invoice.WarehouseCode) && invoice.DocEntry >= DocEntryStart && invoice.DocEntry <= DocEntryEnd;
+    }
+
+    /// <summary>The stalled reads on record for the statement in use.</summary>
+    private async Task<List<StalledRead>> StalledReadsAsync(CancellationToken cancellationToken) =>
+        await db.SaleInvoiceCostStalledReads
+            .AsNoTracking()
+            .Where(read => read.StatementId == StatementId)
+            .Select(read => new StalledRead(read.WarehouseCode, read.DocEntryStart, read.DocEntryEnd))
+            .ToListAsync(cancellationToken);
+
+    private async Task KeepStalledReadAsync(PlannedRead read, CancellationToken cancellationToken)
+    {
+        db.SaleInvoiceCostStalledReads.Add(new SaleInvoiceCostStalledReadEntity
+        {
+            WarehouseCode = read.WarehouseCode,
+            DocEntryStart = read.DocEntries[0],
+            DocEntryEnd = read.DocEntries[^1],
+            StatementId = StatementId,
+            StalledAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        db.ChangeTracker.Clear();
+    }
 
     private async Task<List<PendingInvoice>> PendingInvoicesAsync(CancellationToken cancellationToken)
     {
@@ -157,15 +225,25 @@ public sealed class SaleInvoiceCostSyncService(
     /// Splits the pending invoices into reads: per warehouse, newest runs first, each run at most
     /// <see cref="MaxDocEntrySpan"/> wide and <see cref="MaxInvoicesPerRead"/> long.
     /// </summary>
-    internal static IEnumerable<PlannedRead> PlanReads(IEnumerable<PendingInvoice> pending)
+    /// <remarks>
+    /// SAP is asked for everything between a run's first and last invoice, so a run never reaches across
+    /// a range in <paramref name="stalled"/>: that would ask for the rows SAP stalled on again, inside a
+    /// wider read.
+    /// </remarks>
+    internal static IEnumerable<PlannedRead> PlanReads(
+        IEnumerable<PendingInvoice> pending, IReadOnlyCollection<StalledRead>? stalled = null)
     {
         var reads = new List<PlannedRead>();
         foreach (var warehouse in pending.GroupBy(invoice => invoice.WarehouseCode, StringComparer.OrdinalIgnoreCase))
         {
+            var barriers = (stalled ?? []).Where(read => read.IsFor(warehouse.Key)).ToList();
             var run = new List<int>();
             foreach (var docEntry in warehouse.Select(invoice => invoice.DocEntry).Distinct().Order())
             {
-                if (run.Count > 0 && (docEntry - run[0] > MaxDocEntrySpan || run.Count == MaxInvoicesPerRead))
+                if (run.Count > 0
+                    && (docEntry - run[0] > MaxDocEntrySpan
+                        || run.Count == MaxInvoicesPerRead
+                        || barriers.Any(read => read.DocEntryEnd >= run[^1] && read.DocEntryStart <= docEntry)))
                 {
                     reads.Add(new PlannedRead(warehouse.Key, [.. run]));
                     run.Clear();

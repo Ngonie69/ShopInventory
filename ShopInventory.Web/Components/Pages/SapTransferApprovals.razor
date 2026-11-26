@@ -22,9 +22,23 @@
             <div class="sta-q-mark" aria-hidden="true"><i class="ph ph-seal-check"></i></div>
             <div class="sta-titles">
                 <h1 class="sta-title">SAP-Held Transfers</h1>
-                <p class="sta-sub">Transfers and transfer requests keyed and approved in SAP Business One, waiting to be added. Approval is decided in SAP; adding posts the document there.</p>
+                <p class="sta-sub">Transfers and transfer requests keyed in SAP Business One and held by its approval procedure. Approve the ones waiting at your SAP stage; add the approved ones, which posts the document in SAP.</p>
             </div>
             <div class="sta-head-actions">
+                @* Which queue: the approved drafts waiting to be added, or the drafts still waiting for SAP's
+                   approval. The kind switch's look, because it is the same kind of choice. *@
+                <div class="sta-kind" role="group" aria-label="Which queue">
+                    <button type="button" class="sta-kind-opt @(!awaitingApproval ? "is-on" : "")"
+                            aria-pressed="@(!awaitingApproval ? "true" : "false")" disabled="@isLoading"
+                            @onclick="() => SetViewAsync(false)">
+                        <i class="ph ph-check-circle" aria-hidden="true"></i><span>Ready to add</span>
+                    </button>
+                    <button type="button" class="sta-kind-opt @(awaitingApproval ? "is-on" : "")"
+                            aria-pressed="@(awaitingApproval ? "true" : "false")" disabled="@isLoading"
+                            @onclick="() => SetViewAsync(true)">
+                        <i class="ph ph-hourglass-medium" aria-hidden="true"></i><span>Waiting for approval</span>
+                    </button>
+                </div>
                 <button type="button" class="sta-btn sta-btn-secondary sta-btn-lg" @onclick="RefreshAsync" disabled="@isLoading">
                     @if (isLoading)
                     {
@@ -110,7 +124,7 @@
                 <label class="sta-q-search">
                     <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
                     <span class="sta-sr">Search drafts</span>
-                    @* A number is a draft number; anything else is a warehouse the transfer leaves or enters.
+                    @* A number is a draft number or draft entry; anything else is a warehouse the transfer leaves or enters.
                        Both are sent to SAP, which filters and counts — so the rows follow once the typing rests. *@
                     <input type="text" placeholder="Warehouse or draft no." maxlength="20"
                            value="@searchText" @oninput="OnSearchInputAsync" />
@@ -301,6 +315,9 @@
                                     <span class="sta-q-refs">
                                         <span class="sta-q-kind @(draft.IsRequest ? "is-request" : "")">@(draft.IsRequest ? "Request" : "Transfer")</span>
                                         <span>Draft @draft.DraftNum</span>
+                                        @* The entry is the number in the B1 window's title bar. Two drafts can share a
+                                           draft number, so it is what tells them apart. *@
+                                        <span aria-hidden="true">·</span><span title="SAP draft entry, as in the B1 window's title bar">Entry @draft.DraftEntry</span>
                                         @if (draft.RequestCode is int requestCode)
                                         {
                                             <span aria-hidden="true">·</span><span>Req @requestCode</span>
@@ -340,6 +357,10 @@
                                     {
                                         <span class="sta-q-pill is-ready"><i class="ph ph-check" aria-hidden="true"></i>Ready to add</span>
                                     }
+                                    else if (awaitingApproval)
+                                    {
+                                        <span class="sta-q-pill is-held"><i class="ph ph-hourglass-medium" aria-hidden="true"></i>Waiting</span>
+                                    }
                                     else
                                     {
                                         <span class="sta-q-pill is-held"><i class="ph ph-warning" aria-hidden="true"></i>Held</span>
@@ -350,7 +371,7 @@
                                     </button>
                                 </div>
                             </div>
-                            @if (!draft.CanAdd && !string.IsNullOrWhiteSpace(draft.StatusNote))
+                            @if (!awaitingApproval && !draft.CanAdd && !string.IsNullOrWhiteSpace(draft.StatusNote))
                             {
                                 <div class="sta-q-note">
                                     <i class="ph ph-info" aria-hidden="true"></i><span>@draft.StatusNote</span>
@@ -377,7 +398,7 @@
                 <span class="sta-q-foot-range" aria-live="polite">
                     @if (totalCount > 0)
                     {
-                        <span>Showing <strong>@RangeText</strong> of <strong>@totalCount.ToString("N0")</strong> @(IsNarrowed ? "matching" : "approved"), newest first</span>
+                        <span>Showing <strong>@RangeText</strong> of <strong>@totalCount.ToString("N0")</strong> @(IsNarrowed ? "matching" : awaitingApproval ? "waiting" : "approved"), newest first</span>
                     }
                 </span>
                 <div class="sta-q-pager">
@@ -436,6 +457,10 @@
                         {
                             <span class="sta-q-pill is-ready"><i class="ph ph-check" aria-hidden="true"></i>Ready to add</span>
                         }
+                        else if (DetailIsWaiting)
+                        {
+                            <span class="sta-q-pill is-held"><i class="ph ph-hourglass-medium" aria-hidden="true"></i>Waiting for approval</span>
+                        }
                         else
                         {
                             <span class="sta-q-pill is-held"><i class="ph ph-warning" aria-hidden="true"></i>Held</span>
@@ -479,7 +504,27 @@
                         </div>
                     }
 
-                    @if (!detail.Draft.CanAdd && !string.IsNullOrWhiteSpace(detail.Draft.StatusNote))
+                    @if (DetailIsWaiting)
+                    {
+                        <div class="sta-info">
+                            <i class="ph ph-hourglass-medium" aria-hidden="true"></i>
+                            <div class="sta-alert-body">
+                                @if (DecidableRequest is not null)
+                                {
+                                    <span>Waiting for your approval at SAP stage '@(DecidableRequest.StageName ?? $"#{DecidableRequest.StageCode}")'. Approving it here records the decision in SAP beside your name; once SAP approves it, it moves to Ready to add.</span>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(DecideNote))
+                                {
+                                    <span>@DecideNote</span>
+                                }
+                                else
+                                {
+                                    <span>Waiting for approval in SAP@(string.IsNullOrWhiteSpace(detail.Draft.StageName) ? "" : $" at stage '{detail.Draft.StageName}'").</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else if (!detail.Draft.CanAdd && !string.IsNullOrWhiteSpace(detail.Draft.StatusNote))
                     {
                         <div class="sta-blocked">
                             <i class="ph ph-warning" aria-hidden="true"></i>
@@ -528,6 +573,11 @@
                         <div>
                             <dt class="sta-dt">Attachment</dt>
                             <dd class="sta-dd">@(detail.Draft.HasAttachment ? "Yes, in SAP" : "None")</dd>
+                        </div>
+                        <div>
+                            <dt class="sta-dt">Draft entry</dt>
+                            <dd class="sta-dd">@detail.Draft.DraftEntry</dd>
+                            <dd class="sta-d-sub">In the B1 window's title bar</dd>
                         </div>
                     </dl>
 
@@ -633,7 +683,7 @@
                     @if (detail.Approvals.Count > 0)
                     {
                         <div>
-                            <div class="sta-sect"><i class="ph ph-users-three" aria-hidden="true"></i>Approved in SAP</div>
+                            <div class="sta-sect"><i class="ph ph-users-three" aria-hidden="true"></i>Approvals in SAP</div>
                             <ul class="sta-rail">
                                 @foreach (var approval in detail.Approvals)
                                 {
@@ -666,6 +716,47 @@
 
             @* The add is confirmed here, in the footer, rather than in a dialog stacked over the drawer:
                the draft being added stays in view while the question is asked. *@
+            @if (DecidableRequest is { } decidable && detail is not null)
+            {
+                <div class="sta-drawer-foot sta-decide">
+                    <div class="sta-field">
+                        <label for="sta-remarks">
+                            Remarks <span class="sta-field-aside">Optional · up to 150 characters</span>
+                        </label>
+                        <textarea id="sta-remarks" class="sta-input sta-textarea" maxlength="150"
+                                  placeholder="Recorded in SAP beside your name" @bind="decideRemarks"></textarea>
+                    </div>
+                    <div class="sta-decide-actions">
+                        <button type="button" class="sta-btn sta-btn-bad sta-btn-lg sta-decide-reject"
+                                @onclick="() => DecideAsync(SapTransferDecisions.NotApproved)" disabled="@isSubmitting">
+                            @if (decidingAs == SapTransferDecisions.NotApproved)
+                            {
+                                <span class="sta-spin" aria-hidden="true"></span>
+                            }
+                            else
+                            {
+                                <i class="ph ph-x" aria-hidden="true"></i>
+                            }
+                            <span>Reject</span>
+                        </button>
+                        <button type="button" class="sta-btn sta-btn-approve sta-btn-lg sta-decide-approve"
+                                @onclick="() => DecideAsync(SapTransferDecisions.Approved)" disabled="@isSubmitting"
+                                aria-label="Approve SAP approval request @decidable.Code">
+                            @if (decidingAs == SapTransferDecisions.Approved)
+                            {
+                                <span class="sta-spin" aria-hidden="true"></span>
+                            }
+                            else
+                            {
+                                <i class="ph ph-check" aria-hidden="true"></i>
+                            }
+                            <span>Approve @(DetailIsRequest ? "request" : "transfer")</span>
+                        </button>
+                    </div>
+                </div>
+            }
+            else
+            {
             <div class="sta-drawer-foot @(showAddConfirm ? "is-confirming" : "")">
                 @if (showAddConfirm && detail is not null)
                 {
@@ -703,6 +794,11 @@
                         </div>
                     </div>
                 }
+                else if (detail is not null && DetailIsWaiting)
+                {
+                    <span class="sta-d-foot-note">Decided in SAP Business One by the stage's approvers.</span>
+                    <button type="button" class="sta-btn sta-btn-secondary sta-btn-lg" @onclick="CloseDetail">Close</button>
+                }
                 else if (detail is not null && !detail.Draft.CanAdd)
                 {
                     <span class="sta-d-foot-note">Fix the draft in SAP Business One, then refresh to add it.</span>
@@ -720,6 +816,7 @@
                     }
                 }
             </div>
+            }
         </aside>
     </div>
 }

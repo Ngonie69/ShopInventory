@@ -46,6 +46,13 @@ public interface IReportExportService
 
     byte[] ExportVanSalesPerformanceToExcel(VanSalesPerformanceReportResponse report);
     byte[] ExportVanDailyTruckReportToExcel(VanDailyTruckReportResponse report);
+
+    /// <summary>
+    /// The van sales management report as the office's workbook: insights, overview, monthly summary, the
+    /// daily view and truck cards for <paramref name="day"/>, the week starting <paramref name="weekStart"/>
+    /// (the latest reported when null), the route ranking, the product group, breakages and raw data.
+    /// </summary>
+    byte[] ExportVanManagementReportToExcel(VanManagementReport report, DateTime day, DateTime? weekStart);
     /// <summary>The Departure Compliance rows on screen, as the page shows them.</summary>
     byte[] ExportDepartureComplianceToExcel(IReadOnlyList<DepartureComplianceExportRow> rows, DateTime? fromDate, DateTime? toDate);
 
@@ -6948,10 +6955,17 @@ public partial class ReportExportService : IReportExportService
         }
     }
 
+    /// <remarks>
+    /// Formulas are worked out on save so each one is stored with its figure; by default ClosedXML
+    /// writes the formula alone. A downloaded or emailed workbook opens in Protected View, which never
+    /// calculates, and so do Outlook and OneDrive previews and Excel on a phone: a bare SUBTOTAL there
+    /// reads as an empty Total row. Excel still recalculates once editing is enabled, so the formula
+    /// keeps following the filter.
+    /// </remarks>
     private static byte[] WorkbookToBytes(XLWorkbook workbook)
     {
         using var stream = new MemoryStream();
-        workbook.SaveAs(stream);
+        workbook.SaveAs(stream, new SaveOptions { EvaluateFormulasBeforeSaving = true });
         return stream.ToArray();
     }
 

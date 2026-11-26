@@ -356,6 +356,8 @@ public sealed class SapTransferRequestDraftTests : IDisposable
         sap.AsClient(),
         new FakeSapApprovalLookups(),
         Access(),
+        FixedStageScope.EveryStage,
+        new UserManagementService(_context, new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()), NullLogger<UserManagementService>.Instance),
         Options.Create(new SAPSettings { Enabled = true }),
         NullLogger<GetSapTransferApprovalHandler>.Instance);
 
@@ -365,7 +367,7 @@ public sealed class SapTransferRequestDraftTests : IDisposable
         FixedTillClaims? claims = null,
         FixedStockValidation? stock = null) => new(
         sap.AsClient(),
-        new TransferWarehouseAuthorizer(_context),
+        new SapTransferApprovalAccess(_context, new TransferWarehouseAuthorizer(_context)),
         new RecordingTransferApprovals().AsService(),
         claims ?? new FixedTillClaims(),
         (stock ?? new FixedStockValidation(new StockValidationResult())).AsService(),

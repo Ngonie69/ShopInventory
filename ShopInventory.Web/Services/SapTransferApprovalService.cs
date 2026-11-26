@@ -17,6 +17,10 @@ public interface ISapTransferApprovalService
     Task<(bool Success, string Message, SapTransferApprovalDetailDto? Value)> GetApprovalAsync(int draftEntry);
 
     Task<(bool Success, string Message, AddApprovedSapTransferResultDto? Value)> AddAsync(int draftEntry, string clientRequestId);
+
+    /// <summary>Approve or reject the SAP approval request <paramref name="code"/> holding a transfer draft.</summary>
+    Task<(bool Success, string Message, SapTransferApprovalDecisionResultDto? Value)> DecideAsync(
+        int code, string decision, string? remarks, string clientRequestId);
 }
 
 public sealed class SapTransferApprovalService(HttpClient httpClient, ILogger<SapTransferApprovalService> logger)
@@ -88,6 +92,42 @@ public sealed class SapTransferApprovalService(HttpClient httpClient, ILogger<Sa
         catch (Exception ex)
         {
             logger.LogError(ex, "Error adding SAP transfer draft {DraftEntry}", draftEntry);
+            return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallback), null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, SapTransferApprovalDecisionResultDto? Value)> DecideAsync(
+        int code, string decision, string? remarks, string clientRequestId)
+    {
+        const string fallback = "The decision could not be recorded in SAP.";
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/sap-transfer-approvals/requests/{code}/decision")
+            {
+                Content = JsonContent.Create(new SapTransferApprovalDecisionRequestDto
+                {
+                    Decision = decision,
+                    Remarks = string.IsNullOrWhiteSpace(remarks) ? null : remarks.Trim(),
+                    ClientRequestId = clientRequestId
+                })
+            };
+            request.Headers.Add("Idempotency-Key", clientRequestId);
+
+            using var response = await httpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                // A 403 here is the stage or warehouse rule saying why, not a missing permission.
+                return (false, ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode, body, fallback, forbiddenMessage: ProblemDetailReader.ReadMessage(body)), null);
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<SapTransferApprovalDecisionResultDto>();
+            return (true, result?.Message ?? "Decision recorded.", result);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error deciding SAP transfer approval request {Code}", code);
             return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallback), null);
         }
     }

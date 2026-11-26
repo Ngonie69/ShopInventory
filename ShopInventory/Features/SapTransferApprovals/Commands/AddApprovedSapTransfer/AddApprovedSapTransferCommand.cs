@@ -15,7 +15,9 @@ namespace ShopInventory.Features.SapTransferApprovals.Commands.AddApprovedSapTra
 /// <param name="CallerAuthorized">
 /// True only when the caller has already decided this user may act: a factory transfer's own add, where
 /// the person who may post the transfer (<c>EnsureCanActOnSourceAsync</c>) adds the draft it was saved
-/// as. Never set from the SAP-held transfers page, which asks the conversion rule.
+/// as, and a conversion, which asked <c>EnsureCanConvertRequestAsync</c> on the request the draft was
+/// made from (the wash bay converts from any warehouse, wider than its page scope). Never set from the
+/// SAP-held transfers page, which asks the page's own scope.
 /// </param>
 public sealed record AddApprovedSapTransferCommand(
     int DraftEntry,

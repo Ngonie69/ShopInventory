@@ -6456,6 +6456,40 @@ namespace ShopInventory.Migrations
                     b.ToTable("SaleInvoiceCostLines");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.SaleInvoiceCostStalledReadEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("DocEntryEnd")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DocEntryStart")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StalledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("StatementId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StatementId", "WarehouseCode");
+
+                    b.ToTable("SaleInvoiceCostStalledReads");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.SalesOrderEntity", b =>
                 {
                     b.Property<int>("Id")

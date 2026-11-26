@@ -3741,7 +3741,17 @@ public class SalesOrderService : ISalesOrderService
                 .ToDictionary(group => group.Key, group => group.First().Price, StringComparer.OrdinalIgnoreCase)
                 ?? new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
-            var specialPriceLookup = await _sapClient.GetSpecialPricesForBPWithStatusAsync(order.CardCode, itemCodes, pricingCts.Token);
+            // The list the customer's prices just came from, so its period and volume discounts
+            // are read alongside the customer's own special prices.
+            var priceListNum = livePrices
+                .Select(price => price.PriceListNum)
+                .FirstOrDefault(listNum => listNum > 0);
+
+            var specialPriceLookup = await _sapClient.GetSpecialPricesForBPWithStatusAsync(
+                order.CardCode,
+                priceListNum > 0 ? priceListNum : (int?)null,
+                itemCodes,
+                pricingCts.Token);
 
             if (!specialPriceLookup.IsComplete)
             {

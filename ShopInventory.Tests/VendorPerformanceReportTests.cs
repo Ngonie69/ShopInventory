@@ -249,6 +249,37 @@ public sealed class VendorPerformanceReportTests
         Assert.Equal($"SUBTOTAL(109,{total.Address.ColumnLetter}{first}:{total.Address.ColumnLetter}{first + 3})", total.FormulaA1);
     }
 
+    /// <summary>
+    /// A downloaded or emailed workbook opens in Protected View, which never calculates, and so do
+    /// previews and Excel on a phone: a total saved as a bare formula shows blank there. The file has to
+    /// carry the figure alongside the formula.
+    /// </summary>
+    [Fact]
+    public void Every_total_is_saved_with_its_figure_not_just_the_formula()
+    {
+        var bytes = _export.ExportVendorPerformanceToExcel(Build());
+
+        using var document = SpreadsheetDocument.Open(new MemoryStream(bytes), false);
+        var formulaCells = document.WorkbookPart!.WorksheetParts
+            .SelectMany(part => part.Worksheet.Descendants<DocumentFormat.OpenXml.Spreadsheet.Cell>())
+            .Where(cell => cell.CellFormula is not null)
+            .ToList();
+
+        Assert.NotEmpty(formulaCells);
+        Assert.All(formulaCells, cell => Assert.False(
+            string.IsNullOrEmpty(cell.CellValue?.Text),
+            $"{cell.CellReference} ({cell.CellFormula!.Text}) has no saved value"));
+
+        // Graniteside's vendors took 115.50 + 57.75 incl. VAT.
+        using var workbook = Open(bytes);
+        var sheet = workbook.Worksheet("Cortina Graniteside Vending");
+        var sales = HeaderCell(sheet, "Sales USD (incl. VAT)");
+        var total = SheetPart(document, "Cortina Graniteside Vending").Worksheet
+            .Descendants<DocumentFormat.OpenXml.Spreadsheet.Cell>()
+            .Single(cell => cell.CellReference == sheet.Cell(sales.Address.RowNumber + 5, sales.Address.ColumnNumber).Address.ToString());
+        Assert.Equal(173.25m, decimal.Parse(total.CellValue!.Text, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     [Fact]
     public void The_products_sheet_ranks_items_with_their_class_and_each_depots_value()
     {

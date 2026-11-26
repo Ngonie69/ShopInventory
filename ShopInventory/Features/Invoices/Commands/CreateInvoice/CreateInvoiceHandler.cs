@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Pricing;
 using ShopInventory.Common.Sales;
 using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
@@ -833,8 +834,8 @@ public sealed class CreateInvoiceHandler(
         var pricing = await localPriceCatalogService.GetBusinessPartnerPricingAsync(request.CardCode, itemCodes, cancellationToken);
         var priceMap = pricing?.Prices.Prices?
             .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode))
-            .ToDictionary(price => price.ItemCode!, price => price.Price, StringComparer.OrdinalIgnoreCase)
-            ?? new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(price => price.ItemCode!, StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, ItemPriceByListDto>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var line in request.Lines)
         {
@@ -844,9 +845,9 @@ public sealed class CreateInvoiceHandler(
                 continue;
             }
 
-            if (priceMap.TryGetValue(itemCode, out var resolvedPrice) && resolvedPrice > 0)
+            if (priceMap.TryGetValue(itemCode, out var resolvedPrice) && resolvedPrice.Price > 0)
             {
-                line.UnitPrice = resolvedPrice;
+                line.UnitPrice = DocumentLineUnitPrice.For(resolvedPrice, line.DiscountPercent);
                 continue;
             }
 

@@ -36,7 +36,7 @@ public sealed class NegativeStockCensusTests
             SAPServiceLayerClient.NormalizeSqlText(SAPServiceLayerClient.NegativeStockSql));
 
         Assert.Equal(
-            "NEGSTK_WHS_9383E60D10BB",
+            "NEGSTK_WHS_753892BDD37A",
             SAPServiceLayerClient.BuildContentAddressedQueryCode("NEGSTK_WHS", SAPServiceLayerClient.NegativeStockSql));
     }
 

@@ -77,7 +77,8 @@ public sealed class SapTransferApprovalListResponseDto
 
     /// <summary>
     /// The source warehouses the caller's queue is limited to; null when they see every warehouse.
-    /// A depot controller sees only transfers leaving the warehouses on their account.
+    /// A depot controller sees only transfers leaving the warehouses on their account. The wash bay and a
+    /// shop's stock user see every warehouse's, and each row's <c>canAdd</c> says which are theirs.
     /// </summary>
     public List<string>? ScopedWarehouses { get; set; }
 
@@ -151,6 +152,42 @@ public sealed class SapTransferApprovalRequestDto
     public DateTime? CreatedDate { get; set; }
     public string? CreatedTime { get; set; }
     public List<SapTransferApprovalDecisionDto> Decisions { get; set; } = [];
+
+    /// <summary>
+    /// The caller may approve or reject this request from here: it is pending at a stage they decide, and
+    /// SAP lists the app's approver on that stage.
+    /// </summary>
+    public bool CanDecide { get; set; }
+
+    /// <summary>Why a pending request cannot be decided from here, when the caller could otherwise decide.</summary>
+    public string? DecideNote { get; set; }
+}
+
+public sealed class SapTransferApprovalDecisionRequestDto
+{
+    /// <summary>Approved or NotApproved.</summary>
+    public string Decision { get; set; } = string.Empty;
+    public string? Remarks { get; set; }
+
+    /// <summary>A caller-chosen key that makes a repeated submission replay the first answer.</summary>
+    public string? ClientRequestId { get; set; }
+}
+
+public sealed class SapTransferApprovalDecisionResultDto
+{
+    public int Code { get; set; }
+    public int? DraftEntry { get; set; }
+    public string Decision { get; set; } = string.Empty;
+
+    /// <summary>The request's status after SAP recorded the decision.</summary>
+    public string Status { get; set; } = string.Empty;
+
+    /// <summary>The draft is approved and can be added.</summary>
+    public bool CanAdd { get; set; }
+
+    /// <summary>Approved at this stage, but SAP is still waiting on a later one, or on another request.</summary>
+    public bool StillPending { get; set; }
+    public string Message { get; set; } = string.Empty;
 }
 
 public sealed class SapTransferApprovalDecisionDto

@@ -50,6 +50,10 @@
             </p>
         </div>
         <div class="vs-actions">
+            <a class="vs-btn" href="@VanReportLinks.Management(report?.FromDate ?? fromDate ?? VanReportPeriod.TodayCat, report?.ToDate ?? toDate ?? VanReportPeriod.TodayCat)">
+                <i class="ph ph-presentation-chart" aria-hidden="true"></i>
+                Management report
+            </a>
             <button type="button" class="vs-btn" id="vsk-export" @onclick="ExportAsync" disabled="@(isLoading || isExporting || report is null)">
                 <i class="ph ph-download-simple" aria-hidden="true"></i>
                 @(isExporting ? "Exporting…" : "Export")

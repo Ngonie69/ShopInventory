@@ -127,6 +127,7 @@ Van Sales
 Van Reports
     Van Activity  /van-sales/activity
     Daily Truck Report  /van-sales/reports/daily
+    Management Report  /van-sales/reports/management
     Sales Performance  /van-sales/reports/performance
     ADR Performance  /van-sales/reports/adr-performance
     Order Conversion  /van-sales/reports/order-conversion
@@ -387,6 +388,7 @@ Van Sales
 Van Reports
     Van Activity  /van-sales/activity
     Daily Truck Report  /van-sales/reports/daily
+    Management Report  /van-sales/reports/management
     Sales Performance  /van-sales/reports/performance
     ADR Performance  /van-sales/reports/adr-performance
     Order Conversion  /van-sales/reports/order-conversion

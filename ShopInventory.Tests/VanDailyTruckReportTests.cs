@@ -110,6 +110,17 @@ public sealed class VanDailyTruckReportTests : IDisposable
     /// West 1 was one of three trucks whose readings were once converted from miles. Every reading is
     /// kilometres now, so its 332644 to 332681 is 37 km, not 60.
     /// </summary>
+    /// <summary>The office names a truck by the SAP business partner it sells on, so each route carries it.</summary>
+    [Fact]
+    public async Task Each_truck_carries_the_van_account_its_reps_sell_on()
+    {
+        var report = await ReportAsync();
+
+        Assert.Equal(VanAccount, report.Trucks.Single(truck => truck.RouteId == _west1.Id).BusinessPartnerCode);
+        Assert.Null(report.Trucks.Single(truck => truck.RouteId == _upc1.Id).BusinessPartnerCode);
+        Assert.Null(report.Total.BusinessPartnerCode);
+    }
+
     [Fact]
     public async Task Every_reading_is_kilometres_and_nothing_converts()
     {

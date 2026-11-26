@@ -7,19 +7,22 @@ That page describes a plan; this one describes what is actually running.
 ## What protects production today
 
 Measured on 2026-09-22 by running the two scripts below on `10.10.10.9`. Rerun them before relying
-on any row. They change nothing.
+on any row. They change nothing. The nightly dump row is as installed on 2026-11-23; the other rows
+were not measured again that day.
 
 | | State | Protects against |
 |---|---|---|
 | Streaming standby | `10.10.10.58` streams from `.9`, asynchronous, ~1 ms behind, slot `shopinventory_failback_1058`. It copies every database on the instance. | Losing `.9` (disk, VM, host). **Not** bad data: a wrong `DELETE` reaches `.58` in milliseconds. |
 | WAL archiving | **Off.** `archive_mode=off`, nothing ever archived. | Nothing. There is no point-in-time recovery. |
-| Nightly database dump | **None running.** The tooling exists (see [Nightly dumps](#nightly-dumps)) but had not been installed on `.9` as of 2026-11-09. | Nothing until installed. Then: bad data, back to last night. |
-| AOMEI Backupper (Technician Plus 7.1.1) | One task, `System Backup(1)`, to `\\10.10.10.254\svr_backup\AOMEI_DATA\internaldev20241028`. **Last run 28/10/2024**, shows a warning. | Nothing current. |
+| Nightly database dump | **Running since 2026-11-23, on `.9`'s own `C:` only.** `ShopInventory` and `ShopInventoryWeb`, daily at 01:30, 14 days kept in `C:\ShopInventoryBackups\sets`, restore check Sundays at 03:30. Nothing copies the sets off the server (see [Installed](#installed-on-2026-11-23)). | Bad data, back to the last 01:30. **Not** losing `.9`: the dumps are on the disk they protect. |
+| AOMEI Backupper (Technician Plus 7.1.1) | One task, `System Backup(1)`, to `\\10.10.10.254\svr_backup\AOMEI_DATA\internaldev20241028`. **Last run 28/10/2024**, shows a warning. On 2026-11-23 AOMEI's task and schedule files were still dated 28/10/2024, and no `svr_backup` share was visible on the NAS. | Nothing current. |
 | In-app backups (Settings → Backups) | Four, made by hand, last 2026-09-07. About ten small tables (users, config, webhooks, audit). Stored on `.9`'s own `C:`. `Restore` validates the zip and writes nothing back. | Nothing you could recover the business from. |
 | VMware snapshots | `.9` is a VMware VM. Whether anything snapshots it is **unknown**. | Unknown. Ask whoever runs vSphere. |
 | SAP | System of record for every document that reached it: invoices, credit notes, transfers, payments. | Posted documents. Not ShopInventory's own data: queues, van and desktop sales not yet posted, reservations, users, routes, config, fiscal state. |
 
-In one line: **a dead `.9` is survivable by hand; a bad write is not.**
+In one line: **a dead `.9` is survivable by hand; a bad write costs what was written since 01:30.**
+Both at once (a bad write, then `.9` lost before anyone restores) is not covered: the dumps die with
+`.9`.
 
 ### Check it again
 
@@ -88,6 +91,32 @@ Before step 1, check:
   table waits for it. 01:30 is well clear of the 19:30 deploy window.
 - **workshopdb** is not included. Add it with `-Databases ShopInventory, ShopInventoryWeb, workshopdb`
   once the Workshop app's owner agrees.
+
+### Installed on 2026-11-23
+
+Installed with a folder on `.9` as the destination, because the share in the commands above did not
+exist: on that day `\\10.10.10.254\svr_backup` was not visible on the NAS (a TrueNAS box, back from
+being off the network since 20 November). `POD-upload`, the one share the server's own account can
+write to, can be listed without signing in, so it is no place for a dump of every customer and sale.
+
+```powershell
+.\Invoke-PostgresNightlyDump.ps1 -Destination 'C:\ShopInventoryBackups\sets'
+.\Test-PostgresDumpRestore.ps1   -Root        'C:\ShopInventoryBackups\sets'
+.\Register-PostgresNightlyDump.ps1 -Destination 'C:\ShopInventoryBackups\sets' -RunAsSystem
+```
+
+- **What ran.** The dump by hand took about two minutes and wrote 85 MB (`ShopInventory` 74 MB from
+  842 MB on disk, `ShopInventoryWeb` 11 MB from 183 MB). The restore check passed: 153 and 35 tables,
+  differing from live only by rows written since the dump. Then each task was started once under its
+  own account, SYSTEM: the dump finished with result 0 and the restore check passed against its set.
+- **Room.** Fourteen sets are a little over 1 GB, on a `C:` with 147 GB free.
+- **Scripts.** The tasks run the copies in `C:\ShopInventoryBackups\scripts`. The four files they
+  were installed from are in `C:\Deploy\ShopInventory-pgdump`.
+
+**To copy the sets off the server**, make a share on the NAS that `KFL-DNS2$` can write to and
+nobody can read without signing in, then run the third command again with that share as
+`-Destination`. It replaces both tasks. The sets already in `C:\ShopInventoryBackups\sets` stay
+where they are and are no longer pruned; copy or delete them by hand.
 
 ## Before you need it
 
@@ -212,7 +241,9 @@ promotion and is wrong from that point on.
 A bad migration, a mass update or delete, a script run against the wrong database, or a malicious
 change through the application.
 
-**Today there is no restore point.** The standby already holds the damage. What exists:
+**The restore point is last night's dump** (01:30, since 2026-11-23; see
+[Restoring from a nightly dump](#restoring-from-a-nightly-dump)). There is nothing in between: the
+standby already holds the damage, and WAL archiving is off. For what the dump does not hold:
 
 - **SAP** holds every document that was posted. ShopInventory data that mirrors SAP (documents,
   business partners, items, prices) can be rebuilt from it by the sync jobs.
@@ -220,22 +251,23 @@ change through the application.
   nothing else. They have to be reloaded by hand; the app's restore does not write.
 - **The audit log and application logs** may be enough to reverse a narrow change by hand.
 
-What to do now:
+What to do first:
 
 1. Stop the damage from spreading: stop the Quartz-running API app pool if a job is doing it, or
    revoke the account or key making the changes.
 2. Work out the scope: which tables, which rows, since when.
-3. Repair from SAP, from the audit log, or by hand. Record what could not be recovered.
+3. Repair from the dump (below), from SAP, from the audit log, or by hand. Record what could not be
+   recovered.
 
-### Once the nightly dumps are installed
+### Restoring from a nightly dump
 
-1. Pick the last set from **before** the damage: the folder names under the share are the UTC time
-   each dump started. Its `manifest.json` gives `startedUtc`. Everything written after that is not
-   in it.
+1. Pick the last set from **before** the damage: the folder names under
+   `C:\ShopInventoryBackups\sets` are the UTC time each dump started. Its `manifest.json` gives
+   `startedUtc`. Everything written after that is not in it.
 2. Restore it beside live, without touching live:
 
    ```powershell
-   .\scripts\Test-PostgresDumpRestore.ps1 -SetPath '\\10.10.10.254\svr_backup\ShopInventory-pgdump\<set>' -Databases ShopInventory -Keep
+   C:\ShopInventoryBackups\scripts\Test-PostgresDumpRestore.ps1 -SetPath 'C:\ShopInventoryBackups\sets\<set>' -Databases ShopInventory -Keep
    ```
 
    That leaves `restorecheck_shopinventory` holding the night's data, and prints how each table
@@ -278,10 +310,11 @@ Rules" in [postgresql-ha.md](postgresql-ha.md).
 
 In the order they close the biggest gap. Update this page as each one lands.
 
-1. **Nightly `pg_dump`**: built and tested (see [Nightly dumps](#nightly-dumps)); **install it on
-   `.9`** and run the restore check once by hand. Still open after that: something that *tells*
-   someone when a night fails. Today a failure lands in the event log (1001/1011) and in
-   `Get-DisasterRecoveryState.ps1`, which only helps if someone looks.
+1. **Nightly `pg_dump`**: installed on `.9` on 2026-11-23, restore check passed (see
+   [Installed](#installed-on-2026-11-23)). Still open: **a copy off `.9`**, which needs a share on
+   the NAS that `KFL-DNS2$` can write to; and something that *tells* someone when a night fails.
+   Today a failure lands in the event log (1001/1011) and in `Get-DisasterRecoveryState.ps1`, which
+   only helps if someone looks.
 2. **WAL archiving** to storage off `.9`, which gives point-in-time recovery. Needs a PostgreSQL
    restart on `.9`.
 3. **AOMEI**: find out why `System Backup(1)` stopped in October 2024, and either schedule it

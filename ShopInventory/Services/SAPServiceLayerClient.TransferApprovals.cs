@@ -96,17 +96,22 @@ public partial class SAPServiceLayerClient
     }
 
     /// <summary>
-    /// The approved, still-open drafts of the kinds asked for, in the caller's warehouses, narrowed by
-    /// the page's filters — the whole <c>$filter</c>, so the list and its counts agree. Internal so the
-    /// exact OData can be pinned by a unit test.
+    /// The approved, still-open drafts of the kinds asked for — or, with <see cref="SapTransferDraftFilter.AwaitingApproval"/>,
+    /// the ones still waiting for SAP's approval — in the caller's warehouses, narrowed by the page's
+    /// filters: the whole <c>$filter</c>, so the list and its counts agree. Internal so the exact OData can
+    /// be pinned by a unit test.
     /// </summary>
     internal static string ApprovedDraftQueueFilter(IReadOnlyList<string>? sources, SapTransferDraftFilter? filter)
     {
+        var authorization = filter?.AwaitingApproval == true
+            ? SapStockTransferAuthorizationStatuses.Pending
+            : SapStockTransferAuthorizationStatuses.Approved;
+
         // The set serves every kind of draft, so the object code is never optional.
         var baseFilter =
             DraftKindClause(filter?.Kind)
             + $" and DocumentStatus eq '{SapDocumentStatuses.Open}'"
-            + $" and AuthorizationStatus eq '{SapStockTransferAuthorizationStatuses.Approved}'";
+            + $" and AuthorizationStatus eq '{authorization}'";
 
         // In the base filter, so the count is of the queue this caller sees.
         if (sources is not null)
@@ -183,9 +188,11 @@ public partial class SAPServiceLayerClient
             clauses.Append(" and AttachmentEntry gt 0");
         }
 
+        // Either number the B1 client shows: the draft's own (DocNum, on the form) or its entry (DocEntry,
+        // in the window's title bar). DocNum alone is not unique — two drafts can carry the same one.
         if (filter.DraftNum is int draftNum)
         {
-            clauses.Append($" and DocNum eq {draftNum}");
+            clauses.Append($" and (DocNum eq {draftNum} or DocEntry eq {draftNum})");
         }
 
         return clauses.ToString();

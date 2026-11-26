@@ -1,4 +1,5 @@
 using ShopInventory.Common;
+using ShopInventory.Common.Sap;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Merchandiser;
@@ -47,8 +48,8 @@ ORDER BY T0."ItemCode"
 
     public const string PriceListParameter = "priceList";
 
-    public const string ItemPricesSql = """
-SELECT T1."ItemCode", T1."Price"
+    public static readonly string ItemPricesSql = $"""
+SELECT T1."ItemCode", {SapSqlAmount.Column("T1", "Price")}
 FROM ITM1 T1
 WHERE T1."ItemCode" LIKE :prefix AND T1."PriceList" = :priceList
 ORDER BY T1."ItemCode"
@@ -117,7 +118,9 @@ ORDER BY T1."ItemCode"
         {
             if (row.GetValueOrDefault("ItemCode")?.ToString() is { } code)
             {
-                prices[code] = row.GetValueOrDefault("Price");
+                // A decimal again, as it was when SAP sent the price as a number: the rows go on to
+                // callers that format and parse it.
+                prices[code] = SapSqlAmount.Parse(row.GetValueOrDefault("Price"), "Price");
             }
         }
 

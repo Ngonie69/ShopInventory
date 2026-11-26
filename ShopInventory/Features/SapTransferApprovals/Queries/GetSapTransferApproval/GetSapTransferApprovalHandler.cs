@@ -13,12 +13,15 @@ namespace ShopInventory.Features.SapTransferApprovals.Queries.GetSapTransferAppr
 /// <summary>
 /// One held transfer or transfer request: the draft read by key (the only read that carries its batch
 /// picks), the approval requests behind it with their approver lines, and for a transfer, which lines
-/// lack a batch or serial pick and the transfer request it was copied from.
+/// lack a batch or serial pick and the transfer request it was copied from. Each pending request says
+/// whether the caller may approve or reject it from here.
 /// </summary>
 public sealed class GetSapTransferApprovalHandler(
     ISAPServiceLayerClient sap,
     ISapApprovalLookups lookups,
     ISapTransferApprovalAccess access,
+    ICreditNoteApprovalStageScope stageScope,
+    IUserManagementService userManagement,
     IOptions<SAPSettings> sapSettings,
     ILogger<GetSapTransferApprovalHandler> logger)
     : IRequestHandler<GetSapTransferApprovalQuery, ErrorOr<SapTransferApprovalDetailDto>>
@@ -48,12 +51,12 @@ public sealed class GetSapTransferApprovalHandler(
                 return Errors.SapTransferApproval.NotFound(query.DraftEntry);
             }
 
-            // Before anything else is described: a transfer out of somebody else's warehouse is not
-            // theirs to read about, and nor is a request for stock from one.
-            if (!caller.Value.Admits(draft.FromWarehouse))
+            // Before anything else is described: a depot controller reads only drafts leaving its own
+            // warehouses. The wash bay and a shop's stock user read every draft; whether they may add or
+            // decide it is said on the draft and on each request below.
+            if (!caller.Value.MayRead(draft))
             {
-                return Errors.SapTransferApproval.OutsideWarehouseScope(
-                    draft.FromWarehouse ?? "an unnamed warehouse", SapTransferApprovalProjection.KindOf(draft));
+                return SapTransferApprovalProjection.OutsideScope(caller.Value, draft);
             }
 
             requests = await sap.GetStockTransferApprovalRequestsAsync([draft.DocEntry], withLines: true, cancellationToken);
@@ -108,14 +111,66 @@ public sealed class GetSapTransferApprovalHandler(
         {
             Draft = item,
             Lines = lines,
-            Approvals = await BuildApprovalsAsync(requests, cancellationToken),
+            Approvals = await BuildApprovalsAsync(
+                requests, await DecisionContextAsync(query.CallerUserId, caller.Value, draft, requests, cancellationToken), cancellationToken),
             LinkedRequests = isRequest ? [] : await ReadLinkedRequestsAsync(draft, cancellationToken),
             SelectionUnchecked = flagsUnread
         };
     }
 
+    /// <summary>
+    /// What deciding from here needs, read once per drawer: whether the caller holds the permission, the
+    /// stages they decide, and the SAP user the app decides as. Null when there is nothing to decide —
+    /// no pending request, or a caller without the permission.
+    /// </summary>
+    private async Task<DecisionContext?> DecisionContextAsync(
+        Guid? callerUserId,
+        SapTransferApprovalCaller caller,
+        SAPStockTransferDraft draft,
+        IReadOnlyCollection<SAPApprovalRequest> requests,
+        CancellationToken cancellationToken)
+    {
+        if (!requests.Any(SapTransferDecisionRules.IsPending))
+        {
+            return null;
+        }
+
+        if (callerUserId is Guid userId && !await userManagement.HasPermissionAsync(userId, Permission.ApproveSapTransfers))
+        {
+            return null;
+        }
+
+        // Readable is not decidable: the wash bay and a shop's stock user see every draft but decide only
+        // those into or out of their own warehouses, as the decision itself checks.
+        if (!caller.AdmitsDraft(draft))
+        {
+            return new DecisionContext(null, null, SapTransferApprovalProjection.OutsideScope(caller, draft).Description);
+        }
+
+        var scope = await stageScope.ResolveAsync(callerUserId, cancellationToken);
+        if (scope.IsError)
+        {
+            return new DecisionContext(null, null, scope.FirstError.Description);
+        }
+
+        SAPUser? approver = null;
+        try
+        {
+            approver = await lookups.GetServiceApproverAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Could not read SAP user {UserCode}, whom the app decides as", lookups.ServiceApproverUserCode);
+        }
+
+        return new DecisionContext(scope.Value, approver, null);
+    }
+
+    private sealed record DecisionContext(CreditNoteApprovalStageFilter? Scope, SAPUser? Approver, string? ScopeProblem);
+
     private async Task<List<SapTransferApprovalRequestDto>> BuildApprovalsAsync(
         IEnumerable<SAPApprovalRequest> requests,
+        DecisionContext? decide,
         CancellationToken cancellationToken)
     {
         var approvals = new List<SapTransferApprovalRequestDto>();
@@ -143,6 +198,14 @@ public sealed class GetSapTransferApprovalHandler(
                 });
             }
 
+            var (canDecide, decideNote) = (decide, SapTransferDecisionRules.IsPending(request)) switch
+            {
+                (null, _) or (_, false) => (false, null),
+                ({ Scope: { } scope }, true) => SapTransferDecisionRules.Evaluate(
+                    request, stage, decide.Approver, lookups.ServiceApproverUserCode, scope),
+                _ => (false, decide.ScopeProblem)
+            };
+
             approvals.Add(new SapTransferApprovalRequestDto
             {
                 Code = request.Code,
@@ -154,7 +217,9 @@ public sealed class GetSapTransferApprovalHandler(
                 Remarks = request.Remarks,
                 CreatedDate = CreditNoteApprovalProjection.ParseSapDate(request.CreationDate),
                 CreatedTime = request.CreationTime,
-                Decisions = decisions
+                Decisions = decisions,
+                CanDecide = canDecide,
+                DecideNote = decideNote
             });
         }
 
