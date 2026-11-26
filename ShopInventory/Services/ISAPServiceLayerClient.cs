@@ -457,24 +457,29 @@ public interface ISAPServiceLayerClient
     Task<List<ItemPriceByListDto>> GetItemPricesForCustomerAsync(string cardCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets special prices assigned to a specific business partner from SAP (OSPP table).
-    /// These override the BP's default price list prices for specific items.
+    /// The special prices SAP would charge this business partner today (OSPP): its own special
+    /// prices, and the period and volume discounts on <paramref name="priceListNum"/> for items it
+    /// has none of its own for. These override the BP's price list prices for those items.
     /// </summary>
-    Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, CancellationToken cancellationToken = default);
+    /// <param name="priceListNum">
+    /// The price list the customer buys on. Null reads only the customer's own rows, which misses
+    /// every period discount — pass it wherever it is known. See <see cref="Common.Pricing.SpecialPriceScope"/>.
+    /// </param>
+    Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, int? priceListNum, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets special prices assigned to a specific business partner from SAP (OSPP table)
-    /// for only the requested item codes.
+    /// As <see cref="GetSpecialPricesForBPAsync(string, int?, CancellationToken)"/>, for only the
+    /// requested item codes.
     /// </summary>
-    Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
+    Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, int? priceListNum, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// As <see cref="GetSpecialPricesForBPAsync(string, IEnumerable{string}, CancellationToken)"/>,
+    /// As <see cref="GetSpecialPricesForBPAsync(string, int?, IEnumerable{string}, CancellationToken)"/>,
     /// but also reports whether the lookup finished. Use this anywhere the prices are written to a
     /// document: an empty result on its own cannot be told apart from a failed lookup, and pricing
     /// a customer as though they have no negotiated prices overcharges them.
     /// </summary>
-    Task<SpecialPriceLookupResult> GetSpecialPricesForBPWithStatusAsync(string cardCode, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default);
+    Task<SpecialPriceLookupResult> GetSpecialPricesForBPWithStatusAsync(string cardCode, int? priceListNum, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets all currently active business partner special prices from SAP.

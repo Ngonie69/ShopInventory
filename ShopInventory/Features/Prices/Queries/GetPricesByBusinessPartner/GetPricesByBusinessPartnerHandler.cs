@@ -137,8 +137,8 @@ public sealed class GetPricesByBusinessPartnerHandler(
             : await sapServiceLayerClient.GetPricesByPriceListAsync(priceListNum, cancellationToken);
 
         var specialPrices = itemCodes.Count > 0
-            ? await sapServiceLayerClient.GetSpecialPricesForBPAsync(cardCode, itemCodes, cancellationToken)
-            : await sapServiceLayerClient.GetSpecialPricesForBPAsync(cardCode, cancellationToken);
+            ? await sapServiceLayerClient.GetSpecialPricesForBPAsync(cardCode, priceListNum, itemCodes, cancellationToken)
+            : await sapServiceLayerClient.GetSpecialPricesForBPAsync(cardCode, priceListNum, cancellationToken);
 
         var mergedPrices = MergePrices(
             livePrices,
